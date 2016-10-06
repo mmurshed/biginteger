@@ -16,27 +16,10 @@
 
 namespace BigMath
 {
-  #ifdef _MSC_VER
-    typedef _int64 Long;
-    typedef _int32 Int;
-    typedef unsigned _int64 ULong;
-    typedef unsigned _int32 UInt;
-  #elif __GNUC__
-    typedef long long Long;
-    typedef long Int;
-    typedef unsigned long long ULong;
-    typedef unsigned long UInt;
-  #elif __BCPLUSPLUS__
-    typedef __int64 Long;
-    typedef __int32 Int;
-    typedef unsigned __int64 ULong;
-    typedef unsigned __int32 UInt;
-  #else
-    typedef long Long;
-    typedef int Int;
-    typedef unsigned long ULong;
-    typedef unsigned int UInt;
-  #endif
+  typedef int64_t Long;
+  typedef int32_t Int;
+  typedef uint64_t ULong;
+  typedef uint32_t UInt;
 
   enum BigMathERROR { BigMathMEM = 1 , BigMathOVERFLOW , BigMathUNDERFLOW, BigMathINVALIDINTEGER, BigMathDIVIDEBYZERO,BigMathDomain};
 
@@ -44,7 +27,7 @@ namespace BigMath
   const char BigIntPROGRAMNAME[] = { "BigInteger" };
   const int BigIntMajorVersion = 7;
   const int BigIntMinorVersion = 0;
-  const int BigIntRevision = 5;
+  const int BigIntRevision = 6;
 
   void Dump(const char *,enum BigMathERROR);
   string& DumpString (char const*,enum BigMathERROR);
@@ -76,6 +59,7 @@ namespace BigMath
 
     // Constructor with specified bytes
     BigInteger(SizeT,DATATYPE,bool);
+    void Create(char const*);
 
     // Copies data to 'this' upto size bytes
     void datacopy(BigInteger const&,SizeT);
@@ -244,43 +228,50 @@ namespace BigMath
     TrimZeros();
   }
 
-  // Character array constructor
-  BigInteger::BigInteger(char const* n)
+  void BigInteger::Create(char const* n)
   {
-    if(n[0]=='-') { isNegative = true; n++; }
-    else if(n[0]=='+') { isNegative = false; n++; }
+    if (n[0] == '-') { isNegative = true; n++; }
+    else if (n[0] == '+') { isNegative = false; n++; }
     else isNegative = false;
 
-    while(*n=='0') n++;
+    while (*n == '0') n++;
 
     Int l = strlen(n);
-    if(l==0)
+    if (l == 0)
     {
       *this = *new BigInteger();
       return;
     }
     Start = 0;
-    End = (SizeT)(l/LOG10BASE + l%LOG10BASE - 1);
-    TheNumber = new DATATYPE [Digits()];
+    End = (SizeT)(l / LOG10BASE + l%LOG10BASE - 1);
+    TheNumber = new DATATYPE[Digits()];
     Set(0);
 
     Int cur = l - 1;
-    for(SizeT i = End; i>=Start;i--)
+    for (SizeT i = End; i >= Start;i--)
     {
-      if(cur<0) break;
-        DATATYPE r = 0;
+      if (cur<0) break;
+      DATATYPE r = 0;
       DATATYPE TEN = 1;
-      for(l=0;l<4;l++)
+      for (l = 0;l<4;l++)
       {
-        if(cur<0) break;
-        r = r + TEN*(n[cur]-'0');
+        if (cur<0) break;
+        r = r + TEN*(n[cur] - '0');
         TEN *= 10;
         cur--;
       }
       TheNumber[i] = r;
+      if (i == Start)
+        break;
     }
     TrimZeros();
-    if(isZero()) isNegative = false;
+    if (isZero()) isNegative = false;
+  }
+
+  // Character array constructor
+  BigInteger::BigInteger(char const* n)
+  {
+    Create(n);
   }
 
   // Copy constructor
@@ -923,7 +914,8 @@ namespace BigMath
       }
     }
     data[i] = 0;
-    in = *new BigInteger(data);
+    in.deallocateBigInteger();
+    in.Create(data);
     if(in.isZero()==false)
         in.isNegative = isNegative;
     return stream;
@@ -941,7 +933,7 @@ namespace BigMath
   ostream& BigIntegerAuthor(ostream& out)
   {
     out << "Author: S. M. Mahbub Murshed" <<
-        endl << "mailto: suman@bttb.net.bd";
+        endl << "mailto: murshed@gmail.com";
     return out;
   }
 
