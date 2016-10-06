@@ -1,84 +1,72 @@
 /**
  * BigInteger Class
- * Version 6.7.28
- * Last Updated: July 30, 2004
+ * Version 7.0.5
  *
  * Copyright (c) 2001
- * S. M. Mahbub Murshed Suman (udvranto@yahoo.com)
+ * Mahbub Murshed Suman (suman@bttb.net.bd)
  *
  * Permission to use, copy, modify, distribute and sell this software
  * and its documentation for any purpose is hereby granted without fee,
  * provided that the above copyright notice appear in all copies and
  * that both that copyright notice and this permission notice appear
- * in supporting documentation.  S. M. Mahbub Murshed Suman makes no
+ * in supporting documentation. Mahbub Murshed Suman makes no
  * representations about the suitability of this software for any
  * purpose.  It is provided "as is" without express or implied warranty.
  */
 
 namespace BigMath
 {
+  #ifdef _MSC_VER
+    typedef _int64 Long;
+    typedef _int32 Int;
+    typedef unsigned _int64 ULong;
+    typedef unsigned _int32 UInt;
+  #elif __GNUC__
+    typedef long long Long;
+    typedef long Int;
+    typedef unsigned long long ULong;
+    typedef unsigned long UInt;
+  #elif __BCPLUSPLUS__
+    typedef __int64 Long;
+    typedef __int32 Int;
+    typedef unsigned __int64 ULong;
+    typedef unsigned __int32 UInt;
+  #else
+    typedef long Long;
+    typedef int Int;
+    typedef unsigned long ULong;
+    typedef unsigned int UInt;
+  #endif
+
   enum BigMathERROR { BigMathMEM = 1 , BigMathOVERFLOW , BigMathUNDERFLOW, BigMathINVALIDINTEGER, BigMathDIVIDEBYZERO,BigMathDomain};
 
-  const char *BigIntErrDes[] = { "Allocation Failed", "Overflow","Underflow", "Invalid Integer", "Divide by Zero" ,"Domain Error", NULL};
+  const char *BigIntErrDes[] = { "Allocation Failed", "Overflow","Underflow", "Invalid Integer", "Divide by Zero" ,"Domain Error"};
   const char BigIntPROGRAMNAME[] = { "BigInteger" };
-  const int BigIntMajorVersion = 6;
-  const int BigIntMinorVersion = 7;
-  const int BigIntRevision = 28;
-  const char LastUpdated[] = {"July 30, 2004"};
-  const char AuthorName[] = {"S. M. Mahbub Murshed Suman"};
-  const char *AuthorEmail[] = {"udvranto@yahoo.com","suman@bttb.net.bd", NULL};
+  const int BigIntMajorVersion = 7;
+  const int BigIntMinorVersion = 0;
+  const int BigIntRevision = 5;
 
   void Dump(const char *,enum BigMathERROR);
   string& DumpString (char const*,enum BigMathERROR);
 
   // The Size Type
-  typedef unsigned int SizeT;
+  typedef UInt SizeT;
   // The Data Type
-  typedef unsigned int DATATYPE;
+  typedef UInt DATATYPE;
 
   // The Base Used
-  const DATATYPE BASE = 10000;
+  // const DATATYPE BASE = 2147483647l;
+  const DATATYPE BASE = 100000000lu;
   // An invalid data
-  const DATATYPE INVALIDDATA = 65535U;
+  const DATATYPE INVALIDDATA = 4294967295UL;
   // Number of digits in `BASE'
-  const SizeT LOG10BASE = 4;
+  const SizeT LOG10BASE = 8;
 
   class BigInteger
   {
   private:
-	/*
-	Lets discuss about the architechture of the integer
-	stored inside the Class. Usually people store the
-	integer in a character array. Instead of doing so
-	I stored it in a integer array as demonstrated below.
-
-	Say a number is 112356482275678346593653659346579364579364
-	Character array representation
-	|1|1|2|3|5|6|4|8|2|2|7|5|6|7|8|3|4|6|5|9|3|6|5|3|6|5|9|3|4|6|5|7|9|3|6|4|5|7|9|3|6|4|\0|
-	number of digits 42
-
-	Integer array representation
-	|0011|2356|4822|7567|8346|5936|5365|9346|5793|6457|9364|
-	number of digits 11
-
-	There are reasons for choosing 4 characters to treat as
-	a single digit.
-	    1. Shorter loop length for any operation
-	    2. Maximum digit 9999 does not exceed the
-	       size of 32 bit integer when squared, which
-	       is needed in some cases
-	*/
-    // The integer array to hold the number
+    // The Integer array to hold the number
     DATATYPE *TheNumber;
-
-	/*
-	Say we have the Integer in the following way
-	|0000|0000|0000|0011|2356|4822|7567|8346|5936|5365|9346|5793|6457|9364|0000|0000|0000|
-	   0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16
-	Start ------------3
-	End ---------------------------------------------------------------13
-	number of digits (End-Start+1) = 11
-	*/
     // Start of the location of the number in the array
     SizeT Start;
     // End  of the location of the number in the array
@@ -101,27 +89,11 @@ namespace BigMath
     // the array with the `fill' value
     void Set(DATATYPE);
 
-	// Subscript operator
-	DATATYPE& operator[](unsigned int) const;
   public:
-
-    /*
-	There are constructors to manage the
-	memory for the user. Two important
-	constructors are the CopyConstructor
-	which takes another BigInteger reference
-	as its parameter. This function is
-	helpful for returning functions and
-	on-the-fly operations. Another is the
-	default constructor which takes no
-	Arguments. This is helpful for creating
-	array of BigIntegers. Destructor
-	deallocates the memory.
-    */
     // Default Constructor
     BigInteger();
     // Long integer constructor
-    BigInteger(long);
+    BigInteger(Long);
     // Character array constructor
     BigInteger(char const*);
     // Copy Constructor
@@ -131,9 +103,9 @@ namespace BigMath
     ~BigInteger();
 
     // Compares Two BigInteger values irrespective of sign
-    int UnsignedCompareTo(BigInteger const&)const;
+    Int UnsignedCompareTo(BigInteger const&)const;
     // Compares Two BigInteger values
-    int CompareTo(BigInteger const&)const;
+    Int CompareTo(BigInteger const&)const;
 
     // Returns Number of digits in the BigInteger
     SizeT Digits() const;
@@ -142,13 +114,6 @@ namespace BigMath
     // True is the nubmer is zero
     bool isZero()const;
 
-	/*
-	The basic operations are performed using
-	the Functions "Add", "Subtract", "Multiply"
-	and "DivideAndRemainder". "CompareTo" function compares
-	two BigIntegers. Other operators call
-	these functions to do the task.
-	*/
     // Straight pen-pencil implementation for addition
     BigInteger& Add(BigInteger const&) const;
     // Straight pen-pencil implementation for subtraction
@@ -216,16 +181,12 @@ namespace BigMath
 
     // Conversion functions
     string& toString() const;
-    int toInt();
-    long toLong();
+    Int toInt();
+    Long toLong();
 
     // Others
-    BigInteger& Power(long )const;
-    BigInteger& OldSquareRoot() const;
-	BigInteger& SquareRoot() const;
-
-	// Useful for debug
-	void DigitSeperatedPrint(ostream&,  string const&);
+    BigInteger& Power(Long )const;
+    BigInteger& SquareRoot() const;
   };
 
   // Private Constructor which provides a new BigInteger Object
@@ -252,7 +213,7 @@ namespace BigMath
   }
 
   // Long Constructor
-  BigInteger::BigInteger(long n)
+  BigInteger::BigInteger(Long n)
   {
     if(n<0)
     {
@@ -260,6 +221,13 @@ namespace BigMath
       n *= -1;
     }
     else isNegative = false;
+    if(n==0)
+    {
+        TheNumber = new DATATYPE[1];
+        TheNumber[0] = 0;
+        Start = End = 0;
+        return;
+    }
 
     SizeT i = (SizeT)(floor(log10((double)n)/LOG10BASE) + 1);
 
@@ -285,7 +253,7 @@ namespace BigMath
 
     while(*n=='0') n++;
 
-    int l = strlen(n);
+    Int l = strlen(n);
     if(l==0)
     {
       *this = *new BigInteger();
@@ -296,7 +264,7 @@ namespace BigMath
     TheNumber = new DATATYPE [Digits()];
     Set(0);
 
-    int cur = l - 1;
+    Int cur = l - 1;
     for(SizeT i = End; i>=Start;i--)
     {
       if(cur<0) break;
@@ -395,13 +363,13 @@ namespace BigMath
   // 0 if equal
   // 1 if this>with
   // -1 if this<with
-  int BigInteger::UnsignedCompareTo(BigInteger const& with)const
+  Int BigInteger::UnsignedCompareTo(BigInteger const& with)const
   {
     if(isZero() && with.isZero()) return 0;
     if(!isZero() && with.isZero()) return 1;
     if(isZero() && !with.isZero()) return -1;
 
-    long temp = Digits() - with.Digits();
+    Long temp = Digits() - with.Digits();
     // Case 3: First One got more digits
     // Case 4: First One got less digits
     if(temp!=0) return temp<0?-1:1;
@@ -414,8 +382,8 @@ namespace BigMath
     of digits
     */
 
-    temp = 0;
-    int cmp = 0;
+    // temp = 0;
+    Int cmp = 0;
     for(SizeT i=0;i<Digits();i++)
     {
       temp = TheNumber[i+Start] - with.TheNumber[i+with.Start];
@@ -434,16 +402,16 @@ namespace BigMath
   // 0 if equal
   // 1 if this>with
   // -1 if this<with
-  int BigInteger::CompareTo(BigInteger const& with)const
+  Int BigInteger::CompareTo(BigInteger const& with)const
   {
-    int cmp = UnsignedCompareTo(with);
+    Int cmp = UnsignedCompareTo(with);
 
     // Case 1: Positive , Negative
     if(isNegative==false && with.isNegative==true) return 1;
     // Case 2: Negative, Positive
     if(isNegative==true && with.isNegative==false) return -1;
     // Now, Both are Same Sign
-    int both_neg = 1;
+    Int both_neg = 1;
     if(isNegative==true && with.isNegative==true) both_neg = -1;
     return cmp*both_neg;
   }
@@ -454,20 +422,21 @@ namespace BigMath
     BigInteger const& Big = *this;
     BigInteger &Result= *new BigInteger(Big.Digits()+1,0);
 
-    long Carry=0,Plus;
-    long i=Big.Digits() - 1,
-      j=Small.Digits() -1;
+    Long Carry=0,Plus;
+    Long i=Big.Digits() - 1,
+      j=Small.Digits() - 1;
 
-    for(; i>=0 ;i--,j--){
-      Plus = Big.TheNumber[i+Big.Start] + Carry;
-      if(j>=0) Plus += Small.TheNumber[j+Small.Start] ;
+    for(; i>=0 ;i--,j--)
+    {
+      Plus = Big.TheNumber[(SizeT)(i+Big.Start)] + Carry;
+      if(j>=0) Plus += Small.TheNumber[(SizeT)(j+Small.Start)] ;
 
-      Result.TheNumber[i+1] = Plus%BASE;
+      Result.TheNumber[(SizeT)(i+1)] = Plus%BASE;
       Carry = Plus/BASE;
     }
     i++;
 
-    if(Carry) Result.TheNumber[i--] = Carry;
+    if(Carry) Result.TheNumber[(SizeT)(i--)] = Carry;
 
     Result.TrimZeros();
 
@@ -480,24 +449,24 @@ namespace BigMath
     BigInteger const& Big = *this;
     BigInteger& Result = *new BigInteger(Big.Digits()+1,0);
 
-    long Carry=0,Minus;
+    Long Carry=0,Minus;
 
-    long i = Big.Digits() - 1,
+    Long i = Big.Digits() - 1,
       j= Small.Digits() - 1;
 
     for( ; i>=0 ;i--,j--)
     {
-      Minus = Big.TheNumber[i+Big.Start] - Carry;
-      if(j>=0) Minus -= Small.TheNumber[j+Small.Start];
+      Minus = Big.TheNumber[(SizeT)(i+Big.Start)] - Carry;
+      if(j>=0) Minus -= Small.TheNumber[(SizeT)(j+Small.Start)];
 
       if(Minus < 0)
       {
-        Result.TheNumber[i+1] = Minus + BASE;
+        Result.TheNumber[(SizeT)(i+1)] = Minus + BASE;
         Carry = 1;
       }
       else
       {
-        Result.TheNumber[i+1]  = Minus;
+        Result.TheNumber[(SizeT)(i+1)]  = Minus;
         Carry = 0;
       }
     }
@@ -557,7 +526,7 @@ namespace BigMath
 
 
     BigInteger& ret = *new BigInteger();
-    int cmp = N1.UnsignedCompareTo(N2);
+    Int cmp = N1.UnsignedCompareTo(N2);
     if(cmp==0)
     {
       ret = *new BigInteger();
@@ -581,7 +550,7 @@ namespace BigMath
     BigInteger const& Big = *this;
     BigInteger& Result = *new BigInteger(Big.Digits()+Small.Digits(),0);
 
-    long Carry,Multiply;
+    Long Carry,Multiply;
 
     SizeT i;
     SizeT j;
@@ -591,7 +560,7 @@ namespace BigMath
       Carry = 0;
       for(j = 0 ; j< Big.Digits() ; j++)
       {
-        Multiply = ( (long)Small.TheNumber[Small.End-i] * (long)Big.TheNumber[Big.End-j] )
+        Multiply = ( (Long)Small.TheNumber[Small.End-i] * (Long)Big.TheNumber[Big.End-j] )
           + Carry + Result.TheNumber[Result.End-i-j];
         Result.TheNumber[Result.End-i-j] = Multiply%BASE;
         Carry = Multiply/BASE ;
@@ -610,14 +579,14 @@ namespace BigMath
   {
     BigInteger& Result = *new BigInteger(Digits()+1,0);
 
-    long Carry,Multiply;
+    Long Carry,Multiply;
 
     SizeT i;
 
     Carry = 0;
     for(i = 0 ; i< Digits() ; i++)
     {
-      Multiply = Carry + (long)TheNumber[End-i] * (long)with;
+      Multiply = Carry + (Long)TheNumber[End-i] * (Long)with;
       Carry = Multiply / BASE;
       Result.TheNumber[Result.End-i] = Multiply % BASE;
     }
@@ -666,7 +635,7 @@ namespace BigMath
     BigInteger& W = *new BigInteger(Digits(),0,false);
     DATATYPE R = 0;
     SizeT j;
-    for(j=0;j<=End;j++)
+    for(j=0;j<=W.End;j++)
     {
       W.TheNumber[j] = (R*BASE+TheNumber[Start+j])/V;
       R = (R*BASE+TheNumber[Start+j])%V;
@@ -683,41 +652,6 @@ namespace BigMath
   // Does not perform the validity and sign check
   // It is assumed that this > `_V'
   // See: D.E.Knuth 4.3.1
-  /*
-  The algorithm for division works according to the rules
-  described in the DE Knuth's The Art of Computer Proramming
-  Part - 2. My previous version of division worked by
-  divide-and-conquer which was very slow, but used to work
-  correctly. Thats why I chose this newer and better algorithm.
-  Anyway, the basic rule is as simple as paper-and-pencil
-  division. Lets start by an example:
-
-  3)281(
-
-  To solve this division we have to take the first two digits
-  of the divident which is 28 in this case. Divide it by 3.
-  We get 9. So we write
-
-  3)281(9
-    27
-  -------
-     1
-  Take down another digit, that makes it 11, so
-
-  3)281(93
-    27
-  --------
-     11
-      9
-  --------
-      2
-
-  And so on. There are some tricks to overcome some
-  difficulties. I figured out that the problem is in
-  the smaller while loop inside the bigger for loop
-  of the Division function.
-  */
-
   BigInteger& BigInteger::DivideAndRemainder(BigInteger const& _V,BigInteger& R,bool skipRemainder=false) const
   {
     SizeT m = this->Digits()-_V.Digits();
@@ -725,9 +659,9 @@ namespace BigMath
     BigInteger& Q = *new BigInteger(m+1,0,false);
 
     DATATYPE d, qhat, rhat;
-    long temp,x,y;
+    Long temp,x,y;
     SizeT i;
-    int j;
+    Int j;
 
     d = (BASE-1)/_V.TheNumber[_V.Start];
 
@@ -736,25 +670,19 @@ namespace BigMath
 
     for(j = m; j>=0; j--)
     {
-		// U.DigitSeperatedPrint (cerr,*new string("|"));
-		// cerr << endl;
-		// V.DigitSeperatedPrint (cerr,*new string("|"));
-  		// cerr << endl;
-
-      // temp = (long)U.TheNumber[U.End-j-n]*(long)BASE + (long)U.TheNumber[U.End-j-n+1];
-	  temp = (long)U.TheNumber[U.Start]*(long)BASE + (long)U.TheNumber[U.Start+1];
-      x = temp / (long)V.TheNumber[V.Start];
-      y = temp % (long)V.TheNumber[V.Start];
-      if(x>(long)BASE) x /= BASE;
-      if(y>(long)BASE) y %= BASE;
+      temp = (Long)U.TheNumber[U.End-j-n]*(Long)BASE + (Long)U.TheNumber[U.End-j-n+1];
+      x = temp / (Long)V.TheNumber[V.Start];
+      y = temp % (Long)V.TheNumber[V.Start];
+      if(x>(Long)BASE) x /= BASE;
+      if(y>(Long)BASE) y %= BASE;
       qhat = (DATATYPE) x;
       rhat = (DATATYPE) y;
 
       bool badRhat = false;
       do
       {
-        x = (long)qhat * (long)V.TheNumber[V.Start+1];
-        y = (long)BASE*(long)rhat + (long)U.TheNumber[U.Start+1];
+        x = (Long)qhat * (Long)V.TheNumber[V.Start+1];
+        y = (Long)BASE*(Long)rhat + (Long)U.TheNumber[U.End-j-n+1];
 
         if(qhat==BASE || x > y)
         {
@@ -771,21 +699,20 @@ namespace BigMath
       temp = 0;
       for(i=0;i<=n;i++)
       {
-        if(V.End>=i) temp = (long)qhat*(long)V.TheNumber[V.End-i] + temp;
-        y = (long)U.TheNumber[U.Start+n-i] - temp%BASE - x;
+        if(V.End>=i) temp = (Long)qhat*(Long)V.TheNumber[V.End-i] + temp;
+        y = (Long)U.TheNumber[U.End-j-i] - temp%BASE - x;
         temp /= BASE;
         if(y < 0)
         {
-          U.TheNumber[U.Start+n-i] = (DATATYPE)(y+BASE);
+          U.TheNumber[U.End-j-i] = (DATATYPE)(y+BASE);
           x = 1;
         }
         else
         {
-          U.TheNumber[U.Start+n-i]  = (DATATYPE)y;
+          U.TheNumber[U.End-j-i]  = (DATATYPE)y;
           x = 0;
         }
       }
-	  U.TrimZeros ();
       // if(x) U.TheNumber[U.Start+j+i] --;
 
       Q.TheNumber[Q.End-j] = qhat;
@@ -797,24 +724,20 @@ namespace BigMath
         x = 0;
         for(i=0;i<=n;i++)
         {
-          y = (long)U.TheNumber[U.Start+n-i] + x;
-          if(V.End>=i) y += (long)V.TheNumber[V.End-i];
-          U.TheNumber[U.Start+n-i] = (DATATYPE)(y % BASE);
+          y = (Long)U.TheNumber[U.End-j-i] + x;
+          if(V.End>=i) y += (Long)V.TheNumber[V.End-i];
+          U.TheNumber[U.End-j-i] = (DATATYPE)(y % BASE);
           x = y / BASE;
         }
-        U.TheNumber[U.Start+n-i] = (DATATYPE)x;
-		U.TrimZeros();
+        U.TheNumber[U.End-j-i] = (DATATYPE)x;
       }
     }
-    
-	U.TrimZeros();
+
+    U.TrimZeros();
     DATATYPE _t;
     if(skipRemainder==false)
       R = U.DivideAndRemainder(d,_t,true);
     Q.TrimZeros();
-
-	// Q.DigitSeperatedPrint (cerr,*new string("|"));
-	// cerr << endl;
 
     return Q;
   }
@@ -832,7 +755,7 @@ namespace BigMath
       return *new BigInteger();
     }
 
-    int cmp = U.UnsignedCompareTo(V);
+    Int cmp = U.UnsignedCompareTo(V);
     if(cmp==0)
     {
       R = *new BigInteger();
@@ -864,7 +787,7 @@ namespace BigMath
       return *new BigInteger();
     }
 
-    int cmp = 1;
+    Int cmp = 1;
     if(U.Digits()==1)
     {
         if(U.TheNumber[U.Start]<V) cmp = -1;
@@ -949,22 +872,6 @@ namespace BigMath
     return *this;
   }
 
-  // Digit seperated print
-  void BigInteger::DigitSeperatedPrint(ostream& stream,  string const& seperator)
-  {
-    if(isNegative==true && isZero()==false) stream << '-';
-	stream.width(4);
-    stream.fill(' ');
-    stream << TheNumber[Start];
-    for(SizeT i=Start+1;i<=End;i++)
-    {
-	  stream << seperator;
-      stream.width(4);
-      stream.fill('0');
-      stream << TheNumber[i];
-    }
-  }
-
   // Inserter
   ostream& operator<<(ostream& stream,  BigInteger const& out)
   {
@@ -972,7 +879,7 @@ namespace BigMath
     stream << out.TheNumber[out.Start];
     for(SizeT i=out.Start+1;i<=out.End;i++)
     {
-      stream.width(4);
+      stream.width(LOG10BASE);
       stream.fill('0');
       stream << out.TheNumber[i];
     }
@@ -987,30 +894,17 @@ namespace BigMath
     char *data = new char[SIZE];
     // if(data==0) Dump("Extractor operator",BigMathMEM);
     SizeT i = 0;
-    int input;
+    Int input;
     bool isNegative = false;
-
-    if(stream.eof())
-    	return stream;
     stream >> ws;
-
-    if(stream.eof())
-    	return stream;
     input = stream.get();
-
-    if(input=='-')
-    	isNegative = true;
-    else if(input=='+')
-    	isNegative = false;
-    else
-    	stream.putback(input);
+    if(input=='-') isNegative = true;
+    else if(input=='+') isNegative = false;
+    else stream.putback(input);
 
     while(true)
     {
       input = stream.get();
-      if(stream.eof())
-      	break;
-
       if(isdigit(input))
         data[i++] = input;
       else
@@ -1046,30 +940,15 @@ namespace BigMath
   // Inserts the author information into the output stream
   ostream& BigIntegerAuthor(ostream& out)
   {
-    out << "Author: " << AuthorName << endl
-    	<< "mailto: ";
-	int i = 0;
-	while(AuthorEmail[i]!=NULL)
-	{
-		if(i!=0) out << ", ";
-		out << AuthorEmail[i++];
-	}
-    return out;
-  }
-
-  // Inserts the last update date into the output stream
-  ostream& BigIntegerLastUpdate(ostream& out)
-  {
-    out << "Last Updated: " << LastUpdated;
+    out << "Author: S. M. Mahbub Murshed" <<
+        endl << "mailto: suman@bttb.net.bd";
     return out;
   }
 
   // Inserts the about information into the output stream
   ostream& BigIntegerAbout(ostream& out)
   {
-    out << BigIntegerVersion << endl
-    	<< BigIntegerLastUpdate << endl
-    	<< BigIntegerAuthor << endl;
+    out << BigIntegerVersion << endl << BigIntegerAuthor << endl;
     return out;
   }
 
@@ -1085,23 +964,23 @@ namespace BigMath
   // Converts `this' to a string representation
   string& BigInteger::toString()const
   {
-    const int DIGITS = Digits()*4;
+    const Int DIGITS = Digits()*4;
     char *R = new char[DIGITS+2];
     ostrstream ostr(R,DIGITS);
     ostr << *this;
     return *new string(R);
   }
 
-  // Converts `this' to equivalent int value
-  int BigInteger::toInt()
+  // Converts `this' to equivalent Int value
+  Int BigInteger::toInt()
   {
-    return (int)toLong();
+    return (Int)toLong();
   }
 
-  // Converts `this' to equivalent 32 bit long value
-  long BigInteger::toLong()
+  // Converts `this' to equivalent 32 bit Long value
+  Long BigInteger::toLong()
   {
-    long r = TheNumber[End];
+    Long r = TheNumber[End];
     if(Digits()>1) r += BASE * TheNumber[End-1] ;
     if(Digits()>2) r += BASE*BASE*(TheNumber[End-2]%100);
     return r;
@@ -1146,14 +1025,6 @@ namespace BigMath
   {
     this->isNegative = this->isNegative==true?false:true;
     return *this;
-  }
-
-  DATATYPE& BigInteger::operator[](unsigned int pos) const
-  {
-	  if(pos<Start || pos>End)
-		  throw domain_error ( DumpString("operator[]", BigMathDomain) );
-
-	  return TheNumber[pos];
   }
 
   // Left Shift
@@ -1213,9 +1084,9 @@ namespace BigMath
   }
 
   // Power BigInteger to the power Long
-  BigInteger& BigInteger::Power(long y) const
+  BigInteger& BigInteger::Power(Long y) const
   {
-    long P;
+    Long P;
     BigInteger& pow = *new BigInteger(1l);
     BigInteger& z = *new BigInteger();
     BigInteger& ZERO = *new BigInteger();
@@ -1260,7 +1131,7 @@ namespace BigMath
     return *new string(R);
   }
 
-  BigInteger& BigInteger::OldSquareRoot() const
+  BigInteger& BigInteger::SquareRoot() const
   {
     BigInteger const& n = *this;
     BigInteger& _2 = *new BigInteger(2l);
@@ -1269,9 +1140,9 @@ namespace BigMath
       return zero;
 
     if(n.isNegative)
-      throw domain_error ( DumpString ("SquareRoot",BigMathDomain) );
+      throw domain_error ( DumpString ("Square Root",BigMathDomain) );
 
-    long Dig;
+    Long Dig;
     if(n.Digits()%2==0)
       Dig = n.Digits()/2 - 1;
     else
@@ -1302,36 +1173,6 @@ namespace BigMath
     return sq;
   }
 
-  BigInteger& BigInteger::SquareRoot() const
-  {
-    if(isZero())
-      return *new BigInteger();
-
-    if(isNegative)
-      throw domain_error ( DumpString ("SquareRoot",BigMathDomain) );
-
-	BigInteger& result = *new BigInteger(Digits(),0,false);
-	SizeT i = 1;
-
-	result[result.Start] = (DATATYPE)sqrt((double)TheNumber[Start]);
-	BigInteger& remainder = *new BigInteger(
-		TheNumber[Start] - result[result.Start] * result[result.Start] );
-	BigInteger& temp = *new BigInteger(result);
-	temp.Multiply(2);
-	// double rlim, llim;
-
-	while(true)
-	{
-		// remainder = remainderBASE * TheNumber[i];
-		// rlim = remainder
-	}
-
-	delete &temp;
-	delete &remainder;
-
-    return result;
-  }
-
   bool operator==(BigInteger const& a, BigInteger const& b)
   { return a.CompareTo(b)==0; }
 
@@ -1349,8 +1190,6 @@ namespace BigMath
 
   bool operator<(BigInteger const& a, BigInteger const& b)
   { return a.CompareTo(b)<0; }
-
-  typedef BigInteger bint;
 }
 
 
