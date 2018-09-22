@@ -1,1187 +1,508 @@
 /**
  * BigInteger Class
- * Version 7.0.5
- *
- * Copyright (c) 2001
- * Mahbub Murshed Suman (suman@bttb.net.bd)
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies and
- * that both that copyright notice and this permission notice appear
- * in supporting documentation. Mahbub Murshed Suman makes no
- * representations about the suitability of this software for any
- * purpose.  It is provided "as is" without express or implied warranty.
+ * Version 8.0
+ * S. M. Mahbub Murshed (murshed@gmail.com)
  */
+
+#include <vector>
+using namespace std;
 
 namespace BigMath
 {
-  typedef int64_t Long;
-  typedef int32_t Int;
-  typedef uint64_t ULong;
-  typedef uint32_t UInt;
-
-  enum BigMathERROR { BigMathMEM = 1 , BigMathOVERFLOW , BigMathUNDERFLOW, BigMathINVALIDINTEGER, BigMathDIVIDEBYZERO,BigMathDomain};
-
-  const char *BigIntErrDes[] = { "Allocation Failed", "Overflow","Underflow", "Invalid Integer", "Divide by Zero" ,"Domain Error"};
-  const char BigIntPROGRAMNAME[] = { "BigInteger" };
-  const int BigIntMajorVersion = 7;
-  const int BigIntMinorVersion = 0;
-  const int BigIntRevision = 6;
-
-  void Dump(const char *,enum BigMathERROR);
-  string& DumpString (char const*,enum BigMathERROR);
+  typedef long long Long;
+  typedef int Int;
+  typedef unsigned long long ULong;
+  typedef unsigned int UInt;
 
   // The Size Type
   typedef UInt SizeT;
   // The Data Type
-  typedef UInt DATATYPE;
+  typedef UInt DataT;
 
   // The Base Used
-  // const DATATYPE BASE = 2147483647l;
-  const DATATYPE BASE = 100000000lu;
+  // const DataT BASE = 2147483647l;
+  const DataT BASE = 100000000lu;
   // An invalid data
-  const DATATYPE INVALIDDATA = 4294967295UL;
+  const DataT INVALIDDATA = 4294967295UL;
   // Number of digits in `BASE'
-  const SizeT LOG10BASE = 8;
+  const SizeT BASE_DIGIT = 8;
 
   class BigInteger
   {
   private:
     // The Integer array to hold the number
-    DATATYPE *TheNumber;
-    // Start of the location of the number in the array
-    SizeT Start;
-    // End  of the location of the number in the array
-    SizeT End;
+    vector<DataT> theInteger;
     // True if the number is negative
     bool isNegative;
 
-    // Constructor with specified bytes
-    BigInteger(SizeT,DATATYPE,bool);
-    void Create(char const*);
-
-    // Copies data to 'this' upto size bytes
-    void datacopy(BigInteger const&,SizeT);
-
-    // Determines valid data range
-    SizeT datalen(DATATYPE const*) const;
-    // deallocates the array
-    void deallocateBigInteger();
-    // Trims zeros in front of a number
-    void TrimZeros();
-    // the array with the `fill' value
-    void Set(DATATYPE);
-
   public:
     // Default Constructor
-    BigInteger();
-    // Long integer constructor
-    BigInteger(Long);
+    BigInteger() : theInteger(), isNegative(false) {}    
+
+    BigInteger(SizeT bytes) : theInteger(bytes), isNegative(false)
+    {}
+
+    // Filled with specified data
+    BigInteger(SizeT bytes, DataT fill) : theInteger(bytes), isNegative(false)
+    {
+      for(SizeT i = 0; i < bytes; i++)
+        theInteger[i] = fill;
+    }
+    
     // Character array constructor
-    BigInteger(char const*);
-    // Copy Constructor
-    BigInteger(BigInteger const&);
+    BigInteger(char const* n)
+    {
+      BigInteger& bigInt = Parse(n);
+      theInteger = bigInt.theInteger;
+      isNegative = bigInt.isNegative;
+    }
+
+    // Copy constructor
+    BigInteger(BigInteger const& copy) : theInteger(copy.theInteger), isNegative(copy.isNegative) {}
 
     // The Destructor
-    ~BigInteger();
+    ~BigInteger() {}
 
-    // Compares Two BigInteger values irrespective of sign
-    Int UnsignedCompareTo(BigInteger const&)const;
-    // Compares Two BigInteger values
-    Int CompareTo(BigInteger const&)const;
+public:
+    static BigInteger& Parse(char const* num)
+    {
+      Int l = strlen(num);
+      if(num == NULL || l == 0)
+        return *new BigInteger();
 
-    // Returns Number of digits in the BigInteger
-    SizeT Digits() const;
-    // Determines if the number representation is OK or not
-    bool isValidNumber() const;
-    // True is the nubmer is zero
-    bool isZero()const;
+      Int start = 0;
+      bool isNegative = false;
 
-    // Straight pen-pencil implementation for addition
-    BigInteger& Add(BigInteger const&) const;
+      // Take care of the sign
+      if (num[start] == '-')
+      {
+        isNegative = true;
+        start++;
+      }
+      else if (num[start] == '+')
+      {
+        start++;
+      }
+
+      // Trim leading zeros
+      while (num[start] == '0')
+      {
+        start++;
+      }
+
+      // If the resulting string is empty return 0
+      l -= start;
+      if (l <= 0)
+        return *new BigInteger();
+      
+      BigInteger& bigInt = *new BigInteger(l / BASE_DIGIT + 1);
+      bigInt.isNegative = isNegative;
+
+      // Convert the string to int
+      SizeT j = 0;
+      --l;
+      while(l >= start)
+      {
+        DataT digit = 0;
+        DataT TEN = 1;
+        
+        for (SizeT i = 0; i < BASE_DIGIT && l >= start; i++, l--)
+        {
+          // Current digit
+          int d = num[l] - '0';
+          if(d < 0 || d > 9)
+          {
+            // Error
+          }
+
+          digit += TEN * d;
+          TEN *= 10;
+        }
+ 
+        bigInt.theInteger[j++] = digit;
+      }
+
+      if (bigInt.IsZero())
+      {
+        bigInt.isNegative = false;
+      }
+
+      bigInt.TrimZeros();
+
+      return bigInt;
+    }
+
+      // Assignment Operator
+    BigInteger& operator=(BigInteger const& arg)
+    {
+      if(this != &arg)
+      {
+        theInteger = arg.theInteger;
+        isNegative = arg.isNegative;
+      }
+      return *this;
+    }
+
+private:
+    // Trims Leading Zeros
+    void TrimZeros()
+    {
+      while(size() > 0 && theInteger[size() - 1] == 0)
+      {
+        theInteger.pop_back();
+      }
+    }
+
+    BigInteger& SetSign(bool sign)
+    {
+      this->isNegative = sign;
+      return *this;
+    }
+
+public:
+    // Compares this with `with' irrespective of sign
+    // Returns
+    // 0 if equal
+    // +value if this > with
+    // -value if this < with
+    Int UnsignedCompareTo(BigInteger const& with)const
+    {
+      // Case with zero
+      bool isZero = this->IsZero();
+      bool otherZero = with.IsZero();
+
+      if(isZero && otherZero)
+        return 0;
+      else if(!isZero && otherZero)
+        return 1;
+      else if(isZero && !otherZero)
+        return -1;
+
+      // Different in size
+      Long diff = (Long)size() - (Long)with.size();
+      if(diff != 0)
+        return diff;
+
+      // Both ints have same number of digits
+      Int cmp = 0;
+      for(SizeT i = size() - 1; i >= 0; i--)
+      {
+        diff = (Long)theInteger[i] - (Long)with.theInteger[i];
+        if(diff != 0)
+          return diff;
+      }
+
+      return cmp;
+    }
+
+    // Compares this with `with'
+    // Returns
+    // 0 if equal
+    // 1 if this>with
+    // -1 if this<with
+    Int CompareTo(BigInteger const& with)const
+    {
+      // Case 1: Positive , Negative
+      if(!isNegative && with.isNegative)
+        return 1;
+      // Case 2: Negative, Positive
+      else if(isNegative && !with.isNegative)
+        return -1;
+
+      Int cmp = UnsignedCompareTo(with);
+      
+      // Now, Both are Same Sign
+      Int neg = 1;
+      if(isNegative && with.isNegative)
+        neg = -1;
+
+      return cmp * neg;
+    }
+
+    // true if 'this' is zero
+    bool IsZero() const
+    {
+      return size() == 0 || (size() == 1 && theInteger[0] == 0);
+    }
+
+    SizeT size() const 
+    {
+      return theInteger.size();
+    }
+
+private:
+    // Implentation of addition by paper-pencil method
+    static BigInteger& AddUnsigned(BigInteger const& a, BigInteger const& b)
+    {
+      SizeT size = max(a.size(),  b.size()) + 1;
+      BigInteger& result = *new BigInteger(size);
+
+      Long carry = 0;
+      Long sum = 0;
+
+      for(SizeT i = 0; i < size; i++)
+      {
+        sum = carry;
+        
+        if(i < a.size())
+          sum += a.theInteger[i];
+        
+        if(i < b.size())
+          sum += b.theInteger[i];
+
+        result.theInteger[i] = sum % BASE;
+        carry = sum / BASE;
+      }
+
+      result.theInteger[size-1] = carry;
+
+      result.TrimZeros();
+
+      return result;
+    }
+
+    // Implentation of subtraction by paper-pencil method
+    // Assumption: a > b
+    static BigInteger& SubtractUnsigned(BigInteger const& big, BigInteger const& small)
+    {
+      BigInteger& result = *new BigInteger(big.size() + 1);
+
+      Long carry = 0;
+      Long diff = 0;
+
+      for(SizeT i = 0; i < big.size(); i++)
+      {
+        diff = big.theInteger[i] - carry;
+        if(i < small.size())
+        {
+          diff -= small.theInteger[i];
+        }
+
+        carry = 0;
+        if(diff < 0)
+        {
+          diff += BASE;
+          carry = 1;
+        }
+
+        result.theInteger[i] = diff;
+      }
+
+      result.TrimZeros();
+
+      return result;
+    }
+
+      // Implentation of multiplication by paper-pencil method
+      // Classical algorithm
+    static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
+    {
+      if(a.IsZero() || b.IsZero())
+        return *new BigInteger(); // 0 times anything is zero
+
+      BigInteger& result = *new BigInteger(a.size() + b.size() + 1, 0);
+
+      ULong carry = 0;
+      ULong multiply;
+      
+      for(SizeT i = 0; i < b.size(); i++)
+      {
+        carry = 0;
+        for(SizeT j = 0 ; j < a.size(); j++)
+        {
+          multiply  = (ULong)a.theInteger[j];
+          multiply *= (ULong)b.theInteger[i];
+          multiply += (ULong)result.theInteger[i + j];
+          multiply += carry;
+          
+          result.theInteger[i + j] = multiply % BASE;
+          carry = multiply / BASE;
+        }
+        result.theInteger[i + a.size()] = carry;
+      }
+
+      result.TrimZeros();
+
+      return result;
+    }
+
+    // Karatsuba Algorithm
+    // static BigInteger& FastMultiplyUnsigned(BigInteger const& a, BigInteger const& b)
+    // {
+    //   BigInteger aa(a);
+    //   BigInteger bb(b);
+    //   SizeT size = max(a.size(), b.size());
+    //   while(aa.size() < size)
+    //     aa.theInteger.push_back(0);
+    //   while(bb.size() < size)
+    //     bb.theInteger.push_back(0);
+    // }
+
+    // static BigInteger& FastMultiplyUnsigned(BigInteger const& a, BigInteger const& b)
+    // {
+    // }
+
+public:
+    static BigInteger& Add(BigInteger const& a, BigInteger const& b)
+    {
+      // Check for zero
+      bool aZero = a.IsZero();
+      bool bZero = b.IsZero();
+      if(aZero && bZero)
+        return *new BigInteger(); // 0 + 0
+      if(aZero)
+        return *new BigInteger(b); // 0 + b
+      if(bZero)
+        return *new BigInteger(a); // a + 0
+
+      // Check if actually subtraction is needed
+      if(a.isNegative && !b.isNegative)
+        return SubtractUnsigned(b, a); // a is negative, b is not. return b - a
+      else if(!a.isNegative && b.isNegative)
+        return SubtractUnsigned(a, b); // b is negative and a is not. return a - b
+
+      // Add
+      BigInteger& result = AddUnsigned(a, b);
+
+      // Flip the sign when adding two negative numbers
+      if(a.isNegative && b.isNegative)
+        result.isNegative = true;
+
+      return result;
+
+    }
+
     // Straight pen-pencil implementation for subtraction
-    BigInteger& Subtract(BigInteger const&) const;
-    // Straight pen-pencil implementation for multiplication
-    BigInteger& Multiply(BigInteger const&) const;
-    BigInteger& Multiply(DATATYPE const&) const;
-    // Straight pen-pencil implementation for division and remainder
-    BigInteger& DivideAndRemainder(BigInteger const&,BigInteger&,bool) const;
-    BigInteger& DivideAndRemainder(DATATYPE const&,DATATYPE&,bool) const;
-
-    // Overloaded Binary Operators
-
-    // Adds Two BigInteger
-    friend BigInteger& operator+(BigInteger const&, BigInteger const&);
-    // Subtructs Two BigInteger
-    friend BigInteger& operator-(BigInteger const&, BigInteger const&);
-    // Multiplies Two BigInteger
-    friend BigInteger& operator*(BigInteger const&, BigInteger const&);
-    friend BigInteger& operator*(BigInteger const&, DATATYPE const&);
-    friend BigInteger& operator*(DATATYPE const&, BigInteger const&);
-    // Divides Two BigInteger
-    friend BigInteger& DivideAndRemainder(BigInteger const&, BigInteger const&,BigInteger&,bool);
-    friend BigInteger& DivideAndRemainder(BigInteger const&, DATATYPE const&,DATATYPE&,bool);
-    friend BigInteger& operator/(BigInteger const&, BigInteger const&);
-    friend BigInteger& operator/(BigInteger const&, DATATYPE const&);
-    friend BigInteger& operator/(DATATYPE const&, BigInteger const&);
-    // Modulo Division of Two BigInteger
-    friend BigInteger& operator%(BigInteger const&, BigInteger const&);
-    friend BigInteger& operator%(BigInteger const&, DATATYPE const&);
-    friend BigInteger& operator%(DATATYPE const&, BigInteger const&);
-
-    // Assignment Operator
-    BigInteger& operator=(BigInteger const&);
-
-    // Inserter
-    friend ostream& operator<<(ostream& ,  BigInteger const&);
-    // Extractor
-    friend istream& operator>>(istream& , BigInteger& );
-
-    // Overloaded Unary Operators
-
-    // Postfix Unary Increment
-    BigInteger& operator++();
-    // Prefix Unary Increment
-    BigInteger& operator++(int);
-
-    // Postfix Unary Decrement
-    BigInteger& operator--();
-    // Prefix Unary Decrement
-    BigInteger& operator--(int);
-
-    // Negation
-    BigInteger& operator-();
-
-    // Bit Wise Operators
-
-    // Left Shift
-    BigInteger& operator<<(SizeT);
-    // Right Shift
-    BigInteger& operator>>(SizeT);
-    // Returns the BigInteger absolute
-    void abs();
-    friend BigInteger& abs(BigInteger&);
-
-    // Conversion functions
-    string& toString() const;
-    Int toInt();
-    Long toLong();
-
-    // Others
-    BigInteger& Power(Long )const;
-    BigInteger& SquareRoot() const;
-  };
-
-  // Private Constructor which provides a new BigInteger Object
-  // Filled with specified data
-  // Useful for internal operation
-  BigInteger::BigInteger(SizeT bytes,DATATYPE fill, bool toInit = true)
-  {
-    TheNumber = new DATATYPE[bytes];
-    isNegative = false;
-    Start = 0;
-    End = bytes - 1;
-
-    if(toInit) Set(fill);
-  }
-
-  // Default Constructor
-  BigInteger::BigInteger()
-  {
-    TheNumber = new DATATYPE[1];
-    TheNumber[0] = 0;
-    Start = 0;
-    End = 0;
-    isNegative = false;
-  }
-
-  // Long Constructor
-  BigInteger::BigInteger(Long n)
-  {
-    if(n<0)
+    static BigInteger& Subtract(BigInteger const& a, BigInteger const& b)
     {
-      isNegative = true;
-      n *= -1;
+      // Check for zero
+      bool aZero = a.IsZero();
+      bool bZero = b.IsZero();
+      if(aZero && bZero)
+        return *new BigInteger(); // 0 - 0
+      if(aZero)
+        return -(*new BigInteger(b)); // 0 - b
+      if(bZero)
+        return *new BigInteger(a); // a - 0
+
+      // Check if actually addition is needed
+      if(a.isNegative && !b.isNegative)
+        return AddUnsigned(a, b).SetSign(true); // a is negative, b is not. return -(a + b)
+      else if(!a.isNegative && b.isNegative)
+        return AddUnsigned(a, b); // b is negative and a is not. return a + b
+
+      Int cmp = a.UnsignedCompareTo(b);
+      if(cmp == 0)
+        return *new BigInteger(); // a == b, a-b == 0
+      else if(cmp < 0)
+        return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
+      else if (cmp > 0)
+        return SubtractUnsigned(a, b); // a - b
+      
+      return *new BigInteger(); // Zero
     }
-    else isNegative = false;
-    if(n==0)
+ 
+    static BigInteger& Multiply(BigInteger const& a, BigInteger const& b)
     {
-        TheNumber = new DATATYPE[1];
-        TheNumber[0] = 0;
-        Start = End = 0;
-        return;
+      if(a.IsZero() || b.IsZero())
+        return *new BigInteger(); // 0 times anything is zero
+
+      BigInteger& result = MultiplyUnsigned(a, b);
+      if(a.isNegative != b.isNegative)
+        result.isNegative = true;
+      
+      return result;
+    }
+ 
+    // Negation, returns -*this
+    BigInteger& operator-()
+    {
+      isNegative = !isNegative;
+      return *this;
     }
 
-    SizeT i = (SizeT)(floor(log10((double)n)/LOG10BASE) + 1);
-
-    Start = 0;
-    End = i-1;
-    TheNumber = new DATATYPE [i];
-    Set(0);
-
-    while(n)
+    // Converts `this' to a string representation
+    string& ToString() const
     {
-      TheNumber[--i] = n % BASE;
-      n /= BASE;
-    }
-    TrimZeros();
-  }
+      int len = size() * BASE_DIGIT + 2;
+      char* num = new char[len];
 
-  void BigInteger::Create(char const* n)
-  {
-    if (n[0] == '-') { isNegative = true; n++; }
-    else if (n[0] == '+') { isNegative = false; n++; }
-    else isNegative = false;
+      SizeT j = len - 1;
+      
+      num[j--] = 0;
 
-    while (*n == '0') n++;
-
-    Int l = strlen(n);
-    if (l == 0)
-    {
-      *this = *new BigInteger();
-      return;
-    }
-    Start = 0;
-    End = (SizeT)(l / LOG10BASE + l%LOG10BASE - 1);
-    TheNumber = new DATATYPE[Digits()];
-    Set(0);
-
-    Int cur = l - 1;
-    for (SizeT i = End; i >= Start;i--)
-    {
-      if (cur<0) break;
-      DATATYPE r = 0;
-      DATATYPE TEN = 1;
-      for (l = 0;l<4;l++)
+      for(SizeT i = 0; i < size(); i++)
       {
-        if (cur<0) break;
-        r = r + TEN*(n[cur] - '0');
-        TEN *= 10;
-        cur--;
-      }
-      TheNumber[i] = r;
-      if (i == Start)
-        break;
-    }
-    TrimZeros();
-    if (isZero()) isNegative = false;
-  }
-
-  // Character array constructor
-  BigInteger::BigInteger(char const* n)
-  {
-    Create(n);
-  }
-
-  // Copy constructor
-  BigInteger::BigInteger(BigInteger const& Temp)
-  {
-    Start = 0;
-    End = Temp.Digits() - 1;
-    TheNumber = new DATATYPE [Temp.Digits()];
-
-    datacopy(Temp,Temp.Digits());
-    isNegative = Temp.isNegative;
-  }
-
-  // Deallocates the array
-  void BigInteger::deallocateBigInteger()
-  {
-    if(TheNumber!=0)
-    {
-      delete [] TheNumber;
-      TheNumber = 0;
-    }
-  }
-
-  // The Destructor
-  BigInteger::~BigInteger()
-  {
-    deallocateBigInteger();
-    Start = 0;
-    End = 0;
-  }
-
-  // Sets the array with the `fill' value
-  void BigInteger::Set(DATATYPE fill)
-  {
-    for(SizeT i=Start;i<=End;i++)
-      TheNumber[i] = fill;
-  }
-
-  // Copies data from `a' to `this'
-  void BigInteger::datacopy(BigInteger const& a,SizeT size)
-  {
-    for(SizeT i=0;i<size;i++)
-      TheNumber[Start+i] = a.TheNumber[a.Start+i];
-  }
-
-  // Determines the length upto valid data
-  SizeT BigInteger::datalen(DATATYPE const* a) const
-  {
-    SizeT l = 0;
-    while(a[l]!=INVALIDDATA) l++;
-    return l;
-  }
-
-  // Returns number of digits in a BigInteger
-  SizeT BigInteger::Digits() const
-  { return End-Start+1; }
-
-  // true if 'this' is zero
-  bool BigInteger::isZero() const
-  { return End==Start && TheNumber[Start]==0; }
-
-  // Checks for the validity of the number
-  bool BigInteger::isValidNumber() const
-  {
-    for(SizeT i=Start; i<End ; i++)
-      if(TheNumber[i]>=BASE) return false;
-
-    return true;
-  }
-
-  // Trims Leading Zeros
-  void BigInteger::TrimZeros()
-  {
-    while(TheNumber[Start]==0 && Start<End)
-      Start++;
-  }
-
-  // Compares this with `with' irrespective of sign
-  // Returns
-  // 0 if equal
-  // 1 if this>with
-  // -1 if this<with
-  Int BigInteger::UnsignedCompareTo(BigInteger const& with)const
-  {
-    if(isZero() && with.isZero()) return 0;
-    if(!isZero() && with.isZero()) return 1;
-    if(isZero() && !with.isZero()) return -1;
-
-    Long temp = Digits() - with.Digits();
-    // Case 3: First One got more digits
-    // Case 4: First One got less digits
-    if(temp!=0) return temp<0?-1:1;
-
-    // Now I know Both have same number of digits
-    // Case 5,6,7:
-    /*
-    Compares two array of data considering the
-    case that both of them have the same number
-    of digits
-    */
-
-    // temp = 0;
-    Int cmp = 0;
-    for(SizeT i=0;i<Digits();i++)
-    {
-      temp = TheNumber[i+Start] - with.TheNumber[i+with.Start];
-      if(temp!=0)
-      {
-        cmp = temp<0?-1:1;
-        break;
-      }
-    }
-
-    return cmp;
-  }
-
-  // Compares this with `with'
-  // Returns
-  // 0 if equal
-  // 1 if this>with
-  // -1 if this<with
-  Int BigInteger::CompareTo(BigInteger const& with)const
-  {
-    Int cmp = UnsignedCompareTo(with);
-
-    // Case 1: Positive , Negative
-    if(isNegative==false && with.isNegative==true) return 1;
-    // Case 2: Negative, Positive
-    if(isNegative==true && with.isNegative==false) return -1;
-    // Now, Both are Same Sign
-    Int both_neg = 1;
-    if(isNegative==true && with.isNegative==true) both_neg = -1;
-    return cmp*both_neg;
-  }
-
-  // Implentation of addition by paper-pencil method
-  BigInteger& BigInteger::Add(BigInteger const& Small) const
-  {
-    BigInteger const& Big = *this;
-    BigInteger &Result= *new BigInteger(Big.Digits()+1,0);
-
-    Long Carry=0,Plus;
-    Long i=Big.Digits() - 1,
-      j=Small.Digits() - 1;
-
-    for(; i>=0 ;i--,j--)
-    {
-      Plus = Big.TheNumber[(SizeT)(i+Big.Start)] + Carry;
-      if(j>=0) Plus += Small.TheNumber[(SizeT)(j+Small.Start)] ;
-
-      Result.TheNumber[(SizeT)(i+1)] = Plus%BASE;
-      Carry = Plus/BASE;
-    }
-    i++;
-
-    if(Carry) Result.TheNumber[(SizeT)(i--)] = Carry;
-
-    Result.TrimZeros();
-
-    return Result;
-  }
-
-  // Implentation of subtraction by paper-pencil method
-  BigInteger& BigInteger::Subtract(BigInteger const& Small)const
-  {
-    BigInteger const& Big = *this;
-    BigInteger& Result = *new BigInteger(Big.Digits()+1,0);
-
-    Long Carry=0,Minus;
-
-    Long i = Big.Digits() - 1,
-      j= Small.Digits() - 1;
-
-    for( ; i>=0 ;i--,j--)
-    {
-      Minus = Big.TheNumber[(SizeT)(i+Big.Start)] - Carry;
-      if(j>=0) Minus -= Small.TheNumber[(SizeT)(j+Small.Start)];
-
-      if(Minus < 0)
-      {
-        Result.TheNumber[(SizeT)(i+1)] = Minus + BASE;
-        Carry = 1;
-      }
-      else
-      {
-        Result.TheNumber[(SizeT)(i+1)]  = Minus;
-        Carry = 0;
-      }
-    }
-    Result.TrimZeros();
-    return Result;
-  }
-
-  // Addition operator
-  BigInteger& operator+(BigInteger const& N1, BigInteger const& N2)
-  {
-    if(N1.isNegative && !N2.isNegative)
-    {
-      // First is negaive and second is not
-      BigInteger& Res = *new BigInteger(N1);
-      Res.isNegative = false;
-      Res = N2-Res;
-      return Res;
-    }
-    if(!N1.isNegative && N2.isNegative)
-    {
-      // Second is negaive and first is not
-      BigInteger& Res = *new BigInteger(N2);
-      Res.isNegative = false;
-      Res = N1-Res;
-      return Res;
-    }
-
-    BigInteger& ret = *new BigInteger();
-
-    if(N1.UnsignedCompareTo(N2)<0)
-      ret = N2.Add(N1);
-    else
-      ret = N1.Add(N2);
-    if(N1.isNegative==true && N2.isNegative==true)
-      ret.isNegative = true;
-    return ret;
-  }
-
-  // Subtruction operator
-  BigInteger& operator-(BigInteger const& N1, BigInteger const& N2)
-  {
-    if(N1.isNegative && !N2.isNegative)
-    {
-      BigInteger& res = *new BigInteger(N1);
-      res.isNegative = false;
-      res = res+N2;
-      res.isNegative = true;
-      return res;
-    }
-    if(!N1.isNegative && N2.isNegative)
-    {
-      BigInteger& res = *new BigInteger(N2);
-      res.isNegative = false;
-      res = res+N1;
-      return res;
-    }
-
-
-    BigInteger& ret = *new BigInteger();
-    Int cmp = N1.UnsignedCompareTo(N2);
-    if(cmp==0)
-    {
-      ret = *new BigInteger();
-    }
-    if(cmp<0)
-    {
-      ret = N2.Subtract(N1);
-      ret.isNegative = true;
-    }
-    else
-    {
-      ret = N1.Subtract(N2);
-      ret.isNegative = false;
-    }
-    return ret;
-  }
-
-  // Implentation of multiplication by paper-pencil method
-  BigInteger& BigInteger::Multiply(BigInteger const& Small) const
-  {
-    BigInteger const& Big = *this;
-    BigInteger& Result = *new BigInteger(Big.Digits()+Small.Digits(),0);
-
-    Long Carry,Multiply;
-
-    SizeT i;
-    SizeT j;
-
-    for(i = 0 ; i< Small.Digits() ; i++)
-    {
-      Carry = 0;
-      for(j = 0 ; j< Big.Digits() ; j++)
-      {
-        Multiply = ( (Long)Small.TheNumber[Small.End-i] * (Long)Big.TheNumber[Big.End-j] )
-          + Carry + Result.TheNumber[Result.End-i-j];
-        Result.TheNumber[Result.End-i-j] = Multiply%BASE;
-        Carry = Multiply/BASE ;
-      }
-      Result.TheNumber[Result.End-i-j] = Carry;
-    }
-
-    Result.TrimZeros();
-
-    return Result;
-  }
-
-  // Implentation of multiplication by paper-pencil method
-  // See: D. E. Knuth 4.3.1
-  BigInteger& BigInteger::Multiply(DATATYPE const& with) const
-  {
-    BigInteger& Result = *new BigInteger(Digits()+1,0);
-
-    Long Carry,Multiply;
-
-    SizeT i;
-
-    Carry = 0;
-    for(i = 0 ; i< Digits() ; i++)
-    {
-      Multiply = Carry + (Long)TheNumber[End-i] * (Long)with;
-      Carry = Multiply / BASE;
-      Result.TheNumber[Result.End-i] = Multiply % BASE;
-    }
-    Result.TheNumber[Result.End-i] = Carry;
-    Result.TrimZeros();
-
-    return Result;
-  }
-
-  // Multiplication operator
-  BigInteger& operator*(BigInteger const& N1, BigInteger const& N2)
-  {
-    if(N1.isZero() || N2.isZero()) return *new BigInteger();
-    BigInteger& ret = *new BigInteger();
-    if(N1.UnsignedCompareTo(N2)<0)
-      ret = N2.Multiply(N1);
-    else
-      ret = N1.Multiply(N2);
-    if(N1.isNegative!=N2.isNegative)
-      ret. isNegative = true;
-    return ret;
-  }
-
-  // Multiplication operator
-  BigInteger& operator*(BigInteger const& N1, DATATYPE const& N2)
-  {
-    if(N1.isZero() || N2==0) return *new BigInteger();
-    BigInteger& ret = N1.Multiply(N2);
-    // if(N1.isNegative!=(N2<0)) ret. isNegative = true;
-    return ret;
-  }
-
-  // Multiplication operator
-  BigInteger& operator*(DATATYPE const& N1, BigInteger const& N2)
-  {
-    if(N2.isZero() || N1==0) return *new BigInteger();
-    BigInteger& ret = N2.Multiply(N1);
-    // if(N2.isNegative!=(N1<0)) ret. isNegative = true;
-    return ret;
-  }
-
-  // Implentation of division by paper-pencil method
-  // Here `this' is divided by 'V'
-  BigInteger& BigInteger::DivideAndRemainder(DATATYPE const& V,DATATYPE& _R,bool skipRemainder=false) const
-  {
-    BigInteger& W = *new BigInteger(Digits(),0,false);
-    DATATYPE R = 0;
-    SizeT j;
-    for(j=0;j<=W.End;j++)
-    {
-      W.TheNumber[j] = (R*BASE+TheNumber[Start+j])/V;
-      R = (R*BASE+TheNumber[Start+j])%V;
-    }
-
-    W.TrimZeros();
-    if(skipRemainder==false)
-      _R = R;
-
-    return W;
-  }
-
-  // Implentation of division by paper-pencil method
-  // Does not perform the validity and sign check
-  // It is assumed that this > `_V'
-  // See: D.E.Knuth 4.3.1
-  BigInteger& BigInteger::DivideAndRemainder(BigInteger const& _V,BigInteger& R,bool skipRemainder=false) const
-  {
-    SizeT m = this->Digits()-_V.Digits();
-    SizeT n = _V.Digits();
-    BigInteger& Q = *new BigInteger(m+1,0,false);
-
-    DATATYPE d, qhat, rhat;
-    Long temp,x,y;
-    SizeT i;
-    Int j;
-
-    d = (BASE-1)/_V.TheNumber[_V.Start];
-
-    BigInteger& U = this->Multiply(d);
-    BigInteger& V = _V.Multiply(d);
-
-    for(j = m; j>=0; j--)
-    {
-      temp = (Long)U.TheNumber[U.End-j-n]*(Long)BASE + (Long)U.TheNumber[U.End-j-n+1];
-      x = temp / (Long)V.TheNumber[V.Start];
-      y = temp % (Long)V.TheNumber[V.Start];
-      if(x>(Long)BASE) x /= BASE;
-      if(y>(Long)BASE) y %= BASE;
-      qhat = (DATATYPE) x;
-      rhat = (DATATYPE) y;
-
-      bool badRhat = false;
-      do
-      {
-        x = (Long)qhat * (Long)V.TheNumber[V.Start+1];
-        y = (Long)BASE*(Long)rhat + (Long)U.TheNumber[U.End-j-n+1];
-
-        if(qhat==BASE || x > y)
+        DataT n = theInteger[i];
+        SizeT l = 0;
+        while(l++ < BASE_DIGIT)
         {
-          qhat --;
-          rhat += V.TheNumber[V.Start];
-          if(rhat<BASE) badRhat = true;
-          else badRhat = false;
-        }
-        else break;
-      }while(badRhat);
-
-      // `x' Will act as Carry in the next loop
-      x = 0;
-      temp = 0;
-      for(i=0;i<=n;i++)
-      {
-        if(V.End>=i) temp = (Long)qhat*(Long)V.TheNumber[V.End-i] + temp;
-        y = (Long)U.TheNumber[U.End-j-i] - temp%BASE - x;
-        temp /= BASE;
-        if(y < 0)
-        {
-          U.TheNumber[U.End-j-i] = (DATATYPE)(y+BASE);
-          x = 1;
-        }
-        else
-        {
-          U.TheNumber[U.End-j-i]  = (DATATYPE)y;
-          x = 0;
+          num[j--] = (n % 10) + '0';
+          n /= 10;
         }
       }
-      // if(x) U.TheNumber[U.Start+j+i] --;
 
-      Q.TheNumber[Q.End-j] = qhat;
+      // Trim zeros
+      while(num[j+1] == '0')
+        j++;
 
-      if(x)
-      {
-        Q.TheNumber[Q.End-j] --;
-        // `x' Will act as Carry in the next loop
-        x = 0;
-        for(i=0;i<=n;i++)
-        {
-          y = (Long)U.TheNumber[U.End-j-i] + x;
-          if(V.End>=i) y += (Long)V.TheNumber[V.End-i];
-          U.TheNumber[U.End-j-i] = (DATATYPE)(y % BASE);
-          x = y / BASE;
-        }
-        U.TheNumber[U.End-j-i] = (DATATYPE)x;
-      }
+      if(isNegative)
+        num[j--] = '-';
+
+      string& converted = *new string(num + j + 1);
+
+      return converted;
     }
+   };
 
-    U.TrimZeros();
-    DATATYPE _t;
-    if(skipRemainder==false)
-      R = U.DivideAndRemainder(d,_t,true);
-    Q.TrimZeros();
-
-    return Q;
-  }
-
-  // Front end for Divide and Remainder
-  // Performs the validity and sign check
-  BigInteger& DivideAndRemainder(BigInteger const& U, BigInteger const& V,BigInteger& R,bool skipRemainder=false)
-  {
-    if(V.isZero())
-      throw logic_error (DumpString ("DivideAndRemainder (BigInteger/BigInteger)",BigMathDIVIDEBYZERO));
-
-    if(U.isZero())
-    {
-      R = *new BigInteger();
-      return *new BigInteger();
-    }
-
-    Int cmp = U.UnsignedCompareTo(V);
-    if(cmp==0)
-    {
-      R = *new BigInteger();
-      BigInteger& W = *new BigInteger(1l);
-      if(U.isNegative!=V.isNegative) W.isNegative = true;
-      return W;
-    }
-    else if(cmp<0)
-    {
-      R = *new BigInteger(U);
-      if(U.isNegative!=V.isNegative) R.isNegative = true;
-      return *new BigInteger();
-    }
-    BigInteger& ret = U.DivideAndRemainder(V,R,skipRemainder);
-    if(U.isNegative!=V.isNegative) ret.isNegative = true;
-    return ret;
-  }
-
-  // Front end for Divide and Remainder
-  // Performs the validity and sign check
-  BigInteger& DivideAndRemainder(BigInteger const& U, DATATYPE const& V,DATATYPE& R,bool skipRemainder=false)
-  {
-    if(V==0)
-      throw logic_error ( DumpString ("DivideAndRemainder (BigInteger/DATATYPE)",BigMathDIVIDEBYZERO) );
-
-    if(U.isZero())
-    {
-      R = 0;
-      return *new BigInteger();
-    }
-
-    Int cmp = 1;
-    if(U.Digits()==1)
-    {
-        if(U.TheNumber[U.Start]<V) cmp = -1;
-        else if(U.TheNumber[U.Start]>V) cmp = 1;
-        else cmp = 0;
-    }
-    if(cmp==0)
-    {
-      R = 0;
-      return *new BigInteger(1l);
-    }
-    else if(cmp<0)
-    {
-      R = U.TheNumber[U.Start];
-      return *new BigInteger();
-    }
-    BigInteger& ret = U.DivideAndRemainder(V,R,skipRemainder);
-    // if(U.isNegative!=(V<0)) ret.isNegative = true;
-    return ret;
-  }
-
-  // Division operator
-  BigInteger& operator/(BigInteger const& N1, BigInteger const& N2)
-  {
-    BigInteger& R = *new BigInteger();
-    return DivideAndRemainder(N1,N2,R,true);
-  }
-
-  // Division operator
-  BigInteger& operator/(BigInteger const& U, DATATYPE const& V)
-  {
-    DATATYPE R;
-    return DivideAndRemainder(U,V,R,true);
-  }
-
-  // Division operator
-  BigInteger& operator/(DATATYPE const& U, BigInteger const& V)
-  {
-    if(V.Digits()==1 && U>V.TheNumber[V.Start])
-    {
-      return *new BigInteger(U/V.TheNumber[V.Start]);
-    }
-    return *new BigInteger();
-  }
-
-  // Modulus operator
-  BigInteger& operator%(BigInteger const& N1,BigInteger const& N2)
-  {
-    BigInteger& R = *new BigInteger();
-    DivideAndRemainder(N1,N2,R);
-    return R;
-  }
-
-  // Modulus operator
-  BigInteger& operator%(BigInteger const& U, DATATYPE const& V)
-  {
-    DATATYPE R;
-    DivideAndRemainder(U,V,R);
-    return *new BigInteger(R);
-  }
-
-  // Modulus operator
-  BigInteger& operator%(DATATYPE const& U, BigInteger const& V)
-  {
-    if(V.Digits()==1 && U>V.TheNumber[V.Start])
-    {
-      return *new BigInteger(U%V.TheNumber[V.Start]);
-    }
-    return *new BigInteger();
-  }
-
-  // Assignment Operator
-  BigInteger& BigInteger::operator=(BigInteger const&arg)
-  {
-    Start = 0;
-    End = arg.Digits() - 1;
-    delete [] TheNumber;
-    TheNumber = new DATATYPE [arg.Digits()];
-
-    datacopy(arg,arg.Digits());
-    isNegative = arg.isNegative;
-    return *this;
-  }
-
-  // Inserter
-  ostream& operator<<(ostream& stream,  BigInteger const& out)
-  {
-    if(out.isNegative==true && out.isZero()==false) stream << '-';
-    stream << out.TheNumber[out.Start];
-    for(SizeT i=out.Start+1;i<=out.End;i++)
-    {
-      stream.width(LOG10BASE);
-      stream.fill('0');
-      stream << out.TheNumber[i];
-    }
-
-    return stream;
-  }
-
-  // Extracter
-  istream& operator>>(istream& stream, BigInteger& in)
-  {
-    SizeT SIZE = 500;
-    char *data = new char[SIZE];
-    // if(data==0) Dump("Extractor operator",BigMathMEM);
-    SizeT i = 0;
-    Int input;
-    bool isNegative = false;
-    stream >> ws;
-    input = stream.get();
-    if(input=='-') isNegative = true;
-    else if(input=='+') isNegative = false;
-    else stream.putback(input);
-
-    while(true)
-    {
-      input = stream.get();
-      if(isdigit(input))
-        data[i++] = input;
-      else
-      {
-        stream.putback(input);
-        break;
-      }
-      if(i>=SIZE)
-      {
-        SIZE += SIZE;
-        char *p = new char [SIZE];
-        // if(p==0) Dump("Extractor operator",BigMathMEM);
-        strcpy(p,data);
-        delete [] data;
-        data = p;
-      }
-    }
-    data[i] = 0;
-    in.deallocateBigInteger();
-    in.Create(data);
-    if(in.isZero()==false)
-        in.isNegative = isNegative;
-    return stream;
-  }
-
-  // Inserts the version information into the output stream
-  ostream& BigIntegerVersion(ostream& out)
-  {
-    out << BigIntPROGRAMNAME << " (Version "<< BigIntMajorVersion
-      << "." << BigIntMinorVersion << "." << BigIntRevision << ")";
-    return out;
-  }
-
-  // Inserts the author information into the output stream
-  ostream& BigIntegerAuthor(ostream& out)
-  {
-    out << "Author: S. M. Mahbub Murshed" <<
-        endl << "mailto: murshed@gmail.com";
-    return out;
-  }
-
-  // Inserts the about information into the output stream
-  ostream& BigIntegerAbout(ostream& out)
-  {
-    out << BigIntegerVersion << endl << BigIntegerAuthor << endl;
-    return out;
-  }
-
-  // Returns a string containing version information
-  string& BigIntegerVersionString()
-  {
-    char out[100];
-    ostrstream str(out,sizeof(out));
-    str << BigIntegerVersion;
-    return *new string(out);
-  }
-
-  // Converts `this' to a string representation
-  string& BigInteger::toString()const
-  {
-    const Int DIGITS = Digits()*4;
-    char *R = new char[DIGITS+2];
-    ostrstream ostr(R,DIGITS);
-    ostr << *this;
-    return *new string(R);
-  }
-
-  // Converts `this' to equivalent Int value
-  Int BigInteger::toInt()
-  {
-    return (Int)toLong();
-  }
-
-  // Converts `this' to equivalent 32 bit Long value
-  Long BigInteger::toLong()
-  {
-    Long r = TheNumber[End];
-    if(Digits()>1) r += BASE * TheNumber[End-1] ;
-    if(Digits()>2) r += BASE*BASE*(TheNumber[End-2]%100);
-    return r;
-  }
-
-  // Postfix Increment , that is *this++
-  BigInteger& BigInteger::operator++()
-  {
-    BigInteger& ONE = *new BigInteger(1l);
-    *this = *this+ONE;
-    return *this;
-  }
-
-  // Prefix Increment , that is ++*this
-  BigInteger& BigInteger::operator++(int notused)
-  {
-    BigInteger one(1l);
-    BigInteger& Ret = *new BigInteger(*this);
-    *this = *this+one;
-    return Ret;
-  }
-
-  // Postfix Decrement , that is *this--
-  BigInteger& BigInteger::operator--()
-  {
-    BigInteger one(1l);
-    *this = *this-one;
-    return *this;
-  }
-
-  // Pretfix Increment , that is --*this
-  BigInteger& BigInteger::operator--(int notused)
-  {
-    BigInteger one(1l);
-    BigInteger& Ret = *new BigInteger(*this);
-    *this = *this-one;
-    return Ret;
-  }
-
-  // Negation, returns -*this
-  BigInteger& BigInteger::operator-()
-  {
-    this->isNegative = this->isNegative==true?false:true;
-    return *this;
-  }
-
-  // Left Shift
-  // To be checked
-  BigInteger& BigInteger::operator<<(SizeT b)
-  {
-    SizeT i = (SizeT)(b / LOG10BASE);
-    b %= LOG10BASE;
-    while(b--) TheNumber[Digits()-1] *= 10;
-
-    if(i>0)
-    {
-      DATATYPE *temp = new DATATYPE[Digits()+i];
-      for(b=0;b<Digits();b++)
-        temp[b] = TheNumber[b];
-      for(b=0;b<i; b++)
-        temp[Digits()+b] = 0;
-      delete [] TheNumber;
-      TheNumber = temp;
-      End += i-1;
-    }
-    return *this;
-  }
-
-  // Right Shift
-  BigInteger& BigInteger::operator>>(SizeT b)
-  {
-    SizeT i = (SizeT)(b / LOG10BASE);
-    b %= LOG10BASE;
-    End -= i;
-    while(b--)
-    {
-      DATATYPE f = 0,l = 0;
-      for(i=Start;i<=End;i++)
-      {
-        l = TheNumber[i]%10;
-        TheNumber[i] = f*BASE + TheNumber[i]/10;
-        f = l;
-      }
-      if(TheNumber[Start]==0)
-        Start--;
-    }
-    return *this;
-  }
-
-  // Makes `this' BigInteger value to absolute
-  void BigInteger::abs()
-    { isNegative = false; }
-
-  // Returns new BigInteger value which is absolute
-  // copy of `arg'
-  BigInteger& abs(BigInteger& arg)
-  {
-      BigInteger& ret = *new BigInteger(arg);
-      ret.isNegative = false;
-      return ret;
-  }
-
-  // Power BigInteger to the power Long
-  BigInteger& BigInteger::Power(Long y) const
-  {
-    Long P;
-    BigInteger& pow = *new BigInteger(1l);
-    BigInteger& z = *new BigInteger();
-    BigInteger& ZERO = *new BigInteger();
-    BigInteger& ONE = *new BigInteger(1l);
-    P = y;
-
-    if(y==0) return pow;
-    if(isZero()) return ZERO;
-    if(UnsignedCompareTo(ONE)==0) return ONE;
-
-    z = *this;
-    while(P>0)
-    {
-      while(P%2==0)
-      {
-        P /= 2;
-        z = z*z;
-      }
-      P--;
-      pow = pow*z;
-    }
-    return pow;
-  }
-
-  void Dump(char const* s,enum BigMathERROR e)
-  {
-    cerr << BigIntegerVersion << endl;
-    cerr << "Exception: " << BigIntErrDes[e-1] << endl;
-    cerr << "In function: " << s  << endl;
-    cerr << "Error Code: " << e << endl;
-    exit(e);
-  }
-
-  string& DumpString (char const* s,enum BigMathERROR e)
-  {
-    char *R = new char[256];
-    ostrstream ostr(R,255);
-    ostr << BigIntegerVersion << endl;
-    ostr << "Exception: " << BigIntErrDes[e-1] << endl;
-    ostr << "In function: " << s  << endl;
-    ostr << "Error Code: " << e << endl;
-    return *new string(R);
-  }
-
-  BigInteger& BigInteger::SquareRoot() const
-  {
-    BigInteger const& n = *this;
-    BigInteger& _2 = *new BigInteger(2l);
-    BigInteger& zero = *new BigInteger();
-    if(n.isZero())
-      return zero;
-
-    if(n.isNegative)
-      throw domain_error ( DumpString ("Square Root",BigMathDomain) );
-
-    Long Dig;
-    if(n.Digits()%2==0)
-      Dig = n.Digits()/2 - 1;
-    else
-      Dig = n.Digits()/2 ;
-
-    BigInteger& sq = *new BigInteger(1l);
-    if(Dig==-1)
-      return sq;
-
-    BigInteger sqr,toIncrease,temp;
-    sq = sq << Dig;
-    toIncrease = sq;
-
-    while(true)
-    {
-      sqr = sq*sq;
-      if(sqr.CompareTo(n) == 0) break;
-      if(toIncrease.CompareTo(zero)==0) break;
-      if(sqr.CompareTo(n) > 0)
-      {
-        toIncrease = toIncrease/_2;
-        sq = temp;
-      }
-
-      temp = sq;
-      sq = sq + toIncrease;
-    }
-    return sq;
-  }
-
+  // Operators
   bool operator==(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)==0; }
+  {
+    return a.CompareTo(b) == 0;
+  }
 
   bool operator!=(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)!=0; }
+  {
+    return a.CompareTo(b) != 0;
+  }
 
   bool operator>=(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)>=0; }
+  {
+    return a.CompareTo(b) >= 0;
+  }
 
   bool operator<=(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)<=0; }
+  {
+    return a.CompareTo(b) <= 0;
+  }
 
   bool operator>(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)>0; }
+  {
+    return a.CompareTo(b)>0;
+  }
 
   bool operator<(BigInteger const& a, BigInteger const& b)
-  { return a.CompareTo(b)<0; }
+  {
+    return a.CompareTo(b)<0;
+  }
+
+  // Adds Two BigInteger
+  BigInteger& operator+(BigInteger const& a, BigInteger const& b)
+  {
+    return BigInteger::Add(a, b);
+  }
+
+  // Subtructs Two BigInteger
+  BigInteger& operator-(BigInteger const& a, BigInteger const& b)
+  {
+    return BigInteger::Subtract(a, b);
+  }
+
+  // Multiplies Two BigInteger
+  BigInteger& operator*(BigInteger const& a, BigInteger const& b)
+  {
+    return BigInteger::Multiply(a, b);
+  }
 }
 
 
