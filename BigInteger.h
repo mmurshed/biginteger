@@ -4,7 +4,11 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
+#ifndef BIGINTEGER_H
+#define BIGINTEGER_H
+
 #include <vector>
+#include <tuple>
 using namespace std;
 
 namespace BigMath
@@ -36,16 +40,14 @@ namespace BigMath
     bool isNegative;
 
   public:
-    // Default Constructor
-    BigInteger() : theInteger(), isNegative(false) {}    
-
-    BigInteger(SizeT bytes) : theInteger(bytes), isNegative(false)
-    {}
+    BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
+    
+    BigInteger(vector<DataT> aInt, bool negative) : theInteger(aInt), isNegative(negative) {}
 
     // Filled with specified data
-    BigInteger(SizeT bytes, DataT fill) : theInteger(bytes), isNegative(false)
+    BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
     {
-      for(SizeT i = 0; i < bytes; i++)
+      for(SizeT i = 0; i < size; i++)
         theInteger[i] = fill;
     }
     
@@ -62,6 +64,40 @@ namespace BigMath
 
     // The Destructor
     ~BigInteger() {}
+
+  public:
+    // true if 'this' is zero
+    bool IsZero() const
+    {
+      return size() == 0 || (size() == 1 && theInteger[0] == 0);
+    }
+
+    SizeT size() const 
+    {
+      return theInteger.size();
+    }
+
+    bool IsNegative() const
+    {
+      return isNegative;
+    }
+ 
+    // Negation, returns -*this
+    BigInteger& operator-()
+    {
+      isNegative = !isNegative;
+      return *this;
+    }
+
+    vector<DataT> const& GetInteger() const
+    {
+      return theInteger;
+    }
+
+    DataT operator[] (const SizeT i) const
+    {
+      return theInteger[i];
+    }
 
 public:
     static BigInteger& Parse(char const* num)
@@ -143,7 +179,7 @@ public:
       return *this;
     }
 
-private:
+public:
     // Trims Leading Zeros
     void TrimZeros()
     {
@@ -219,208 +255,6 @@ public:
       return cmp * neg;
     }
 
-    // true if 'this' is zero
-    bool IsZero() const
-    {
-      return size() == 0 || (size() == 1 && theInteger[0] == 0);
-    }
-
-    SizeT size() const 
-    {
-      return theInteger.size();
-    }
-
-private:
-    // Implentation of addition by paper-pencil method
-    static BigInteger& AddUnsigned(BigInteger const& a, BigInteger const& b)
-    {
-      SizeT size = max(a.size(),  b.size()) + 1;
-      BigInteger& result = *new BigInteger(size);
-
-      Long carry = 0;
-      Long sum = 0;
-
-      for(SizeT i = 0; i < size; i++)
-      {
-        sum = carry;
-        
-        if(i < a.size())
-          sum += a.theInteger[i];
-        
-        if(i < b.size())
-          sum += b.theInteger[i];
-
-        result.theInteger[i] = sum % BASE;
-        carry = sum / BASE;
-      }
-
-      result.theInteger[size-1] = carry;
-
-      result.TrimZeros();
-
-      return result;
-    }
-
-    // Implentation of subtraction by paper-pencil method
-    // Assumption: a > b
-    static BigInteger& SubtractUnsigned(BigInteger const& big, BigInteger const& small)
-    {
-      BigInteger& result = *new BigInteger(big.size() + 1);
-
-      Long carry = 0;
-      Long diff = 0;
-
-      for(SizeT i = 0; i < big.size(); i++)
-      {
-        diff = big.theInteger[i] - carry;
-        if(i < small.size())
-        {
-          diff -= small.theInteger[i];
-        }
-
-        carry = 0;
-        if(diff < 0)
-        {
-          diff += BASE;
-          carry = 1;
-        }
-
-        result.theInteger[i] = diff;
-      }
-
-      result.TrimZeros();
-
-      return result;
-    }
-
-      // Implentation of multiplication by paper-pencil method
-      // Classical algorithm
-    static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
-    {
-      if(a.IsZero() || b.IsZero())
-        return *new BigInteger(); // 0 times anything is zero
-
-      BigInteger& result = *new BigInteger(a.size() + b.size() + 1, 0);
-
-      ULong carry = 0;
-      ULong multiply;
-      
-      for(SizeT i = 0; i < b.size(); i++)
-      {
-        carry = 0;
-        for(SizeT j = 0 ; j < a.size(); j++)
-        {
-          multiply  = (ULong)a.theInteger[j];
-          multiply *= (ULong)b.theInteger[i];
-          multiply += (ULong)result.theInteger[i + j];
-          multiply += carry;
-          
-          result.theInteger[i + j] = multiply % BASE;
-          carry = multiply / BASE;
-        }
-        result.theInteger[i + a.size()] = carry;
-      }
-
-      result.TrimZeros();
-
-      return result;
-    }
-
-    // Karatsuba Algorithm
-    // static BigInteger& FastMultiplyUnsigned(BigInteger const& a, BigInteger const& b)
-    // {
-    //   BigInteger aa(a);
-    //   BigInteger bb(b);
-    //   SizeT size = max(a.size(), b.size());
-    //   while(aa.size() < size)
-    //     aa.theInteger.push_back(0);
-    //   while(bb.size() < size)
-    //     bb.theInteger.push_back(0);
-    // }
-
-    // static BigInteger& FastMultiplyUnsigned(BigInteger const& a, BigInteger const& b)
-    // {
-    // }
-
-public:
-    static BigInteger& Add(BigInteger const& a, BigInteger const& b)
-    {
-      // Check for zero
-      bool aZero = a.IsZero();
-      bool bZero = b.IsZero();
-      if(aZero && bZero)
-        return *new BigInteger(); // 0 + 0
-      if(aZero)
-        return *new BigInteger(b); // 0 + b
-      if(bZero)
-        return *new BigInteger(a); // a + 0
-
-      // Check if actually subtraction is needed
-      if(a.isNegative && !b.isNegative)
-        return SubtractUnsigned(b, a); // a is negative, b is not. return b - a
-      else if(!a.isNegative && b.isNegative)
-        return SubtractUnsigned(a, b); // b is negative and a is not. return a - b
-
-      // Add
-      BigInteger& result = AddUnsigned(a, b);
-
-      // Flip the sign when adding two negative numbers
-      if(a.isNegative && b.isNegative)
-        result.isNegative = true;
-
-      return result;
-
-    }
-
-    // Straight pen-pencil implementation for subtraction
-    static BigInteger& Subtract(BigInteger const& a, BigInteger const& b)
-    {
-      // Check for zero
-      bool aZero = a.IsZero();
-      bool bZero = b.IsZero();
-      if(aZero && bZero)
-        return *new BigInteger(); // 0 - 0
-      if(aZero)
-        return -(*new BigInteger(b)); // 0 - b
-      if(bZero)
-        return *new BigInteger(a); // a - 0
-
-      // Check if actually addition is needed
-      if(a.isNegative && !b.isNegative)
-        return AddUnsigned(a, b).SetSign(true); // a is negative, b is not. return -(a + b)
-      else if(!a.isNegative && b.isNegative)
-        return AddUnsigned(a, b); // b is negative and a is not. return a + b
-
-      Int cmp = a.UnsignedCompareTo(b);
-      if(cmp == 0)
-        return *new BigInteger(); // a == b, a-b == 0
-      else if(cmp < 0)
-        return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
-      else if (cmp > 0)
-        return SubtractUnsigned(a, b); // a - b
-      
-      return *new BigInteger(); // Zero
-    }
- 
-    static BigInteger& Multiply(BigInteger const& a, BigInteger const& b)
-    {
-      if(a.IsZero() || b.IsZero())
-        return *new BigInteger(); // 0 times anything is zero
-
-      BigInteger& result = MultiplyUnsigned(a, b);
-      if(a.isNegative != b.isNegative)
-        result.isNegative = true;
-      
-      return result;
-    }
- 
-    // Negation, returns -*this
-    BigInteger& operator-()
-    {
-      isNegative = !isNegative;
-      return *this;
-    }
-
     // Converts `this' to a string representation
     string& ToString() const
     {
@@ -485,24 +319,6 @@ public:
   {
     return a.CompareTo(b)<0;
   }
-
-  // Adds Two BigInteger
-  BigInteger& operator+(BigInteger const& a, BigInteger const& b)
-  {
-    return BigInteger::Add(a, b);
-  }
-
-  // Subtructs Two BigInteger
-  BigInteger& operator-(BigInteger const& a, BigInteger const& b)
-  {
-    return BigInteger::Subtract(a, b);
-  }
-
-  // Multiplies Two BigInteger
-  BigInteger& operator*(BigInteger const& a, BigInteger const& b)
-  {
-    return BigInteger::Multiply(a, b);
-  }
 }
 
-
+#endif

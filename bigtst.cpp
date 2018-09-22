@@ -25,6 +25,7 @@
 using namespace std;
 
 #include "BigInteger.h"
+#include "ClassicAlgorithms.h"
 
 using namespace BigMath;
 
@@ -42,10 +43,27 @@ using namespace BigMath;
 int main(int argc, char *argv[])
 {
   BigInteger a = BigInteger::Parse("123456789012345678901234567890");
-  BigInteger b = BigInteger::Parse("23456789012345678901234567890");
-  BigInteger& c = a * b;
-  string& str = c.ToString();
-  cout << str;
+  BigInteger b = BigInteger::Parse("4567890");
+  
+  BigInteger& add = a + b;
+  string& str = add.ToString();
+  bool cmp = (str == "123456789012345678901239135780");
+
+  BigInteger& sub = a - b;
+  str = sub.ToString();
+  cmp = (str == "123456789012345678901230000000");
+
+  BigInteger& mult = a * b;
+  str = mult.ToString();
+  cmp = (str == "563937031961603703196160370319052100");
+
+  BigInteger& div = a / b;
+  str = div.ToString();
+  cmp = (str == "27027093255823953488642");
+
+  BigInteger& rem = a % b;
+  str = rem.ToString();
+  cmp = (str == "1662510");
 }
 // int main(int argc, char *argv[])
 // {
