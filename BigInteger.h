@@ -285,8 +285,10 @@ public:
 
       string& converted = *new string(num + j + 1);
 
+      delete [] num;
+
       return converted;
-    }
+    }    
    };
 
   // Operators
