@@ -1,0 +1,9 @@
+.DS_Store
+.vscode/*
+.vs/*
+a.out
+a.out.*/*
+*.class
+*.in
+*.out
+*.ans
