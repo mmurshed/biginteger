@@ -26,7 +26,7 @@ using namespace std;
 
 #include "BigInteger.h"
 #include "BigIntegerIO.h"
-#include "ClassicAlgorithms.h"
+#include "FastAlgorithms.h"
 
 using namespace BigMath;
 
@@ -54,17 +54,17 @@ BigInteger& Factorial(unsigned int n)
 //   // str = sub.ToString();
 //   // cmp = (str == "123456789012345678901230000000");
 
-//   // BigInteger& mult = a * b;
-//   // str = mult.ToString();
-//   // cmp = (str == "563937031961603703196160370319052100");
+//   BigInteger& mult = FastAlgorithms::Multiply(a, b);
+//   string& str = mult.ToString();
+//   bool cmp = (str == "491320573255883169948959105800365991844140");
 
 //   // BigInteger& div = a / b;
 //   // string& str = div.ToString();
 //   // bool cmp = (str == "44557413417469525");
 
-//   BigInteger& rem = a % b;
-//   string& str = rem.ToString();
-//   bool cmp = (str == "1494561306735");
+//   // BigInteger& rem = a % b;
+//   // string& str = rem.ToString();
+//   // bool cmp = (str == "1494561306735");
 // }
 
 int main(int argc, char *argv[])
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
         {
           case '+': r = m + n; break;
           case '-': r = m - n; break;
-          case '*': r = m * n; break;
+          case '*': r = FastAlgorithms::Multiply(m, n); break;
           case '/': r = m / n; break;
           case '%': r = m % n; break;
           // case '^': r = m.Power(n.toLong());

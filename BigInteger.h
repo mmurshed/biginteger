@@ -14,8 +14,9 @@ using namespace std;
 namespace BigMath
 {
   typedef long long Long;
-  typedef int Int;
   typedef unsigned long long ULong;
+  
+  typedef int Int;
   typedef unsigned int UInt;
 
   // The Size Type
@@ -26,8 +27,6 @@ namespace BigMath
   // The Base Used
   // const DataT BASE = 2147483647l;
   const DataT BASE = 100000000lu;
-  // An invalid data
-  const DataT INVALIDDATA = 4294967295UL;
   // Number of digits in `BASE'
   const SizeT BASE_DIGIT = 8;
 
