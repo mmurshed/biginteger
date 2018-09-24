@@ -1,6 +1,6 @@
 /**
  * BigInteger Class
- * Version 8.0
+ * Version 9.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
@@ -8,28 +8,12 @@
 #define BIGINTEGER_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
+
+#include "BigIntegerUtil.h"
 
 namespace BigMath
 {
-  typedef long long Long;
-  typedef unsigned long long ULong;
-  
-  typedef int Int;
-  typedef unsigned int UInt;
-
-  // The Size Type
-  typedef UInt SizeT;
-  // The Data Type
-  typedef UInt DataT;
-
-  // The Base Used
-  // const DataT BASE = 2147483647l;
-  const DataT BASE = 100000000lu;
-  // Number of digits in `BASE'
-  const SizeT BASE_DIGIT = 8;
-
   class BigInteger
   {
   private:
@@ -50,30 +34,38 @@ namespace BigMath
         theInteger[i] = fill;
     }
     
-    // Character array constructor
-    BigInteger(char const* n)
-    {
-      BigInteger& bigInt = Parse(n);
-      theInteger = bigInt.theInteger;
-      isNegative = bigInt.isNegative;
-    }
-
     // Copy constructor
     BigInteger(BigInteger const& copy) : theInteger(copy.theInteger), isNegative(copy.isNegative) {}
 
     // The Destructor
     ~BigInteger() {}
 
+      // Assignment Operator
+    BigInteger& operator=(BigInteger const& arg)
+    {
+      if(this != &arg)
+      {
+        theInteger = arg.theInteger;
+        isNegative = arg.isNegative;
+      }
+      return *this;
+    }
+
   public:
     // true if 'this' is zero
     bool IsZero() const
     {
-      return size() == 0 || (size() == 1 && theInteger[0] == 0);
+      return BigIntegerUtil::IsZero(theInteger);
     }
 
     SizeT size() const 
     {
       return theInteger.size();
+    }
+
+    static ULong Base()
+    {
+      return BigIntegerUtil::Base2_32;
     }
 
     bool IsNegative() const
@@ -99,93 +91,10 @@ namespace BigMath
     }
 
 public:
-    static BigInteger& Parse(char const* num)
-    {
-      Int l = strlen(num);
-      if(num == NULL || l == 0)
-        return *new BigInteger();
-
-      Int start = 0;
-      bool isNegative = false;
-
-      // Take care of the sign
-      if (num[start] == '-')
-      {
-        isNegative = true;
-        start++;
-      }
-      else if (num[start] == '+')
-      {
-        start++;
-      }
-
-      // Trim leading zeros
-      while (num[start] == '0')
-      {
-        start++;
-      }
-
-      // If the resulting string is empty return 0
-      l -= start;
-      if (l <= 0)
-        return *new BigInteger();
-      
-      BigInteger& bigInt = *new BigInteger(l / BASE_DIGIT + 1);
-      bigInt.isNegative = isNegative;
-
-      // Convert the string to int
-      SizeT j = 0;
-      --l;
-      while(l >= start)
-      {
-        DataT digit = 0;
-        DataT TEN = 1;
-        
-        for (SizeT i = 0; i < BASE_DIGIT && l >= start; i++, l--)
-        {
-          // Current digit
-          int d = num[l] - '0';
-          if(d < 0 || d > 9)
-          {
-            // Error
-          }
-
-          digit += TEN * d;
-          TEN *= 10;
-        }
- 
-        bigInt.theInteger[j++] = digit;
-      }
-
-      if (bigInt.IsZero())
-      {
-        bigInt.isNegative = false;
-      }
-
-      bigInt.TrimZeros();
-
-      return bigInt;
-    }
-
-      // Assignment Operator
-    BigInteger& operator=(BigInteger const& arg)
-    {
-      if(this != &arg)
-      {
-        theInteger = arg.theInteger;
-        isNegative = arg.isNegative;
-      }
-      return *this;
-    }
-
-public:
     // Trims Leading Zeros
     void TrimZeros()
     {
-      while(size() > 0 && theInteger[size() - 1] == 0)
-      {
-        theInteger.pop_back();
-      }
+      BigIntegerUtil::TrimZeros(theInteger);
     }
 
     BigInteger& SetSign(bool sign)
@@ -214,7 +123,8 @@ public:
         return -1;
 
       // Different in size
-      Long diff = (Long)size() - (Long)with.size();
+      Long diff = size();
+      diff -= with.size();
       if(diff != 0)
         return diff;
 
@@ -222,7 +132,8 @@ public:
       Int cmp = 0;
       for(SizeT i = size() - 1; i >= 0; i--)
       {
-        diff = (Long)theInteger[i] - (Long)with.theInteger[i];
+        diff = theInteger[i];
+        diff -= with.theInteger[i];
         if(diff != 0)
           return diff;
       }
@@ -253,41 +164,6 @@ public:
 
       return cmp * neg;
     }
-
-    // Converts `this' to a string representation
-    string& ToString() const
-    {
-      int len = size() * BASE_DIGIT + 2;
-      char* num = new char[len];
-
-      SizeT j = len - 1;
-      
-      num[j--] = 0;
-
-      for(SizeT i = 0; i < size(); i++)
-      {
-        DataT n = theInteger[i];
-        SizeT l = 0;
-        while(l++ < BASE_DIGIT)
-        {
-          num[j--] = (n % 10) + '0';
-          n /= 10;
-        }
-      }
-
-      // Trim zeros
-      while(num[j+1] == '0')
-        j++;
-
-      if(isNegative)
-        num[j--] = '-';
-
-      string& converted = *new string(num + j + 1);
-
-      delete [] num;
-
-      return converted;
-    }    
    };
 
   // Operators

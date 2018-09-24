@@ -27,6 +27,8 @@ using namespace std;
 #include "BigInteger.h"
 #include "BigIntegerIO.h"
 #include "FastAlgorithms.h"
+#include "BigIntegerOperations.h"
+#include "BigIntegerParser.h"
 
 using namespace BigMath;
 
@@ -43,20 +45,20 @@ BigInteger& Factorial(unsigned int n)
 
 // int main(int argc, char *argv[])
 // {
-//   BigInteger a = BigInteger::Parse("147959365715964420810928396835");
-//   BigInteger b = BigInteger::Parse("3320645306084");
-  
-//   // BigInteger& add = a + b;
-//   // string& str = add.ToString();
-//   // bool cmp = (str == "502579132048119014723704684379");
+//   BigInteger a = BigIntegerParser::Parse("147959365715964420810928396835");
+//   BigInteger b = BigIntegerParser::Parse("3320645306084");
+//   string& str1 = BigIntegerParser::ToString(a);
+//   BigInteger& add = a + b;
+//   string& str = BigIntegerParser::ToString(add);
+//   bool cmp = (str == "147959365715964424131573702919");
 
 //   // BigInteger& sub = a - b;
 //   // str = sub.ToString();
 //   // cmp = (str == "123456789012345678901230000000");
 
-//   BigInteger& mult = FastAlgorithms::Multiply(a, b);
-//   string& str = mult.ToString();
-//   bool cmp = (str == "491320573255883169948959105800365991844140");
+//   // BigInteger& mult = FastAlgorithms::Multiply(a, b);
+//   // string& str = mult.ToString();
+//   // bool cmp = (str == "491320573255883169948959105800365991844140");
 
 //   // BigInteger& div = a / b;
 //   // string& str = div.ToString();
@@ -113,7 +115,7 @@ int main(int argc, char *argv[])
         {
           case '+': r = m + n; break;
           case '-': r = m - n; break;
-          case '*': r = FastAlgorithms::Multiply(m, n); break;
+          case '*': r = m * n; break;
           case '/': r = m / n; break;
           case '%': r = m % n; break;
           // case '^': r = m.Power(n.toLong());
