@@ -135,6 +135,8 @@ namespace BigMath
         result[i] = r[i];
       }
 
+      BigIntegerUtil::TrimZeros(result);
+
       // delete [] r;
       // delete [] aa;
       // delete [] bb;
@@ -157,8 +159,6 @@ public:
       BigInteger& result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
-
-      result.TrimZeros();
       
       return result;
     } 

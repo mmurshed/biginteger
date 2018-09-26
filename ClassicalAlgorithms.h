@@ -74,6 +74,8 @@ namespace BigMath
       }
       result[size-1] = carry;
       
+      BigIntegerUtil::TrimZeros(result);
+
       return result;
     }
 
@@ -107,6 +109,8 @@ namespace BigMath
 
         result[i] = digitOps;
       }
+      
+      BigIntegerUtil::TrimZeros(result);
 
       return result;
     }
@@ -161,6 +165,8 @@ namespace BigMath
         }
         result[i + a.size()] = carry;
       }
+
+      BigIntegerUtil::TrimZeros(result);
 
       return result;
     }
@@ -301,6 +307,8 @@ namespace BigMath
         r = val % d[0];
       }
 
+      BigIntegerUtil::TrimZeros(q);
+      BigIntegerUtil::TrimZeros(w);
       vector< vector<DataT> >& result = *new vector< vector<DataT> >(2);
       result[0] = q;
       result[1] = w;

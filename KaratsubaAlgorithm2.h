@@ -19,13 +19,21 @@ namespace BigMath
   class KaratsubaAlgorithm2
   {
     private:
-    static vector<DataT>& MultiplyUnsignedR(vector<DataT> const& x, vector<DataT> const& y, ULong base)
-    {    
+    static vector<DataT>& MultiplyUnsignedR(vector<DataT>& x, vector<DataT>& y, ULong base)
+    {
+      SizeT size = max(x.size(), y.size());
+
       // bottom of the recursion
-      if (x.size() <= 4 && y.size() <= 4)
+      if (size <= 4)
       {
         return ClassicalAlgorithms::MultiplyUnsigned(x, y, base);
       }
+
+      while(x.size() < size)
+        x.push_back(0);
+
+      while(y.size() < size)
+        y.push_back(0);
 
       // x = x1 * B^m + x2 
       // y = y1 * B^m + y2
@@ -40,13 +48,11 @@ namespace BigMath
       // However, b canbe calcluated from
       // b = (x1 + x2)(y1 + y2) - a - c
       
-      SizeT half = x.size() / 2;
+      SizeT half = size / 2;
 
       // Split x in half for x1 and x2
       vector<DataT>& x1 = *new vector<DataT>(x.begin(), x.begin() + half);
       vector<DataT>& x2 = *new vector<DataT>(x.begin() + half, x.end());
-
-      half = y.size() / 2;
 
       // Split y in half for y1 and y2
       vector<DataT>& y1 = *new vector<DataT>(y.begin(), y.begin() + half);
@@ -77,6 +83,7 @@ namespace BigMath
 
       // a_hat = a * B^2m
       // A faster way to do this is to insert zeros at the end of the number
+      // i.e. Shift left.
       // 856 * 10^3 = 856000
       // This is true for any base
       vector<DataT>& a_hat = ClassicalAlgorithms::ShiftLeft(a, 2 * half);
@@ -84,16 +91,15 @@ namespace BigMath
       // b_hat = b * B^m
       vector<DataT>& b_hat = ClassicalAlgorithms::ShiftLeft(b, half);
 
-      // for(SizeT i = 0; i < half; i++) {
-      //   ClassicalAlgorithms::MultiplyToUnsigned(b, base, base);
-      // }
-
       // g = a * B^2m + b * B^m
       //   =  a_hat   +  b_hat
       vector<DataT>& g = ClassicalAlgorithms::AddUnsigned(a_hat, b_hat, base);
       
       // xy = a * B^2m + b * B^m + c
+      //    =          g         + c
       vector<DataT>& xy = ClassicalAlgorithms::AddUnsigned(g, c, base);
+
+      BigIntegerUtil::TrimZeros(xy);
 
       return xy;
     }
@@ -102,13 +108,6 @@ namespace BigMath
     {
       vector<DataT> aa(a);
       vector<DataT> bb(b);
-      SizeT size = max(a.size(), b.size());
-
-      while(aa.size() < size)
-        aa.push_back(0);
-
-      while(bb.size() < size)
-        bb.push_back(0);
 
       vector<DataT> & result = MultiplyUnsignedR(aa, bb, base);
 
@@ -130,8 +129,6 @@ public:
       BigInteger& result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
-
-      result.TrimZeros();
       
       return result;
     } 

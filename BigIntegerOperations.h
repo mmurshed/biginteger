@@ -68,8 +68,6 @@ public:
       if(aNeg && bNeg)
         result.SetSign(true);
 
-      result.TrimZeros();
-
       return result;
     }
 
@@ -85,7 +83,6 @@ public:
       {
         BigInteger& result = *new BigInteger(b);
         result.SetSign(!b.IsNegative()); // 0 - b
-        result.TrimZeros();
         return result;
       }
       if(bZero)
@@ -95,31 +92,15 @@ public:
       bool aNeg = a.IsNegative();
       bool bNeg = b.IsNegative();
       if(aNeg && !bNeg)
-      {
-        BigInteger& result = AddUnsigned(a, b).SetSign(true);
-        result.TrimZeros();
-        return result; // a is negative, b is not. return -(a + b)
-      }
+        return AddUnsigned(a, b).SetSign(true); // a is negative, b is not. return -(a + b)
       else if(!aNeg && bNeg)
-      {
-        BigInteger& result = AddUnsigned(a, b);
-        result.TrimZeros();
-        return result; // b is negative and a is not. return a + b
-      }
+        return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
       Int cmp = a.UnsignedCompareTo(b);
       if(cmp < 0)
-      {
-        BigInteger& result = SubtractUnsigned(b, a).SetSign(true);
-        result.TrimZeros();
-        return result; // -(b - a)
-      }
+        return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
       else if (cmp > 0)
-      {
-        BigInteger& result = SubtractUnsigned(a, b);
-        result.TrimZeros();
-        return result; // a - b
-      }
+        return SubtractUnsigned(a, b); // a - b
       
       return *new BigInteger(); // Zero when a == b
     }
@@ -132,8 +113,6 @@ public:
       BigInteger& result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
-
-      result.TrimZeros();
       
       return result;
     }
@@ -174,9 +153,7 @@ public:
         results[0].SetSign(true);
         results[1].SetSign(true);
       }
-      results[0].TrimZeros();
-      results[1].TrimZeros();
-            
+      
       return results;
     }
    };
