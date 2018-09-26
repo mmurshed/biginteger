@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGER_H
-#define BIGINTEGER_H
+#ifndef BIG_INTEGER_H
+#define BIG_INTEGER_H
 
 #include <vector>
 using namespace std;
@@ -16,13 +16,15 @@ namespace BigMath
 {
   class BigInteger
   {
+    // Data
   private:
     // The Integer array to hold the number
     vector<DataT> theInteger;
     // True if the number is negative
     bool isNegative;
 
-  public:
+    // Constructor, desctructor, and assignment operator
+  public:  
     BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
     
     BigInteger(vector<DataT> aInt, bool negative) : theInteger(aInt), isNegative(negative) {}
@@ -40,7 +42,7 @@ namespace BigMath
     // The Destructor
     ~BigInteger() {}
 
-      // Assignment Operator
+    // Assignment Operator
     BigInteger& operator=(BigInteger const& arg)
     {
       if(this != &arg)
@@ -51,13 +53,19 @@ namespace BigMath
       return *this;
     }
 
+  // Accessors
   public:
-    // true if 'this' is zero
-    bool IsZero() const
+    vector<DataT> const& GetInteger() const
     {
-      return BigIntegerUtil::IsZero(theInteger);
+      return theInteger;
     }
 
+    DataT operator[] (const SizeT i) const
+    {
+      return theInteger[i];
+    }
+
+    // Properties
     SizeT size() const 
     {
       return theInteger.size();
@@ -72,24 +80,12 @@ namespace BigMath
     {
       return isNegative;
     }
+
+    bool IsZero() const
+    {
+      return BigIntegerUtil::IsZero(theInteger);
+    }
  
-    // Negation, returns -*this
-    BigInteger& operator-()
-    {
-      isNegative = !isNegative;
-      return *this;
-    }
-
-    vector<DataT> const& GetInteger() const
-    {
-      return theInteger;
-    }
-
-    DataT operator[] (const SizeT i) const
-    {
-      return theInteger[i];
-    }
-
 public:
     // Trims Leading Zeros
     void TrimZeros()
@@ -103,6 +99,12 @@ public:
       return *this;
     }
 
+    // Negation, returns -*this
+    BigInteger& operator-()
+    {
+      isNegative = !isNegative;
+      return *this;
+    }
 public:
     // Compares this with `with' irrespective of sign
     // Returns
@@ -166,36 +168,6 @@ public:
     }
    };
 
-  // Operators
-  bool operator==(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) == 0;
-  }
-
-  bool operator!=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) != 0;
-  }
-
-  bool operator>=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) >= 0;
-  }
-
-  bool operator<=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) <= 0;
-  }
-
-  bool operator>(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b)>0;
-  }
-
-  bool operator<(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b)<0;
-  }
 }
 
 #endif

@@ -4,11 +4,10 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGERUTIL_H
-#define BIGINTEGERUTIL_H
+#ifndef BIG_INTEGER_UTIL_H
+#define BIG_INTEGER_UTIL_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
 
 #include "BigInteger.h"

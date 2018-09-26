@@ -4,11 +4,10 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef CLASSICALALGORITHMS_H
-#define CLASSICALALGORITHMS_H
+#ifndef CLASSICAL_ALGORITHMS_H
+#define CLASSICAL_ALGORITHMS_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
 
 #include "BigIntegerUtil.h"
@@ -16,7 +15,7 @@ using namespace std;
 
 namespace BigMath
 {
-  class ClassicalAlgorithms
+  class ClassicalAlgorithms 
   {
     public:
     static void AddToUnsigned(vector<DataT> & a, ULong const& b, ULong const& base)
@@ -75,8 +74,6 @@ namespace BigMath
       }
       result[size-1] = carry;
       
-      BigIntegerUtil::TrimZeros(result);
-
       return result;
     }
 
@@ -110,8 +107,6 @@ namespace BigMath
 
         result[i] = digitOps;
       }
-      
-      BigIntegerUtil::TrimZeros(result);
 
       return result;
     }
@@ -166,8 +161,6 @@ namespace BigMath
         }
         result[i + a.size()] = carry;
       }
-
-      BigIntegerUtil::TrimZeros(result);
 
       return result;
     }
@@ -308,8 +301,6 @@ namespace BigMath
         r = val % d[0];
       }
 
-      BigIntegerUtil::TrimZeros(q);
-      BigIntegerUtil::TrimZeros(w);
       vector< vector<DataT> >& result = *new vector< vector<DataT> >(2);
       result[0] = q;
       result[1] = w;
@@ -335,7 +326,31 @@ namespace BigMath
       }
 
       return bigIntB2;
-    } 
+    }
+
+    // Returns an integer by shifting n places
+    // Equivalent to a * B^n
+    static vector<DataT>& ShiftLeft(vector<DataT> const& bigInt, SizeT shift)
+    {
+      SizeT size = bigInt.size() + shift;
+      vector<DataT>& result = *new vector<DataT>(size);
+
+      Int j = size - 1;
+
+      // Copy
+      for(Int i = bigInt.size() - 1; i >= 0; i--, j--)
+      {
+        result[j] = bigInt[i];
+      }
+      
+      // Insert zeros
+      for(;j >= 0; j--)
+      {
+        result[j] = 0;
+      }
+
+      return result;
+    }
    };
 }
 

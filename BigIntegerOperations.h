@@ -4,11 +4,10 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGEROPERATIONS_H
-#define BIGINTEGEROPERATIONS_H
+#ifndef BIG_INTEGER_OPERATIONS_H
+#define BIG_INTEGER_OPERATIONS_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
 
 #include "BigIntegerUtil.h"
@@ -69,6 +68,8 @@ public:
       if(aNeg && bNeg)
         result.SetSign(true);
 
+      result.TrimZeros();
+
       return result;
     }
 
@@ -81,7 +82,12 @@ public:
       if(aZero && bZero)
         return *new BigInteger(); // 0 - 0
       if(aZero)
-        return -(*new BigInteger(b)); // 0 - b
+      {
+        BigInteger& result = *new BigInteger(b);
+        result.SetSign(!b.IsNegative()); // 0 - b
+        result.TrimZeros();
+        return result;
+      }
       if(bZero)
         return *new BigInteger(a); // a - 0
 
@@ -89,15 +95,31 @@ public:
       bool aNeg = a.IsNegative();
       bool bNeg = b.IsNegative();
       if(aNeg && !bNeg)
-        return AddUnsigned(a, b).SetSign(true); // a is negative, b is not. return -(a + b)
+      {
+        BigInteger& result = AddUnsigned(a, b).SetSign(true);
+        result.TrimZeros();
+        return result; // a is negative, b is not. return -(a + b)
+      }
       else if(!aNeg && bNeg)
-        return AddUnsigned(a, b); // b is negative and a is not. return a + b
+      {
+        BigInteger& result = AddUnsigned(a, b);
+        result.TrimZeros();
+        return result; // b is negative and a is not. return a + b
+      }
 
       Int cmp = a.UnsignedCompareTo(b);
       if(cmp < 0)
-        return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
+      {
+        BigInteger& result = SubtractUnsigned(b, a).SetSign(true);
+        result.TrimZeros();
+        return result; // -(b - a)
+      }
       else if (cmp > 0)
-        return SubtractUnsigned(a, b); // a - b
+      {
+        BigInteger& result = SubtractUnsigned(a, b);
+        result.TrimZeros();
+        return result; // a - b
+      }
       
       return *new BigInteger(); // Zero when a == b
     }
@@ -110,6 +132,8 @@ public:
       BigInteger& result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
+
+      result.TrimZeros();
       
       return result;
     }
@@ -150,13 +174,14 @@ public:
         results[0].SetSign(true);
         results[1].SetSign(true);
       }
-      
+      results[0].TrimZeros();
+      results[1].TrimZeros();
+            
       return results;
     }
- 
    };
 
-     // Adds Two BigInteger
+  // Adds Two BigInteger
   BigInteger& operator+(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::Add(a, b);
@@ -182,6 +207,37 @@ public:
   BigInteger& operator%(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::DivideAndRemainder(a, b)[1];
+  }
+
+  // Comparison operators
+  bool operator==(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) == 0;
+  }
+
+  bool operator!=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) != 0;
+  }
+
+  bool operator>=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) >= 0;
+  }
+
+  bool operator<=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) <= 0;
+  }
+
+  bool operator>(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b)>0;
+  }
+
+  bool operator<(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b)<0;
   }
 }
 

@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGERPARSER_H
-#define BIGINTEGERPARSER_H
+#ifndef BIG_INTEGER_PARSER_H
+#define BIG_INTEGER_PARSER_H
 
 #include <vector>
 #include <string>

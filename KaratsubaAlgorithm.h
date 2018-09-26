@@ -4,12 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef FASTALGORITHMS_H
-#define FASTALGORITHMS_H
-
-#include <vector>
-#include <tuple>
-using namespace std;
+#ifndef KARATSUBA_ALGORITHM_H
+#define KARATSUBA_ALGORITHM_H
 
 #include "BigInteger.h"
 #include "BigIntegerUtil.h"
@@ -17,10 +13,9 @@ using namespace std;
 
 namespace BigMath
 {
-  class FastAlgorithms
+  class KaratsubaAlgorithm
   {
     private:
-
     static const int KARAT_CUTOFF = 4;
 
     static void gradeSchool(Long *a, Long *b, Long *ret, SizeT d)
@@ -42,7 +37,7 @@ namespace BigMath
     // my use of the space in ret is pretty creative.
     // | ar*br  | al*bl  | asum*bsum | lower-recursion space | asum | bsum |
     //  d digits d digits  d digits     3d digits              d/2    d/2
-    static void karatsuba(Long *a, Long *b, Long *ret, SizeT d, DataT base)
+    static void karatsuba(Long *a, Long *b, Long *ret, SizeT d, ULong base)
     {
         Long *ar = &a[0]; // low-order half of a
         Long *al = &a[d/2]; // high-order half of a
@@ -83,7 +78,7 @@ namespace BigMath
           ret[i + d/2] += x3[i];
     }
 
-    static void doCarry(Long *a, SizeT d, DataT base)
+    static void doCarry(Long *a, SizeT d, ULong base)
     {
         Long c = 0;
         for(SizeT i = 0; i < d; i++)
@@ -105,7 +100,7 @@ namespace BigMath
         {} 
     }
 
-    static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, DataT base)
+    static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
       SizeT size = max(a.size(), b.size());
       SizeT rsize = size * 6;
@@ -140,50 +135,12 @@ namespace BigMath
         result[i] = r[i];
       }
 
-      BigIntegerUtil::TrimZeros(result);
-
       // delete [] r;
       // delete [] aa;
       // delete [] bb;
 
       return result;
     }
-
-    // static void MultiplyUnsigned(vector<DataT>& a, vector<DataT>& b, SizeT s, SizeT e, vector<DataT>& r, SizeT d)
-    // {
-    //   SizeT n = e - s;
-    //   if(n <= KARAT_CUTOFF)
-    //   {
-    //     r = ClassicAlgorithms::MultiplyUnsigned(a, b);
-    //     return;
-    //   }
-
-    //   SizeT m = (s + e) / 2;
-
-    // }
-
-    // static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b)
-    // {
-    //   vector<DataT> aa(a);
-    //   vector<DataT> bb(b);
-    //   SizeT size = max(a.size(), b.size());
-    //   while(aa.size() < size)
-    //     aa.push_back(0);
-    //   while(bb.size() < size)
-    //     bb.push_back(0);
-
-    //   SizeT size = 6 * size;
-    //   vector<DataT>& result = *new vector<DataT>(size);
-
-    //   // let d be the smallest power of 2 greater than d_a and d_b,
-    //   // and zero out the rest of a and b.
-    //   SizeT d = 1;
-    //   for(d = 1; d < size; d *= 2);
-
-    //   MultiplyUnsigned(aa, bb, 0, size - 1, result, d);
-
-    //   return result;
-    // }
 
     static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
@@ -200,6 +157,8 @@ public:
       BigInteger& result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
+
+      result.TrimZeros();
       
       return result;
     } 
