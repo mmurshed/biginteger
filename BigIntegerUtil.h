@@ -34,6 +34,10 @@ namespace BigMath
     // Base 2^32
     static const ULong Base2_32 = 4294967296ul; // 2^32
 
+    // Base 10
+    static const ULong Base10 = 10;
+    static const ULong Base100 = 100;
+
     public:
     // Trims Leading Zeros
     static void TrimZeros(vector<DataT>& aInt)

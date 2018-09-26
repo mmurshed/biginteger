@@ -17,6 +17,45 @@ namespace BigMath
 {
   class ClassicalAlgorithms 
   {
+    // Unsigned comparison
+    public:
+    // Compares this with `with' irrespective of sign
+    // Returns
+    // 0 if equal
+    // +value if this > with
+    // -value if this < with
+    static Int UnsignedCompareTo(vector<DataT> const& a, vector<DataT> const& b)
+    {
+      // Case with zero
+      bool aIsZero = BigIntegerUtil::IsZero(a);
+      bool bIsZero = BigIntegerUtil::IsZero(b);
+
+      if(aIsZero && bIsZero)
+        return 0;
+      else if(!aIsZero && bIsZero)
+        return 1;
+      else if(aIsZero && !bIsZero)
+        return -1;
+
+      // Different in size
+      Long diff = a.size();
+      diff -= b.size();
+      if(diff != 0)
+        return diff;
+
+      // Both ints have same number of digits
+      Int cmp = 0;
+      for(SizeT i = a.size() - 1; i >= 0; i--)
+      {
+        diff = a[i];
+        diff -= b[i];
+        if(diff != 0)
+          return diff;
+      }
+
+      return cmp;
+    }
+
     public:
     static void AddToUnsigned(vector<DataT> & a, ULong const& b, ULong const& base)
     {

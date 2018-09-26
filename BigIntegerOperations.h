@@ -96,7 +96,7 @@ public:
       else if(!aNeg && bNeg)
         return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
-      Int cmp = a.UnsignedCompareTo(b);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
       if(cmp < 0)
         return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
       else if (cmp > 0)
@@ -127,7 +127,7 @@ public:
         return results; // case of 0
       }
 
-      Int cmp = a.UnsignedCompareTo(b);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
       if(cmp == 0)
       {
         vector<DataT>& one = *new vector<DataT>(1);

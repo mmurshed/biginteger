@@ -7,9 +7,6 @@
 #ifndef KARATSUBA_ALGORITHM2_H
 #define KARATSUBA_ALGORITHM2_H
 
-#include <vector>
-using namespace std;
-
 #include "BigInteger.h"
 #include "BigIntegerUtil.h"
 #include "ClassicalAlgorithms.h"
@@ -19,97 +16,130 @@ namespace BigMath
   class KaratsubaAlgorithm2
   {
     private:
-    static vector<DataT>& MultiplyUnsignedR(vector<DataT>& x, vector<DataT>& y, ULong base)
+    static const int KARAT_CUTOFF = 4;
+
+    static void gradeSchool(Long *a, Long *b, Long *ret, SizeT d)
     {
-      SizeT size = max(x.size(), y.size());
+        for(SizeT i = 0; i < 2 * d; i++)
+          ret[i] = 0;
+        for(SizeT i = 0; i < d; i++)
+        {
+            for(SizeT j = 0; j < d; j++)
+              ret[i + j] += a[i] * b[j];
+        }
+    }
 
-      // bottom of the recursion
-      if (size <= 4)
-      {
-        return ClassicalAlgorithms::MultiplyUnsigned(x, y, base);
-      }
+    // Karatsuba Algorithm
+    // http://www.cburch.com/proj/karat/karat.txt
 
-      while(x.size() < size)
-        x.push_back(0);
+    // ret must have space for 6d digits.
+    // the result will be in only the first 2d digits
+    // my use of the space in ret is pretty creative.
+    // | ar*br  | al*bl  | asum*bsum | lower-recursion space | asum | bsum |
+    //  d digits d digits  d digits     3d digits              d/2    d/2
+    static void karatsuba(Long *a, Long *b, Long *ret, SizeT d, ULong base)
+    {
+        Long *ar = &a[0]; // low-order half of a
+        Long *al = &a[d/2]; // high-order half of a
+        Long *br = &b[0]; // low-order half of b
+        Long *bl = &b[d/2]; // high-order half of b
+        Long *asum = &ret[d * 5]; // sum of a's halves
+        Long *bsum = &ret[d * 5 + d/2]; // sum of b's halves
+        Long *x1 = &ret[d * 0]; // ar*br's location
+        Long *x2 = &ret[d * 1]; // al*bl's location
+        Long *x3 = &ret[d * 2]; // asum*bsum's location
 
-      while(y.size() < size)
-        y.push_back(0);
+        // when d is small, we're better off just reverting to
+        // grade-school multiplication, since it's faster at this point.
+        if(d <= KARAT_CUTOFF)
+        {
+            gradeSchool(a, b, ret, d);
+            return;
+        }
 
-      // x = x1 * B^m + x2 
-      // y = y1 * B^m + y2
-      // xy = (x1 * B^m + x2)(y1 * B^m + y2)
-      //    = (x1 * y1) * B^2m + (x1 * y2 + x2 * y1) * B^m + x2 * y2
-      //    =     a     * B^2m +          b          * B^m +    c
-      // Where,
-      // a = x1 * y1
-      // b = x1 * y2 + x2 * y1
-      // c = x2 * y2
+        // compute asum and bsum
+        for(SizeT i = 0; i < d / 2; i++)
+        {
+            asum[i] = al[i] + ar[i];
+            bsum[i] = bl[i] + br[i];
+        }
 
-      // However, b canbe calcluated from
-      // b = (x1 + x2)(y1 + y2) - a - c
-      
-      SizeT half = size / 2;
+        // do recursive calls (I have to be careful about the order,
+        // since the scratch space for the recursion on x1 includes
+        // the space used for x2 and x3)
+        karatsuba(ar, br, x1, d/2, base);
+        karatsuba(al, bl, x2, d/2, base);
+        karatsuba(asum, bsum, x3, d/2, base);
 
-      // Split x in half for x1 and x2
-      vector<DataT>& x1 = *new vector<DataT>(x.begin(), x.begin() + half);
-      vector<DataT>& x2 = *new vector<DataT>(x.begin() + half, x.end());
+        // combine recursive steps
+        for(SizeT i = 0; i < d; i++)
+          x3[i] = x3[i] - x1[i] - x2[i];
+        for(SizeT i = 0; i < d; i++)
+          ret[i + d/2] += x3[i];
+    }
 
-      // Split y in half for y1 and y2
-      vector<DataT>& y1 = *new vector<DataT>(y.begin(), y.begin() + half);
-      vector<DataT>& y2 = *new vector<DataT>(y.begin() + half, y.end());
+    static void doCarry(Long *a, SizeT d, ULong base)
+    {
+        Long c = 0;
+        for(SizeT i = 0; i < d; i++)
+        {
+            a[i] += c;
+            if(a[i] < 0)
+            {
+                c = -(-(a[i] + 1) / base + 1);
+            }
+            else
+            {
+                c = a[i] / base;
+            }
+            a[i] -= c * base;
+        }
 
-      // a = x1 * y1
-      vector<DataT>& a = MultiplyUnsignedR(x1, y1, base);
-      
-      // c = x2 * y2
-      vector<DataT>& c = MultiplyUnsignedR(x2, y2, base);
-
-      // b = (x1 + x2)(y1 + y2) - a - c
-      //   = (x1 + x2)(y1 + y2) - (a + c)
-      //   =     p   *    q   -      r
-
-      // p = x1 + x2
-      vector<DataT>& p = ClassicalAlgorithms::AddUnsigned(x1, x2, base);
-      // q = y1 + y2
-      vector<DataT>& q = ClassicalAlgorithms::AddUnsigned(y1, y2, base);
-      // r = a + c
-      vector<DataT>& r = ClassicalAlgorithms::AddUnsigned(a, c, base);
-      
-      // pq = p * q = (x1 + x2)(y1 + y2)
-      vector<DataT>& pq = MultiplyUnsignedR(p, q, base);
-
-      // b = pq - r
-      vector<DataT>& b =  ClassicalAlgorithms::SubtractUnsigned(pq, r, base);
-
-      // a_hat = a * B^2m
-      // A faster way to do this is to insert zeros at the end of the number
-      // i.e. Shift left.
-      // 856 * 10^3 = 856000
-      // This is true for any base
-      vector<DataT>& a_hat = ClassicalAlgorithms::ShiftLeft(a, 2 * half);
-
-      // b_hat = b * B^m
-      vector<DataT>& b_hat = ClassicalAlgorithms::ShiftLeft(b, half);
-
-      // g = a * B^2m + b * B^m
-      //   =  a_hat   +  b_hat
-      vector<DataT>& g = ClassicalAlgorithms::AddUnsigned(a_hat, b_hat, base);
-      
-      // xy = a * B^2m + b * B^m + c
-      //    =          g         + c
-      vector<DataT>& xy = ClassicalAlgorithms::AddUnsigned(g, c, base);
-
-      BigIntegerUtil::TrimZeros(xy);
-
-      return xy;
+        // Overflow
+        if(c != 0) 
+        {} 
     }
 
     static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
-      vector<DataT> aa(a);
-      vector<DataT> bb(b);
+      SizeT size = max(a.size(), b.size());
+      SizeT rsize = size * 6;
+      
+      // Copy a
+      Long* aa  = new Long[size];
+      for(SizeT i = 0; i < a.size(); i++)
+        aa[i] = a[i];
+      for(SizeT i = a.size(); i < size; i++)
+        aa[i] = 0;
 
-      vector<DataT> & result = MultiplyUnsignedR(aa, bb, base);
+      // Copy b
+      Long* bb  = new Long[size];
+      for(SizeT i = 0; i < b.size(); i++)
+        bb[i] = b[i];
+      for(SizeT i = b.size(); i < size; i++)
+        bb[i] = 0;
+
+      SizeT d = 1;
+      for(d = 1; d < size; d *= 2);
+
+      Long* r  = new Long[rsize];
+
+      karatsuba(aa, bb, r, d, base); // compute product w/o regard to carry
+      doCarry(r, 2 * d, base); // now do any carrying
+
+      vector<DataT>& result  = *new vector<DataT>(rsize);
+      for(SizeT i = 0; i < rsize; i++)
+      {
+        if(r[i] == 0)
+          break;
+        result[i] = r[i];
+      }
+
+      BigIntegerUtil::TrimZeros(result);
+
+      // delete [] r;
+      // delete [] aa;
+      // delete [] bb;
 
       return result;
     }

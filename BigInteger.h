@@ -11,6 +11,7 @@
 using namespace std;
 
 #include "BigIntegerUtil.h"
+#include "ClassicalAlgorithms.h"
 
 namespace BigMath
 {
@@ -106,43 +107,6 @@ public:
       return *this;
     }
 public:
-    // Compares this with `with' irrespective of sign
-    // Returns
-    // 0 if equal
-    // +value if this > with
-    // -value if this < with
-    Int UnsignedCompareTo(BigInteger const& with)const
-    {
-      // Case with zero
-      bool isZero = this->IsZero();
-      bool otherZero = with.IsZero();
-
-      if(isZero && otherZero)
-        return 0;
-      else if(!isZero && otherZero)
-        return 1;
-      else if(isZero && !otherZero)
-        return -1;
-
-      // Different in size
-      Long diff = size();
-      diff -= with.size();
-      if(diff != 0)
-        return diff;
-
-      // Both ints have same number of digits
-      Int cmp = 0;
-      for(SizeT i = size() - 1; i >= 0; i--)
-      {
-        diff = theInteger[i];
-        diff -= with.theInteger[i];
-        if(diff != 0)
-          return diff;
-      }
-
-      return cmp;
-    }
-
     // Compares this with `with'
     // Returns
     // 0 if equal
@@ -157,7 +121,7 @@ public:
       else if(isNegative && !with.isNegative)
         return -1;
 
-      Int cmp = UnsignedCompareTo(with);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(theInteger, with.theInteger);
       
       // Now, Both are Same Sign
       Int neg = 1;
