@@ -45,7 +45,7 @@ namespace BigMath
       // b = x1 * y2 + x2 * y1
       // c = x2 * y2
 
-      // However, b canbe calcluated from
+      // However, b can be calcluated from
       // b = (x1 + x2)(y1 + y2) - a - c
       
       SizeT half = size / 2;
@@ -53,14 +53,14 @@ namespace BigMath
       // Split x in half for x1 and x2
       // Vector contains the number is reverse order
       // So first half is x2 and second half is x1
-      vector<DataT>& x2 = *new vector<DataT>(x.begin(), x.begin() + half);
-      vector<DataT>& x1 = *new vector<DataT>(x.begin() + half, x.end());
+      vector<DataT>& x2 = *new vector<DataT>(x.begin(), x.begin() + half + 1);
+      vector<DataT>& x1 = *new vector<DataT>(x.begin() + half + 1, x.end());
 
       // Split y in half for y1 and y2
       // Vector contains the number is reverse order
       // So first half is y2 and second half is y1
-      vector<DataT>& y2 = *new vector<DataT>(y.begin(), y.begin() + half);
-      vector<DataT>& y1 = *new vector<DataT>(y.begin() + half, y.end());
+      vector<DataT>& y2 = *new vector<DataT>(y.begin(), y.begin() + half + 1);
+      vector<DataT>& y1 = *new vector<DataT>(y.begin() + half + 1, y.end());
 
       // a = x1 * y1
       vector<DataT>& a = MultiplyUnsignedR(x1, y1, base);
