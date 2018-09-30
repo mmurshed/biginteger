@@ -89,9 +89,9 @@ namespace BigMath
  
 public:
     // Trims Leading Zeros
-    void TrimZeros()
+    SizeT TrimZeros()
     {
-      BigIntegerUtil::TrimZeros(theInteger);
+      return BigIntegerUtil::TrimZeros(theInteger);
     }
 
     BigInteger& SetSign(bool sign)

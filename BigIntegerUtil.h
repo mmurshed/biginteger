@@ -40,17 +40,40 @@ namespace BigMath
 
     public:
     // Trims Leading Zeros
-    static void TrimZeros(vector<DataT>& aInt)
+    // Runtime O(n), Space O(1)
+    static SizeT TrimZeros(vector<DataT>& a)
     {
-      while(aInt.size() > 0 && aInt[aInt.size() - 1] == 0)
+      SizeT size = a.size();
+      Int i = size;
+      while(i > 0 && a[i - 1] == 0)
       {
-        aInt.pop_back();
+        a.pop_back();
+        i--;
       }
+      return size - i; // return how many zeros are removed
+    }
+
+    // Runtime O(n), Space O(1)
+    static SizeT FindNonZeroByte(vector<DataT> const& a)
+    {
+      Int i = a.size();
+      while(i > 0 && a[i - 1] == 0)
+        i--;
+      return i;
     }
     
-    static bool IsZero(vector<DataT> const& bigInt)
+    // Runtime O(n), Space O(1)
+    static bool IsZero(vector<DataT> const& a)
     {
-      return bigInt.size() == 0 || (bigInt.size() == 1 && bigInt[0] == 0);
+      bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
+      if(!zero)
+      {
+        Int i = a.size();
+        while(i > 0 && a[i - 1] == 0)
+          i--;
+        zero = (i == 0);
+      }
+      return zero;
     }
    };
 }

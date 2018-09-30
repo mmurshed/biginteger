@@ -118,15 +118,20 @@ namespace BigMath
     }    
 
     // Convert unsigned integer to base 10^n string
-    static Int UnsignedBase10nToString(vector<DataT> const& bigInt, SizeT baseDigit, char *num, SizeT len)
+    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT baseDigit, char *num, SizeT len)
     {
       SizeT j = len - 1;
       
       num[j--] = 0;
 
-      for(Int i = 0; i < bigInt.size(); i++)
+      // Trim zeros
+      SizeT size = a.size();
+      while(a[size-1] == 0)
+        size--;
+
+      for(Int i = 0; i < size; i++)
       {
-        DataT n = bigInt[i];
+        DataT n = a[i];
         SizeT l = 0;
         while(l++ < baseDigit)
         {

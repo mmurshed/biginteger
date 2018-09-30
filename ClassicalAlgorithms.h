@@ -24,6 +24,7 @@ namespace BigMath
     // 0 if equal
     // +value if this > with
     // -value if this < with
+    // Runtime O(n), Space O(1)
     static Int UnsignedCompareTo(vector<DataT> const& a, vector<DataT> const& b)
     {
       // Case with zero
@@ -57,6 +58,7 @@ namespace BigMath
     }
 
     public:
+    // Runtime O(n), Space O(1)
     static void AddToUnsigned(vector<DataT> & a, ULong const& b, ULong const& base)
     {
       ULong sum = b;
@@ -89,55 +91,82 @@ namespace BigMath
       }
     }
 
+    // Runtime O(n), Space O(n)
     static vector<DataT>& AddUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong const& base)
     {
       SizeT size = max(a.size(),  b.size()) + 1;
       vector<DataT>& result = *new vector<DataT>(size);
-
-      Long carry = 0;
-
-      for(SizeT i = 0; i < size; i++)
-      {
-        Long digitOps = 0;
-
-        if(i < a.size())
-          digitOps = a[i];
-
-        digitOps += carry;
-                
-        if(i < b.size())
-          digitOps += b[i];
-
-        result[i] = digitOps % base;
-        carry = digitOps / base;
-      }
-      result[size-1] = carry;
+      
+      AddUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
       
       BigIntegerUtil::TrimZeros(result);
 
       return result;
     }
+    
+    // Runtime O(n), Space O(n)
+    static void AddUnsigned(
+      vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
+      vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
+      vector<DataT>& result, SizeT rStart, ULong const& base)
+    {
+      SizeT size = max(aEnd - aStart,  bEnd - bStart);
+      Long carry = 0;
 
-    // Implentation of subtraction by paper-pencil method
+      for(SizeT i = 0; i <= size; i++)
+      {
+        Long digitOps = 0;
+
+        if(i + aStart < aEnd)
+          digitOps = a[aStart + i];
+
+        digitOps += carry;
+                
+        if(i + bStart < bEnd)
+          digitOps += b[bStart + i];
+
+        result[rStart + i] = digitOps % base;
+        carry = digitOps / base;
+      }
+      result[rStart + size] = carry;
+    }
+    
     // Assumption: a > b
+    // Runtime O(n), Space O(n)
     static vector<DataT>& SubtractUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong const& base)
     {
       SizeT size = max(a.size(),  b.size()) + 1;
       vector<DataT>& result = *new vector<DataT>(size);
 
+      SubtractUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
+      
+      BigIntegerUtil::TrimZeros(result);
+
+      return result;
+
+    }
+    // Implentation of subtraction by paper-pencil method
+    // Assumption: a > b
+    // Runtime O(n), Space O(n)
+    static void SubtractUnsigned(
+      vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
+      vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
+      vector<DataT>& result, SizeT rStart, ULong const& base)
+    {
+      SizeT size = max(aEnd - aStart,  bEnd - bStart);
       Long carry = 0;
 
-      for(SizeT i = 0; i < size; i++)
+      for(SizeT i = 0; i <= size; i++)
       {
         Long digitOps = 0;
 
-        if(i < a.size())
-          digitOps = a[i];
+        if(i + aStart < aEnd)
+          digitOps = a[aStart + i];
 
         digitOps -= carry;
         
-        if(i < b.size())
-          digitOps -= b[i];
+        if(i + bStart < bEnd)
+          digitOps -= b[bStart + i];
 
         carry = 0;
         if(digitOps < 0)
@@ -146,14 +175,11 @@ namespace BigMath
           carry = 1;
         }
 
-        result[i] = digitOps;
+        result[rStart + i] = digitOps;
       }
-      
-      BigIntegerUtil::TrimZeros(result);
-
-      return result;
     }
     
+    // Runtime O(n), Space O(1)
     static void MultiplyToUnsigned(vector<DataT>& a, ULong const& b, ULong const& base)
     {
       if(BigIntegerUtil::IsZero(a)) // 0 times b
@@ -184,35 +210,50 @@ namespace BigMath
 
     // Implentation of multiplication by paper-pencil method
     // Classical algorithm
+    // Runtime O(n^2), Space O(n)
     static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong const& base)
     {
       SizeT size = a.size() + b.size() + 1;
       vector<DataT>& result = *new vector<DataT>(size);
-      
-      for(SizeT i = 0; i < b.size(); i++)
-      {
-        ULong carry = 0;
-        for(SizeT j = 0 ; j < a.size(); j++)
-        {
-          ULong multiply = a[j];
-          multiply *= b[i];
-          multiply += result[i + j];
-          multiply += carry;
-          
-          result[i + j] = multiply % base;
-          carry = multiply / base;
-        }
-        result[i + a.size()] = carry;
-      }
+
+      MultiplyUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
 
       BigIntegerUtil::TrimZeros(result);
 
-      return result;
+      return result;      
+    }
+
+    // Implentation of multiplication by paper-pencil method
+    // Classical algorithm
+    // Runtime O(n^2), Space O(n)
+    static void MultiplyUnsigned(
+      vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
+      vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
+      vector<DataT>& result, SizeT rStart, ULong const& base)
+    {
+      for(SizeT i = bStart; i < bEnd; i++)
+      {
+        ULong carry = 0;
+        for(SizeT j = aStart; j < aEnd; j++)
+        {
+          SizeT k = rStart + (i-bStart) + (j-aStart);
+          ULong multiply = a[j];
+          multiply *= b[i];
+          multiply += result[k];
+          multiply += carry;
+          
+          result[k] = multiply % base;
+          carry = multiply / base;
+        }
+        SizeT k = rStart + (i-bStart) + (aEnd-aStart);
+        result[k] = carry;
+      }
     }
 
     // Implentation of division by paper-pencil method
     // Assumption: a > b
     // See: D.E.Knuth 4.3.1
+    // Runtime O(n^2), Space O(n)
     static vector< vector<DataT> >& DivideAndRemainderUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong const& base)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b, 

@@ -1,13 +1,15 @@
+
 /**
  * BigInteger Class
  * Version 8.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef KARATSUBA_ALGORITHM_H
-#define KARATSUBA_ALGORITHM_H
+#ifndef TOOM_COOK_ALGORITHM_H
+#define TOOM_COOK_ALGORITHM_H
 
 #include <vector>
+#include <stack>
 using namespace std;
 
 #include "BigInteger.h"
@@ -16,10 +18,15 @@ using namespace std;
 
 namespace BigMath
 {
-  class KaratsubaAlgorithm
+  class ToomCookAlgorithm
   {
+    stack<DataT> U;
+    stack<DataT> V;
+    stack<DataT> C;
+    stack<DataT> W;
+    
     private:
-    static vector<DataT>& MultiplyUnsignedR(vector<DataT>& x, vector<DataT>& y, ULong base)
+    vector<DataT>& MultiplyUnsignedR(vector<DataT>& x, vector<DataT>& y, ULong base)
     {
       if(BigIntegerUtil::IsZero(x) || BigIntegerUtil::IsZero(y))
         return *new vector<DataT>();
