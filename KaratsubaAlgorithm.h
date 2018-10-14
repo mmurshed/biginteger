@@ -51,7 +51,7 @@ namespace BigMath
         
         if(la <= 5)
         {
-          // Use naive method
+          // Use naive method 
           ClassicalAlgorithms::MultiplyUnsigned(
             a, aStart, aEnd, 
             b, bStart, bEnd, 
@@ -103,7 +103,7 @@ namespace BigMath
         SizeT lt = (la - m) + (lb - m) + 1;
         
         // Clear result array
-        BigIntegerUtil::SetBit(w, wStart, wStart + lt - 1);
+        BigIntegerUtil::SetBit(w, wStart, wStart + lt);
 
         // Compute a_h * b_h into w_0, ... ,w_(la+lb-2m-1)
         // w = ah * bh
@@ -125,7 +125,7 @@ namespace BigMath
         // Subtract ah * bh * B^m
         // c -= ah * bh * B^m
         ClassicalAlgorithms::SubtractFromUnsigned(
-          c, cStart + m, cStart + la + lb - m - 1, // c
+          c, cStart + m, c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
         
@@ -156,7 +156,7 @@ namespace BigMath
         // Subtract al * bl * B^m
         // c -= al * bl * B^m
         ClassicalAlgorithms::SubtractFromUnsigned(
-          c, cStart + m, cStart + m + m + m - 1, // c
+          c, cStart + m, c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
       }
@@ -174,7 +174,7 @@ namespace BigMath
       BigIntegerUtil::SetBit(w, 0, size - 1);
 
       MultiplyUnsignedRecursive(a, 0, a.size() - 1, b, 0, b.size() - 1, c, 0, w, 0, base);
-
+      
       return c;
     }
 

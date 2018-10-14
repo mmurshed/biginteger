@@ -159,8 +159,8 @@ int main(int argc, char *argv[])
   // a[0] = 200;
   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
 
-  BigInteger a = BigIntegerParser::Parse("979711637398962551067506011367");
-  BigInteger b = BigIntegerParser::Parse("294006133189960724675060113672");
+  BigInteger a = BigIntegerParser::Parse("99999999");
+  BigInteger b = BigIntegerParser::Parse("99999999");
 
   // BigInteger& a = BigIntegerParser::Parse("14795936");
   // BigInteger& b = BigIntegerParser::Parse("33202659");
@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
 
   BigInteger& mult = KaratsubaAlgorithm::Multiply(a, b);
   string& str = BigIntegerParser::ToString(mult);
-  bool cmp = (str == "288041230152873890464069116714261034743129262686950344109624");
+  bool cmp = (str == "9999999800000001");
 
   // BigInteger& div = a / b;
   // string& str = div.ToString();

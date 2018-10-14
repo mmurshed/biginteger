@@ -96,6 +96,8 @@ namespace BigMath
     {
       SizeT size = max(a.size(),  b.size()) + 1;
       vector<DataT>& result = *new vector<DataT>(size);
+
+      result[size - 1] = 0;
       
       AddUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
       
