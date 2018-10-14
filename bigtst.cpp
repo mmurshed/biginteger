@@ -22,7 +22,7 @@ using namespace std;
 
 #include "BigInteger.h"
 #include "BigIntegerIO.h"
-// #include "KaratsubaAlgorithm.h"
+#include "KaratsubaAlgorithm.h"
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
 
@@ -148,22 +148,22 @@ int main(int argc, char *argv[])
   // BigInteger zero3(a, false);
   // SizeT z3 = zero3.TrimZeros(); // should be 4
 
-  BigInteger zero1;
-  SizeT z1 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+  // BigInteger zero1;
+  // SizeT z1 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
 
-  BigInteger zero2(5, false, 0);
-  vector<DataT> a(zero2.GetInteger());
+  // BigInteger zero2(5, false, 0);
+  // vector<DataT> a(zero2.GetInteger());
 
-  SizeT z2 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+  // SizeT z2 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
 
-  a[0] = 200;
-  SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
+  // a[0] = 200;
+  // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
 
-  // BigInteger a = BigIntegerParser::Parse("979711637398962551067506011367");
-  // BigInteger b = BigIntegerParser::Parse("2940061331899607246");
+  BigInteger a = BigIntegerParser::Parse("979711637398962551067506011367");
+  BigInteger b = BigIntegerParser::Parse("294006133189960724675060113672");
 
-  // // BigInteger a = BigIntegerParser::Parse("14795936");
-  // // BigInteger b = BigIntegerParser::Parse("33202");
+  // BigInteger& a = BigIntegerParser::Parse("14795936");
+  // BigInteger& b = BigIntegerParser::Parse("33202659");
 
   // BigInteger& add = a + b;
   // string& str = BigIntegerParser::ToString(add);
@@ -173,9 +173,9 @@ int main(int argc, char *argv[])
   // str = sub.ToString();
   // cmp = (str == "123456789012345678901230000000");
 
-  // BigInteger& mult = a * b;
-  // string& str = BigIntegerParser::ToString(mult);
-  // bool cmp = (str == "2880412301528738903905318498453136592451311565282");
+  BigInteger& mult = KaratsubaAlgorithm::Multiply(a, b);
+  string& str = BigIntegerParser::ToString(mult);
+  bool cmp = (str == "288041230152873890464069116714261034743129262686950344109624");
 
   // BigInteger& div = a / b;
   // string& str = div.ToString();
@@ -184,4 +184,6 @@ int main(int argc, char *argv[])
   // BigInteger& rem = a % b;
   // string& str = rem.ToString();
   // bool cmp = (str == "1494561306735");
+
+  return 0;
 }

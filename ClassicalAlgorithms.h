@@ -97,7 +97,7 @@ namespace BigMath
       SizeT size = max(a.size(),  b.size()) + 1;
       vector<DataT>& result = *new vector<DataT>(size);
       
-      AddUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
+      AddUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
       
       BigIntegerUtil::TrimZeros(result);
 
@@ -117,25 +117,25 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart, ULong base)
     {
-      SizeT size = max(aEnd - aStart,  bEnd - bStart);
+      SizeT size = max(aEnd - aStart + 1,  bEnd - bStart + 1);
       Long carry = 0;
 
-      for(SizeT i = 0; i <= size; i++)
+      for(SizeT i = 0; i < size; i++)
       {
         Long digitOps = 0;
 
-        if(i + aStart < aEnd)
+        if(i + aStart <= aEnd)
           digitOps = a[aStart + i];
 
         digitOps += carry;
                 
-        if(i + bStart < bEnd)
+        if(i + bStart <= bEnd)
           digitOps += b[bStart + i];
 
         result[rStart + i] = digitOps % base;
         carry = digitOps / base;
       }
-      result[rStart + size] = carry;
+      result[rStart + size] += carry;
 
       return BigIntegerUtil::FindNonZeroByte(result, 0, rStart + size);
     }
@@ -147,7 +147,7 @@ namespace BigMath
       SizeT size = max(a.size(),  b.size()) + 1;
       vector<DataT>& result = *new vector<DataT>(size);
 
-      SubtractUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
+      SubtractUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
       
       BigIntegerUtil::TrimZeros(result);
 
@@ -171,19 +171,19 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart, ULong base)
     {
-      SizeT size = max(aEnd - aStart,  bEnd - bStart);
+      SizeT size = max(aEnd - aStart + 1,  bEnd - bStart + 1);
       Long carry = 0;
 
-      for(SizeT i = 0; i <= size; i++)
+      for(SizeT i = 0; i < size; i++)
       {
         Long digitOps = 0;
 
-        if(i + aStart < aEnd)
+        if(i + aStart <= aEnd)
           digitOps = a[aStart + i];
 
         digitOps -= carry;
         
-        if(i + bStart < bEnd)
+        if(i + bStart <= bEnd)
           digitOps -= b[bStart + i];
 
         carry = 0;
@@ -236,7 +236,7 @@ namespace BigMath
       SizeT size = a.size() + b.size() + 1;
       vector<DataT>& result = *new vector<DataT>(size);
 
-      MultiplyUnsigned(a, 0, a.size(), b, 0, b.size(), result, 0, base);
+      MultiplyUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
 
       BigIntegerUtil::TrimZeros(result);
 
@@ -252,13 +252,15 @@ namespace BigMath
       vector<DataT>& result, SizeT rStart, ULong base)
     {
       SizeT k = rStart;
+      SizeT lenA = aEnd - aStart + 1;
       
-      for(SizeT i = bStart; i < bEnd; i++)
+      for(SizeT i = bStart; i <= bEnd; i++)
       {
         ULong carry = 0;
-        for(SizeT j = aStart; j < aEnd; j++)
+        SizeT jStart = rStart + (i - bStart);
+        for(SizeT j = aStart; j <= aEnd; j++)
         {
-          SizeT k = rStart + (i-bStart) + (j-aStart);
+          SizeT k = jStart + (j - aStart);
           ULong multiply = a[j];
           multiply *= b[i];
           multiply += result[k];
@@ -267,7 +269,7 @@ namespace BigMath
           result[k] = multiply % base;
           carry = multiply / base;
         }
-        k = rStart + (i-bStart) + (aEnd-aStart);
+        k = jStart + lenA;
         result[k] = carry;
       }
 

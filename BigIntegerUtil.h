@@ -69,6 +69,13 @@ namespace BigMath
       bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
       return zero ? zero : FindNonZeroByte(a, start, end) == 0;
     }
+
+    // Sets some elements of the array to zero.
+    static void SetBit(vector<DataT>& r, SizeT rStart, SizeT rEnd, DataT bit = 0)
+    {
+      for(SizeT i = rStart; i <= rEnd; i++)
+        r[i] = bit;
+    }
    };
 }
 
