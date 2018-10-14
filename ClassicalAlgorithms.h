@@ -19,6 +19,11 @@ namespace BigMath
   {
     // Unsigned comparison
     public:
+    static Int Len(SizeT start, SizeT end)
+    {
+      return (Int) end - (Int) start + 1;
+    }
+
     // Compares this with `with' irrespective of sign
     // Returns
     // 0 if equal
@@ -119,10 +124,10 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart, ULong base)
     {
-      SizeT size = max(aEnd - aStart + 1,  bEnd - bStart + 1);
+      Int size = max(Len(aStart, aEnd),  Len(bStart, bEnd));
       Long carry = 0;
 
-      for(SizeT i = 0; i < size; i++)
+      for(Int i = 0; i < size; i++)
       {
         Long digitOps = 0;
 
@@ -173,10 +178,10 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart, ULong base)
     {
-      SizeT size = max(aEnd - aStart + 1,  bEnd - bStart + 1);
+      Int size = max(Len(aStart, aEnd),  Len(bStart, bEnd));
       Long carry = 0;
 
-      for(SizeT i = 0; i < size; i++)
+      for(Int i = 0; i < size; i++)
       {
         Long digitOps = 0;
 

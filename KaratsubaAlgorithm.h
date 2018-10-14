@@ -48,6 +48,13 @@ namespace BigMath
       {
         SizeT la = aEnd - aStart + 1;
         SizeT lb = bEnd - bStart + 1;
+
+        if(bStart >= b.size())
+        {
+          // b is out of bounds, hence zero
+          BigIntegerUtil::SetBit(c, cStart, a.size());
+          return;
+        }
         
         if(la <= 5)
         {
@@ -173,7 +180,22 @@ namespace BigMath
       BigIntegerUtil::SetBit(c, 0, size - 1);
       BigIntegerUtil::SetBit(w, 0, size - 1);
 
-      MultiplyUnsignedRecursive(a, 0, a.size() - 1, b, 0, b.size() - 1, c, 0, w, 0, base);
+      if(a.size() > b.size())
+        MultiplyUnsignedRecursive(
+          a, 0, a.size() - 1, // a
+          b, 0, b.size() - 1, // b
+          c, 0, // c = a * b
+          w, 0, // work array
+          base);
+      else        
+        MultiplyUnsignedRecursive(
+          b, 0, b.size() - 1, // b
+          a, 0, a.size() - 1, // a
+          c, 0, // c = b * a
+          w, 0, // work array
+          base);
+
+      BigIntegerUtil::TrimZeros(c);
       
       return c;
     }
