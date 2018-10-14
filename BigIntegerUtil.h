@@ -54,26 +54,20 @@ namespace BigMath
     }
 
     // Runtime O(n), Space O(1)
-    static SizeT FindNonZeroByte(vector<DataT> const& a)
+    static SizeT FindNonZeroByte(vector<DataT> const& a, Int start = -1, Int end = -1)
     {
-      Int i = a.size();
-      while(i > 0 && a[i - 1] == 0)
+      start = (start == -1 ? 0 : start);
+      Int i = (end == -1 ? a.size() : end + 1);
+      while(i > start && a[i - 1] == 0)
         i--;
       return i;
     }
     
     // Runtime O(n), Space O(1)
-    static bool IsZero(vector<DataT> const& a)
+    static bool IsZero(vector<DataT> const& a, Int start = -1, Int end = -1)
     {
       bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
-      if(!zero)
-      {
-        Int i = a.size();
-        while(i > 0 && a[i - 1] == 0)
-          i--;
-        zero = (i == 0);
-      }
-      return zero;
+      return zero ? zero : FindNonZeroByte(a, start, end) == 0;
     }
    };
 }
