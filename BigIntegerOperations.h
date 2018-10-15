@@ -19,6 +19,7 @@ namespace BigMath
 {
   class BigIntegerOperations
   {
+    static const SizeT MULTIPLICATION_SWITCH = 256;
     public:
     // Implentation of addition by paper-pencil method
     static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
@@ -45,6 +46,16 @@ namespace BigMath
 
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
+      SizeT size = a.size() + b.size();
+      // Karatsuba performs better for over 256 digits for the result
+      if(size <= MULTIPLICATION_SWITCH)
+      return BigInteger(
+        ClassicalAlgorithms::MultiplyUnsigned(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base())
+      );
+
       return BigInteger(
         KaratsubaAlgorithm::MultiplyUnsigned(
           a.GetInteger(),

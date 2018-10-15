@@ -53,7 +53,7 @@ namespace BigMath
 
       // Both ints have same number of digits
       Int cmp = 0;
-      for(SizeT i = a.size() - 1; i >= 0; i--)
+      for(Int i = (Int)a.size() - 1; i >= 0; i--)
       {
         diff = a[i];
         diff -= b[i];
