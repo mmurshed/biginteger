@@ -48,6 +48,10 @@ int main(int argc, char *argv[])
   if(!freopen(argv[2],"wt",stdout))
     return 1;
 
+  FILE *timeFile = fopen("time.csv", "wt");
+  if(!timeFile)
+    return 1;
+
   long DATA = 1;
 
   if(DEBUG)
@@ -108,10 +112,12 @@ int main(int argc, char *argv[])
       }
       else cout << r;
       
-      cerr << "Data : " << DATA << "  Time : " ;
+      double timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
+      cerr << "Data : " << DATA << "  Time : " ;      
       
       cerr.setf(ios::showpoint);
-      cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
+      cerr << timeTaken << endl;
+      fprintf(timeFile, "%d,%f\n", r.size(), timeTaken);
 
       DATA++;
     
@@ -123,6 +129,8 @@ int main(int argc, char *argv[])
     cerr << "Total  Time : " ;
     cerr.setf(ios::showpoint);
     cerr << (double)(endTotal-startTotal)/CLOCKS_PER_SEC << endl;
+
+    fclose(timeFile);
 
   }
 

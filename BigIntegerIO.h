@@ -63,7 +63,7 @@ namespace BigMath
       {
         SIZE += SIZE;
         char *p = new char [SIZE];
-        strcpy(p, data);
+        strncpy(p, data, SIZE);
         delete [] data;
         data = p;
       }
