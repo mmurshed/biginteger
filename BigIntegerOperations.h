@@ -19,7 +19,7 @@ namespace BigMath
 {
   class BigIntegerOperations
   {
-    static const SizeT MULTIPLICATION_SWITCH = 256;
+    static const SizeT MULTIPLICATION_SWITCH = 128;
     public:
     // Implentation of addition by paper-pencil method
     static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
