@@ -33,8 +33,7 @@ namespace BigMath
     // Filled with specified data
     BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
     {
-      for(SizeT i = 0; i < size; i++)
-        theInteger[i] = fill;
+      BigIntegerUtil::SetBit(theInteger, 0, size - 1, fill);
     }
     
     // Copy constructor

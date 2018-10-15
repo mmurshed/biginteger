@@ -38,150 +38,150 @@ using namespace BigMath;
 //   return r;
 // }
 
-// int main(int argc, char *argv[])
-// {
-//   if(argc < 3)
-//     return 1;
-
-//   if(!freopen(argv[1],"rt",stdin))
-//     return 1;
-//   if(!freopen(argv[2],"wt",stdout))
-//     return 1;
-
-//   long DATA = 1;
-
-//   if(DEBUG)
-//   {
-//     freopen("test.txt","wt",stdout);
-//     clock_t start = clock();
-//     //cout << Factorial(5000) << endl;
-//     clock_t end = clock();
-//     cerr.setf(ios::showpoint);
-//     cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
-//   }
-//   else
-//   {
-//     char op;
-//     bool rp;
-//     bool un;
-
-//     bool first = true;
-
-//     while(true)
-//     {
-//       BigInteger m, n, r;
-//       if(!first)
-//         cout << endl;
-      
-//       first = false;
-//       cin >> m >> op >> n;
-//       un = false;
-
-//       clock_t start = clock();
-
-//       try {
-//         switch (op)
-//         {
-//           case '+': r = m + n; break;
-//           case '-': r = m - n; break;
-//           case '*': r = m * n; break;
-//           case '/': r = m / n; break;
-//           case '%': r = m % n; break;
-//           // case '^': r = m.Power(n.toLong());
-//           case '=': rp = m.CompareTo(n) == 0; un = true; break;
-//           case '>': rp = m.CompareTo(n) > 0; un = true; break;
-//           case '<': rp = m.CompareTo(n) < 0; un = true; break;
-//           default: break;
-//         }
-//       } catch(...) {}
-
-//       clock_t end = clock();
-
-//       cout << "Data : " << DATA << " ";
-
-//       if(un) {
-//         if(rp) cout << "true";
-//         else cout << "false";
-//       }
-//       else cout << r;
-      
-//       cerr << "Data : " << DATA << "  Time : " ;
-      
-//       cerr.setf(ios::showpoint);
-//       cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
-
-//       DATA++;
-    
-//       if(cin.eof())
-//         break;
-//     }
-//   }
-
-//   return EXIT_SUCCESS;
-// }
-
-
 int main(int argc, char *argv[])
 {
-  // BigInteger zero1;
-  // bool z1 = zero1.IsZero(); // should be true
+  if(argc < 3)
+    return 1;
 
-  // BigInteger zero2(5, false, 0);
-  // bool z2 = zero2.IsZero(); // should be true
+  if(!freopen(argv[1],"rt",stdin))
+    return 1;
+  if(!freopen(argv[2],"wt",stdout))
+    return 1;
 
-  // vector<DataT> a(zero2.GetInteger());
-  // a[0] = 200;
-  // BigInteger zero3(a, false);
-  // bool z3 = zero3.IsZero(); // should be false
+  long DATA = 1;
 
-  // BigInteger zero1;
-  // SizeT z1 = zero1.TrimZeros(); // should be 0
+  if(DEBUG)
+  {
+    freopen("test.txt","wt",stdout);
+    clock_t start = clock();
+    //cout << Factorial(5000) << endl;
+    clock_t end = clock();
+    cerr.setf(ios::showpoint);
+    cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
+  }
+  else
+  {
+    char op;
+    bool rp;
+    bool un;
 
-  // BigInteger zero2(5, false, 0);
-  // vector<DataT> a(zero2.GetInteger());
+    bool first = true;
 
-  // SizeT z2 = zero2.TrimZeros(); // should be 5
+    while(true)
+    {
+      BigInteger m, n;
+      BigInteger r;
+      if(!first)
+        cout << endl;
+      
+      first = false;
+      cin >> m >> op >> n;
+      un = false;
 
-  // a[0] = 200;
-  // BigInteger zero3(a, false);
-  // SizeT z3 = zero3.TrimZeros(); // should be 4
+      clock_t start = clock();
 
-  // BigInteger zero1;
-  // SizeT z1 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+      try {
+        switch (op)
+        {
+          case '+': r = m + n; break;
+          case '-': r = m - n; break;
+          case '*': r = m * n; break;
+          case '/': r = m / n; break;
+          case '%': r = m % n; break;
+          // case '^': r = m.Power(n.toLong());
+          case '=': rp = m.CompareTo(n) == 0; un = true; break;
+          case '>': rp = m.CompareTo(n) > 0; un = true; break;
+          case '<': rp = m.CompareTo(n) < 0; un = true; break;
+          default: break;
+        }
+      } catch(...) {}
 
-  // BigInteger zero2(5, false, 0);
-  // vector<DataT> a(zero2.GetInteger());
+      clock_t end = clock();
 
-  // SizeT z2 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+      cout << "Data : " << DATA << " ";
 
-  // a[0] = 200;
-  // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
+      if(un) {
+        if(rp) cout << "true";
+        else cout << "false";
+      }
+      else cout << r;
+      
+      cerr << "Data : " << DATA << "  Time : " ;
+      
+      cerr.setf(ios::showpoint);
+      cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
 
-  BigInteger b = BigIntegerParser::Parse("9999999999");
-  BigInteger a = BigIntegerParser::Parse("9");
+      DATA++;
+    
+      if(cin.eof())
+        break;
+    }
+  }
 
-  // BigInteger& a = BigIntegerParser::Parse("14795936");
-  // BigInteger& b = BigIntegerParser::Parse("33202659");
-
-  // BigInteger& add = a + b;
-  // string& str = BigIntegerParser::ToString(add);
-  // bool cmp = (str == "4898444632449261293846336479321434");
-
-  // BigInteger& sub = a - b;
-  // str = sub.ToString();
-  // cmp = (str == "123456789012345678901230000000");
-
-  BigInteger& mult = a * b;
-  string& str = BigIntegerParser::ToString(mult);
-  bool cmp = (str == "89999999991");
-
-  // BigInteger& div = a / b;
-  // string& str = div.ToString();
-  // bool cmp = (str == "44557413417469525");
-
-  // BigInteger& rem = a % b;
-  // string& str = rem.ToString();
-  // bool cmp = (str == "1494561306735");
-
-  return 0;
+  return EXIT_SUCCESS;
 }
+
+// int main(int argc, char *argv[])
+// {
+//   // BigInteger zero1;
+//   // bool z1 = zero1.IsZero(); // should be true
+
+//   // BigInteger zero2(5, false, 0);
+//   // bool z2 = zero2.IsZero(); // should be true
+
+//   // vector<DataT> a(zero2.GetInteger());
+//   // a[0] = 200;
+//   // BigInteger zero3(a, false);
+//   // bool z3 = zero3.IsZero(); // should be false
+
+//   // BigInteger zero1;
+//   // SizeT z1 = zero1.TrimZeros(); // should be 0
+
+//   // BigInteger zero2(5, false, 0);
+//   // vector<DataT> a(zero2.GetInteger());
+
+//   // SizeT z2 = zero2.TrimZeros(); // should be 5
+
+//   // a[0] = 200;
+//   // BigInteger zero3(a, false);
+//   // SizeT z3 = zero3.TrimZeros(); // should be 4
+
+//   // BigInteger zero1;
+//   // SizeT z1 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+
+//   // BigInteger zero2(5, false, 0);
+//   // vector<DataT> a(zero2.GetInteger());
+
+//   // SizeT z2 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+
+//   // a[0] = 200;
+//   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
+
+//   BigInteger& b = BigIntegerParser::Parse("697474615248728689604898238018685337044051308318882817351775");
+//   BigInteger& a = BigIntegerParser::Parse("77422154514372071815490340362292661026158825357");
+
+//   // BigInteger& a = BigIntegerParser::Parse("14795936");
+//   // BigInteger& b = BigIntegerParser::Parse("33202659");
+
+//   // BigInteger& add = a + b;
+//   // string& str = BigIntegerParser::ToString(add);
+//   // bool cmp = (str == "4898444632449261293846336479321434");
+
+//   // BigInteger& sub = a - b;
+//   // str = sub.ToString();
+//   // cmp = (str == "123456789012345678901230000000");
+
+//   BigInteger& mult = a * b;
+//   string& str = BigIntegerParser::ToString(mult);
+//   bool cmp = (str == "53999987431639283795009198110643867486399698951740232335925148608766849564233407589112554707728211458958675");
+
+//   // BigInteger& div = a / b;
+//   // string& str = div.ToString();
+//   // bool cmp = (str == "44557413417469525");
+
+//   // BigInteger& rem = a % b;
+//   // string& str = rem.ToString();
+//   // bool cmp = (str == "1494561306735");
+
+//   return 0;
+// }

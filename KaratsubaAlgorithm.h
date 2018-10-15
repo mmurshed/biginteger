@@ -48,15 +48,8 @@ namespace BigMath
       {
         Int la = ClassicalAlgorithms::Len(aStart, aEnd);
         Int lb = ClassicalAlgorithms::Len(bStart, bEnd);
-
-        if(bStart >= b.size())
-        {
-          // b is out of bounds, hence zero
-          BigIntegerUtil::SetBit(c, cStart, a.size());
-          return;
-        }
-        
-        if(la <= 5)
+       
+        if(la <= 4)
         {
           // Use naive method 
           ClassicalAlgorithms::MultiplyUnsigned(
@@ -110,7 +103,7 @@ namespace BigMath
         SizeT lt = (la - m) + (lb - m) + 1;
         
         // Clear result array
-        BigIntegerUtil::SetBit(w, wStart, wStart + lt);
+        BigIntegerUtil::SetBit(w, wStart, wStart + lt - 1);
 
         // Compute a_h * b_h into w_0, ... ,w_(la+lb-2m-1)
         // w = ah * bh
@@ -203,7 +196,11 @@ namespace BigMath
         base);
 
       BigIntegerUtil::TrimZeros(c);
-      
+
+      x.clear();
+      y.clear();
+      w.clear();
+
       return c;
     }
    };

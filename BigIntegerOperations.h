@@ -25,7 +25,6 @@ namespace BigMath
     {
       vector<DataT>& result = ClassicalAlgorithms::AddUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
       BigInteger &c = *new BigInteger(result, false);
-
       result.clear();
       return c;
     }
@@ -35,14 +34,18 @@ namespace BigMath
     static BigInteger& SubtractUnsigned(BigInteger const& a, BigInteger const& b)
     {
       vector<DataT>& result = ClassicalAlgorithms::SubtractUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      BigInteger &c = *new BigInteger(result, false);
+      result.clear();
+      return c;
     }
 
     static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
       // vector<DataT>& result = ClassicalAlgorithms::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
       vector<DataT>& result = KaratsubaAlgorithm::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      BigInteger &c = *new BigInteger(result, false);
+      result.clear();
+      return c;
     }
 
 public:

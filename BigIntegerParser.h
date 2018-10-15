@@ -117,6 +117,7 @@ namespace BigMath
 
       string& converted = *new string(num + j + 1);
 
+      bigIntB2.clear();
       delete [] num;
 
       return converted;
