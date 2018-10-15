@@ -20,6 +20,8 @@ namespace BigMath
   {
     private:
 
+    static const SizeT CUT_OFF = 128;
+
     // Algorithm from paper
     // "Storage Allocation for the Karatsuba Integer Multiplication Algorithm"
     // by Roman E. Maeder
@@ -49,7 +51,7 @@ namespace BigMath
         Int la = ClassicalAlgorithms::Len(aStart, aEnd);
         Int lb = ClassicalAlgorithms::Len(bStart, bEnd);
        
-        if(la <= 4)
+        if(la <= CUT_OFF)
         {
           // Use naive method 
           ClassicalAlgorithms::MultiplyUnsigned(
