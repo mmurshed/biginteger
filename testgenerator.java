@@ -9,21 +9,21 @@ public class testgenerator
 {
     public static void main(String args[]) throws IOException
     {
-        if(args.length < 2)
+        if(args.length < 5)
+        {
+            System.out.println("Usage java testgenerator [INPUT] [OUTPUT] [NUM TEST CASE] [MAX NUM BITS] [OPERATOR]");
             return;
+        }
         BufferedReader br = new BufferedReader (new InputStreamReader(System.in));
-
-        System.out.print("Enter number of DATA to generate: ");
-        int DATA = Integer.parseInt(br.readLine());
-
-        System.out.print("Enter max number of bits to generate: ");
-        int maxNumBits = Integer.parseInt(br.readLine());
-
-        System.out.print("Enter operator to test: ");
-        String op = br.readLine();
 
         FileWriter out = new FileWriter(args[0]);
         FileWriter ans = new FileWriter(args[1]);
+
+        int DATA = Integer.parseInt(args[2]);
+
+        int maxNumBits = Integer.parseInt(args[3]);
+
+        String op = args[4];
 
         System.out.println("Generating " + DATA + " data.\nPlease wait...");
 

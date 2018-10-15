@@ -67,6 +67,8 @@ int main(int argc, char *argv[])
 
     bool first = true;
 
+    clock_t startTotal = clock();
+
     while(true)
     {
       BigInteger m, n;
@@ -116,6 +118,12 @@ int main(int argc, char *argv[])
       if(cin.eof())
         break;
     }
+
+    clock_t endTotal = clock();
+    cerr << "Total  Time : " ;
+    cerr.setf(ios::showpoint);
+    cerr << (double)(endTotal-startTotal)/CLOCKS_PER_SEC << endl;
+
   }
 
   return EXIT_SUCCESS;
