@@ -30,7 +30,9 @@ namespace BigMath
     // +value if this > with
     // -value if this < with
     // Runtime O(n), Space O(1)
-    static Int UnsignedCompareTo(vector<DataT> const& a, vector<DataT> const& b)
+    static Int UnsignedCompareTo(
+      vector<DataT> const& a,
+      vector<DataT> const& b)
     {
       // Case with zero
       bool aIsZero = BigIntegerUtil::IsZero(a);
@@ -64,7 +66,10 @@ namespace BigMath
 
     public:
     // Runtime O(n), Space O(1)
-    static void AddToUnsigned(vector<DataT> & a, ULong b, ULong base)
+    static void AddToUnsigned(
+      vector<DataT> & a,
+      ULong b,
+      ULong base)
     {
       ULong sum = b;
       ULong carry = 0;
@@ -97,10 +102,13 @@ namespace BigMath
     }
 
     // Runtime O(n), Space O(n)
-    static vector<DataT>& AddUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> AddUnsigned(
+      vector<DataT> const& a,
+      vector<DataT> const& b,
+      ULong base)
     {
       SizeT size = max(a.size(),  b.size()) + 1;
-      vector<DataT>& result = *new vector<DataT>(size);
+      vector<DataT> result(size);
 
       result[size - 1] = 0;
       
@@ -111,19 +119,24 @@ namespace BigMath
       return result;
     }
     
-    static SizeT AddToUnsigned(
+    static void AddToUnsigned(
       vector<DataT>& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd, ULong base)
+      vector<DataT> const& b, SizeT bStart, SizeT bEnd,
+      ULong base)
     {
-      return AddUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
+      AddUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
     }
 
     // Runtime O(n), Space O(n)
-    static SizeT AddUnsigned(
+    static void AddUnsigned(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
-      vector<DataT>& result, SizeT rStart, ULong base)
+      vector<DataT>& result, SizeT rStart,
+      ULong base)
     {
+      aEnd = min(aEnd, (SizeT) (a.size() - 1));
+      bEnd = min(bEnd, (SizeT) (b.size() - 1));
+
       Int size = max(Len(aStart, aEnd),  Len(bStart, bEnd));
       Long carry = 0;
 
@@ -132,52 +145,57 @@ namespace BigMath
         Long digitOps = 0;
 
         if(i + aStart <= aEnd)
-          digitOps = a[aStart + i];
+          digitOps = a.at(aStart + i);
 
         digitOps += carry;
                 
         if(i + bStart <= bEnd)
-          digitOps += b[bStart + i];
+          digitOps += b.at(bStart + i);
 
-        result[rStart + i] = digitOps % base;
+        result.at(rStart + i) = digitOps % base;
         carry = digitOps / base;
       }
-      result[rStart + size] += carry;
-
-      return BigIntegerUtil::FindNonZeroByte(result, 0, rStart + size);
+      result.at(rStart + size) += carry;
     }
 
     // Assumption: a > b
     // Runtime O(n), Space O(n)
-    static vector<DataT>& SubtractUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> SubtractUnsigned(
+      vector<DataT> const& a, 
+      vector<DataT> const& b,
+      ULong base)
     {
       SizeT size = max(a.size(),  b.size()) + 1;
-      vector<DataT>& result = *new vector<DataT>(size);
+      vector<DataT> result(size);
 
       SubtractUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
       
       BigIntegerUtil::TrimZeros(result);
 
       return result;
-
     }
 
-    static SizeT SubtractFromUnsigned(
+    static void SubtractFromUnsigned(
       vector<DataT>& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd, ULong base)
+      vector<DataT> const& b, SizeT bStart, SizeT bEnd,
+      ULong base)
     {
-      return SubtractUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
+      SubtractUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
     }
 
 
     // Implentation of subtraction by paper-pencil method
     // Assumption: a > b
     // Runtime O(n), Space O(n)
-    static SizeT SubtractUnsigned(
+    static void SubtractUnsigned(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
-      vector<DataT>& result, SizeT rStart, ULong base)
+      vector<DataT>& result, SizeT rStart,
+      ULong base)
     {
+      aEnd = min(aEnd, (SizeT) (a.size() - 1));
+      bEnd = min(bEnd, (SizeT) (b.size() - 1));
+      
       Int size = max(Len(aStart, aEnd),  Len(bStart, bEnd));
       Long carry = 0;
 
@@ -186,12 +204,12 @@ namespace BigMath
         Long digitOps = 0;
 
         if(i + aStart <= aEnd)
-          digitOps = a[aStart + i];
+          digitOps = a.at(aStart + i);
 
         digitOps -= carry;
         
         if(i + bStart <= bEnd)
-          digitOps -= b[bStart + i];
+          digitOps -= b.at(bStart + i);
 
         carry = 0;
         if(digitOps < 0)
@@ -200,14 +218,15 @@ namespace BigMath
           carry = 1;
         }
 
-        result[rStart + i] = digitOps;
+        result.at(rStart + i) = digitOps;
       }
-
-      return BigIntegerUtil::FindNonZeroByte(result, 0, rStart + size);
     }
     
     // Runtime O(n), Space O(1)
-    static void MultiplyToUnsigned(vector<DataT>& a, ULong b, ULong base)
+    static void MultiplyToUnsigned(
+      vector<DataT>& a,
+      ULong b,
+      ULong base)
     {
       if(BigIntegerUtil::IsZero(a)) // 0 times b
         return;
@@ -238,10 +257,13 @@ namespace BigMath
     // Implentation of multiplication by paper-pencil method
     // Classical algorithm
     // Runtime O(n^2), Space O(n)
-    static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> MultiplyUnsigned(
+      vector<DataT> const& a,
+      vector<DataT> const& b,
+      ULong base)
     {
       SizeT size = a.size() + b.size() + 1;
-      vector<DataT>& result = *new vector<DataT>(size);
+      vector<DataT> result(size);
 
       MultiplyUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
 
@@ -253,11 +275,15 @@ namespace BigMath
     // Implentation of multiplication by paper-pencil method
     // Classical algorithm
     // Runtime O(n^2), Space O(n)
-    static SizeT MultiplyUnsigned(
+    static void MultiplyUnsigned(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
-      vector<DataT>& result, SizeT rStart, ULong base)
+      vector<DataT>& result, SizeT rStart,
+      ULong base)
     {
+      aEnd = min(aEnd, (SizeT) (a.size() - 1));
+      bEnd = min(bEnd, (SizeT) (b.size() - 1));
+
       SizeT k = rStart;
       SizeT lenA = aEnd - aStart + 1;
       
@@ -268,26 +294,27 @@ namespace BigMath
         for(SizeT j = aStart; j <= aEnd; j++)
         {
           SizeT k = jStart + (j - aStart);
-          ULong multiply = a[j];
-          multiply *= b[i];
-          multiply += result[k];
+          ULong multiply = a.at(j);
+          multiply *= b.at(i);
+          multiply += result.at(k);
           multiply += carry;
           
-          result[k] = multiply % base;
+          result.at(k) = multiply % base;
           carry = multiply / base;
         }
         k = jStart + lenA;
-        result[k] = carry;
+        result.at(k) = carry;
       }
-
-      return BigIntegerUtil::FindNonZeroByte(result, 0, k);
     }
 
     // Implentation of division by paper-pencil method
     // Assumption: a > b
     // See: D.E.Knuth 4.3.1
     // Runtime O(n^2), Space O(n)
-    static vector< vector<DataT> >& DivideAndRemainderUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector< vector<DataT> > DivideAndRemainderUnsigned(
+      vector<DataT> const& a,
+      vector<DataT> const& b,
+      ULong base)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b, 
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b 
@@ -311,14 +338,14 @@ namespace BigMath
       // On a binary computer it may be preferable to choose d to be a power of 2 
       // instead of using the value suggested here.
       // Any value of d that results in v_n−1 >= ⌊b/2⌋ will suffice.
-      vector<DataT>& u = MultiplyUnsigned(a, d, base);
+      vector<DataT> u = MultiplyUnsigned(a, d, base);
       if(u.size() <= m+n)
         u.push_back(0);
 
       // Set (v_n−1 . . . v_1 v_0)_b equal to (v_n−1 . . . v_1 v_0)_b times d.
-      vector<DataT>& v = MultiplyUnsigned(b, d, base);
+      vector<DataT> v = MultiplyUnsigned(b, d, base);
 
-      vector<DataT>& q = *new vector<DataT>(m + 1);
+      vector<DataT> q (m + 1);
 
       // 2. Loop over j from m to 0
       // Set j = m. (The loop on j, steps 2 through 7, will be essentially a division of 
@@ -406,7 +433,7 @@ namespace BigMath
       // 8. Unnormalize
       // Now (q_m . . . q_1 q_0)b is the desired quotient, and 
       // the desired remainder may be obtained by dividing (u_n−1 . . . u_1 u_0)_b by d.
-      vector<DataT>& w = *new vector<DataT>(n);
+      vector<DataT> w(n);
 
       // Set r = 0, j = n − 1.
       ULong r = 0;
@@ -422,7 +449,7 @@ namespace BigMath
 
       BigIntegerUtil::TrimZeros(q);
       BigIntegerUtil::TrimZeros(w);
-      vector< vector<DataT> >& result = *new vector< vector<DataT> >(2);
+      vector< vector<DataT> > result(2);
       result[0] = q;
       result[1] = w;
 
@@ -431,14 +458,17 @@ namespace BigMath
 
     // Convert an integer from base1 to base2
     // Donald E. Knuth 4.4
-    static vector<DataT>& ConvertBase(vector<DataT> const& bigIntB1, ULong base1, ULong base2)
+    static vector<DataT> ConvertBase(
+      vector<DataT> const& bigIntB1,
+      ULong base1,
+      ULong base2)
     {
       if(base1 == base2)
       {
         return *new vector<DataT>(bigIntB1);
       }
 
-      vector<DataT>& bigIntB2 = *new vector<DataT>();
+      vector<DataT> bigIntB2;
 
       for(Int i = bigIntB1.size() - 1 ; i >= 0; i--)
       {
@@ -451,10 +481,12 @@ namespace BigMath
 
     // Returns an integer by shifting n places
     // Equivalent to a * B^n
-    static vector<DataT>& ShiftLeft(vector<DataT> const& bigInt, SizeT shift)
+    static vector<DataT> ShiftLeft(
+      vector<DataT> const& bigInt,
+      SizeT shift)
     {
       SizeT size = bigInt.size() + shift;
-      vector<DataT>& result = *new vector<DataT>(size);
+      vector<DataT> result(size);
 
       Int j = size - 1;
 

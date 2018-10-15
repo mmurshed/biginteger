@@ -73,8 +73,9 @@ namespace BigMath
     // Sets some elements of the array to zero.
     static void SetBit(vector<DataT>& r, SizeT rStart, SizeT rEnd, DataT bit = 0)
     {
+      rEnd = min(rEnd, (SizeT)(r.size() - 1));
       for(SizeT i = rStart; i <= rEnd; i++)
-        r[i] = bit;
+        r.at(i) = bit;
     }
    };
 }

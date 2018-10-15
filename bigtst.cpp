@@ -157,8 +157,8 @@ int main(int argc, char *argv[])
 //   // a[0] = 200;
 //   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
 
-//   BigInteger& b = BigIntegerParser::Parse("697474615248728689604898238018685337044051308318882817351775");
-//   BigInteger& a = BigIntegerParser::Parse("77422154514372071815490340362292661026158825357");
+//   BigInteger& a = BigIntegerParser::Parse("12032759530727187026955295177759279936988003947824720956292");
+//   BigInteger& b = BigIntegerParser::Parse("552521883657916592106");
 
 //   // BigInteger& a = BigIntegerParser::Parse("14795936");
 //   // BigInteger& b = BigIntegerParser::Parse("33202659");
@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
 
 //   BigInteger& mult = a * b;
 //   string& str = BigIntegerParser::ToString(mult);
-//   bool cmp = (str == "53999987431639283795009198110643867486399698951740232335925148608766849564233407589112554707728211458958675");
+//   bool cmp = (str == "6648362961520133879513534129214498836071414231023154552276131181220034018230952");
 
 //   // BigInteger& div = a / b;
 //   // string& str = div.ToString();

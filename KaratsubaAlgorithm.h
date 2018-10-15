@@ -71,7 +71,7 @@ namespace BigMath
         // c -= al * bl * B^m
 
         // Clear carry digit
-        w[wStart + m] = 0;
+        w.at(wStart + m) = 0;
         // Save al + ah into w_0,...,w_m
         ClassicalAlgorithms::AddUnsigned(
           a, aStart, aStart + m - 1, // al
@@ -80,7 +80,7 @@ namespace BigMath
           base);
   
         // Clear carry digit
-        w[wStart + m + m + 1] = 0;
+        w.at(wStart + m + m + 1) = 0;
       
         // Save bl + bh into w_m+1, ... w_2m+1
         ClassicalAlgorithms::AddUnsigned(
@@ -162,13 +162,13 @@ namespace BigMath
       }
 
     public:
-    static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
       SizeT size = max(a.size(), b.size());
 
-      size = 2 * size + 1;
+      size = 3 * size;
 
-      vector<DataT>& c = *new vector<DataT>(size);
+      vector<DataT> c(size);
       vector<DataT> w(size);
 
       BigIntegerUtil::SetBit(c, 0, size - 1);
@@ -196,10 +196,6 @@ namespace BigMath
         base);
 
       BigIntegerUtil::TrimZeros(c);
-
-      x.clear();
-      y.clear();
-      w.clear();
 
       return c;
     }

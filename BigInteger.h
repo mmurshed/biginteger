@@ -28,7 +28,7 @@ namespace BigMath
   public:  
     BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
     
-    BigInteger(vector<DataT> const& aInt, bool negative) : theInteger(aInt), isNegative(negative) {}
+    BigInteger(vector<DataT> const& aInt, bool negative = false) : theInteger(aInt), isNegative(negative) {}
 
     // Filled with specified data
     BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
@@ -40,10 +40,7 @@ namespace BigMath
     BigInteger(BigInteger const& copy) : theInteger(copy.theInteger), isNegative(copy.isNegative) {}
 
     // The Destructor
-    ~BigInteger()
-    {
-      theInteger.clear();
-    }
+    ~BigInteger() {}
 
     // Assignment Operator
     BigInteger& operator=(BigInteger const& arg)

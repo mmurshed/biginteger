@@ -20,11 +20,11 @@ namespace BigMath
   class BigIntegerParser
   {
   public:
-    static BigInteger& Parse(char const* num)
+    static BigInteger Parse(char const* num)
     {
       Int len = strlen(num);
       if(num == NULL || len == 0)
-        return *new BigInteger();
+        return BigInteger();
 
       Int start = 0;
       bool isNegative = false;
@@ -48,24 +48,19 @@ namespace BigMath
 
       // If the resulting string is empty return 0
       if (len <= start)
-        return *new BigInteger();
+        return BigInteger();
 
-      vector<DataT>& bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
-      vector<DataT>& bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
+      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
 
-      BigInteger& bigInt = *new BigInteger(bigIntB2, isNegative);
-
-      bigIntB1.clear();
-      bigIntB2.clear();
-
-      return bigInt;
+      return BigInteger(bigIntB2, isNegative);
     }
 
     // Group by n, meaning 10^n base
-    static vector<DataT>& ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
+    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
     {
       len--;
-      vector<DataT>& bigInt = *new vector<DataT>(len / n + 1);
+      vector<DataT> bigInt(len / n + 1);
 
       // Convert the string to int
       SizeT j = 0;
@@ -98,14 +93,14 @@ namespace BigMath
     }
 
     // Converts the integer to a string representation
-    static string& ToString(BigInteger const& bigInt)
+    static string ToString(BigInteger const& bigInt)
     {
       if(bigInt.IsZero())
       {
         return *new string("0");
       }
 
-      vector<DataT>& bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
       
       Int len = bigIntB2.size() * BigIntegerUtil::Base10n_Digit + 2;
       char* num = new char[len];
@@ -115,9 +110,8 @@ namespace BigMath
       if(bigInt.IsNegative())
         num[j--] = '-';
 
-      string& converted = *new string(num + j + 1);
+      string converted(num + j + 1);
 
-      bigIntB2.clear();
       delete [] num;
 
       return converted;
