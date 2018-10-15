@@ -13,6 +13,7 @@ using namespace std;
 #include "BigIntegerUtil.h"
 #include "BigInteger.h"
 #include "ClassicalAlgorithms.h"
+#include "KaratsubaAlgorithm.h"
 
 namespace BigMath
 {
@@ -23,7 +24,10 @@ namespace BigMath
     static BigInteger& AddUnsigned(BigInteger const& a, BigInteger const& b)
     {
       vector<DataT>& result = ClassicalAlgorithms::AddUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      BigInteger &c = *new BigInteger(result, false);
+
+      result.clear();
+      return c;
     }
 
     // Implentation of subtraction by paper-pencil method
@@ -36,7 +40,8 @@ namespace BigMath
 
     static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      vector<DataT>& result = ClassicalAlgorithms::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      // vector<DataT>& result = ClassicalAlgorithms::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      vector<DataT>& result = KaratsubaAlgorithm::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
       return *new BigInteger(result, false);
     }
 

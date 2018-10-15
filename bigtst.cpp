@@ -22,7 +22,6 @@ using namespace std;
 
 #include "BigInteger.h"
 #include "BigIntegerIO.h"
-#include "KaratsubaAlgorithm.h"
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
 
@@ -55,7 +54,7 @@ using namespace BigMath;
 //   {
 //     freopen("test.txt","wt",stdout);
 //     clock_t start = clock();
-//     cout << Factorial(5000) << endl;
+//     //cout << Factorial(5000) << endl;
 //     clock_t end = clock();
 //     cerr.setf(ios::showpoint);
 //     cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
@@ -86,7 +85,6 @@ using namespace BigMath;
 //           case '+': r = m + n; break;
 //           case '-': r = m - n; break;
 //           case '*': r = m * n; break;
-//           // case '*': r = KaratsubaAlgorithm::Multiply(m, n); break;
 //           case '/': r = m / n; break;
 //           case '%': r = m % n; break;
 //           // case '^': r = m.Power(n.toLong());
@@ -173,7 +171,7 @@ int main(int argc, char *argv[])
   // str = sub.ToString();
   // cmp = (str == "123456789012345678901230000000");
 
-  BigInteger& mult = KaratsubaAlgorithm::Multiply(a, b);
+  BigInteger& mult = a * b;
   string& str = BigIntegerParser::ToString(mult);
   bool cmp = (str == "89999999991");
 

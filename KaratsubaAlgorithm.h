@@ -46,8 +46,8 @@ namespace BigMath
       vector<DataT>& w, SizeT wStart, 
       ULong base)
       {
-        SizeT la = aEnd - aStart + 1;
-        SizeT lb = bEnd - bStart + 1;
+        Int la = ClassicalAlgorithms::Len(aStart, aEnd);
+        Int lb = ClassicalAlgorithms::Len(bStart, bEnd);
 
         if(bStart >= b.size())
         {
@@ -168,6 +168,7 @@ namespace BigMath
           base);
       }
 
+    public:
     static vector<DataT>& MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
       SizeT size = max(a.size(), b.size());
@@ -180,44 +181,31 @@ namespace BigMath
       BigIntegerUtil::SetBit(c, 0, size - 1);
       BigIntegerUtil::SetBit(w, 0, size - 1);
 
-      if(a.size() > b.size())
-        MultiplyUnsignedRecursive(
-          a, 0, a.size() - 1, // a
-          b, 0, b.size() - 1, // b
-          c, 0, // c = a * b
-          w, 0, // work array
-          base);
-      else        
-        MultiplyUnsignedRecursive(
-          b, 0, b.size() - 1, // b
-          a, 0, a.size() - 1, // a
-          c, 0, // c = b * a
-          w, 0, // work array
-          base);
+      vector<DataT> x(a);
+      vector<DataT> y(b);
+
+      if(x.size() > y.size())
+      {
+        while(y.size() < x.size())
+          y.push_back(0);
+      }
+      else if(x.size() < y.size())
+      {
+        while(y.size() > x.size())
+          x.push_back(0);
+      }
+
+      MultiplyUnsignedRecursive(
+        x, 0, x.size() - 1, // b
+        y, 0, y.size() - 1, // a
+        c, 0, // c = b * a
+        w, 0, // work array
+        base);
 
       BigIntegerUtil::TrimZeros(c);
       
       return c;
     }
-
-    static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
-    {
-      vector<DataT>& result = MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
-    }
-
-public: 
-    static BigInteger& Multiply(BigInteger const& a, BigInteger const& b)
-    {
-      if(a.IsZero() || b.IsZero())
-        return *new BigInteger(); // 0 times anything is zero
-
-      BigInteger& result = MultiplyUnsigned(a, b);
-      if(a.IsNegative() != b.IsNegative())
-        result.SetSign(true);
-      
-      return result;
-    } 
    };
 }
 

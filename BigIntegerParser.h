@@ -53,7 +53,12 @@ namespace BigMath
       vector<DataT>& bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
       vector<DataT>& bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
 
-      return *new BigInteger(bigIntB2, isNegative);
+      BigInteger& bigInt = *new BigInteger(bigIntB2, isNegative);
+
+      bigIntB1.clear();
+      bigIntB2.clear();
+
+      return bigInt;
     }
 
     // Group by n, meaning 10^n base
