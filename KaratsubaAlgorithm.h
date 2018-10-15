@@ -20,7 +20,9 @@ namespace BigMath
   {
     private:
 
-    static const SizeT CUT_OFF = 128;
+    public:
+    // Cut off deterioriate over 32
+    static const SizeT CUT_OFF = 32;
 
     // Algorithm from paper
     // "Storage Allocation for the Karatsuba Integer Multiplication Algorithm"
