@@ -4,16 +4,16 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGEROPERATIONS_H
-#define BIGINTEGEROPERATIONS_H
+#ifndef BIG_INTEGER_OPERATIONS_H
+#define BIG_INTEGER_OPERATIONS_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
 
 #include "BigIntegerUtil.h"
 #include "BigInteger.h"
 #include "ClassicalAlgorithms.h"
+#include "KaratsubaAlgorithm.h"
 
 namespace BigMath
 {
@@ -21,38 +21,51 @@ namespace BigMath
   {
     public:
     // Implentation of addition by paper-pencil method
-    static BigInteger& AddUnsigned(BigInteger const& a, BigInteger const& b)
+    static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      vector<DataT>& result = ClassicalAlgorithms::AddUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      return BigInteger(
+        ClassicalAlgorithms::AddUnsigned(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base())
+      );
     }
 
     // Implentation of subtraction by paper-pencil method
     // Assumption: a > b
-    static BigInteger& SubtractUnsigned(BigInteger const& a, BigInteger const& b)
+    static BigInteger SubtractUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      vector<DataT>& result = ClassicalAlgorithms::SubtractUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      return BigInteger(
+        ClassicalAlgorithms::SubtractUnsigned(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base())
+      );
     }
 
-    static BigInteger& MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
+    static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      vector<DataT>& result = ClassicalAlgorithms::MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      return *new BigInteger(result, false);
+      return BigInteger(
+        KaratsubaAlgorithm::MultiplyUnsigned(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base())
+      );
+      
     }
 
 public:
-    static BigInteger& Add(BigInteger const& a, BigInteger const& b)
+    static BigInteger Add(BigInteger const& a, BigInteger const& b)
     {
       // Check for zero
       bool aZero = a.IsZero();
       bool bZero = b.IsZero();
       if(aZero && bZero)
-        return *new BigInteger(); // 0 + 0
+        return BigInteger(); // 0 + 0
       if(aZero)
-        return *new BigInteger(b); // 0 + b
+        return BigInteger(b); // 0 + b
       if(bZero)
-        return *new BigInteger(a); // a + 0
+        return BigInteger(a); // a + 0
 
       // Check if actually subtraction is needed
       bool aNeg = a.IsNegative();
@@ -63,7 +76,7 @@ public:
         return SubtractUnsigned(a, b); // b is negative and a is not. return a - b
 
       // Add
-      BigInteger& result = AddUnsigned(a, b);
+      BigInteger result = AddUnsigned(a, b);
 
       // Flip the sign when adding two negative numbers
       if(aNeg && bNeg)
@@ -73,17 +86,21 @@ public:
     }
 
     // Straight pen-pencil implementation for subtraction
-    static BigInteger& Subtract(BigInteger const& a, BigInteger const& b)
+    static BigInteger Subtract(BigInteger const& a, BigInteger const& b)
     {
       // Check for zero
       bool aZero = a.IsZero();
       bool bZero = b.IsZero();
       if(aZero && bZero)
-        return *new BigInteger(); // 0 - 0
+        return BigInteger(); // 0 - 0
       if(aZero)
-        return -(*new BigInteger(b)); // 0 - b
+      {
+        BigInteger result(b);
+        result.SetSign(!b.IsNegative()); // 0 - b
+        return result;
+      }
       if(bZero)
-        return *new BigInteger(a); // a - 0
+        return BigInteger(a); // a - 0
 
       // Check if actually addition is needed
       bool aNeg = a.IsNegative();
@@ -93,57 +110,57 @@ public:
       else if(!aNeg && bNeg)
         return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
-      Int cmp = a.UnsignedCompareTo(b);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
       if(cmp < 0)
         return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
       else if (cmp > 0)
         return SubtractUnsigned(a, b); // a - b
       
-      return *new BigInteger(); // Zero when a == b
+      return BigInteger(); // Zero when a == b
     }
  
-    static BigInteger& Multiply(BigInteger const& a, BigInteger const& b)
+    static BigInteger Multiply(BigInteger const& a, BigInteger const& b)
     {
       if(a.IsZero() || b.IsZero())
-        return *new BigInteger(); // 0 times anything is zero
+        return BigInteger(); // 0 times anything is zero
 
-      BigInteger& result = MultiplyUnsigned(a, b);
+      BigInteger result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
       
       return result;
     }
 
-    static vector<BigInteger>& DivideAndRemainder(BigInteger const& a, BigInteger const& b)
+    static vector<BigInteger> DivideAndRemainder(BigInteger const& a, BigInteger const& b)
     {
-      vector<BigInteger>& results = *new vector<BigInteger>(2);
+      vector<BigInteger> results(2);
       if(a.IsZero() || b.IsZero())
       {
-        results[0] = *new BigInteger();
-        results[1] = *new BigInteger();
+        results[0] = BigInteger();
+        results[1] = BigInteger();
         return results; // case of 0
       }
 
-      Int cmp = a.UnsignedCompareTo(b);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
       if(cmp == 0)
       {
-        vector<DataT>& one = *new vector<DataT>(1);
+        vector<DataT> one(1);
         one[0] = 1;
-        results[0] = *new BigInteger(one, a.IsNegative() || b.IsNegative());
-        results[1] = *new BigInteger();
+        results[0] = BigInteger(one, a.IsNegative() || b.IsNegative());
+        results[1] = BigInteger();
         return results; // case of a/a
       }
       else if (cmp < 0)
       {
-        results[0] = *new BigInteger();
-        results[1] = *new BigInteger(a.GetInteger(), a.IsNegative() || b.IsNegative() );
+        results[0] = BigInteger();
+        results[1] = BigInteger(a.GetInteger(), a.IsNegative() || b.IsNegative() );
         return results; // case of a < b
       }
 
       // Now: a > b
-      vector< vector<DataT> >& result = ClassicalAlgorithms::DivideAndRemainderUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      results[0] = *new BigInteger(result[0], false);
-      results[1] = *new BigInteger(result[1], false);
+      vector< vector<DataT> > result = ClassicalAlgorithms::DivideAndRemainderUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      results[0] = BigInteger(result[0], false);
+      results[1] = BigInteger(result[1], false);
 
       if(a.IsNegative() != b.IsNegative())
       {
@@ -153,35 +170,65 @@ public:
       
       return results;
     }
- 
    };
 
-     // Adds Two BigInteger
-  BigInteger& operator+(BigInteger const& a, BigInteger const& b)
+  // Adds Two BigInteger
+  BigInteger operator+(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::Add(a, b);
   }
 
   // Subtructs Two BigInteger
-  BigInteger& operator-(BigInteger const& a, BigInteger const& b)
+  BigInteger operator-(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::Subtract(a, b);
   }
 
   // Multiplies Two BigInteger
-  BigInteger& operator*(BigInteger const& a, BigInteger const& b)
+  BigInteger operator*(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::Multiply(a, b);
   }
 
-  BigInteger& operator/(BigInteger const& a, BigInteger const& b)
+  BigInteger operator/(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::DivideAndRemainder(a, b)[0];
   }
 
-  BigInteger& operator%(BigInteger const& a, BigInteger const& b)
+  BigInteger operator%(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::DivideAndRemainder(a, b)[1];
+  }
+
+  // Comparison operators
+  bool operator==(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) == 0;
+  }
+
+  bool operator!=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) != 0;
+  }
+
+  bool operator>=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) >= 0;
+  }
+
+  bool operator<=(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b) <= 0;
+  }
+
+  bool operator>(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b)>0;
+  }
+
+  bool operator<(BigInteger const& a, BigInteger const& b)
+  {
+    return a.CompareTo(b)<0;
   }
 }
 

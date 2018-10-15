@@ -4,34 +4,36 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGER_H
-#define BIGINTEGER_H
+#ifndef BIG_INTEGER_H
+#define BIG_INTEGER_H
 
 #include <vector>
 using namespace std;
 
 #include "BigIntegerUtil.h"
+#include "ClassicalAlgorithms.h"
 
 namespace BigMath
 {
   class BigInteger
   {
+    // Data
   private:
     // The Integer array to hold the number
     vector<DataT> theInteger;
     // True if the number is negative
     bool isNegative;
 
-  public:
+    // Constructor, desctructor, and assignment operator
+  public:  
     BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
     
-    BigInteger(vector<DataT> aInt, bool negative) : theInteger(aInt), isNegative(negative) {}
+    BigInteger(vector<DataT> const& aInt, bool negative = false) : theInteger(aInt), isNegative(negative) {}
 
     // Filled with specified data
     BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
     {
-      for(SizeT i = 0; i < size; i++)
-        theInteger[i] = fill;
+      BigIntegerUtil::SetBit(theInteger, 0, size - 1, fill);
     }
     
     // Copy constructor
@@ -40,7 +42,7 @@ namespace BigMath
     // The Destructor
     ~BigInteger() {}
 
-      // Assignment Operator
+    // Assignment Operator
     BigInteger& operator=(BigInteger const& arg)
     {
       if(this != &arg)
@@ -51,13 +53,19 @@ namespace BigMath
       return *this;
     }
 
+  // Accessors
   public:
-    // true if 'this' is zero
-    bool IsZero() const
+    vector<DataT> const& GetInteger() const
     {
-      return BigIntegerUtil::IsZero(theInteger);
+      return theInteger;
     }
 
+    DataT operator[] (const SizeT i) const
+    {
+      return theInteger[i];
+    }
+
+    // Properties
     SizeT size() const 
     {
       return theInteger.size();
@@ -72,29 +80,17 @@ namespace BigMath
     {
       return isNegative;
     }
+
+    bool IsZero() const
+    {
+      return BigIntegerUtil::IsZero(theInteger);
+    }
  
-    // Negation, returns -*this
-    BigInteger& operator-()
-    {
-      isNegative = !isNegative;
-      return *this;
-    }
-
-    vector<DataT> const& GetInteger() const
-    {
-      return theInteger;
-    }
-
-    DataT operator[] (const SizeT i) const
-    {
-      return theInteger[i];
-    }
-
 public:
     // Trims Leading Zeros
-    void TrimZeros()
+    SizeT TrimZeros()
     {
-      BigIntegerUtil::TrimZeros(theInteger);
+      return BigIntegerUtil::TrimZeros(theInteger);
     }
 
     BigInteger& SetSign(bool sign)
@@ -103,44 +99,13 @@ public:
       return *this;
     }
 
-public:
-    // Compares this with `with' irrespective of sign
-    // Returns
-    // 0 if equal
-    // +value if this > with
-    // -value if this < with
-    Int UnsignedCompareTo(BigInteger const& with)const
+    // Negation, returns -*this
+    BigInteger& operator-()
     {
-      // Case with zero
-      bool isZero = this->IsZero();
-      bool otherZero = with.IsZero();
-
-      if(isZero && otherZero)
-        return 0;
-      else if(!isZero && otherZero)
-        return 1;
-      else if(isZero && !otherZero)
-        return -1;
-
-      // Different in size
-      Long diff = size();
-      diff -= with.size();
-      if(diff != 0)
-        return diff;
-
-      // Both ints have same number of digits
-      Int cmp = 0;
-      for(SizeT i = size() - 1; i >= 0; i--)
-      {
-        diff = theInteger[i];
-        diff -= with.theInteger[i];
-        if(diff != 0)
-          return diff;
-      }
-
-      return cmp;
+      isNegative = !isNegative;
+      return *this;
     }
-
+public:
     // Compares this with `with'
     // Returns
     // 0 if equal
@@ -155,7 +120,7 @@ public:
       else if(isNegative && !with.isNegative)
         return -1;
 
-      Int cmp = UnsignedCompareTo(with);
+      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(theInteger, with.theInteger);
       
       // Now, Both are Same Sign
       Int neg = 1;
@@ -166,36 +131,6 @@ public:
     }
    };
 
-  // Operators
-  bool operator==(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) == 0;
-  }
-
-  bool operator!=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) != 0;
-  }
-
-  bool operator>=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) >= 0;
-  }
-
-  bool operator<=(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b) <= 0;
-  }
-
-  bool operator>(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b)>0;
-  }
-
-  bool operator<(BigInteger const& a, BigInteger const& b)
-  {
-    return a.CompareTo(b)<0;
-  }
 }
 
 #endif

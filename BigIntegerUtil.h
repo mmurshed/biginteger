@@ -4,11 +4,10 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGERUTIL_H
-#define BIGINTEGERUTIL_H
+#ifndef BIG_INTEGER_UTIL_H
+#define BIG_INTEGER_UTIL_H
 
 #include <vector>
-#include <tuple>
 using namespace std;
 
 #include "BigInteger.h"
@@ -35,19 +34,48 @@ namespace BigMath
     // Base 2^32
     static const ULong Base2_32 = 4294967296ul; // 2^32
 
+    // Base 10
+    static const ULong Base10 = 10;
+    static const ULong Base100 = 100;
+
     public:
     // Trims Leading Zeros
-    static void TrimZeros(vector<DataT>& aInt)
+    // Runtime O(n), Space O(1)
+    static SizeT TrimZeros(vector<DataT>& a)
     {
-      while(aInt.size() > 0 && aInt[aInt.size() - 1] == 0)
+      SizeT size = a.size();
+      Int i = size;
+      while(i > 0 && a[i - 1] == 0)
       {
-        aInt.pop_back();
+        a.pop_back();
+        i--;
       }
+      return size - i; // return how many zeros are removed
+    }
+
+    // Runtime O(n), Space O(1)
+    static SizeT FindNonZeroByte(vector<DataT> const& a, Int start = -1, Int end = -1)
+    {
+      start = (start == -1 ? 0 : start);
+      Int i = (end == -1 ? a.size() : end + 1);
+      while(i > start && a[i - 1] == 0)
+        i--;
+      return i;
     }
     
-    static bool IsZero(vector<DataT> const& bigInt)
+    // Runtime O(n), Space O(1)
+    static bool IsZero(vector<DataT> const& a, Int start = -1, Int end = -1)
     {
-      return bigInt.size() == 0 || (bigInt.size() == 1 && bigInt[0] == 0);
+      bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
+      return zero ? zero : FindNonZeroByte(a, start, end) == 0;
+    }
+
+    // Sets some elements of the array to zero.
+    static void SetBit(vector<DataT>& r, SizeT rStart, SizeT rEnd, DataT bit = 0)
+    {
+      rEnd = min(rEnd, (SizeT)(r.size() - 1));
+      for(SizeT i = rStart; i <= rEnd; i++)
+        r.at(i) = bit;
     }
    };
 }

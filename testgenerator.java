@@ -16,6 +16,9 @@ public class testgenerator
         System.out.print("Enter number of DATA to generate: ");
         int DATA = Integer.parseInt(br.readLine());
 
+        System.out.print("Enter max number of bits to generate: ");
+        int maxNumBits = Integer.parseInt(br.readLine());
+
         System.out.print("Enter operator to test: ");
         String op = br.readLine();
 
@@ -24,8 +27,7 @@ public class testgenerator
 
         System.out.println("Generating " + DATA + " data.\nPlease wait...");
 
-        Random rnd = new Random();
-        int maxNumBits = 16600;
+        Random rnd = new Random();        
 
         for(int i = 0; i < DATA; i++)
         {

@@ -6,10 +6,6 @@
     email                : murshed@gmail.com
  ***************************************************************************/
  
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
-
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -26,7 +22,6 @@ using namespace std;
 
 #include "BigInteger.h"
 #include "BigIntegerIO.h"
-#include "FastAlgorithms.h"
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
 
@@ -34,39 +29,13 @@ using namespace BigMath;
 
 #define DEBUG 0
 
-BigInteger& Factorial(unsigned int n)
-{
-  BigInteger& r = *new BigInteger(1l);
-  for(unsigned int i = 2; i <= n; i++)
-    r = r * i;
-
-  return r;
-}
-
-// int main(int argc, char *argv[])
+// BigInteger& Factorial(unsigned int n)
 // {
-//   BigInteger a = BigIntegerParser::Parse("147959365715964420810928396835");
-//   BigInteger b = BigIntegerParser::Parse("3320645306084");
-//   string& str1 = BigIntegerParser::ToString(a);
-//   BigInteger& add = a + b;
-//   string& str = BigIntegerParser::ToString(add);
-//   bool cmp = (str == "147959365715964424131573702919");
+//   BigInteger& r = *new BigInteger(1l);
+//   for(unsigned int i = 2; i <= n; i++)
+//     r = r * i;
 
-//   // BigInteger& sub = a - b;
-//   // str = sub.ToString();
-//   // cmp = (str == "123456789012345678901230000000");
-
-//   // BigInteger& mult = FastAlgorithms::Multiply(a, b);
-//   // string& str = mult.ToString();
-//   // bool cmp = (str == "491320573255883169948959105800365991844140");
-
-//   // BigInteger& div = a / b;
-//   // string& str = div.ToString();
-//   // bool cmp = (str == "44557413417469525");
-
-//   // BigInteger& rem = a % b;
-//   // string& str = rem.ToString();
-//   // bool cmp = (str == "1494561306735");
+//   return r;
 // }
 
 int main(int argc, char *argv[])
@@ -85,7 +54,7 @@ int main(int argc, char *argv[])
   {
     freopen("test.txt","wt",stdout);
     clock_t start = clock();
-    cout << Factorial(5000) << endl;
+    //cout << Factorial(5000) << endl;
     clock_t end = clock();
     cerr.setf(ios::showpoint);
     cerr << (double)(end-start)/CLOCKS_PER_SEC << endl;
@@ -100,7 +69,8 @@ int main(int argc, char *argv[])
 
     while(true)
     {
-      BigInteger m, n, r;
+      BigInteger m, n;
+      BigInteger r;
       if(!first)
         cout << endl;
       
@@ -150,3 +120,68 @@ int main(int argc, char *argv[])
 
   return EXIT_SUCCESS;
 }
+
+// int main(int argc, char *argv[])
+// {
+//   // BigInteger zero1;
+//   // bool z1 = zero1.IsZero(); // should be true
+
+//   // BigInteger zero2(5, false, 0);
+//   // bool z2 = zero2.IsZero(); // should be true
+
+//   // vector<DataT> a(zero2.GetInteger());
+//   // a[0] = 200;
+//   // BigInteger zero3(a, false);
+//   // bool z3 = zero3.IsZero(); // should be false
+
+//   // BigInteger zero1;
+//   // SizeT z1 = zero1.TrimZeros(); // should be 0
+
+//   // BigInteger zero2(5, false, 0);
+//   // vector<DataT> a(zero2.GetInteger());
+
+//   // SizeT z2 = zero2.TrimZeros(); // should be 5
+
+//   // a[0] = 200;
+//   // BigInteger zero3(a, false);
+//   // SizeT z3 = zero3.TrimZeros(); // should be 4
+
+//   // BigInteger zero1;
+//   // SizeT z1 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+
+//   // BigInteger zero2(5, false, 0);
+//   // vector<DataT> a(zero2.GetInteger());
+
+//   // SizeT z2 = BigIntegerUtil::FindNonZeroByte(zero1.GetInteger()); // should be 0
+
+//   // a[0] = 200;
+//   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
+
+//   BigInteger& a = BigIntegerParser::Parse("12032759530727187026955295177759279936988003947824720956292");
+//   BigInteger& b = BigIntegerParser::Parse("552521883657916592106");
+
+//   // BigInteger& a = BigIntegerParser::Parse("14795936");
+//   // BigInteger& b = BigIntegerParser::Parse("33202659");
+
+//   // BigInteger& add = a + b;
+//   // string& str = BigIntegerParser::ToString(add);
+//   // bool cmp = (str == "4898444632449261293846336479321434");
+
+//   // BigInteger& sub = a - b;
+//   // str = sub.ToString();
+//   // cmp = (str == "123456789012345678901230000000");
+
+//   BigInteger& mult = a * b;
+//   string& str = BigIntegerParser::ToString(mult);
+//   bool cmp = (str == "6648362961520133879513534129214498836071414231023154552276131181220034018230952");
+
+//   // BigInteger& div = a / b;
+//   // string& str = div.ToString();
+//   // bool cmp = (str == "44557413417469525");
+
+//   // BigInteger& rem = a % b;
+//   // string& str = rem.ToString();
+//   // bool cmp = (str == "1494561306735");
+
+//   return 0;
+// }

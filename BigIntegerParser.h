@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGERPARSER_H
-#define BIGINTEGERPARSER_H
+#ifndef BIG_INTEGER_PARSER_H
+#define BIG_INTEGER_PARSER_H
 
 #include <vector>
 #include <string>
@@ -20,11 +20,11 @@ namespace BigMath
   class BigIntegerParser
   {
   public:
-    static BigInteger& Parse(char const* num)
+    static BigInteger Parse(char const* num)
     {
       Int len = strlen(num);
       if(num == NULL || len == 0)
-        return *new BigInteger();
+        return BigInteger();
 
       Int start = 0;
       bool isNegative = false;
@@ -48,19 +48,19 @@ namespace BigMath
 
       // If the resulting string is empty return 0
       if (len <= start)
-        return *new BigInteger();
+        return BigInteger();
 
-      vector<DataT>& bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
-      vector<DataT>& bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
+      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
 
-      return *new BigInteger(bigIntB2, isNegative);
+      return BigInteger(bigIntB2, isNegative);
     }
 
     // Group by n, meaning 10^n base
-    static vector<DataT>& ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
+    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
     {
       len--;
-      vector<DataT>& bigInt = *new vector<DataT>(len / n + 1);
+      vector<DataT> bigInt(len / n + 1);
 
       // Convert the string to int
       SizeT j = 0;
@@ -93,14 +93,14 @@ namespace BigMath
     }
 
     // Converts the integer to a string representation
-    static string& ToString(BigInteger const& bigInt)
+    static string ToString(BigInteger const& bigInt)
     {
       if(bigInt.IsZero())
       {
         return *new string("0");
       }
 
-      vector<DataT>& bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
       
       Int len = bigIntB2.size() * BigIntegerUtil::Base10n_Digit + 2;
       char* num = new char[len];
@@ -110,7 +110,7 @@ namespace BigMath
       if(bigInt.IsNegative())
         num[j--] = '-';
 
-      string& converted = *new string(num + j + 1);
+      string converted(num + j + 1);
 
       delete [] num;
 
@@ -118,15 +118,20 @@ namespace BigMath
     }    
 
     // Convert unsigned integer to base 10^n string
-    static Int UnsignedBase10nToString(vector<DataT> const& bigInt, SizeT baseDigit, char *num, SizeT len)
+    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT baseDigit, char *num, SizeT len)
     {
       SizeT j = len - 1;
       
       num[j--] = 0;
 
-      for(Int i = 0; i < bigInt.size(); i++)
+      // Trim zeros
+      SizeT size = a.size();
+      while(a[size-1] == 0)
+        size--;
+
+      for(Int i = 0; i < size; i++)
       {
-        DataT n = bigInt[i];
+        DataT n = a[i];
         SizeT l = 0;
         while(l++ < baseDigit)
         {

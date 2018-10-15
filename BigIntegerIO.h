@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIGINTEGERIO_H
-#define BIGINTEGERIO_H
+#ifndef BIG_INTEGER_IO_H
+#define BIG_INTEGER_IO_H
 
 #include <iostream>
 using namespace std;
@@ -16,7 +16,7 @@ using namespace std;
 
 namespace BigMath
 {
-// Inserter
+  // Inserter
   ostream& operator<<(ostream& stream,  BigInteger const& out)
   {
     stream << BigIntegerParser::ToString(out);
