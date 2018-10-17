@@ -221,20 +221,39 @@ namespace BigMath
         result.at(rStart + i) = digitOps;
       }
     }
-    
-    // Runtime O(n), Space O(1)
     static void MultiplyToUnsigned(
       vector<DataT>& a,
       ULong b,
       ULong base)
     {
-      if(BigIntegerUtil::IsZero(a)) // 0 times b
-        return;
+      MultiplyUnsigned(a, b, a, base);
+    }
+    
+    // Runtime O(n), Space O(1)
+    static vector<DataT> MultiplyUnsigned(
+      vector<DataT> const& a,
+      ULong b,
+      ULong base)
+    {
+      vector<DataT> w(a.size());
+      MultiplyUnsigned(a, b, w, base);
+      return w;
+    }
+
+    // Runtime O(n), Space O(1)
+    static void MultiplyUnsigned(
+      vector<DataT> const& a,
+      ULong b,
+      vector<DataT>& w,
+      ULong base)
+    {
       if(b == 0) // a times 0
       {
-        a.clear();
+        BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
         return;
       }
+      if(BigIntegerUtil::IsZero(a)) // 0 times b
+        return;
 
       ULong carry = 0;
       for(Int j = 0 ; j < a.size(); j++)
@@ -243,13 +262,13 @@ namespace BigMath
         multiply *= b;
         multiply += carry;
         
-        a[j] = multiply % base;
+        w[j] = multiply % base;
         carry = multiply / base;
       }
 
       while(carry > 0)
       {
-        a.push_back(carry % base);
+        w.push_back(carry % base);
         carry = carry / base;
       }
     }
@@ -306,6 +325,51 @@ namespace BigMath
         result.at(k) = carry;
       }
     }
+
+    static void DivideToUnsigned(
+      vector<DataT>& u,
+      DataT d,
+      ULong base)
+      {
+        DivideUnsigned(u, d, u, base);
+      }
+
+    static vector<DataT> DivideUnsigned(
+      vector<DataT> const& u,
+      DataT d,
+      ULong base)
+      {
+        SizeT n = u.size();
+        // Divide (u_n−1 . . . u_1 u_0)_b by d.
+        vector<DataT> w(n);
+
+        DivideUnsigned(u, d, w, base);
+
+        return w;
+      }
+    
+    static void DivideUnsigned(
+      vector<DataT> const& u,
+      DataT d,
+      vector<DataT>& w,
+      ULong base)
+      {
+        SizeT n = u.size();
+        // Divide (u_n−1 . . . u_1 u_0)_b by d.
+
+        // Set r = 0, j = n − 1.
+        ULong r = 0;
+        for(Int j = n - 1; j >= 0; j--)
+        {
+          // Set val = r * b + u_j
+          ULong val = r * base + u[j];
+          // Set w_j = ⌊val / d⌋
+          w[j] = val / d;
+          // Set r = val mod d
+          r = val % d;
+        }
+      }
+
 
     // Implentation of division by paper-pencil method
     // Assumption: a > b

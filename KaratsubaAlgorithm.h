@@ -19,10 +19,8 @@ namespace BigMath
   class KaratsubaAlgorithm
   {
     private:
-
-    public:
     // Cut off deterioriate over 32
-    static const SizeT CUT_OFF = 32;
+    static const SizeT KARATSUBA_THRESHOLD = 32;
 
     // Algorithm from paper
     // "Storage Allocation for the Karatsuba Integer Multiplication Algorithm"
@@ -53,7 +51,7 @@ namespace BigMath
         Int la = ClassicalAlgorithms::Len(aStart, aEnd);
         Int lb = ClassicalAlgorithms::Len(bStart, bEnd);
        
-        if(la <= CUT_OFF)
+        if(la <= KARATSUBA_THRESHOLD)
         {
           // Use naive method 
           ClassicalAlgorithms::MultiplyUnsigned(
@@ -181,16 +179,11 @@ namespace BigMath
       vector<DataT> x(a);
       vector<DataT> y(b);
 
-      if(x.size() > y.size())
-      {
-        while(y.size() < x.size())
-          y.push_back(0);
-      }
-      else if(x.size() < y.size())
-      {
-        while(y.size() > x.size())
-          x.push_back(0);
-      }
+      // Make both same size
+      while(y.size() < x.size())
+        y.push_back(0);
+      while(x.size() < y.size())
+        x.push_back(0);
 
       MultiplyUnsignedRecursive(
         x, 0, x.size() - 1, // b
