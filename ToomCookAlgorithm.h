@@ -20,15 +20,23 @@ using namespace std;
 namespace BigMath
 {
   class ToomCookAlgorithm
-  {   
-    private:
-    const Int code1 = -1;
-    const Int code2 = -2;
-    const Int code3 = -3;
-
-    vector<DataT> MultiplyRPart(vector<DataT> U, SizeT r, SizeT j, SizeT p, ULong base)
+  {
+    public:  
+    ToomCookAlgorithm()
     {
-      vector<DataT> Uj(p + 1);
+      code1 = -1;
+      code2 = -2;
+      code3 = -3;
+    }
+    
+    private:
+    Int code1;
+    Int code2;
+    Int code3;
+
+    vector<DataT> MultiplyRPart(vector<DataT> U, SizeT r, SizeT j, SizeT s, ULong base)
+    {
+      vector<DataT> Uj(s + 1);
       BigIntegerUtil::SetBit(Uj, 0, U.size() - 1, 0);
 
       Int p = U.size() / r;

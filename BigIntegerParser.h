@@ -95,19 +95,24 @@ namespace BigMath
     // Converts the integer to a string representation
     static string ToString(BigInteger const& bigInt)
     {
-      if(bigInt.IsZero())
+      return ToString(bigInt.GetInteger(), bigInt.IsNegative());
+    }
+
+    static string ToString(vector<DataT> const& bigInt, bool isNeg = false)
+    {
+      if(BigIntegerUtil::IsZero(bigInt))
       {
         return *new string("0");
       }
 
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt, BigInteger::Base(), BigIntegerUtil::Base10n);
       
       Int len = bigIntB2.size() * BigIntegerUtil::Base10n_Digit + 2;
       char* num = new char[len];
 
       Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base10n_Digit, num, len);
 
-      if(bigInt.IsNegative())
+      if(isNeg)
         num[j--] = '-';
 
       string converted(num + j + 1);
@@ -115,7 +120,7 @@ namespace BigMath
       delete [] num;
 
       return converted;
-    }    
+    }
 
     // Convert unsigned integer to base 10^n string
     static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT baseDigit, char *num, SizeT len)

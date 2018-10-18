@@ -24,6 +24,7 @@ using namespace std;
 #include "BigIntegerIO.h"
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
+#include "ToomCookAlgorithm.h"
 
 using namespace BigMath;
 
@@ -44,7 +45,7 @@ int main(int argc, char *argv[])
 
   char op;
 
-  cerr << "Data,Karatsuba,Classical,Results Digit" << endl;
+  cerr << "Data,Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
 
   while(true)
   {
@@ -74,6 +75,17 @@ int main(int argc, char *argv[])
    
     double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
 
+    start = clock();
+
+    ToomCookAlgorithm tca;
+    vector<DataT> mult = tca.MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+    string str = BigIntegerParser::ToString(mult);
+
+    end = clock();
+
+    double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
+
+
     Int cmp = ClassicalAlgorithms::UnsignedCompareTo(rKarat, rClassical);
     if(cmp != 0)
     {
@@ -82,8 +94,8 @@ int main(int argc, char *argv[])
     }
    
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << rKarat.size() << endl;
-    fprintf(timeFile, "%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, rKarat.size());
+    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," rKarat.size() << endl;
+    fprintf(timeFile, "%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, rKarat.size());
 
     DATA++;
   
