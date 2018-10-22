@@ -76,6 +76,84 @@ namespace BigMath
       return Uj;
     }
 
+    vector<DataT> ComputeCode2(SizeT k, ULong base)
+    {
+        // Step 7. [Find a’s.]
+        // Set r ← r_k
+        Long rr = r[k];
+        // q ← q_k
+        Long qq = q[k];
+        // p ← q_k–1 + q_k
+        Long pp = q[k-1] + q[k];
+
+        // At this point stack W contains a sequence of numbers
+        // ending with W(0), W(1), ..., W(2r) from bottom to 
+        // top, where each W(j) is a 2p-bit number.
+
+        // Now for j = 1, 2, 3, ... , 2r, perform the following 
+        // Here j must increase and t must decrease.
+        for(Int j = 1; j <= 2*rr; j++)
+        {
+          // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
+          for(Int t = 2*rr; t >= j; t--)
+          {
+            // set W(t) ← (W(t) – W(t − 1))/j.
+            // The quantity ( W(t) - W(t-1) ) / j will always be a 
+            // nonnegative integer that fits in 2p bits.
+            ClassicalAlgorithms::SubtractFromUnsigned(
+              W[t], 0, W[t].size() - 1,
+              W[t-1], 0, W[t-1].size() - 1,
+              base);
+            ClassicalAlgorithms::DivideToUnsigned(W[t], j, base);
+          }
+        }
+
+        // Step 8. [Find W’s.]
+        // For j = 2r − 1, 2r – 2, ..., 1, perform the following 
+        // Here j must decrease and t must increase. 
+        for(Int j = 2*rr - 1; j >= 1; j--)
+        {
+          // loop: For t = j, j + 1, ..., 2r − 1, 
+          for(Int t = j; t < 2 * rr; t++)
+          {
+            // set W(t) ← W(t) – j W(t + 1).
+            // The result of this operation will again be 
+            // a nonnegative 2p-bit integer.
+            vector<DataT> Wt1 = ClassicalAlgorithms::MultiplyUnsigned(W[t+1], j, base);
+            ClassicalAlgorithms::SubtractFromUnsigned(
+              W[t], 0, W[t].size() - 1,
+              Wt1, 0, Wt1.size() - 1,
+              base);
+          }
+        }
+
+        // Step 9. [Set answer.]
+        // Set w to the 2(q_k + q_k+1)-bit integer
+        // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
+        Long qp = (Long) pow(2, qq);
+
+        vector<DataT> w(2 * (q[k] + q[k+1]) );
+        BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
+
+        for(Int i = 2*rr; i >= 0; i--)
+        {
+          ClassicalAlgorithms::AddToUnsigned(
+            w, 0, w.size() - 1,
+            W[i], 0, W[i].size() - 1,
+            base);
+          // Don't multiply if it's W_0
+          if(i > 0)
+          {
+            ClassicalAlgorithms::MultiplyToUnsigned(w, qp, base);
+          }
+        }
+
+        // Remove W(2r), . . . , W(0) from stack W.
+        W.clear();
+
+        return w;
+    }
+
     vector<DataT> MultiplyUnsignedRecursive(SizeT k, ULong base)
     {
       // Step 3. [Check recursion level.]
@@ -169,109 +247,32 @@ namespace BigMath
       
       // Step 10. [Return.]
       Int code = C.top();
-      while(code != CODE1)
+      C.pop();
+
+      // Set k ← k + 1.
+      k++;
+  
+      // If it is code-3, go to step T6.
+      if(code == CODE3)
       {
-        // Set k ← k + 1.
-        k++;
-        // Remove the top of stack C.
-        code = C.top();
-        C.pop();
+        // Step 6. [Save one product.]
+        // At this point the multiplication algorithm has set w 
+        // to one of the products W(j) = U(j)V(j).
+        
+        // Put w onto stack W.
+        // This number w contains 2(q_k + q_k−1) bits.
+        W.push_back(w);
 
-        // If it is code-3, go to step T6.
-        if(code == CODE3)
-        {
-          // Step 6. [Save one product.]
-          // (At this point the multiplication algorithm has set w 
-          // to one of the products W(j) = U(j)V(j).)
-          
-          // Put w onto stack W.
-          // (This number w contains 2(q_k + q_k−1) bits.)
-          W.push_back(w);
-
-          // Go back to step T3.
-          w = MultiplyUnsignedRecursive(k, base);
-        }
-        // If it is code-2, put w onto stack W and go to step 7.
-        else if(code == CODE2)
-        {
-          W.push_back(w);
-          // Step 7. [Find a’s.]
-          // Set r ← r_k
-          rr = r[k];
-          // q ← q_k
-          qq = q[k];
-          // p ← q_k–1 + q_k
-          pp = q[k-1] + q[k];
-
-          // At this point stack W contains a sequence of numbers
-          // ending with W(0), W(1), ..., W(2r) from bottom to 
-          // top, where each W(j) is a 2p-bit number.
-
-          // Now for j = 1, 2, 3, ... , 2r, perform the following 
-          // Here j must increase and t must decrease.
-          for(Int j = 1; j <= 2*rr; j++)
-          {
-            // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
-            for(Int t = 2*rr; t >= j; t--)
-            {
-              // set W(t) ← (W(t) – W(t − 1))/j.
-              // The quantity ( W(t) - W(t-1) ) / j will always be a 
-              // nonnegative integer that fits in 2p bits.
-              ClassicalAlgorithms::SubtractFromUnsigned(
-                W[t], 0, W[t].size() - 1,
-                W[t-1], 0, W[t-1].size() - 1,
-                base);
-              ClassicalAlgorithms::DivideToUnsigned(W[t], j, base);
-            }
-          }
-
-          // Step 8. [Find W’s.]
-          // For j = 2r − 1, 2r – 2, ..., 1, perform the following 
-          // Here j must decrease and t must increase. 
-          for(Int j = 2*rr - 1; j >= 1; j--)
-          {
-            // loop: For t = j, j + 1, ..., 2r − 1, 
-            for(Int t = j; t < 2 * rr; t++)
-            {
-              // set W(t) ← W(t) – j W(t + 1).
-              // The result of this operation will again be 
-              // a nonnegative 2p-bit integer.
-              vector<DataT> Wt1 = ClassicalAlgorithms::MultiplyUnsigned(W[t+1], j, base);
-              ClassicalAlgorithms::SubtractFromUnsigned(
-                W[t], 0, W[t].size() - 1,
-                Wt1, 0, Wt1.size() - 1,
-                base);
-            }
-          }
-
-          // Step 9. [Set answer.]
-          // Set w to the 2(q_k + q_k+1)-bit integer
-          // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
-          Long qp = (Long) pow(2, qq);
-
-          vector<DataT> ww(2 * (q[k] + q[k+1]) );
-          BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
-
-          for(Int i = 2*rr; i >= 0; i--)
-          {
-            ClassicalAlgorithms::AddToUnsigned(
-              ww, 0, ww.size() - 1,
-              W[i], 0, W[i].size() - 1,
-              base);
-            // Don't multiply if it's W_0
-            if(i > 0)
-            {
-              ClassicalAlgorithms::MultiplyToUnsigned(ww, qp, base);
-            }
-          }
-
-          w = ww;
-
-          // Remove W(2r), . . . , W(0) from stack W.
-          W.clear();
-        }
+        // Go back to step T3.
+        w = MultiplyUnsignedRecursive(k, base);
       }
-      
+        // If it is code-2, put w onto stack W and go to step 7.
+      else if(code == CODE2)
+      {
+        W.push_back(w);
+        w = ComputeCode2(k, base);
+      }
+        
       // And if it is code-1, terminate the algorithm (w is the answer).
       return w;
     }
