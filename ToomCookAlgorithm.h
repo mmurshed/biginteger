@@ -128,7 +128,7 @@ namespace BigMath
           // loop: For t = j, j + 1, ..., 2r − 1, 
           for(Long t = j; t < _2r; t++)
           {
-            // set W(t) ← W(t) – j W(t + 1).
+            // set W(t) ← W(t) – j * W(t + 1).
             // The result of this operation will again be 
             // a nonnegative 2p-bit integer.
 
@@ -151,7 +151,7 @@ namespace BigMath
         vector<DataT> w(2 * (q_table[k] + q_table[k+1]) );
         BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
 
-        for(Int i = _2r; i >= 0; i--)
+        for(Long i = _2r; i >= 0; i--)
         {
           ClassicalAlgorithms::AddToUnsigned(
             w, 0, w.size() - 1,
@@ -204,8 +204,7 @@ namespace BigMath
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
         // and successively put these values onto stack U. 
         Cval.push_back(MultiplyRPart(U, r + 1, j, p, base));
-        C.push(Cval.size() - 1);
-        
+        C.push(Cval.size() - 1);        
       }
       // Stack C contains
       // code-2, V(2r), U(2r),
@@ -248,41 +247,57 @@ namespace BigMath
 
       // Step 5. [Recurse.]
       // Go back to step 3.
+      return MultiplyUnsignedRecursive(k, base);
+    }
+
+    vector<DataT> MultiplyUnsigned(SizeT k, ULong base)
+    {
       vector<DataT> w = MultiplyUnsignedRecursive(k, base);
-      
+
+      k = 0;
+
       // Step 10. [Return.]
-      Int code = C.top();
-      C.pop();
-
-      // Set k ← k + 1.
-      k++;
-  
-      // If it is code-3, go to step T6.
-      if(code == CODE3)
+      while(true)
       {
-        // Step 6. [Save one product.]
-        // At this point the multiplication algorithm has set w 
-        // to one of the products W(j) = U(j)V(j).
-        
-        // Put w onto stack W.
-        // This number w contains 2(q_k + q_k−1) bits.
-        W.push_back(w);
+        Int code = C.top();
+        C.pop();
 
-        // Go back to step T3.
-        w = MultiplyUnsignedRecursive(k, base);
-      }
+        if(code == CODE1)
+          break;
+
+        // Set k ← k + 1.
+        k++;
+
+        W.push_back(w);    
+
+        // If it is code-3, go to step T6.
+        if(code == CODE3)
+        {
+          // Step 6. [Save one product.]
+          // Go back to step T3.
+          w = MultiplyUnsignedRecursive(k, base);
+        }
         // If it is code-2, put w onto stack W and go to step 7.
-      else if(code == CODE2)
-      {
-        W.push_back(w);
-        w = ComputeCode2(k, base);
+        else if(code == CODE2)
+        {          
+          w = ComputeCode2(k, base);
+        }
+        else break;
       }
-        
+
       // And if it is code-1, terminate the algorithm (w is the answer).
       return w;
     }
 
     // Setp 1. [Compute q, r tables.]
+    // In this step we build the sequences
+    //
+    // k   = 0     1    2    3    4     5     6
+    // q_k = 2^4  2^4  2^6  2^8  2^10  2^13  2^16
+    // r_k = 2^2  2^2  2^2  2^2  2^3   2^3   2^4
+    //
+    // The multiplication of 70000-bit numbers would cause 
+    // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
     SizeT ComputeQRTable(SizeT n)
     {
       // Set k ← 1
@@ -311,26 +326,16 @@ namespace BigMath
         Q += R;
         
         // R ← ⌊sqrt(Q)⌋
-        // (Note: The calculation of R ← ⌊sqrt(Q)⌋ does not 
-        // require a square root to be taken, since we may 
-        // simply set R ← R + 1 if (R + 1)^2 ≤ Q and leave 
-        // R unchanged if (R + 1)^2 > Q.
+        // Instead of sqrt calculation
+        // set R ← R + 1 if (R + 1)^2 ≤ Q 
+        // leave R unchanged if (R + 1)^2 > Q.
         if( sqr(R+1) <= Q )
           R++;
 
         // q_k ← 2^Q
         q_table.push_back( twopow(Q) );
         // r_k ← 2^R
-        r_table.push_back( twopow(R) );
-        
-        // In this step we build the sequences
-        //
-        // k   = 0     1    2    3    4     5     6
-        // q_k = 2^4  2^4  2^6  2^8  2^10  2^13  2^16
-        // r_k = 2^2  2^2  2^2  2^2  2^3   2^3   2^4
-        //
-        // The multiplication of 70000-bit numbers would cause 
-        // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
+        r_table.push_back( twopow(R) );       
       }
 
       return k;
@@ -384,7 +389,7 @@ namespace BigMath
       Cval.push_back(v);
       C.push(1);
 
-      return MultiplyUnsignedRecursive(k, base);
+      return MultiplyUnsigned(k, base);
     }
    };
 }
