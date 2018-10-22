@@ -24,15 +24,15 @@ namespace BigMath
     public:  
     ToomCookAlgorithm()
     {
-      code1 = -1;
-      code2 = -2;
-      code3 = -3;
+      CODE1 = -1;
+      CODE2 = -2;
+      CODE3 = -3;
     }
     
-    private:
-    Int code1;
-    Int code2;
-    Int code3;
+    public:
+    Int CODE1;
+    Int CODE2;
+    Int CODE3;
 
     vector<DataT> MultiplyRPart(vector<DataT> U, SizeT r, SizeT j, SizeT s, ULong base)
     {
@@ -42,6 +42,7 @@ namespace BigMath
       Int p = U.size() / r;
       Int q = U.size() % r;
       Int k = 0;
+      SizeT uEnd = 1;
 
       // Compute the p-bit numbers
       // Given U =  U_r ... U_1 U_0
@@ -59,7 +60,7 @@ namespace BigMath
         }
         
         ClassicalAlgorithms::AddToUnsigned(
-          Uj, 0, Uj.size() - 1,
+          Uj, 0, uEnd,
           U, k, i,
           base);
         // Don't multiply if it's U_0
@@ -67,6 +68,7 @@ namespace BigMath
         {
           ClassicalAlgorithms::MultiplyToUnsigned(Uj, j, base);
         }
+        uEnd = BigIntegerUtil::FindNonZeroByte(Uj);
       }
 
       BigIntegerUtil::TrimZeros(Uj);
@@ -94,11 +96,15 @@ namespace BigMath
         return ClassicalAlgorithms::MultiplyUnsigned(u, v, base);
       }
       
-      // If k > 0, set r ← r_k, q ← q_k, p ← q_k–1 + q_k, and go on to step 4.
-
+      // If k > 0
+      // set r ← r_k
       Long rr = r[k];
+      // q ← q_k
       Long qq = q[k];
-      Long pp = q[k-1];
+      // p ← q_k–1 + q_k
+      Long pp = q[k-1] + q[k];
+
+      // go on to step 4.
       
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
@@ -142,7 +148,7 @@ namespace BigMath
       while(!U.empty())
       {
         // code
-        C.push( first ? code2 : code3 );
+        C.push( first ? CODE2 : CODE3 );
 
         // U(n-1)
         Cval.push_back(U.top());
@@ -162,15 +168,17 @@ namespace BigMath
       vector<DataT> w = MultiplyUnsignedRecursive(k, base);
       
       // Step 10. [Return.]
-      // Set k ← k + 1. Remove the top of stack C.
       Int code = C.top();
-      while(code != code1)
+      while(code != CODE1)
       {
+        // Set k ← k + 1.
         k++;
+        // Remove the top of stack C.
         code = C.top();
         C.pop();
+
         // If it is code-3, go to step T6.
-        if(code == code3)
+        if(code == CODE3)
         {
           // Step 6. [Save one product.]
           // (At this point the multiplication algorithm has set w 
@@ -184,14 +192,16 @@ namespace BigMath
           w = MultiplyUnsignedRecursive(k, base);
         }
         // If it is code-2, put w onto stack W and go to step 7.
-        else if(code == code2)
+        else if(code == CODE2)
         {
           W.push_back(w);
           // Step 7. [Find a’s.]
-          // Set r ← r_k, q ← q_k, p ← q_k–1 + q_k.
+          // Set r ← r_k
           rr = r[k];
+          // q ← q_k
           qq = q[k];
-          pp = q[k-1];
+          // p ← q_k–1 + q_k
+          pp = q[k-1] + q[k];
 
           // At this point stack W contains a sequence of numbers
           // ending with W(0), W(1), ..., W(2r) from bottom to 
@@ -266,56 +276,9 @@ namespace BigMath
       return w;
     }
 
-    static inline Long sqr(Long n) { return n * n; }
-
-    private:
-      stack< vector<DataT> > U;
-      stack< vector<DataT> > V;
-      vector< vector<DataT> > W;
-      stack<Int> C; 
-      vector< vector<DataT> > Cval;
-
-      vector<Long> q;
-      vector<Long> r;
-
-
-    public:
-    /*
-     * Given a positive integer n and two nonnegative n-bit integers 
-     * u and v, this algorithm forms their 2n-bit product, w. 
-     *
-     * Four auxiliary stacks are used to hold the long numbers that 
-     * are manipulated during the procedure:
-     * 
-     * Stack U, V: Temporary storage of U(j) and V(j) in step 4.
-     * Stack C: Numbers to be multiplied, and control codes.
-     * Stack W: Storage W(j).
-     * 
-     * These stacks may contain either binary numbers or special 
-     * control symbols called code-1, code-2, and code-3. The 
-     * algorithm also constructs an auxiliary table of numbers qk, rk;
-     * this table is maintained in such a manner that it may be stored 
-     * as a linear list, where a single pointer that traverses the list
-     * (moving back and forth) can be used to access the current table
-     * entry of interest.
-    */
-    vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    // Setp 1. [Compute q, r tables.]
+    SizeT ComputeQRTable(SizeT n)
     {
-      SizeT n = max(a.size(), b.size());
-      vector<DataT> u(a);
-      vector<DataT> v(b);
-
-      // Make both same size
-      while(v.size() < u.size())
-        v.push_back(0);
-      while(u.size() < v.size())
-        u.push_back(0);
-
-      // Setp 1. [Compute q, r tables.]
-      // Set stacks U, V, C, and W empty.
-      // Stack C contains control code code-1 as -1, code-2 as -2, and code-3 as -3
-      // It also contains the locations of Cval as positive integers.
-
       // Set k ← 1
       SizeT k = 1;
 
@@ -364,11 +327,62 @@ namespace BigMath
         // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
       }
 
+      return k;
+    }
+
+    static inline Long sqr(Long n) { return n * n; }
+
+    private:
+      stack< vector<DataT> > U;
+      stack< vector<DataT> > V;
+      vector< vector<DataT> > W;
+      stack<Int> C; 
+      vector< vector<DataT> > Cval;
+
+      vector<Long> q;
+      vector<Long> r;
+
+
+    public:
+    /*
+     * Given a positive integer n and two nonnegative n-bit integers 
+     * u and v, this algorithm forms their 2n-bit product, w. 
+     *
+     * Four auxiliary stacks are used to hold the long numbers that 
+     * are manipulated during the procedure:
+     * 
+     * Stack U, V: Temporary storage of U(j) and V(j) in step 4.
+     * Stack C: Numbers to be multiplied, and control codes.
+     * Stack W: Storage W(j).
+     * 
+     * These stacks may contain either binary numbers or special 
+     * control symbols called code-1, code-2, and code-3. The 
+     * algorithm also constructs an auxiliary table of numbers qk, rk;
+     * this table is maintained in such a manner that it may be stored 
+     * as a linear list, where a single pointer that traverses the list
+     * (moving back and forth) can be used to access the current table
+     * entry of interest.
+    */
+    vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    {
+      SizeT n = max(a.size(), b.size());
+      vector<DataT> u(a);
+      vector<DataT> v(b);
+
+      BigIntegerUtil::MakeSameSize(u, v);
+
+      SizeT k = ComputeQRTable(n);
+
+      // Set stacks U, V, C, and W empty.
+      // Stack C contains control code.
+      // code-1 as -1, code-2 as -2, and code-3 as -3.
+      // It also contains the locations of Cval as positive integers.
+
       // Step 2. [Put u, v on stack.]
       // Put code-1 on stack C, then place u and v onto stack C as 
       // numbers of exactly q_k−1 + q_k bits each.
 
-      C.push(code1);
+      C.push(CODE1);
       Cval.push_back(u);
       C.push(0);
       Cval.push_back(v);

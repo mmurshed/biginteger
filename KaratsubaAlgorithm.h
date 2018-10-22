@@ -179,12 +179,8 @@ namespace BigMath
       vector<DataT> x(a);
       vector<DataT> y(b);
 
-      // Make both same size
-      while(y.size() < x.size())
-        y.push_back(0);
-      while(x.size() < y.size())
-        x.push_back(0);
-
+      BigIntegerUtil::MakeSameSize(x, y);
+      
       MultiplyUnsignedRecursive(
         x, 0, x.size() - 1, // b
         y, 0, y.size() - 1, // a

@@ -281,6 +281,9 @@ namespace BigMath
       vector<DataT> const& b,
       ULong base)
     {
+      if(BigIntegerUtil::IsZero(a) || BigIntegerUtil::IsZero(b)) // 0 times
+        return vector<DataT>();
+
       SizeT size = a.size() + b.size() + 1;
       vector<DataT> result(size);
 

@@ -26,17 +26,17 @@ namespace BigMath
   class BigIntegerUtil
   {
     public:
+    // Base 10
+    static const ULong Base10 = 10;
+    // Base 100
+    static const ULong Base100 = 100;
     // The Base Used
-    static const ULong Base10n = 100000000lu;
+    static const ULong Base100M = 100000000lu;
     // Number of digits in `BASE'
-    static const SizeT Base10n_Digit = 8;
+    static const SizeT Base100M_Zeroes = 8;
 
     // Base 2^32
     static const ULong Base2_32 = 4294967296ul; // 2^32
-
-    // Base 10
-    static const ULong Base10 = 10;
-    static const ULong Base100 = 100;
 
     public:
     // Trims Leading Zeros
@@ -76,6 +76,15 @@ namespace BigMath
       rEnd = min(rEnd, (SizeT)(r.size() - 1));
       for(SizeT i = rStart; i <= rEnd; i++)
         r.at(i) = bit;
+    }
+
+    static void MakeSameSize(vector<DataT>& u, vector<DataT>& v)
+    {
+      // Make both same size
+      while(v.size() < u.size())
+        v.push_back(0);
+      while(u.size() < v.size())
+        u.push_back(0);
     }
    };
 }

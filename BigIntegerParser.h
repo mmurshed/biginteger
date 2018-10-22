@@ -50,8 +50,8 @@ namespace BigMath
       if (len <= start)
         return BigInteger();
 
-      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
+      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base100M_Zeroes);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base100M, BigInteger::Base());
 
       return BigInteger(bigIntB2, isNegative);
     }
@@ -105,12 +105,12 @@ namespace BigMath
         return *new string("0");
       }
 
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt, BigInteger::Base(), BigIntegerUtil::Base10n);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt, BigInteger::Base(), BigIntegerUtil::Base100M);
       
-      Int len = bigIntB2.size() * BigIntegerUtil::Base10n_Digit + 2;
+      Int len = bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
       char* num = new char[len];
 
-      Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base10n_Digit, num, len);
+      Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base100M_Zeroes, num, len);
 
       if(isNeg)
         num[j--] = '-';
