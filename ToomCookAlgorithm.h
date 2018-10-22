@@ -10,7 +10,6 @@
 
 #include <vector>
 #include <stack>
-#include <cmath>
 using namespace std;
 
 #include "BigInteger.h"
@@ -28,12 +27,19 @@ namespace BigMath
       CODE2 = -2;
       CODE3 = -3;
     }
+    private:
+    vector< vector<DataT> > W;
+    stack<Int> C; 
+    vector< vector<DataT> > Cval;
+
+    vector<Long> q_table;
+    vector<Long> r_table;
     
-    public:
     Int CODE1;
     Int CODE2;
     Int CODE3;
 
+    public:
     vector<DataT> MultiplyRPart(vector<DataT> U, SizeT r, SizeT j, SizeT s, ULong base)
     {
       vector<DataT> Uj(s + 1);
@@ -63,6 +69,7 @@ namespace BigMath
           Uj, 0, uEnd,
           U, k, i,
           base);
+        
         // Don't multiply if it's U_0
         if(k > 0)
         {
@@ -80,11 +87,12 @@ namespace BigMath
     {
         // Step 7. [Find a’s.]
         // Set r ← r_k
-        Long rr = r[k];
+        Long r = r_table[k];
+        Long _2r = 2 * r;
         // q ← q_k
-        Long qq = q[k];
+        Long q = q_table[k];
         // p ← q_k–1 + q_k
-        Long pp = q[k-1] + q[k];
+        Long p = q_table[k-1] + q_table[k];
 
         // At this point stack W contains a sequence of numbers
         // ending with W(0), W(1), ..., W(2r) from bottom to 
@@ -92,34 +100,42 @@ namespace BigMath
 
         // Now for j = 1, 2, 3, ... , 2r, perform the following 
         // Here j must increase and t must decrease.
-        for(Int j = 1; j <= 2*rr; j++)
+        for(Long j = 1; j <= _2r; j++)
         {
           // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
-          for(Int t = 2*rr; t >= j; t--)
+          for(Long t = _2r; t >= j; t--)
           {
-            // set W(t) ← (W(t) – W(t − 1))/j.
+            // set W(t) ← ( W(t) – W(t − 1) ) / j.
             // The quantity ( W(t) - W(t-1) ) / j will always be a 
             // nonnegative integer that fits in 2p bits.
+
+            // W(t) –= W(t − 1)
             ClassicalAlgorithms::SubtractFromUnsigned(
               W[t], 0, W[t].size() - 1,
               W[t-1], 0, W[t-1].size() - 1,
               base);
+
+            // W(t) /= j
             ClassicalAlgorithms::DivideToUnsigned(W[t], j, base);
           }
         }
 
-        // Step 8. [Find W’s.]
+        // Step 8. [Find W’s.]        
         // For j = 2r − 1, 2r – 2, ..., 1, perform the following 
         // Here j must decrease and t must increase. 
-        for(Int j = 2*rr - 1; j >= 1; j--)
+        for(Long j = _2r - 1; j >= 1; j--)
         {
           // loop: For t = j, j + 1, ..., 2r − 1, 
-          for(Int t = j; t < 2 * rr; t++)
+          for(Long t = j; t < _2r; t++)
           {
             // set W(t) ← W(t) – j W(t + 1).
             // The result of this operation will again be 
             // a nonnegative 2p-bit integer.
+
+            // Wt1 = j * W(t+1)
             vector<DataT> Wt1 = ClassicalAlgorithms::MultiplyUnsigned(W[t+1], j, base);
+
+            // W(t) -= Wt1
             ClassicalAlgorithms::SubtractFromUnsigned(
               W[t], 0, W[t].size() - 1,
               Wt1, 0, Wt1.size() - 1,
@@ -130,12 +146,12 @@ namespace BigMath
         // Step 9. [Set answer.]
         // Set w to the 2(q_k + q_k+1)-bit integer
         // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
-        Long qp = (Long) pow(2, qq);
+        Long qp = twopow(q);
 
-        vector<DataT> w(2 * (q[k] + q[k+1]) );
+        vector<DataT> w(2 * (q_table[k] + q_table[k+1]) );
         BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
 
-        for(Int i = 2*rr; i >= 0; i--)
+        for(Int i = _2r; i >= 0; i--)
         {
           ClassicalAlgorithms::AddToUnsigned(
             w, 0, w.size() - 1,
@@ -154,7 +170,7 @@ namespace BigMath
         return w;
     }
 
-    void BreakIntoR1Parts(Long rr, Long pp, ULong base)
+    void BreakIntoR1Parts(Long r, Long p, ULong base)
     {
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
@@ -162,57 +178,41 @@ namespace BigMath
       
       // The top of stack C now contains an (r + 1)q = (q_k + q_k+1)-bit number.
       // Remove U_r ... U_1 U_0 from stack C.
-      vector<DataT> UU = Cval[C.top()];
+      vector<DataT> U = Cval[C.top()];
       C.pop();
       
       // Now the top of stack C contains another list of
       // r + 1 q-bit numbers, V_r ... V_1 V_0.
       // Remove V_r ... V_1 V_0 from stack C.
-      vector<DataT> VV = Cval[C.top()];
+      vector<DataT> V = Cval[C.top()];
       C.pop();
+
+      Int _2r = 2 * r;
       
       // For j = 0, 1, ... , 2r
-      for(SizeT j = 0; j <= 2*rr; j++)
+      for(Int j = _2r; j >= 0; j--)
       {
-        // Compute the p-bit numbers
-        // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
-        // and successively put these values onto stack U. 
-        U.push(MultiplyRPart(UU, rr + 1, j, pp, base));
+        // code
+        C.push( j == _2r ? CODE2 : CODE3 );
 
         // Computer the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
-        // should be put onto stack V in the same way.
-        V.push(MultiplyRPart(VV, rr + 1, j, pp, base));
-      }
-      // The bottom of stack U now contains U(0),
-      // then comes U(1), etc., with U(2r) on top.
-      // We have
-      // U(j) <= U(2r) < 2^q ( (2r)^r + (2r)^r-1 + ... + 1) < 2^q+1 * (2r)^r <= 2^p.
+        Cval.push_back(MultiplyRPart(V, r + 1, j, p, base));
+        C.push(Cval.size() - 1);
 
-      // Step 5. [Recurse.]
-      // Successively put the following items onto stack C, 
-      // at the same time emptying stacks U and V :
-      // code-2, V(2r), U(2r), code-3, V(2r-1), U(2r-1), ... ,
-      //                code-3, V(1), U(1), code-3, V(0), U(0)
-      bool first = true;
-      while(!U.empty())
-      {
-        // code
-        C.push( first ? CODE2 : CODE3 );
-
-        // U(n-1)
-        Cval.push_back(U.top());
-        U.pop();
+        // Compute the p-bit numbers
+        // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
+        // and successively put these values onto stack U. 
+        Cval.push_back(MultiplyRPart(U, r + 1, j, p, base));
         C.push(Cval.size() - 1);
         
-        // V(n-1)
-        Cval.push_back(V.top());
-        V.pop();
-        C.push(Cval.size() - 1);
-        
-        // flag for code-3
-        first = false;
       }
+      // Stack C contains
+      // code-2, V(2r), U(2r),
+      // code-3, V(2r-1), U(2r-1),
+      // ... ,
+      // code-3, V(1), U(1),
+      // code-3, V(0), U(0)
     }
 
     vector<DataT> MultiplyUnsignedRecursive(SizeT k, ULong base)
@@ -237,15 +237,16 @@ namespace BigMath
       
       // If k > 0
       // set r ← r_k
-      Long rr = r[k];
+      Long r = r_table[k];
       // q ← q_k
-      Long qq = q[k];
+      Long q = q_table[k];
       // p ← q_k–1 + q_k
-      Long pp = q[k-1] + q[k];
+      Long p = q_table[k-1] + q_table[k];
 
       // go on to step 4.
-      BreakIntoR1Parts(rr, pp, base);     
+      BreakIntoR1Parts(r, p, base);     
 
+      // Step 5. [Recurse.]
       // Go back to step 3.
       vector<DataT> w = MultiplyUnsignedRecursive(k, base);
       
@@ -288,12 +289,12 @@ namespace BigMath
       SizeT k = 1;
 
       // q_0 ← q_1 ← 16
-      q.push_back(16);
-      q.push_back(16);
+      q_table.push_back(16);
+      q_table.push_back(16);
       
       // r_0 ← r_1 ← 4
-      r.push_back(4);
-      r.push_back(4);
+      r_table.push_back(4);
+      r_table.push_back(4);
 
       // Q ← 4
       Long Q = 4;
@@ -302,7 +303,7 @@ namespace BigMath
 
       // Now if q_k−1 + q_k < n
       // and repeat this operation until q_k−1 + q_k ≥ n. 
-      while(q[k-1] + q[k] < n)
+      while(q_table[k-1] + q_table[k] < n)
       {
         // Set k ← k + 1
         k++;
@@ -318,9 +319,9 @@ namespace BigMath
           R++;
 
         // q_k ← 2^Q
-        q.push_back( (Long) pow(2, Q) );
+        q_table.push_back( twopow(Q) );
         // r_k ← 2^R
-        r.push_back( (Long) pow(2, R) );
+        r_table.push_back( twopow(R) );
         
         // In this step we build the sequences
         //
@@ -336,17 +337,7 @@ namespace BigMath
     }
 
     static inline Long sqr(Long n) { return n * n; }
-
-    private:
-      stack< vector<DataT> > U;
-      stack< vector<DataT> > V;
-      vector< vector<DataT> > W;
-      stack<Int> C; 
-      vector< vector<DataT> > Cval;
-
-      vector<Long> q;
-      vector<Long> r;
-
+    static inline Long twopow(Int pow) {  return 1L << pow; }
 
     public:
     /*
