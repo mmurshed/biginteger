@@ -154,36 +154,8 @@ namespace BigMath
         return w;
     }
 
-    vector<DataT> MultiplyUnsignedRecursive(SizeT k, ULong base)
+    void BreakIntoR1Parts(Long rr, Long pp, ULong base)
     {
-      // Step 3. [Check recursion level.]
-      // Decrease k by 1.
-      --k;
-
-      // If k = 0, the top of stack C now contains
-      // two 32-bit numbers, u and v
-      if(k == 0)
-      {
-        // remove them
-        vector<DataT> u = Cval[C.top()];
-        C.pop();
-        vector<DataT> v = Cval[C.top()];
-        C.pop();
-        // set w ← uv using a built-in routine for multiplying 
-        // 32-bit numbers, and go to step 10.
-        return ClassicalAlgorithms::MultiplyUnsigned(u, v, base);
-      }
-      
-      // If k > 0
-      // set r ← r_k
-      Long rr = r[k];
-      // q ← q_k
-      Long qq = q[k];
-      // p ← q_k–1 + q_k
-      Long pp = q[k-1] + q[k];
-
-      // go on to step 4.
-      
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
       // of r + 1 numbers with q bits each, (U_r . . . U_1U_0)_2q . 
@@ -241,6 +213,38 @@ namespace BigMath
         // flag for code-3
         first = false;
       }
+    }
+
+    vector<DataT> MultiplyUnsignedRecursive(SizeT k, ULong base)
+    {
+      // Step 3. [Check recursion level.]
+      // Decrease k by 1.
+      --k;
+
+      // If k = 0, the top of stack C now contains
+      // two 32-bit numbers, u and v
+      if(k == 0)
+      {
+        // remove them
+        vector<DataT> u = Cval[C.top()];
+        C.pop();
+        vector<DataT> v = Cval[C.top()];
+        C.pop();
+        // set w ← uv using a built-in routine for multiplying 
+        // 32-bit numbers, and go to step 10.
+        return ClassicalAlgorithms::MultiplyUnsigned(u, v, base);
+      }
+      
+      // If k > 0
+      // set r ← r_k
+      Long rr = r[k];
+      // q ← q_k
+      Long qq = q[k];
+      // p ← q_k–1 + q_k
+      Long pp = q[k-1] + q[k];
+
+      // go on to step 4.
+      BreakIntoR1Parts(rr, pp, base);     
 
       // Go back to step 3.
       vector<DataT> w = MultiplyUnsignedRecursive(k, base);
@@ -388,7 +392,6 @@ namespace BigMath
       C.push(0);
       Cval.push_back(v);
       C.push(1);
-
 
       return MultiplyUnsignedRecursive(k, base);
     }
