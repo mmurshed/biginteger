@@ -150,18 +150,22 @@ namespace BigMath
 
         vector<DataT> w(2 * (q_table[k] + q_table[k+1]) );
         BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
+        SizeT wEnd = 1;
 
         for(Long i = _2r; i >= 0; i--)
         {
           ClassicalAlgorithms::AddToUnsigned(
-            w, 0, w.size() - 1,
+            w, 0, wEnd,
             W[i], 0, W[i].size() - 1,
             base);
+
           // Don't multiply if it's W_0
           if(i > 0)
           {
             ClassicalAlgorithms::MultiplyToUnsigned(w, qp, base);
           }
+          
+          wEnd = BigIntegerUtil::FindNonZeroByte(w);
         }
 
         // Remove W(2r), . . . , W(0) from stack W.
@@ -276,6 +280,7 @@ namespace BigMath
           // Step 6. [Save one product.]
           // Go back to step T3.
           w = MultiplyUnsignedRecursive(k, base);
+          k = 0;
         }
         // If it is code-2, put w onto stack W and go to step 7.
         else if(code == CODE2)
