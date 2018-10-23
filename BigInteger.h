@@ -68,12 +68,12 @@ namespace BigMath
     // Properties
     SizeT size() const 
     {
-      return theInteger.size();
+      return (SizeT)theInteger.size();
     }
 
     static ULong Base()
     {
-      return BigIntegerUtil::Base100M;
+        return BigIntegerUtil::Base10;
     }
 
     bool IsNegative() const

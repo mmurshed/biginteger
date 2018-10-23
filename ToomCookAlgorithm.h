@@ -40,20 +40,20 @@ namespace BigMath
     Int CODE3;
 
     public:
-    vector<DataT> MultiplyRPart(vector<DataT> U, SizeT r, SizeT j, SizeT s, ULong base)
+    vector<DataT> MultiplyRPart(vector<DataT> U, Long r, DataT j, Long s, ULong base)
     {
       vector<DataT> Uj(s + 1);
-      BigIntegerUtil::SetBit(Uj, 0, U.size() - 1, 0);
+      BigIntegerUtil::SetBit(Uj, 0, (SizeT)U.size() - 1, 0);
 
-      Int p = U.size() / r;
-      Int q = U.size() % r;
+      Int p = (Int)(U.size() / r);
+      Int q = (Int)(U.size() % r);
       Int k = 0;
       SizeT uEnd = 1;
 
       // Compute the p-bit numbers
       // Given U =  U_r ... U_1 U_0
       // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
-      for(Int i = U.size() - 1; i > 0; i = k - 1)
+      for(Int i = (Int)U.size() - 1; i > 0; i = k - 1)
       {
         k = i - p + 1;
         // If the digits couldn't be equally divided
@@ -92,7 +92,7 @@ namespace BigMath
         // q ← q_k
         Long q = q_table[k];
         // p ← q_k–1 + q_k
-        Long p = q_table[k-1] + q_table[k];
+        // Long p = q_table[k-1] + q_table[k];
 
         // At this point stack W contains a sequence of numbers
         // ending with W(0), W(1), ..., W(2r) from bottom to 
@@ -111,12 +111,12 @@ namespace BigMath
 
             // W(t) –= W(t − 1)
             ClassicalAlgorithms::SubtractFromUnsigned(
-              W[t], 0, W[t].size() - 1,
-              W[t-1], 0, W[t-1].size() - 1,
+              W[t], 0, (SizeT)W[t].size() - 1,
+              W[t-1], 0, (SizeT)W[t-1].size() - 1,
               base);
 
             // W(t) /= j
-            ClassicalAlgorithms::DivideToUnsigned(W[t], j, base);
+            ClassicalAlgorithms::DivideToUnsigned(W[t], (DataT)j, base);
           }
         }
 
@@ -137,8 +137,8 @@ namespace BigMath
 
             // W(t) -= Wt1
             ClassicalAlgorithms::SubtractFromUnsigned(
-              W[t], 0, W[t].size() - 1,
-              Wt1, 0, Wt1.size() - 1,
+              W[t], 0, (SizeT)W[t].size() - 1,
+              Wt1, 0, (SizeT)Wt1.size() - 1,
               base);
           }
         }
@@ -146,17 +146,17 @@ namespace BigMath
         // Step 9. [Set answer.]
         // Set w to the 2(q_k + q_k+1)-bit integer
         // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
-        Long qp = twopow(q);
+        Long qp = twopow((Int)q);
 
         vector<DataT> w(2 * (q_table[k] + q_table[k+1]) );
-        BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
+        BigIntegerUtil::SetBit(w, 0, (SizeT)w.size() - 1, 0);
         SizeT wEnd = 1;
 
         for(Long i = _2r; i >= 0; i--)
         {
           ClassicalAlgorithms::AddToUnsigned(
             w, 0, wEnd,
-            W[i], 0, W[i].size() - 1,
+            W[i], 0, (SizeT)W[i].size() - 1,
             base);
 
           // Don't multiply if it's W_0
@@ -191,24 +191,24 @@ namespace BigMath
       vector<DataT> V = Cval[C.top()];
       C.pop();
 
-      Int _2r = 2 * r;
+      Long _2r = 2 * r;
       
       // For j = 0, 1, ... , 2r
-      for(Int j = _2r; j >= 0; j--)
+      for(Long j = _2r; j >= 0; j--)
       {
         // code
         C.push( j == _2r ? CODE2 : CODE3 );
 
         // Computer the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
-        Cval.push_back(MultiplyRPart(V, r + 1, j, p, base));
-        C.push(Cval.size() - 1);
+        Cval.push_back(MultiplyRPart(V, r + 1, (DataT)j, p, base));
+        C.push((SizeT)Cval.size() - 1);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
         // and successively put these values onto stack U. 
-        Cval.push_back(MultiplyRPart(U, r + 1, j, p, base));
-        C.push(Cval.size() - 1);        
+        Cval.push_back(MultiplyRPart(U, r + 1, (DataT)j, p, base));
+        C.push((SizeT)Cval.size() - 1);
       }
       // Stack C contains
       // code-2, V(2r), U(2r),
@@ -242,7 +242,7 @@ namespace BigMath
       // set r ← r_k
       Long r = r_table[k];
       // q ← q_k
-      Long q = q_table[k];
+      // Long q = q_table[k];
       // p ← q_k–1 + q_k
       Long p = q_table[k-1] + q_table[k];
 
@@ -317,9 +317,9 @@ namespace BigMath
       r_table.push_back(4);
 
       // Q ← 4
-      Long Q = 4;
+      Int Q = 4;
       // R ← 2
-      Long R = 2;
+      Int R = 2;
 
       // Now if q_k−1 + q_k < n
       // and repeat this operation until q_k−1 + q_k ≥ n. 
@@ -371,7 +371,7 @@ namespace BigMath
     */
     vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
-      SizeT n = max(a.size(), b.size());
+      SizeT n = (SizeT)max(a.size(), b.size());
       vector<DataT> u(a);
       vector<DataT> v(b);
 

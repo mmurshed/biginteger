@@ -43,7 +43,7 @@ namespace BigMath
     // Runtime O(n), Space O(1)
     static SizeT TrimZeros(vector<DataT>& a)
     {
-      SizeT size = a.size();
+      SizeT size = (SizeT)a.size();
       Int i = size;
       while(i > 0 && a[i - 1] == 0)
       {
@@ -57,7 +57,7 @@ namespace BigMath
     static SizeT FindNonZeroByte(vector<DataT> const& a, Int start = -1, Int end = -1)
     {
       start = (start == -1 ? 0 : start);
-      Int i = (end == -1 ? a.size() : end + 1);
+      Int i = (end == -1 ? (Int)a.size() : end + 1);
       while(i > start && a[i - 1] == 0)
         i--;
       return i;

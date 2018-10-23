@@ -49,7 +49,7 @@ namespace BigMath
       Long diff = a.size();
       diff -= b.size();
       if(diff != 0)
-        return diff;
+        return (Int)diff;
 
       // Both ints have same number of digits
       Int cmp = 0;
@@ -58,7 +58,7 @@ namespace BigMath
         diff = a[i];
         diff -= b[i];
         if(diff != 0)
-          return diff;
+          return (Int)diff;
       }
 
       return cmp;
@@ -76,11 +76,11 @@ namespace BigMath
       if(a.size() > 0)
       {
         sum += a[0];
-        a[0] = sum % base;
+        a[0] = (DataT)(sum % base);
       }
       else
       {
-        a.push_back(sum % base);
+        a.push_back((DataT)(sum % base));
       }
 
       carry = sum / base;
@@ -89,14 +89,14 @@ namespace BigMath
       while(carry > 0 && i < a.size())
       {
         sum = a[i] + carry;
-        a[i] = sum % base;
+        a[i] = (DataT)(sum % base);
         carry = sum / base;
         i++;
       }
 
       while(carry > 0)
       {
-        a.push_back(carry % base);
+        a.push_back((DataT)(carry % base));
         carry = carry / base;
       }
     }
@@ -107,12 +107,16 @@ namespace BigMath
       vector<DataT> const& b,
       ULong base)
     {
-      SizeT size = max(a.size(),  b.size()) + 1;
+      SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
       vector<DataT> result(size);
 
       result[size - 1] = 0;
       
-      AddUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
+      AddUnsigned(
+          a, 0, (SizeT)a.size() - 1,
+          b, 0, (SizeT)b.size() - 1,
+          result, 0,
+          base);
       
       BigIntegerUtil::TrimZeros(result);
 
@@ -124,7 +128,11 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd,
       ULong base)
     {
-      AddUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
+      AddUnsigned(
+          a, aStart, aEnd,
+          b, bStart, bEnd,
+          a, aStart,
+          base);
     }
 
     // Runtime O(n), Space O(n)
@@ -152,7 +160,7 @@ namespace BigMath
         if(i + bStart <= bEnd)
           digitOps += b.at(bStart + i);
 
-        result.at(rStart + i) = digitOps % base;
+        result.at(rStart + i) = (DataT)(digitOps % base);
         carry = digitOps / base;
       }
       result.at(rStart + size) += carry;
@@ -165,10 +173,13 @@ namespace BigMath
       vector<DataT> const& b,
       ULong base)
     {
-      SizeT size = max(a.size(),  b.size()) + 1;
+      SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
       vector<DataT> result(size);
 
-      SubtractUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
+      SubtractUnsigned(
+           a, 0, (SizeT)a.size() - 1,
+           b, 0, (SizeT)b.size() - 1,
+           result, 0, base);
       
       BigIntegerUtil::TrimZeros(result);
 
@@ -180,7 +191,11 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd,
       ULong base)
     {
-      SubtractUnsigned(a, aStart, aEnd, b, bStart, bEnd, a, aStart, base);
+      SubtractUnsigned(
+           a, aStart, aEnd,
+           b, bStart, bEnd,
+           a, aStart,
+           base);
     }
 
 
@@ -218,7 +233,7 @@ namespace BigMath
           carry = 1;
         }
 
-        result.at(rStart + i) = digitOps;
+        result.at(rStart + i) = (DataT)digitOps;
       }
     }
     static void MultiplyToUnsigned(
@@ -249,7 +264,7 @@ namespace BigMath
     {
       if(b == 0) // a times 0
       {
-        BigIntegerUtil::SetBit(w, 0, w.size() - 1, 0);
+        BigIntegerUtil::SetBit(w, 0, (SizeT)w.size() - 1, 0);
         return;
       }
       if(BigIntegerUtil::IsZero(a)) // 0 times b
@@ -262,13 +277,13 @@ namespace BigMath
         multiply *= b;
         multiply += carry;
         
-        w[j] = multiply % base;
+        w[j] = (DataT)(multiply % base);
         carry = multiply / base;
       }
 
       while(carry > 0)
       {
-        w.push_back(carry % base);
+        w.push_back( (DataT)(carry % base));
         carry = carry / base;
       }
     }
@@ -284,10 +299,10 @@ namespace BigMath
       if(BigIntegerUtil::IsZero(a) || BigIntegerUtil::IsZero(b)) // 0 times
         return vector<DataT>();
 
-      SizeT size = a.size() + b.size() + 1;
+      SizeT size = (SizeT)(a.size() + b.size() + 1);
       vector<DataT> result(size);
 
-      MultiplyUnsigned(a, 0, a.size() - 1, b, 0, b.size() - 1, result, 0, base);
+      MultiplyUnsigned(a, 0, (SizeT)a.size() - 1, b, 0, (SizeT)b.size() - 1, result, 0, base);
 
       BigIntegerUtil::TrimZeros(result);
 
@@ -321,11 +336,11 @@ namespace BigMath
           multiply += result.at(k);
           multiply += carry;
           
-          result.at(k) = multiply % base;
+          result.at(k) = (DataT)(multiply % base);
           carry = multiply / base;
         }
         k = jStart + lenA;
-        result.at(k) = carry;
+        result.at(k) = (DataT)carry;
       }
     }
 
@@ -342,7 +357,7 @@ namespace BigMath
       DataT d,
       ULong base)
       {
-        SizeT n = u.size();
+        SizeT n = (SizeT)u.size();
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
         vector<DataT> w(n);
 
@@ -357,7 +372,7 @@ namespace BigMath
       vector<DataT>& w,
       ULong base)
       {
-        SizeT n = u.size();
+        SizeT n = (SizeT)u.size();
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
 
         // Set r = 0, j = n − 1.
@@ -367,7 +382,7 @@ namespace BigMath
           // Set val = r * b + u_j
           ULong val = r * base + u[j];
           // Set w_j = ⌊val / d⌋
-          w[j] = val / d;
+          w[j] = (DataT)(val / d);
           // Set r = val mod d
           r = val % d;
         }
@@ -391,13 +406,12 @@ namespace BigMath
       // m + n = u.size()
       // n = v.size()
       // m = u.size() - v.size()
-      SizeT n = b.size();
-      SizeT m = a.size() - b.size();
+      SizeT n = (SizeT)b.size();
+      SizeT m = (SizeT)(a.size() - b.size());
 
       // 1. Normalize
       // Set d = ⌊b / (v_n−1 + 1)⌋.
-      vector<DataT> d(1);
-      d[0] = base / (b[n-1] + 1);
+      DataT d = (DataT)(base / (b[n - 1] + 1));
 
       // Set (u_m+n u_m+n−1 . . . u_1 u_0)_b equal to (u_m+n−1 . . . u_1 u_0)_b times d
       // Notice the introduction of a new digit position u_m+n at the left of u_m+n−1
@@ -406,7 +420,7 @@ namespace BigMath
       // instead of using the value suggested here.
       // Any value of d that results in v_n−1 >= ⌊b/2⌋ will suffice.
       vector<DataT> u = MultiplyUnsigned(a, d, base);
-      if(u.size() <= m+n)
+      if(u.size() <= m + n)
         u.push_back(0);
 
       // Set (v_n−1 . . . v_1 v_0)_b equal to (v_n−1 . . . v_1 v_0)_b times d.
@@ -465,12 +479,12 @@ namespace BigMath
             diff += base;
             carry++;
           }
-          u[i+j]  = diff;
+          u[i+j]  = (DataT)diff;
         }
 
         // 5. Test remainder
         // Set q_j = q_hat
-        q[j] = qhat;
+        q[j] = (DataT)qhat;
         
         // Result was negative
         // The probability that this step is necessary is very small, on the order of only 2/b.
@@ -481,7 +495,6 @@ namespace BigMath
           // Decrease q_j by 1
           q[j]--;
           // add (0 v_n−1 . . . v_1 v_0)_b to (u_j+n u_j+n−1 . . . u_j+1 u_j)_b.
-          carry = 0;
           for(SizeT i = 0; i <= n; i++)
           {
             ULong sum = 0;
@@ -489,8 +502,7 @@ namespace BigMath
               sum += v[i];
 
             sum += u[i + j];
-            u[i + j] = sum % base;
-            carry = sum / base;
+            u[i + j] = (DataT)(sum % base);
             // A carry will occur to the left of u_j+n, and it should be ignored since it cancels with 
             // the borrow that occurred in step 4.
           }
@@ -509,9 +521,9 @@ namespace BigMath
         // Set val = r * b + u_j
         ULong val = r * base + u[j];
         // Set w_j = ⌊val / d⌋
-        w[j] = val / d[0];
+        w[j] = (DataT)(val / d);
         // Set r = val mod d
-        r = val % d[0];
+        r = val % d;
       }
 
       BigIntegerUtil::TrimZeros(q);
@@ -537,7 +549,7 @@ namespace BigMath
 
       vector<DataT> bigIntB2;
 
-      for(Int i = bigIntB1.size() - 1 ; i >= 0; i--)
+      for(Int i = (Int)bigIntB1.size() - 1 ; i >= 0; i--)
       {
         MultiplyToUnsigned(bigIntB2, base1, base2);
         AddToUnsigned(bigIntB2, bigIntB1[i], base2);
@@ -552,13 +564,13 @@ namespace BigMath
       vector<DataT> const& bigInt,
       SizeT shift)
     {
-      SizeT size = bigInt.size() + shift;
+      SizeT size = (SizeT)bigInt.size() + shift;
       vector<DataT> result(size);
 
       Int j = size - 1;
 
       // Copy
-      for(Int i = bigInt.size() - 1; i >= 0; i--, j--)
+      for(Int i = (Int)bigInt.size() - 1; i >= 0; i--, j--)
       {
         result[j] = bigInt[i];
       }

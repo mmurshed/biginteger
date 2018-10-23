@@ -22,7 +22,7 @@ namespace BigMath
   public:
     static BigInteger Parse(char const* num)
     {
-      Int len = strlen(num);
+      Int len = (Int)strlen(num);
       if(num == NULL || len == 0)
         return BigInteger();
 
@@ -107,7 +107,7 @@ namespace BigMath
 
       vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt, BigInteger::Base(), BigIntegerUtil::Base100M);
       
-      Int len = bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
+      Int len = (Int)bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
       char* num = new char[len];
 
       Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base100M_Zeroes, num, len);
@@ -130,7 +130,7 @@ namespace BigMath
       num[j--] = 0;
 
       // Trim zeros
-      SizeT size = a.size();
+      SizeT size = (SizeT)a.size();
       while(a[size-1] == 0)
         size--;
 

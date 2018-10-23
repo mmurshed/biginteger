@@ -127,7 +127,7 @@ namespace BigMath
         // Subtract ah * bh * B^m
         // c -= ah * bh * B^m
         ClassicalAlgorithms::SubtractFromUnsigned(
-          c, cStart + m, c.size() - 1, // c
+          c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
         
@@ -158,7 +158,7 @@ namespace BigMath
         // Subtract al * bl * B^m
         // c -= al * bl * B^m
         ClassicalAlgorithms::SubtractFromUnsigned(
-          c, cStart + m, c.size() - 1, // c
+          c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
       }
@@ -166,7 +166,7 @@ namespace BigMath
     public:
     static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
-      SizeT size = max(a.size(), b.size());
+      SizeT size = (SizeT)max(a.size(), b.size());
 
       size = 3 * size;
 
@@ -182,8 +182,8 @@ namespace BigMath
       BigIntegerUtil::MakeSameSize(x, y);
       
       MultiplyUnsignedRecursive(
-        x, 0, x.size() - 1, // b
-        y, 0, y.size() - 1, // a
+        x, 0, (SizeT)x.size() - 1, // b
+        y, 0, (SizeT)y.size() - 1, // a
         c, 0, // c = b * a
         w, 0, // work array
         base);
