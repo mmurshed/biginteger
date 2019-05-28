@@ -15,6 +15,7 @@ using namespace std;
 #include "BigInteger.h"
 #include "BigIntegerUtil.h"
 #include "ClassicalAlgorithms.h"
+#include "BigIntegerParser.h"
 
 namespace BigMath
 {
@@ -40,50 +41,13 @@ namespace BigMath
     Int CODE3;
 
     public:
-    vector<DataT> MultiplyRPart(vector<DataT> U, Long r, DataT j, Long s, ULong base)
+    static vector<DataT> ToBigInteger(ULong n)
     {
-      vector<DataT> Uj(s + 1);
-      BigIntegerUtil::SetBit(Uj, 0, (SizeT)U.size() - 1, 0);
-
-      Int p = (Int)(U.size() / r);
-      Int q = (Int)(U.size() % r);
-      Int k = 0;
-      SizeT uEnd = 1;
-
-      // Compute the p-bit numbers
-      // Given U =  U_r ... U_1 U_0
-      // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
-      for(Int i = (Int)U.size() - 1; i > 0; i = k - 1)
-      {
-        k = i - p + 1;
-        // If the digits couldn't be equally divided
-        // include one extra digit until all the extra
-        //  digits (q), are accounted for
-        if(q > 0)
-        {
-          k--;
-          q--;
-        }
-        
-        ClassicalAlgorithms::AddToUnsigned(
-          Uj, 0, uEnd,
-          U, k, i,
-          base);
-        
-        // Don't multiply if it's U_0
-        if(k > 0)
-        {
-          ClassicalAlgorithms::MultiplyToUnsigned(Uj, j, base);
-        }
-        uEnd = BigIntegerUtil::FindNonZeroByte(Uj);
-      }
-
-      BigIntegerUtil::TrimZeros(Uj);
-
-      return Uj;
+      string num = to_string(n);
+      return BigIntegerParser::ParseUnsigned(num.c_str(), 0, num.length());
     }
 
-    vector<DataT> ComputeCode2(SizeT k, ULong base)
+    vector<DataT> ComputeAnswer(SizeT k, ULong base)
     {
         // Step 7. [Find a’s.]
         // Set r ← r_k
@@ -92,11 +56,17 @@ namespace BigMath
         // q ← q_k
         Long q = q_table[k];
         // p ← q_k–1 + q_k
-        // Long p = q_table[k-1] + q_table[k];
+        Long p = q_table[k-1] + q_table[k];
 
         // At this point stack W contains a sequence of numbers
         // ending with W(0), W(1), ..., W(2r) from bottom to 
         // top, where each W(j) is a 2p-bit number.
+        Long _2p = 2 * p;
+        for(Long j = 0; j <= _2r; j++)
+        {
+          BigIntegerUtil::TrimZeros(W[j], _2p);
+          BigIntegerUtil::Resize(W[j], _2p);
+        }
 
         // Now for j = 1, 2, 3, ... , 2r, perform the following 
         // Here j must increase and t must decrease.
@@ -110,13 +80,13 @@ namespace BigMath
             // nonnegative integer that fits in 2p bits.
 
             // W(t) –= W(t − 1)
-            ClassicalAlgorithms::SubtractFromUnsigned(
+            ClassicalAlgorithms::SubtractFrom(
               W[t], 0, (SizeT)W[t].size() - 1,
               W[t-1], 0, (SizeT)W[t-1].size() - 1,
               base);
 
             // W(t) /= j
-            ClassicalAlgorithms::DivideToUnsigned(W[t], (DataT)j, base);
+            ClassicalAlgorithms::DivideTo(W[t], (DataT)j, base);
           }
         }
 
@@ -132,11 +102,13 @@ namespace BigMath
             // The result of this operation will again be 
             // a nonnegative 2p-bit integer.
 
-            // Wt1 = j * W(t+1)
-            vector<DataT> Wt1 = ClassicalAlgorithms::MultiplyUnsigned(W[t+1], j, base);
+            // Wt1 = W(t+1) * j
+            vector<DataT> Wt1 = ClassicalAlgorithms::Multiply(W[t+1], ToBigInteger(j), base);
 
+            // set W(t) ← W(t) – j * W(t + 1).
+            // W(t) ← W(t) – Wt1
             // W(t) -= Wt1
-            ClassicalAlgorithms::SubtractFromUnsigned(
+            ClassicalAlgorithms::SubtractFrom(
               W[t], 0, (SizeT)W[t].size() - 1,
               Wt1, 0, (SizeT)Wt1.size() - 1,
               base);
@@ -146,26 +118,19 @@ namespace BigMath
         // Step 9. [Set answer.]
         // Set w to the 2(q_k + q_k+1)-bit integer
         // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
-        Long qp = twopow((Int)q);
+        Long wsize = 2 * (q_table[k] + q_table[k+1]);
+        vector<DataT> w(wsize, 0);
 
-        vector<DataT> w(2 * (q_table[k] + q_table[k+1]) );
-        BigIntegerUtil::SetBit(w, 0, (SizeT)w.size() - 1, 0);
-        SizeT wEnd = 1;
+        SizeT wStart = 0;
+        SizeT wEnd = _2p - 1;
 
-        for(Long i = _2r; i >= 0; i--)
+        for(Long i = 0; i <= _2r; i++)
         {
-          ClassicalAlgorithms::AddToUnsigned(
-            w, 0, wEnd,
-            W[i], 0, (SizeT)W[i].size() - 1,
-            base);
-
-          // Don't multiply if it's W_0
-          if(i > 0)
-          {
-            ClassicalAlgorithms::MultiplyToUnsigned(w, qp, base);
-          }
-          
-          wEnd = BigIntegerUtil::FindNonZeroByte(w);
+          BigIntegerUtil::Copy(
+            W[i], 0, W[i].size() - 1,
+            w, wStart, wEnd);
+            wStart += _2p;
+            wEnd = wStart + _2p - 1;
         }
 
         // Remove W(2r), . . . , W(0) from stack W.
@@ -174,7 +139,42 @@ namespace BigMath
         return w;
     }
 
-    void BreakIntoR1Parts(Long r, Long p, ULong base)
+    vector<DataT> MultiplyRPart(vector<DataT> U, vector<DataT> j, Long p, Long q, Long r, ULong base)
+    {
+      vector<DataT> Uj(p, 0);
+
+      Long uEnd = U.size() - 1;
+      Long uStart = uEnd - q + 1;
+
+      // Compute the p-bit numbers
+      // Given U =  U_r ... U_1 U_0
+      // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
+      for(Long i = r; i >= 0; i--)
+      {
+        if(!BigIntegerUtil::IsZero(U, uStart, uEnd))
+        {
+          ClassicalAlgorithms::AddTo(
+            Uj, 0, p - 1,
+            U, uStart, uEnd,
+            base);
+          
+          // Don't multiply if it's U_0
+          if(i > 0)
+          {
+            ClassicalAlgorithms::MultiplyTo(Uj, j, base);
+          }
+        }
+
+        uEnd -= q;
+        uStart = uEnd - q + 1;
+      }
+
+      // BigIntegerUtil::TrimZeros(Uj);
+
+      return Uj;
+    }
+
+    void BreakIntoRPlus1Parts(Long p, Long q, Long r, ULong base)
     {
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
@@ -193,21 +193,23 @@ namespace BigMath
 
       Long _2r = 2 * r;
       
-      // For j = 0, 1, ... , 2r
+      // For j = 2r, 2r-1, ... , 1, 0      
       for(Long j = _2r; j >= 0; j--)
       {
         // code
         C.push( j == _2r ? CODE2 : CODE3 );
 
-        // Computer the p-bit numbers
+        vector<DataT> jbig = ToBigInteger(j);
+
+        // Compute the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
-        Cval.push_back(MultiplyRPart(V, r + 1, (DataT)j, p, base));
+        Cval.push_back(MultiplyRPart(V, jbig, p, q, r, base));
         C.push((SizeT)Cval.size() - 1);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
         // and successively put these values onto stack U. 
-        Cval.push_back(MultiplyRPart(U, r + 1, (DataT)j, p, base));
+        Cval.push_back(MultiplyRPart(U, jbig, p, q, r, base));
         C.push((SizeT)Cval.size() - 1);
       }
       // Stack C contains
@@ -218,7 +220,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    vector<DataT> MultiplyUnsignedRecursive(SizeT k, ULong base)
+    vector<DataT> MultiplyRecursive(SizeT &k, ULong base)
     {
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
@@ -231,67 +233,60 @@ namespace BigMath
         // remove them
         vector<DataT> u = Cval[C.top()];
         C.pop();
+
         vector<DataT> v = Cval[C.top()];
         C.pop();
         // set w ← uv using a built-in routine for multiplying 
         // 32-bit numbers, and go to step 10.
-        return ClassicalAlgorithms::MultiplyUnsigned(u, v, base);
+        return ClassicalAlgorithms::Multiply(u, v, base);
       }
       
       // If k > 0
       // set r ← r_k
       Long r = r_table[k];
       // q ← q_k
-      // Long q = q_table[k];
+      Long q = q_table[k];
       // p ← q_k–1 + q_k
       Long p = q_table[k-1] + q_table[k];
 
       // go on to step 4.
-      BreakIntoR1Parts(r, p, base);     
+      BreakIntoRPlus1Parts(p, q, r, base);     
 
       // Step 5. [Recurse.]
       // Go back to step 3.
-      return MultiplyUnsignedRecursive(k, base);
+      return MultiplyRecursive(k, base);
     }
 
-    vector<DataT> MultiplyUnsigned(SizeT k, ULong base)
+    vector<DataT> Multiply(SizeT k, ULong base)
     {
-      vector<DataT> w = MultiplyUnsignedRecursive(k, base);
-
-      k = 0;
+      Int code = CODE3;
 
       // Step 10. [Return.]
-      while(true)
+      while(code != CODE1)
       {
-        Int code = C.top();
-        C.pop();
-
-        if(code == CODE1)
-          break;
-
-        // Set k ← k + 1.
-        k++;
-
-        W.push_back(w);    
-
         // If it is code-3, go to step T6.
         if(code == CODE3)
         {
           // Step 6. [Save one product.]
           // Go back to step T3.
-          w = MultiplyUnsignedRecursive(k, base);
-          k = 0;
+          vector<DataT> w = MultiplyRecursive(k, base);
+          W.push_back(w);
         }
         // If it is code-2, put w onto stack W and go to step 7.
         else if(code == CODE2)
-        {          
-          w = ComputeCode2(k, base);
+        {
+          vector<DataT> w = ComputeAnswer(k, base);
+          W.push_back(w);
         }
-        else break;
+
+        // Set k ← k + 1.
+        k++;
+        code = C.top();
+        C.pop();
       }
 
       // And if it is code-1, terminate the algorithm (w is the answer).
-      return w;
+      return W.at(0);
     }
 
     // Setp 1. [Compute q, r tables.]
@@ -303,7 +298,7 @@ namespace BigMath
     //
     // The multiplication of 70000-bit numbers would cause 
     // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
-    SizeT ComputeQRTable(SizeT n)
+    SizeT ComputeTables(SizeT n)
     {
       // Set k ← 1
       SizeT k = 1;
@@ -369,15 +364,10 @@ namespace BigMath
      * (moving back and forth) can be used to access the current table
      * entry of interest.
     */
-    vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    vector<DataT> Multiply(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
-      vector<DataT> u(a);
-      vector<DataT> v(b);
-
-      BigIntegerUtil::MakeSameSize(u, v);
-
-      SizeT k = ComputeQRTable(n);
+      SizeT k = ComputeTables(n);
 
       // Set stacks U, V, C, and W empty.
       // Stack C contains control code.
@@ -385,16 +375,27 @@ namespace BigMath
       // It also contains the locations of Cval as positive integers.
 
       // Step 2. [Put u, v on stack.]
-      // Put code-1 on stack C, then place u and v onto stack C as 
-      // numbers of exactly q_k−1 + q_k bits each.
+      Long p = q_table[k-1] + q_table[k];
 
+      // u and v as numbers of exactly q_k-1 + q_k bits each.
+      vector<DataT> u(p, 0);
+      vector<DataT> v(p, 0);
+
+      BigIntegerUtil::Copy(a, u);
+      BigIntegerUtil::Copy(b, v);
+
+      // Put code-1 on stack C
       C.push(CODE1);
-      Cval.push_back(u);
-      C.push(0);
+      
+      // Place v onto stack C
       Cval.push_back(v);
+      C.push(0);
+      
+      // Place u onto stack C
+      Cval.push_back(u);
       C.push(1);
 
-      return MultiplyUnsigned(k, base);
+      return Multiply(k, base);
     }
    };
 }

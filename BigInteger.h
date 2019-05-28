@@ -11,7 +11,7 @@
 using namespace std;
 
 #include "BigIntegerUtil.h"
-#include "ClassicalAlgorithms.h"
+#include "BigIntegerComparator.h"
 
 namespace BigMath
 {
@@ -120,7 +120,7 @@ public:
       else if(isNegative && !with.isNegative)
         return -1;
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(theInteger, with.theInteger);
+      Int cmp = BigIntegerComparator::CompareTo(theInteger, with.theInteger);
       
       // Now, Both are Same Sign
       Int neg = 1;

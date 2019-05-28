@@ -23,10 +23,14 @@ namespace BigMath
     static BigInteger Parse(char const* num)
     {
       Int len = (Int)strlen(num);
-      if(num == NULL || len == 0)
+      return ParseSigned(num, 0, len);
+    }
+
+    static BigInteger ParseSigned(char const* num, Int start, Int len)
+    {
+      if(num == NULL || len == 0 || start < 0 || start >= len)
         return BigInteger();
 
-      Int start = 0;
       bool isNegative = false;
 
       // Take care of the sign
@@ -47,13 +51,19 @@ namespace BigMath
       }
 
       // If the resulting string is empty return 0
-      if (len <= start)
+      if (start >= len)
         return BigInteger();
 
+      vector<DataT> bigInt = ParseUnsigned(num, start, len);
+
+      return BigInteger(bigInt, isNegative);
+    }
+
+    static vector<DataT> ParseUnsigned(char const* num, Int start, Int len)
+    {
       vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base100M_Zeroes);
       vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base100M, BigInteger::Base());
-
-      return BigInteger(bigIntB2, isNegative);
+      return bigIntB2;
     }
 
     // Group by n, meaning 10^n base

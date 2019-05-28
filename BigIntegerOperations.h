@@ -12,6 +12,7 @@ using namespace std;
 
 #include "BigIntegerUtil.h"
 #include "BigInteger.h"
+#include "BigIntegerComparator.h"
 #include "ClassicalAlgorithms.h"
 #include "KaratsubaAlgorithm.h"
 #include "ToomCookAlgorithm.h"
@@ -23,12 +24,12 @@ namespace BigMath
     // Karatsuba performs better for over 128 digits for the result
     static const SizeT MULTIPLICATION_SWITCH = 128;
 
-    public:
+    private:
     // Implentation of addition by paper-pencil method
     static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::AddUnsigned(
+        ClassicalAlgorithms::Add(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -40,7 +41,7 @@ namespace BigMath
     static BigInteger SubtractUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::SubtractUnsigned(
+        ClassicalAlgorithms::Subtract(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -51,7 +52,7 @@ namespace BigMath
     {
       ToomCookAlgorithm tca;
       return BigInteger(
-        tca.MultiplyUnsigned(
+        tca.Multiply(
           a.GetInteger(), 
           b.GetInteger(), 
           BigInteger::Base())
@@ -61,14 +62,14 @@ namespace BigMath
 
       // if(size <= MULTIPLICATION_SWITCH)
       // return BigInteger(
-      //   ClassicalAlgorithms::MultiplyUnsigned(
+      //   ClassicalAlgorithms::Multiply(
       //     a.GetInteger(),
       //     b.GetInteger(),
       //     BigInteger::Base())
       // );
 
       // return BigInteger(
-      //   KaratsubaAlgorithm::MultiplyUnsigned(
+      //   KaratsubaAlgorithm::Multiply(
       //     a.GetInteger(),
       //     b.GetInteger(),
       //     BigInteger::Base())
@@ -132,7 +133,7 @@ public:
       else if(!aNeg && bNeg)
         return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp < 0)
         return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
       else if (cmp > 0)
@@ -163,7 +164,7 @@ public:
         return results; // case of 0
       }
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp == 0)
       {
         vector<DataT> one(1);
@@ -180,7 +181,11 @@ public:
       }
 
       // Now: a > b
-      vector< vector<DataT> > result = ClassicalAlgorithms::DivideAndRemainderUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      vector< vector<DataT> > result = ClassicalAlgorithms::DivideAndRemainder(
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
+
       results[0] = BigInteger(result[0], false);
       results[1] = BigInteger(result[1], false);
 

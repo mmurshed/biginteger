@@ -41,7 +41,7 @@ namespace BigMath
     // The intermediate result after line 18 could cause a carry into the next digit.
     // Therefore we must allocate and clear one digit more. This is recursively done in lines 15 and 20.
 
-    static void MultiplyUnsignedRecursive(
+    static void MultiplyRecursive(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& c, SizeT cStart, 
@@ -54,7 +54,7 @@ namespace BigMath
         if(la <= KARATSUBA_THRESHOLD)
         {
           // Use naive method 
-          ClassicalAlgorithms::MultiplyUnsigned(
+          ClassicalAlgorithms::Multiply(
             a, aStart, aEnd, 
             b, bStart, bEnd, 
             c, cStart,
@@ -75,7 +75,7 @@ namespace BigMath
         // Clear carry digit
         w.at(wStart + m) = 0;
         // Save al + ah into w_0,...,w_m
-        ClassicalAlgorithms::AddUnsigned(
+        ClassicalAlgorithms::Add(
           a, aStart, aStart + m - 1, // al
           a, aStart + m, aEnd, // ah
           w, wStart, // wl = al + ah
@@ -85,7 +85,7 @@ namespace BigMath
         w.at(wStart + m + m + 1) = 0;
       
         // Save bl + bh into w_m+1, ... w_2m+1
-        ClassicalAlgorithms::AddUnsigned(
+        ClassicalAlgorithms::Add(
           b, bStart, bStart + m - 1, // bl
           b, bStart + m, bEnd, // bh
           w, wStart + m + 1, // wh = bl + bh
@@ -94,7 +94,7 @@ namespace BigMath
         // Compute (al + ah)(bl + bh) into c_m, ..., c_3m+1
         // Compute w_0,...,w_m times w_m+1,...,w_2m+1 into c_m, ..., c_3m+1
         // c = (al + ah)(bl + bh) * B^m
-        MultiplyUnsignedRecursive(
+        MultiplyRecursive(
           w, wStart, wStart + m, // wl
           w, wStart + m + 1, wStart + m + m + 1, // wh
           c, cStart + m, // c = wl * wh
@@ -109,7 +109,7 @@ namespace BigMath
 
         // Compute a_h * b_h into w_0, ... ,w_(la+lb-2m-1)
         // w = ah * bh
-        MultiplyUnsignedRecursive(
+        MultiplyRecursive(
           a, aStart + m, aEnd, // ah
           b, bStart + m, bEnd,  // bh
           w, wStart, // w = ah * bh
@@ -119,14 +119,14 @@ namespace BigMath
         SizeT wEnd = wStart + (la - m) + (lb - m) - 1;
         // Add ah * bh * B^2m
         // c += ah * bh * B^2m
-        ClassicalAlgorithms::AddToUnsigned(
+        ClassicalAlgorithms::AddTo(
           c, cStart + m + m, cStart + la + lb - 1, // c
           w, wStart, wEnd, // ah * bh
           base);
   
         // Subtract ah * bh * B^m
         // c -= ah * bh * B^m
-        ClassicalAlgorithms::SubtractFromUnsigned(
+        ClassicalAlgorithms::SubtractFrom(
           c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
@@ -139,7 +139,7 @@ namespace BigMath
  
         // Compute al * bl into w_0, ..., w_2m-1
         // w = al * bl
-        MultiplyUnsignedRecursive(
+        MultiplyRecursive(
           a, aStart, aStart + m - 1, // al 
           b, bStart, bStart + m - 1, // bl
           w, wStart, // w = al * bl
@@ -150,38 +150,35 @@ namespace BigMath
 
         // Add al * bl        
         // c += al * bl
-        ClassicalAlgorithms::AddToUnsigned(
+        ClassicalAlgorithms::AddTo(
           c, cStart, cStart + m + m - 1, // c
           w, wStart, wEnd, // w
           base);
         
         // Subtract al * bl * B^m
         // c -= al * bl * B^m
-        ClassicalAlgorithms::SubtractFromUnsigned(
+        ClassicalAlgorithms::SubtractFrom(
           c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
       }
 
     public:
-    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> Multiply(vector<DataT> const& a, vector<DataT> const& b, ULong base)
     {
-      SizeT size = (SizeT)max(a.size(), b.size());
+      SizeT n = (SizeT)max(a.size(), b.size());
+      SizeT size = 3 * n;
 
-      size = 3 * size;
+      vector<DataT> c(size, 0);
+      vector<DataT> w(size, 0);
 
-      vector<DataT> c(size);
-      vector<DataT> w(size);
+      vector<DataT> x(n, 0);
+      vector<DataT> y(n, 0);
 
-      BigIntegerUtil::SetBit(c, 0, size - 1);
-      BigIntegerUtil::SetBit(w, 0, size - 1);
-
-      vector<DataT> x(a);
-      vector<DataT> y(b);
-
-      BigIntegerUtil::MakeSameSize(x, y);
-      
-      MultiplyUnsignedRecursive(
+      BigIntegerUtil::Copy(a, x);
+      BigIntegerUtil::Copy(b, y);
+     
+      MultiplyRecursive(
         x, 0, (SizeT)x.size() - 1, // b
         y, 0, (SizeT)y.size() - 1, // a
         c, 0, // c = b * a
