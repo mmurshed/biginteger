@@ -89,6 +89,8 @@ namespace BigMath
 
     static void Copy(vector<DataT> const& p, SizeT pStart, SizeT pEnd, vector<DataT>& q, SizeT qStart, SizeT qEnd)
     {
+      if(p.size() == 0)
+        return;
       for(SizeT i = pStart, j = qStart; i <= pEnd && j <= qEnd; i++, j++)
         q.at(j) = p.at(i);
     }

@@ -136,8 +136,9 @@ namespace BigMath
           result.at(rPos) = (DataT)(digitOps % base);
         carry = digitOps / base;
       }
-      if(carry > 0)
-        result.at(rStart + size) += carry;
+      Int rPos = rStart + size;
+      if(carry > 0 && rPos < result.size())
+        result.at(rPos) += carry;
     }
 
     static void SubtractFrom(
@@ -187,13 +188,15 @@ namespace BigMath
       {
         Long digitOps = 0;
 
-        if(i + aStart <= aEnd)
-          digitOps = a.at(aStart + i);
+        Int aPos = aStart + i;
+        if(aPos <= aEnd && aPos < a.size())
+          digitOps = a.at(aPos);
 
         digitOps -= carry;
         
-        if(i + bStart <= bEnd)
-          digitOps -= b.at(bStart + i);
+        Int bPos = bStart + i;
+        if(bPos <= bEnd && bPos < b.size())
+          digitOps -= b.at(bPos);
 
         carry = 0;
         if(digitOps < 0)
@@ -202,8 +205,9 @@ namespace BigMath
           carry = 1;
         }
 
-        if(result.size() > rStart + i)
-          result.at(rStart + i) = (DataT)digitOps;
+        Int rPos = rStart + i;
+        if(rPos < result.size())
+          result.at(rPos) = (DataT)digitOps;
       }
     }
 

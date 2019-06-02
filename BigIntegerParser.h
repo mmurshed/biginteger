@@ -20,6 +20,12 @@ namespace BigMath
   class BigIntegerParser
   {
   public:
+    static vector<DataT> Convert(ULong n)
+    {
+      string num = to_string(n);
+      return ParseUnsigned(num.c_str(), 0, num.length());
+    }
+
     static BigInteger Parse(char const* num)
     {
       Int len = (Int)strlen(num);

@@ -73,7 +73,7 @@ namespace BigMath
 
     static ULong Base()
     {
-        return BigIntegerUtil::Base10;
+        return BigIntegerUtil::Base2_32;
     }
 
     bool IsNegative() const
