@@ -117,18 +117,21 @@ namespace BigMath
         Long wsize = _2p + _2r * q;
         vector<DataT> w(wsize, 0);
 
-        SizeT wStart = wsize - _2p;
+        SizeT wStart = 0;
         SizeT wEnd = wsize - 1;
 
         for(Long i = _2r; i >= 0; i--)
         {
           ClassicalAlgorithms::AddTo(
-            w, wStart, wEnd,
+            w, 0, w.size() - 1,
             W[i], 0, W[i].size() - 1,
             base);
+          
+          if(i > 0)
+            w = ClassicalAlgorithms::ShiftLeft(w, q);
 
-            wStart -= q;
-            wEnd = wStart + _2p - 1;
+            // wStart -= q;
+            // wEnd = wStart + _2p - 1;
         }
 
         // Remove W(2r), . . . , W(0) from stack W.
@@ -223,7 +226,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    vector<DataT> MultiplyRecursive(SizeT &k, ULong base)
+    vector<DataT> DivideRecursive(SizeT &k, ULong base)
     {
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
@@ -261,7 +264,37 @@ namespace BigMath
 
       // Step 5. [Recurse.]
       // Go back to step 3.
-      return MultiplyRecursive(k, base);
+      return DivideRecursive(k, base);
+    }
+
+    vector<DataT> Divide(SizeT k, ULong base)
+    {
+      // While k > 0
+      while(--k > 0)
+      {       
+        Long r = r_table[k];                // r ← r_k
+        Long q = q_table[k];                // q ← q_k
+        Long p = q_table[k-1] + q_table[k]; // p ← q_k–1 + q_k
+
+        BreakIntoRPlus1Parts(p, q, r, base);
+      }
+
+      // At this point k is 0
+      // the top of stack C now contains
+      // two 32-bit numbers, u and v
+      // remove them
+      vector<DataT> u = Cval[C.top()];
+      C.pop();
+      Cval.pop_back();
+
+      vector<DataT> v = Cval[C.top()];
+      C.pop();
+      Cval.pop_back();
+      // set w ← uv using a built-in routine for multiplying 
+      // 32-bit numbers, and go to step 10.
+      vector<DataT> w = ClassicalAlgorithms::Multiply(u, v, base);
+      BigIntegerUtil::TrimZeros(w);
+      return w;
     }
 
     vector<DataT> Multiply(SizeT k, ULong base)
@@ -276,8 +309,9 @@ namespace BigMath
         {
           // Step 6. [Save one product.]
           // Go back to step T3.
-          vector<DataT> w = MultiplyRecursive(k, base);
+          vector<DataT> w = Divide(k, base);
           W.push_back(w);
+          k = 0;
         }
         // If it is code-2, put w onto stack W and go to step 7.
         else if(code == CODE2)
@@ -311,17 +345,17 @@ namespace BigMath
       SizeT k = 1;
 
       // q_0 ← q_1 ← 16
-      q_table.push_back(16);
-      q_table.push_back(16);
+      q_table.push_back(4);
+      q_table.push_back(4);
       
       // r_0 ← r_1 ← 4
-      r_table.push_back(4);
-      r_table.push_back(4);
+      r_table.push_back(2);
+      r_table.push_back(2);
 
       // Q ← 4
-      Int Q = 4;
+      Int Q = 2;
       // R ← 2
-      Int R = 2;
+      Int R = 1;
 
       // Now if q_k−1 + q_k < n
       // and repeat this operation until q_k−1 + q_k ≥ n. 

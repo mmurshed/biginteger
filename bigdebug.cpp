@@ -64,8 +64,8 @@ int main(int argc, char *argv[])
   // a[0] = 200;
   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
 
-  BigInteger a = BigIntegerParser::Parse("1479593645080043479343434734753309457834753");
-  BigInteger b = BigIntegerParser::Parse("332026596709687565497116487646454871516549498451");
+  BigInteger a = BigIntegerParser::Parse("12345");
+  BigInteger b = BigIntegerParser::Parse("23411");
 
   // BigInteger& a = BigIntegerParser::Parse("14795936");
   // BigInteger& b = BigIntegerParser::Parse("33202659");
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
   ToomCookAlgorithm tca;
   vector<DataT> mult = tca.Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
   string str = BigIntegerParser::ToString(mult);
-  bool cmp = (str == "491264442489208195880257632863880802648363623158080667405126111276830409588799394587467603");
+  bool cmp = (str == "289008795");
   // vector<DataT> re = tca.MultiplyRPart(b.GetInteger(), 4, 0, 6, BigInteger::Base());
   // string str = BigIntegerParser::ToString(re);
   // bool cmp = (str == "0");
