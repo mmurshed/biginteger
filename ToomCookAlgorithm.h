@@ -364,30 +364,25 @@ namespace BigMath
     // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
     SizeT ComputeTables(SizeT n)
     {
-      // Set k ← 1
-      SizeT k = 1;
+      SizeT k = 1;                // k ← 1
 
       // q_0 ← q_1 ← 16
-      q_table.push_back(4);
-      q_table.push_back(4);
+      q_table.push_back(16);
+      q_table.push_back(16);
       
       // r_0 ← r_1 ← 4
-      r_table.push_back(2);
-      r_table.push_back(2);
+      r_table.push_back(4);
+      r_table.push_back(4);
 
-      // Q ← 4
-      Int Q = 2;
-      // R ← 2
-      Int R = 1;
+      Int Q = 4;                 // Q ← 4
+      Int R = 2;                 // R ← 2
 
       // Now if q_k−1 + q_k < n
       // and repeat this operation until q_k−1 + q_k ≥ n. 
       while(q_table[k-1] + q_table[k] < n)
       {
-        // Set k ← k + 1
-        k++;
-        // Q ← Q + R
-        Q += R;
+        k++;                     // k ← k + 1
+        Q += R;                  // Q ← Q + R
         
         // R ← ⌊sqrt(Q)⌋
         // Instead of sqrt calculation
@@ -396,10 +391,8 @@ namespace BigMath
         if( sqr(R+1) <= Q )
           R++;
 
-        // q_k ← 2^Q
-        q_table.push_back( twopow(Q) );
-        // r_k ← 2^R
-        r_table.push_back( twopow(R) );       
+        q_table.push_back( twopow(Q) ); // q_k ← 2^Q
+        r_table.push_back( twopow(R) ); // r_k ← 2^R
       }
 
       return k;
