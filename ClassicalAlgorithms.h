@@ -366,6 +366,14 @@ namespace BigMath
         }
       }
 
+    static void DivideTo(
+      vector<DataT> & a,
+      vector<DataT> const& b,
+      ULong base)
+    {
+      vector< vector<DataT> > results = DivideAndRemainder(a, b, base);
+      a = results[0];
+    }
 
     // Implentation of division by paper-pencil method
     // Assumption: a > b

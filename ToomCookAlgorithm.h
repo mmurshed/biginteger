@@ -52,14 +52,17 @@ namespace BigMath
         // p ← q_k–1 + q_k
         Long p = q_table[k-1] + q_table[k];
 
+        Long wStart = W.size() - _2r - 1;
+
         // At this point stack W contains a sequence of numbers
         // ending with W(0), W(1), ..., W(2r) from bottom to 
         // top, where each W(j) is a 2p-bit number.
         Long _2p = 2 * p;
-        for(Long j = 0; j <= _2r && j < W.size(); j++)
+        for(Long j = 0; j <= _2r; j++)
         {
-          BigIntegerUtil::TrimZeros(W[j], _2p);
-          BigIntegerUtil::Resize(W[j], _2p);
+          Long wPos = wStart + j;
+          BigIntegerUtil::TrimZeros(W[wPos], _2p);
+          BigIntegerUtil::Resize(W[wPos], _2p);
         }
 
         // Now for j = 1, 2, 3, ... , 2r, perform the following 
@@ -69,19 +72,24 @@ namespace BigMath
           // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
           for(Long t = _2r; t >= j; t--)
           {
+            Long wPos = wStart + t;
+
             // set W(t) ← ( W(t) – W(t − 1) ) / j.
             // The quantity ( W(t) - W(t-1) ) / j will always be a 
             // nonnegative integer that fits in 2p bits.
 
             // W(t) –= W(t − 1)
             ClassicalAlgorithms::SubtractFrom(
-              W[t], 0, (SizeT)W[t].size() - 1,
-              W[t-1], 0, (SizeT)W[t-1].size() - 1,
+              W[wPos], 0, (SizeT)W[wPos].size() - 1,
+              W[wPos-1], 0, (SizeT)W[wPos-1].size() - 1,
               base);
 
             // W(t) /= j
             if(j > 1)
-              ClassicalAlgorithms::DivideTo(W[t], (DataT)j, base);
+            {
+              vector<DataT> bigJ = BigIntegerParser::Convert(j);
+              ClassicalAlgorithms::DivideTo(W[wPos], bigJ, base);
+            }
           }
         }
 
@@ -93,18 +101,24 @@ namespace BigMath
           // For t = j, j + 1, ..., 2r − 1, 
           for(Long t = j; t < _2r; t++)
           {
+            Long wPos = wStart + t;
+
             // set W(t) ← W(t) – j * W(t + 1).
             // The result of this operation will again be 
             // a nonnegative 2p-bit integer.
 
+            vector<DataT> bigJ = BigIntegerParser::Convert(j);
             // Wt1 = W(t+1) * j
-            vector<DataT> Wt1 = ClassicalAlgorithms::Multiply(W[t+1], BigIntegerParser::Convert(j), base);
+            vector<DataT> Wt1 = ClassicalAlgorithms::Multiply(
+              W[wPos+1],
+              bigJ,
+              base);
 
             // set W(t) ← W(t) – j * W(t + 1).
             // W(t) ← W(t) – Wt1
             // W(t) -= Wt1
             ClassicalAlgorithms::SubtractFrom(
-              W[t], 0, (SizeT)W[t].size() - 1,
+              W[wPos], 0, (SizeT)W[wPos].size() - 1,
               Wt1, 0, (SizeT)Wt1.size() - 1,
               base);
           }
@@ -117,36 +131,38 @@ namespace BigMath
         Long wsize = _2p + _2r * q;
         vector<DataT> w(wsize, 0);
 
-        SizeT wStart = 0;
-        SizeT wEnd = wsize - 1;
+        SizeT wAnsStart = wsize - _2p;
+        SizeT wAnsEnd = wsize - 1;
 
         for(Long i = _2r; i >= 0; i--)
         {
+          Long wPos = wStart + i;
           ClassicalAlgorithms::AddTo(
-            w, 0, w.size() - 1,
-            W[i], 0, W[i].size() - 1,
+            w, wAnsStart, wAnsEnd,
+            W[wPos], 0, W[wPos].size() - 1,
             base);
           
-          if(i > 0)
-            w = ClassicalAlgorithms::ShiftLeft(w, q);
-
-            // wStart -= q;
-            // wEnd = wStart + _2p - 1;
+          wAnsStart -= q;
+          wAnsEnd = wAnsStart + _2p - 1;
         }
 
         // Remove W(2r), . . . , W(0) from stack W.
-        W.clear();
+        for(Long i = _2r; i >= 0; i--)
+        {
+          W.pop_back();
+        }
 
         return w;
     }
 
-    vector<DataT> MultiplyRPart(vector<DataT> U, vector<DataT> j, Long p, Long q, Long r, ULong base)
+    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, vector<DataT> j, Long p, Long q, Long r, ULong base)
     {
       vector<DataT> Uj(p, 0);
 
       if(BigIntegerUtil::IsZero(j))
       {
         BigIntegerUtil::Copy(U, 0, q - 1, Uj, 0, p - 1);
+        string str = BigIntegerParser::ToString(Uj);
         return Uj;
       }
 
@@ -164,16 +180,19 @@ namespace BigMath
           base);
           
         // Don't multiply if it's U_0
-        if(i > 0)
+        // Or if Uj is already zero
+        if(i > 0 && !BigIntegerUtil::IsZero(Uj))
         {
+          // Case of j = zero is already elminiated
           ClassicalAlgorithms::MultiplyTo(Uj, j, base);
         }
 
         uEnd -= q;
         uStart = uEnd - q + 1;
-      }
 
-      BigIntegerUtil::TrimZeros(Uj);
+        BigIntegerUtil::TrimZeros(Uj, p);
+        BigIntegerUtil::Resize(Uj, p);
+      }
 
       return Uj;
     }
@@ -209,13 +228,15 @@ namespace BigMath
 
         // Compute the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
-        Cval.push_back(MultiplyRPart(V, jbig, p, q, r, base));
+        vector<DataT> Vj = MultiplyRPlus1Part(V, jbig, p, q, r, base);
+        Cval.push_back(Vj);
         C.push((SizeT)Cval.size() - 1);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
         // and successively put these values onto stack U. 
-        Cval.push_back(MultiplyRPart(U, jbig, p, q, r, base));
+        vector<DataT> Uj = MultiplyRPlus1Part(U, jbig, p, q, r, base);
+        Cval.push_back(Uj);
         C.push((SizeT)Cval.size() - 1);
       }
       // Stack C contains
@@ -226,7 +247,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    vector<DataT> DivideRecursive(SizeT &k, ULong base)
+    vector<DataT> DivideRecursive(SizeT k, ULong base)
     {
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
@@ -310,6 +331,7 @@ namespace BigMath
           // Step 6. [Save one product.]
           // Go back to step T3.
           vector<DataT> w = Divide(k, base);
+          string str = BigIntegerParser::ToString(w);
           W.push_back(w);
           k = 0;
         }
@@ -317,6 +339,7 @@ namespace BigMath
         else if(code == CODE2)
         {
           vector<DataT> w = ComputeAnswer(k, base);
+          string str = BigIntegerParser::ToString(w);
           W.push_back(w);
         }
 
