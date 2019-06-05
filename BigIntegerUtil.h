@@ -104,7 +104,7 @@ namespace BigMath
 
     static void Resize(vector<DataT>& u, SizeT n)
     {
-      // Make both same size
+      // Make to size n
       while(u.size() < n)
         u.push_back(0);
     }

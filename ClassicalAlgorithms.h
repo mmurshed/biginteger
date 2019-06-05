@@ -211,13 +211,16 @@ namespace BigMath
       }
     }
 
-    private:
     static void MultiplyTo(
       vector<DataT>& a,
       ULong b,
       ULong base)
     {
-      Multiply(a, b, a, base);
+        Multiply(
+          a, 0, a.size() - 1,
+          b,
+          a, 0, a.size() - 1,
+          base);
     }    
 
     static vector<DataT> Multiply(
@@ -226,38 +229,46 @@ namespace BigMath
       ULong base)
       {
         vector<DataT> w(a.size());
-        Multiply(a, b, w, base);
+        Multiply(
+          a, 0, a.size() - 1,
+          b,
+          w, 0, w.size() - 1,
+          base);
         return w;
       }
 
     static void Multiply(
-      vector<DataT> const& a,
+      vector<DataT> const& a, SizeT aStart, SizeT aEnd,
       ULong b,
-      vector<DataT>& w,
+      vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
     {
       if(b == 0) // a times 0
       {
-        BigIntegerUtil::SetBit(w, 0, (SizeT)w.size() - 1, 0);
+        BigIntegerUtil::SetBit(w, wStart, wEnd, 0);
         return;
       }
-      if(BigIntegerUtil::IsZero(a)) // 0 times b
+      if(BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
         return;
 
+      SizeT len = Len(aStart, aEnd);
+      SizeT wPos = wStart;
+
       ULong carry = 0;
-      for(Int j = 0 ; j < a.size(); j++)
+      for(Int j = 0 ; j < len; j++)
       {
-        ULong multiply = a[j];
+        ULong multiply = a.at(aStart + j);
         multiply *= b;
         multiply += carry;
         
-        w[j] = (DataT)(multiply % base);
+        wPos = wStart + j;
+        w.at(wPos) = (DataT)(multiply % base);
         carry = multiply / base;
       }
 
       while(carry > 0)
       {
-        w.push_back( (DataT)(carry % base));
+        w.at(wPos) = (DataT)(carry % base);
         carry = carry / base;
       }
     }
