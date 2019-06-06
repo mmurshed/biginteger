@@ -30,13 +30,21 @@ namespace BigMath
       vector<DataT> & a,
       ULong b,
       ULong base)
+      {
+        AddTo(a, 0, a.size() - 1, b, base);
+      }
+
+    static void AddTo(
+      vector<DataT> & a, SizeT aStart, SizeT aEnd, 
+      ULong b,
+      ULong base)
     {
       ULong sum = b;
       ULong carry = 0;
-      if(a.size() > 0)
+      if(aEnd >= aStart)
       {
-        sum += a[0];
-        a[0] = (DataT)(sum % base);
+        sum += a[aStart];
+        a[aStart] = (DataT)(sum % base);
       }
       else
       {
@@ -45,19 +53,29 @@ namespace BigMath
 
       carry = sum / base;
 
-      SizeT i = 1;
-      while(carry > 0 && i < a.size())
+      SizeT aPos = aStart + 1;
+      while(carry > 0)
       {
-        sum = a[i] + carry;
-        a[i] = (DataT)(sum % base);
+        sum = carry;
+        if(aEnd >= aPos)
+        {
+          sum += a[aPos];
+          a[aPos] = (DataT)(sum % base);
+        }
+        else
+          a.push_back((DataT)(sum % base));
         carry = sum / base;
-        i++;
+        aPos++;
       }
 
       while(carry > 0)
       {
-        a.push_back((DataT)(carry % base));
+        if(aEnd >= aPos)
+          a[aPos] = (DataT)(carry % base);
+        else
+          a.push_back((DataT)(carry % base));
         carry = carry / base;
+        aPos++;
       }
     }    
 
@@ -223,6 +241,18 @@ namespace BigMath
           base);
     }    
 
+    static void MultiplyTo(
+      vector<DataT>& a, SizeT aStart, SizeT aEnd,
+      ULong b,
+      ULong base)
+    {
+        Multiply(
+          a, aStart, aEnd,
+          b,
+          a, aStart, aEnd,
+          base);
+    }    
+
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       ULong b,
@@ -249,7 +279,10 @@ namespace BigMath
         return;
       }
       if(BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
+      {
+        BigIntegerUtil::SetBit(w, wStart, wEnd, 0);
         return;
+      }
 
       SizeT len = Len(aStart, aEnd);
       SizeT wPos = wStart;
@@ -301,7 +334,7 @@ namespace BigMath
     // Implentation of multiplication by paper-pencil method
     // Classical algorithm
     // Runtime O(n^2), Space O(n)
-    static void Multiply(
+    static SizeT Multiply(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart,
@@ -331,6 +364,7 @@ namespace BigMath
         k = jStart + lenA;
         result.at(k) = (DataT)carry;
       }
+      return k;
     }
 
     static void DivideTo(
@@ -530,24 +564,42 @@ namespace BigMath
       return result;
     }
 
+    static vector<DataT> ConvertBase(
+      vector<DataT> const& bigIntB1,
+      ULong base1,
+      ULong base2)
+      {
+        return ConvertBase(
+          bigIntB1, 0, bigIntB1.size() - 1,
+          base1,
+          base2);
+      }
+
     // Convert an integer from base1 to base2
     // Donald E. Knuth 4.4
     static vector<DataT> ConvertBase(
-      vector<DataT> const& bigIntB1,
+      vector<DataT> const& bigIntB1, SizeT start, SizeT end,
       ULong base1,
       ULong base2)
     {
       if(base1 == base2)
       {
-        return *new vector<DataT>(bigIntB1);
+        vector<DataT> bigIntB2(bigIntB1);
+        return bigIntB2;
       }
 
-      vector<DataT> bigIntB2;
+      vector<DataT> bigIntB2(1, 0);
 
-      for(Int i = (Int)bigIntB1.size() - 1 ; i >= 0; i--)
+      for(Int i = (Int)end; i >= (Int)start; i--)
       {
-        MultiplyTo(bigIntB2, base1, base2);
-        AddTo(bigIntB2, bigIntB1[i], base2);
+        MultiplyTo(
+          bigIntB2,
+          base1,
+          base2);
+        AddTo(
+          bigIntB2,
+          bigIntB1[i],
+          base2);
       }
 
       return bigIntB2;

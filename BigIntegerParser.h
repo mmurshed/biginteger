@@ -116,17 +116,28 @@ namespace BigMath
 
     static string ToString(vector<DataT> const& bigInt, bool isNeg = false)
     {
+      return ToString(bigInt, 0, bigInt.size() - 1, isNeg);
+    }
+
+    static string ToString(vector<DataT> const& bigInt, SizeT start, SizeT end, bool isNeg = false)
+    {
       if(BigIntegerUtil::IsZero(bigInt))
       {
         return *new string("0");
       }
 
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt, BigInteger::Base(), BigIntegerUtil::Base100M);
+      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(
+        bigInt, start, end,
+        BigInteger::Base(),
+        BigIntegerUtil::Base100M);
       
       Int len = (Int)bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
       char* num = new char[len];
 
-      Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base100M_Zeroes, num, len);
+      Int j = UnsignedBase10nToString(
+        bigIntB2, 0, bigIntB2.size() - 1,
+        BigIntegerUtil::Base100M_Zeroes,
+        num, len);
 
       if(isNeg)
         num[j--] = '-';
@@ -139,18 +150,17 @@ namespace BigMath
     }
 
     // Convert unsigned integer to base 10^n string
-    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT baseDigit, char *num, SizeT len)
+    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT start, SizeT end, SizeT baseDigit, char *num, SizeT len)
     {
-      SizeT j = len - 1;
+      Int j = len - 1;
       
       num[j--] = 0;
 
       // Trim zeros
-      SizeT size = (SizeT)a.size();
-      while(a[size-1] == 0)
-        size--;
+      while(end >= start && a[end] == 0)
+        end--;
 
-      for(Int i = 0; i < size; i++)
+      for(Int i = start; i <= end; i++)
       {
         DataT n = a[i];
         SizeT l = 0;

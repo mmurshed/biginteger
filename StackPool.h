@@ -18,9 +18,9 @@ namespace BigMath
   template<class T>
   class StackPool
   {
-    stack<Range> ranges;
     public:
     vector<T> data;
+    stack<Range> ranges;
     
     StackPool(SizeT n = 0) : data(n, 0)
     {}
@@ -35,10 +35,10 @@ namespace BigMath
       ranges.push(make_pair(first, second));
     }
 
-    void Push(vector<T> u, SizeT p)
+    void Push(vector<T> const& u, SizeT p)
     {
       SizeT start = ranges.empty() ? 0 : ranges.top().second + 1;
-      SizeT end = start + p;
+      SizeT end = start + p - 1;
       BigIntegerUtil::Copy(u, 0, u.size() - 1, data, start, end);
       ranges.push(make_pair(start, end));
     }

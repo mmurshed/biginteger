@@ -213,8 +213,10 @@ namespace BigMath
           j,
           tcd.VTemp.data, rRange,
           q, r, base);
+        
+        tcd.U.Push(ur.first + rRange.first, ur.first + rRange.second);
 
-        tcd.VTemp.Push(rRange.first, rRange.second);
+        // string str1 = BigIntegerParser::ToString(tcd.VTemp.data, rRange.first, rRange.second);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
@@ -225,29 +227,21 @@ namespace BigMath
           tcd.UTemp.data, rRange,
           q, r, base);
 
-        tcd.UTemp.Push(rRange.first, rRange.second);
+        // string str2 = BigIntegerParser::ToString(tcd.UTemp.data, rRange.first, rRange.second);
+        tcd.V.Push(vr.first + rRange.first, vr.first + rRange.second);
 
         rRange.first += p;
         rRange.second = rRange.first + p - 1;
       }
 
-      tcd.U.data.assign(tcd.UTemp.data.begin(), tcd.UTemp.data.begin() + rRange.second);
-      tcd.V.data.assign(tcd.VTemp.data.begin(), tcd.VTemp.data.begin() + rRange.second);
-
-      Range uRange = make_pair(ur.first, ur.first + p - 1); 
-      Range vRange = make_pair(vr.first, vr.first + p - 1); 
-      for(Long j = _2r; j >= 0; j--)
-      {
-        uRange.first += p;
-        uRange.second = uRange.first + p - 1;
-
-        tcd.U.Push(uRange.first, uRange.second);
-
-        vRange.first += p;
-        vRange.second = vRange.first + p - 1;
-        
-        tcd.V.Push(uRange.first, uRange.second);
-      }
+      copy(
+        tcd.UTemp.data.begin(),
+        tcd.UTemp.data.begin() + rRange.first,
+        tcd.U.data.begin() + ur.first);
+      copy(
+        tcd.VTemp.data.begin(),
+        tcd.VTemp.data.begin() + rRange.first,
+        tcd.V.data.begin() + vr.first);
 
       // Stack C contains
       // code-2, V(2r), U(2r),
@@ -273,15 +267,14 @@ namespace BigMath
 
       // set w ← uv using a built-in routine for multiplying 
       // 32-bit numbers, and go to step 10.
-      SizeT wStart = tcd.W.Top().second + 1;
-      ClassicalAlgorithms::Multiply(
+      SizeT wStart = tcd.W.ranges.empty() ? 0 : tcd.W.Top().second + 1;
+      SizeT wEnd = ClassicalAlgorithms::Multiply(
         tcd.U.data, ur.first, ur.second,
         tcd.V.data, vr.first, vr.second,
         tcd.W.data, wStart,
         base);
 
-      Long p = tcd.P(k);
-      tcd.W.Push(wStart, wStart + 2*p - 1);
+      tcd.W.Push(wStart, wEnd);
     }
 
     static vector<DataT> Multiply(ToomCookData& tcd, ULong base)

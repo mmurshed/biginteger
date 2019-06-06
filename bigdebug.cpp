@@ -78,8 +78,10 @@ int main(int argc, char *argv[])
   // str = sub.ToString();
   // cmp = (str == "123456789012345678901230000000");
 
-  ToomCookAlgorithm tca;
-  vector<DataT> mult = tca.Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  string str1 = BigIntegerParser::ToString(a.GetInteger(), 4, 7);
+  string str2 = BigIntegerParser::ToString(b.GetInteger());
+
+  vector<DataT> mult = ToomCookAlgorithm::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
   string str = BigIntegerParser::ToString(mult);
   bool cmp = (str == "2888794");
   // vector<DataT> re = tca.MultiplyRPart(b.GetInteger(), 4, 0, 6, BigInteger::Base());
