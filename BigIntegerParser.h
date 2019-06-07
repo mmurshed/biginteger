@@ -121,7 +121,7 @@ namespace BigMath
 
     static string ToString(vector<DataT> const& bigInt, SizeT start, SizeT end, bool isNeg = false)
     {
-      if(BigIntegerUtil::IsZero(bigInt))
+      if(BigIntegerUtil::IsZero(bigInt, start, end))
       {
         return *new string("0");
       }

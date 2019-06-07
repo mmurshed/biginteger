@@ -115,7 +115,6 @@ namespace BigMath
         // BigIntegerUtil::SetBit(tcd.WTemp, 0, tcd.WTemp.size() - 1, 0);
         // Long wsize = 2 * (q_table[k] + q_table[k+1]);
         Long wsize = _2p + _2r * q;
-        vector<DataT> w(wsize, 0);
 
         SizeT wAnsStart = wsize - _2p;
         SizeT wAnsEnd = wsize - 1;
@@ -208,6 +207,9 @@ namespace BigMath
 
       Range rRange = make_pair(0, p - 1);
 
+      string stru = BigIntegerParser::ToString(tcd.U.data, ur.first, ur.second);
+      string strv = BigIntegerParser::ToString(tcd.V.data, vr.first, vr.second);
+
       // For j = 2r, 2r-1, ... , 1, 0      
       for(Long j = _2r; j >= 0; j--)
       {
@@ -224,7 +226,7 @@ namespace BigMath
         
         tcd.U.Push(ur.first + rRange.first, ur.first + rRange.second);
 
-        // string str1 = BigIntegerParser::ToString(tcd.VTemp.data, rRange.first, rRange.second);
+        string str1 = BigIntegerParser::ToString(tcd.VTemp, rRange.first, rRange.second);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
@@ -235,7 +237,7 @@ namespace BigMath
           tcd.UTemp, rRange,
           q, r, base);
 
-        // string str2 = BigIntegerParser::ToString(tcd.UTemp.data, rRange.first, rRange.second);
+        string str2 = BigIntegerParser::ToString(tcd.UTemp, rRange.first, rRange.second);
         tcd.V.Push(vr.first + rRange.first, vr.first + rRange.second);
 
         rRange.first += p;
@@ -281,7 +283,7 @@ namespace BigMath
         tcd.V.data, vr.first, vr.second,
         tcd.W.data, wStart,
         base);
-      // string str = BigIntegerParser::ToString(tcd.W.data, wStart, wEnd);
+      string str = BigIntegerParser::ToString(tcd.W.data, wStart, wEnd);
 
       tcd.W.Push(wStart, wEnd);
     }
