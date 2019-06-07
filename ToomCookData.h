@@ -21,11 +21,11 @@ namespace BigMath
   {
     public:
     StackPool<DataT> U;
-    StackPool<DataT> UTemp;    
+    vector<DataT> UTemp;
     StackPool<DataT> V;
-    StackPool<DataT> VTemp;
+    vector<DataT> VTemp;
     StackPool<DataT> W;
-    StackPool<DataT> WTemp;
+    vector<DataT> WTemp;
 
     stack<Int> C;
   
@@ -110,9 +110,9 @@ namespace BigMath
       U.Resize(uSize);
       V.Resize(uSize);
       W.Resize(wSize);
-      UTemp.Resize(uSizeMax);
-      VTemp.Resize(uSizeMax);
-      WTemp.Resize(wSizeMax);
+      UTemp.resize(uSizeMax);
+      VTemp.resize(uSizeMax);
+      WTemp.resize(wSizeMax);
     }
    };
 }

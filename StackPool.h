@@ -20,7 +20,7 @@ namespace BigMath
   {
     public:
     vector<T> data;
-    stack<Range> ranges;
+    vector<Range> ranges;
     
     StackPool(SizeT n = 0) : data(n, 0)
     {}
@@ -32,26 +32,31 @@ namespace BigMath
 
     void Push(Int first, Int second)
     {
-      ranges.push(make_pair(first, second));
+      ranges.push_back(make_pair(first, second));
     }
 
     void Push(vector<T> const& u, SizeT p)
     {
-      SizeT start = ranges.empty() ? 0 : ranges.top().second + 1;
+      SizeT start = ranges.empty() ? 0 : ranges.back().second + 1;
       SizeT end = start + p - 1;
-      BigIntegerUtil::Copy(u, 0, u.size() - 1, data, start, end);
-      ranges.push(make_pair(start, end));
+
+      BigIntegerUtil::Copy(
+        u, 0, u.size() - 1,
+        data, start, end);
+
+      ranges.push_back(make_pair(start, end));
     }
 
     Range Pop()
     {
-      Range range = ranges.top();
-      ranges.pop();
+      Range range = ranges.back();
+      ranges.pop_back();
       return range;
     }
+
     Range Top()
     {
-      return ranges.top();
+      return ranges.back();
     }
   };
 }

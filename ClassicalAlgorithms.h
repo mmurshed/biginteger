@@ -267,21 +267,17 @@ namespace BigMath
         return w;
       }
 
-    static void Multiply(
+    static SizeT Multiply(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd,
       ULong b,
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
     {
-      if(b == 0) // a times 0
+      if(b == 0 || // a times 0
+        BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
       {
         BigIntegerUtil::SetBit(w, wStart, wEnd, 0);
-        return;
-      }
-      if(BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
-      {
-        BigIntegerUtil::SetBit(w, wStart, wEnd, 0);
-        return;
+        return 0;
       }
 
       SizeT len = Len(aStart, aEnd);
@@ -290,20 +286,42 @@ namespace BigMath
       ULong carry = 0;
       for(Int j = 0 ; j < len; j++)
       {
-        ULong multiply = a.at(aStart + j);
+        ULong multiply = 0;
+        SizeT aPos = aStart + j;
+        if(aPos <= aEnd)
+          multiply = a.at(aPos);
         multiply *= b;
         multiply += carry;
         
         wPos = wStart + j;
-        w.at(wPos) = (DataT)(multiply % base);
+        if(wPos <= wEnd)
+        {
+          w.at(wPos) = (DataT)(multiply % base);
+        }
+        else
+        {
+          w.push_back( (DataT)(multiply % base) );
+        }
+          
         carry = multiply / base;
       }
 
       while(carry > 0)
       {
-        w.at(wPos) = (DataT)(carry % base);
+        if(wPos <= wEnd)
+        {
+          w.at(wPos) = (DataT)(carry % base);
+        }
+        else
+        {
+          w.push_back( (DataT)(carry % base) );
+        }
+        
         carry = carry / base;
+        wPos++;
       }
+
+      return wPos;
     }
 
     public:
@@ -372,7 +390,15 @@ namespace BigMath
       DataT d,
       ULong base)
       {
-        Divide(u, d, u, base);
+        Divide(u, 0, u.size() - 1, d, u, 0, u.size() - 1, base);
+      }
+
+    static void DivideTo(
+      vector<DataT>& u, SizeT uStart, SizeT uEnd,
+      DataT d,
+      ULong base)
+      {
+        Divide(u, uStart, uEnd, d, u, uStart, uEnd, base);
       }
 
     static vector<DataT> Divide(
@@ -384,18 +410,18 @@ namespace BigMath
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
         vector<DataT> w(n);
 
-        Divide(u, d, w, base);
+        Divide(u, 0, u.size() - 1, d, w, 0, w.size() - 1, base);
 
         return w;
       }
     
     static void Divide(
-      vector<DataT> const& u,
+      vector<DataT> const& u, SizeT uStart, SizeT uEnd,
       DataT d,
-      vector<DataT>& w,
+      vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
       {
-        SizeT n = (SizeT)u.size();
+        SizeT n = Len(uStart, uEnd);
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
 
         // Set r = 0, j = n − 1.
@@ -403,9 +429,18 @@ namespace BigMath
         for(Int j = n - 1; j >= 0; j--)
         {
           // Set val = r * b + u_j
-          ULong val = r * base + u[j];
+          ULong val = r * base;
+          SizeT uPos = uStart + j;
+          if(uPos <= uEnd)
+            val += u.at(uPos);
           // Set w_j = ⌊val / d⌋
-          w[j] = (DataT)(val / d);
+          SizeT wPos = wStart + j;
+          if(wPos <= wEnd)
+            w.at(wPos) = (DataT)(val / d);
+          else
+          {
+            w.push_back((DataT)(val / d));
+          }
           // Set r = val mod d
           r = val % d;
         }
