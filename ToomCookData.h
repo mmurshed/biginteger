@@ -40,6 +40,7 @@ namespace BigMath
     inline Long P(SizeT k) const { return q_table[k] + q_table[k-1]; } // p ← q_k–1 + q_k
     inline Long Q(SizeT k) const { return q_table[k]; } // q ← q_k
     inline Long R(SizeT k) const { return r_table[k]; } // r ← r_k
+    inline Long S(SizeT k) const { return r_table[k] + q_table[k+1]; } // s ← q_k + q_k+1
     SizeT K;
 
     ToomCookData(SizeT n)
@@ -96,14 +97,16 @@ namespace BigMath
         r_table.push_back( twopow(R) ); // r_k ← 2^R
 
         p = P(K);
+        Long q = q_table[K];
+        Long r = r_table[K];
         if(p < n)
         {
-          rSize = 2 * r_table[K];
-          ULong uSizeTemp = rSize * p;
-          uSize += uSizeTemp;
-          uSizeMax = uSizeTemp + p;
-          wSizeMax  = 2 * (uSizeTemp + p);
-          wSize += wSizeMax;
+          ULong uSizeTemp = 2 * r * p;
+          uSize += uSizeTemp; // 2r * p
+          uSizeMax = uSizeTemp + p; // p*(2r+1)
+          
+          wSizeMax  = 2 * uSizeMax; // 2p*(2r+1)
+          wSize += 2*wSizeMax; // 2*p + 2*r * q
         }
       }
 

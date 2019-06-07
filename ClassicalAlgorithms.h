@@ -234,23 +234,61 @@ namespace BigMath
       ULong b,
       ULong base)
     {
-        Multiply(
+        MultiplyTo(
           a, 0, a.size() - 1,
           b,
-          a, 0, a.size() - 1,
           base);
     }    
 
-    static void MultiplyTo(
+    static SizeT MultiplyTo(
       vector<DataT>& a, SizeT aStart, SizeT aEnd,
       ULong b,
       ULong base)
     {
-        Multiply(
-          a, aStart, aEnd,
-          b,
-          a, aStart, aEnd,
-          base);
+      if(b == 0 || // a times 0
+        BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
+      {
+        BigIntegerUtil::SetBit(a, aStart, aEnd, 0);
+        return 0;
+      }
+
+      ULong carry = 0;
+
+      for(Int j = aStart; j <= aEnd; j++)
+      {
+        ULong multiply = a.at(j);
+        multiply *= b;
+        multiply += carry;
+        
+        if(j < a.size())
+        {
+          a.at(j) = (DataT)(multiply % base);
+        }
+        else
+        {
+          a.push_back( (DataT)(multiply % base) );
+        }
+          
+        carry = multiply / base;
+      }
+
+      Int j = aEnd + 1;
+      while(carry > 0)
+      {
+        if(j < a.size())
+        {
+          a.at(j) = (DataT)(carry % base);
+        }
+        else
+        {
+          a.push_back( (DataT)(carry % base) );
+        }
+        
+        carry = carry / base;
+        j++;
+      }
+
+      return j;
     }    
 
     static vector<DataT> Multiply(
@@ -267,7 +305,7 @@ namespace BigMath
         return w;
       }
 
-    static SizeT Multiply(
+    static SizeT  Multiply(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd,
       ULong b,
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
@@ -306,6 +344,7 @@ namespace BigMath
         carry = multiply / base;
       }
 
+      wPos = wStart + len - 1;
       while(carry > 0)
       {
         if(wPos <= wEnd)

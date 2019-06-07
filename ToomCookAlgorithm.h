@@ -30,6 +30,8 @@ namespace BigMath
         Long q = tcd.Q(k);
         Long p = tcd.P(k);
 
+        Long wStart = tcd.W.ranges.size() - _2r - 1;
+
         // At this point stack W contains a sequence of numbers
         // ending with W(0), W(1), ..., W(2r) from bottom to 
         // top, where each W(j) is a 2p-bit number.
@@ -42,8 +44,8 @@ namespace BigMath
           // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
           for(Long t = _2r; t >= j; t--)
           {
-            Range wtr = tcd.W.ranges[t]; // W[t]
-            Range wt1r = tcd.W.ranges[t-1]; // W[t-1]
+            Range wtr = tcd.W.ranges[wStart + t]; // W[t]
+            Range wt1r = tcd.W.ranges[wStart + t - 1]; // W[t-1]
 
             // set W(t) ← ( W(t) – W(t − 1) ) / j.
             // The quantity ( W(t) - W(t-1) ) / j will always be a 
@@ -77,8 +79,8 @@ namespace BigMath
           // For t = j, j + 1, ..., 2r − 1, 
           for(Long t = j; t < _2r; t++)
           {
-            Range wtr = tcd.W.ranges[t]; // W[t]
-            Range wt1r = tcd.W.ranges[t+1]; // W[t+1]
+            Range wtr = tcd.W.ranges[wStart + t]; // W[t]
+            Range wt1r = tcd.W.ranges[wStart + t + 1]; // W[t+1]
 
             // set W(t) ← W(t) – j * W(t + 1).
             // The result of this operation will again be 
@@ -112,8 +114,7 @@ namespace BigMath
         // Set w to the 2(q_k + q_k+1)-bit integer
         // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
 
-        // BigIntegerUtil::SetBit(tcd.WTemp, 0, tcd.WTemp.size() - 1, 0);
-        // Long wsize = 2 * (q_table[k] + q_table[k+1]);
+        // Long wsize = 2 * tcd.S(k);
         Long wsize = _2p + _2r * q;
 
         SizeT wAnsStart = wsize - _2p;
@@ -135,6 +136,7 @@ namespace BigMath
 
         // Remove W(2r), . . . , W(0) from stack W.
         tcd.W.Push(tcd.WTemp, wsize);
+        string strWTemp = BigIntegerParser::ToString(tcd.WTemp, 0, wsize);
         string str1 = BigIntegerParser::ToString(tcd.W.data, tcd.W.Top().first, tcd.W.Top().second);
     }
 
