@@ -64,8 +64,8 @@ int main(int argc, char *argv[])
   // a[0] = 200;
   // SizeT z3 = BigIntegerUtil::FindNonZeroByte(a); // should be 1
 
-  BigInteger a = BigIntegerParser::Parse("1234");
-  BigInteger b = BigIntegerParser::Parse("2341");
+  BigInteger a = BigIntegerParser::Parse("10");
+  BigInteger b = BigIntegerParser::Parse("728");
 
   // BigInteger& a = BigIntegerParser::Parse("14795936");
   // BigInteger& b = BigIntegerParser::Parse("33202659");
@@ -81,9 +81,9 @@ int main(int argc, char *argv[])
   string str1 = BigIntegerParser::ToString(a.GetInteger(), 4, 7);
   string str2 = BigIntegerParser::ToString(b.GetInteger());
 
-  vector<DataT> mult = ToomCookAlgorithm::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  vector<DataT> mult = KaratsubaAlgorithm::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
   string str = BigIntegerParser::ToString(mult);
-  bool cmp = (str == "2888794");
+  bool cmp = (str == "7280");
   // vector<DataT> re = tca.MultiplyRPart(b.GetInteger(), 4, 0, 6, BigInteger::Base());
   // string str = BigIntegerParser::ToString(re);
   // bool cmp = (str == "0");
