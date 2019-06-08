@@ -74,8 +74,8 @@ namespace BigMath
       ULong p = P(K);
       ULong rSize = 2 * r_table[K] + 1;
       ULong uSize = p * rSize;
-      ULong wSize = 2 * uSize;
       ULong uSizeMax = uSize;
+      ULong wSize = 2 * uSize;
       ULong wSizeMax = wSize;
 
       // Now if q_k−1 + q_k < n
@@ -105,7 +105,7 @@ namespace BigMath
           uSizeMax = uSizeTemp + p; // p*(2r+1)
           
           wSizeMax  = 2 * uSizeMax; // 2p*(2r+1)
-          wSize += 2*wSizeMax; // 2*p + 2*r * q
+          wSize += 3*p*(2*r+1); // 3p*(2r+1)
         }
       }
 
