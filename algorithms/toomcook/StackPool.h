@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef STACK_POOL_H
-#define STACK_POOL_H
+#ifndef STACK_POOL
+#define STACK_POOL
 
 #include <vector>
 #include <stack>

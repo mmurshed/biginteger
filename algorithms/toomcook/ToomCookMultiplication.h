@@ -5,22 +5,25 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOM_COOK_ALGORITHM_H
-#define TOOM_COOK_ALGORITHM_H
+#ifndef TOOMCOOK_MULTIPLICATION
+#define TOOMCOOK_MULTIPLICATION
 
 #include <vector>
 #include <stack>
 using namespace std;
 
 #include "BigInteger.h"
-#include "BigIntegerUtil.h"
-#include "ClassicalAlgorithms.h"
 #include "BigIntegerParser.h"
-#include "ToomCookData.h"
+#include "algorithms/BigIntegerUtil.h"
+#include "algorithms/toomcook/ToomCookData.h"
+#include "algorithms/classic/ClassicAddition.h"
+#include "algorithms/classic/ClassicSubtraction.h"
+#include "algorithms/classic/ClassicMultiplication.h"
+
 
 namespace BigMath
 {
-  class ToomCookAlgorithm
+  class ToomCookMultiplication
   {
     private:
     static void ComputeAnswer(ToomCookData& tcd, SizeT k, ULong base)
@@ -52,7 +55,7 @@ namespace BigMath
             // nonnegative integer that fits in 2p bits.
 
             // W(t) –= W(t − 1)
-            ClassicalAlgorithms::SubtractFrom(
+            ClassicSubtraction::SubtractFrom(
               tcd.W.data, wtr.first, wtr.second,
               tcd.W.data, wt1r.first, wt1r.second,
               base);
@@ -87,7 +90,7 @@ namespace BigMath
             // a nonnegative 2p-bit integer.
 
             // Wt1 = W(t+1) * j
-            wEnd = ClassicalAlgorithms::Multiply(
+            wEnd = ClassicMultiplication::Multiply(
               tcd.W.data, wt1r.first, wt1r.second,
               (ULong)j,
               tcd.WTemp, 0, wEnd,
@@ -96,7 +99,7 @@ namespace BigMath
             // set W(t) ← W(t) – j * W(t + 1).
             // W(t) ← W(t) – Wt1
             // W(t) -= Wt1
-            ClassicalAlgorithms::SubtractFrom(
+            ClassicSubtraction::SubtractFrom(
               tcd.W.data, wtr.first, wtr.second,
               tcd.WTemp, 0, wEnd,
               base);
@@ -118,7 +121,7 @@ namespace BigMath
         for(Long i = _2r; i >= 0; i--)
         {
           Range wtr = tcd.W.Pop(); // W[i]
-          ClassicalAlgorithms::AddTo(
+          ClassicAddition::AddTo(
             tcd.WTemp, wAnsStart, wsize - 1,
             tcd.W.data, wtr.first, wtr.second,
             base);
@@ -158,7 +161,7 @@ namespace BigMath
       // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
       for(Long i = r; i >= 0; i--)
       {
-        ClassicalAlgorithms::AddTo(
+        ClassicAddition::AddTo(
           result, rRes.first, rRes.second,
           u, uStart, uEnd,
           base);
@@ -168,7 +171,7 @@ namespace BigMath
         if(i > 0 && !BigIntegerUtil::IsZero(result, rRes.first, rRes.second))
         {
           // Case of j = zero is already eliminated
-          ClassicalAlgorithms::MultiplyTo(
+          ClassicMultiplication::MultiplyTo(
             result, rRes.first, rRes.second,
             j,
             base);
@@ -266,7 +269,7 @@ namespace BigMath
       // set w ← uv using a built-in routine for multiplying 
       // 32-bit numbers, and go to step 10.
       SizeT wStart = tcd.W.ranges.empty() ? 0 : tcd.W.Top().second + 1;
-      SizeT wEnd = ClassicalAlgorithms::Multiply(
+      SizeT wEnd = ClassicMultiplication::Multiply(
         tcd.U.data, ur.first, ur.second,
         tcd.V.data, vr.first, vr.second,
         tcd.W.data, wStart,

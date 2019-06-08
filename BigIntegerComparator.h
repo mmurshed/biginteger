@@ -4,10 +4,11 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef CLASSICAL_BIGINTEGER_COMPARATOR_H
-#define CLASSICAL_BIGINTEGER_COMPARATOR_H
+#ifndef BIGINTEGER_COMPARATOR
+#define BIGINTEGER_COMPARATOR
 
-#include "BigIntegerUtil.h"
+#include <vector>
+using namespace std;
 
 namespace BigMath
 {

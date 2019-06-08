@@ -4,19 +4,21 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef KARATSUBA_ALGORITHM_H
-#define KARATSUBA_ALGORITHM_H
+#ifndef KARATSUBA_MULTIPLICATION
+#define KARATSUBA_MULTIPLICATION
 
 #include <vector>
 using namespace std;
 
 #include "BigInteger.h"
 #include "BigIntegerUtil.h"
-#include "ClassicalAlgorithms.h"
+#include "algorithms/classic/ClassicAddition.h"
+#include "algorithms/classic/ClassicSubtraction.h"
+#include "algorithms/classic/ClassicMultiplication.h"
 
 namespace BigMath
 {
-  class KaratsubaAlgorithm
+  class KaratsubaMultiplication
   {
     private:
     // Cut off deterioriate over 32
@@ -48,13 +50,13 @@ namespace BigMath
       vector<DataT>& w, SizeT wStart, 
       ULong base)
       {
-        Int la = ClassicalAlgorithms::Len(aStart, aEnd);
-        Int lb = ClassicalAlgorithms::Len(bStart, bEnd);
+        Int la = BigIntegerUtil::Len(aStart, aEnd);
+        Int lb = BigIntegerUtil::Len(bStart, bEnd);
        
         if(la <= KARATSUBA_THRESHOLD)
         {
           // Use naive method 
-          ClassicalAlgorithms::Multiply(
+          ClassicMultiplication::Multiply(
             a, aStart, aEnd, 
             b, bStart, bEnd, 
             c, cStart,
@@ -75,7 +77,7 @@ namespace BigMath
         // Clear carry digit
         w.at(wStart + m) = 0;
         // Save al + ah into w_0,...,w_m
-        ClassicalAlgorithms::Add(
+        ClassicAddition::Add(
           a, aStart, aStart + m - 1, // al
           a, aStart + m, aEnd, // ah
           w, wStart, // wl = al + ah
@@ -85,7 +87,7 @@ namespace BigMath
         w.at(wStart + m + m + 1) = 0;
       
         // Save bl + bh into w_m+1, ... w_2m+1
-        ClassicalAlgorithms::Add(
+        ClassicAddition::Add(
           b, bStart, bStart + m - 1, // bl
           b, bStart + m, bEnd, // bh
           w, wStart + m + 1, // wh = bl + bh
@@ -119,14 +121,14 @@ namespace BigMath
         SizeT wEnd = wStart + (la - m) + (lb - m) - 1;
         // Add ah * bh * B^2m
         // c += ah * bh * B^2m
-        ClassicalAlgorithms::AddTo(
+        ClassicAddition::AddTo(
           c, cStart + m + m, cStart + la + lb - 1, // c
           w, wStart, wEnd, // ah * bh
           base);
   
         // Subtract ah * bh * B^m
         // c -= ah * bh * B^m
-        ClassicalAlgorithms::SubtractFrom(
+        ClassicSubtraction::SubtractFrom(
           c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
@@ -150,21 +152,24 @@ namespace BigMath
 
         // Add al * bl        
         // c += al * bl
-        ClassicalAlgorithms::AddTo(
+        ClassicAddition::AddTo(
           c, cStart, cStart + m + m - 1, // c
           w, wStart, wEnd, // w
           base);
         
         // Subtract al * bl * B^m
         // c -= al * bl * B^m
-        ClassicalAlgorithms::SubtractFrom(
+        ClassicSubtraction::SubtractFrom(
           c, cStart + m, (SizeT)c.size() - 1, // c
           w, wStart, wEnd, // w
           base);
       }
 
     public:
-    static vector<DataT> Multiply(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> Multiply(
+      vector<DataT> const& a,
+      vector<DataT> const& b,
+      ULong base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
       SizeT size = 3 * n;

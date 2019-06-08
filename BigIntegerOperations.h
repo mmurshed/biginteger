@@ -4,18 +4,19 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_OPERATIONS_H
-#define BIG_INTEGER_OPERATIONS_H
+#ifndef BIGINTEGER_OPERATIONS
+#define BIGINTEGER_OPERATIONS
 
 #include <vector>
 using namespace std;
 
-#include "BigIntegerUtil.h"
 #include "BigInteger.h"
 #include "BigIntegerComparator.h"
-#include "ClassicalAlgorithms.h"
-#include "KaratsubaAlgorithm.h"
-#include "ToomCookAlgorithm.h"
+#include "algorithms/classic/ClassicAddition.h"
+#include "algorithms/classic/ClassicSubtraction.h"
+#include "algorithms/classic/ClassicMultiplication.h"
+#include "algorithms/karatsuba/KaratsubaMultiplication.h"
+#include "algorithms/toomcook/ToomCookMultiplication.h"
 
 namespace BigMath
 {
@@ -29,7 +30,7 @@ namespace BigMath
     static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::Add(
+        ClassicAddition::Add(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -41,7 +42,7 @@ namespace BigMath
     static BigInteger SubtractUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::Subtract(
+        ClassicSubtraction::Subtract(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -55,7 +56,7 @@ namespace BigMath
       if(size <= MULTIPLICATION_SWITCH)
       {
         return BigInteger(
-          ClassicalAlgorithms::Multiply(
+          ClassicMultiplication::Multiply(
             a.GetInteger(),
             b.GetInteger(),
             BigInteger::Base())
@@ -63,7 +64,7 @@ namespace BigMath
       }
 
       return BigInteger(
-        KaratsubaAlgorithm::Multiply(
+        KaratsubaMultiplication::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())

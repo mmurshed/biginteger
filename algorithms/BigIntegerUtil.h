@@ -109,6 +109,10 @@ namespace BigMath
         u.push_back(0);
     }
 
+    static Int Len(SizeT start, SizeT end)
+    {
+      return (Int) end - (Int) start + 1;
+    }
    };
 }
 

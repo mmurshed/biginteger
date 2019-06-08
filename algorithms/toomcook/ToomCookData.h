@@ -5,8 +5,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOM_COOK_DATA_H
-#define TOOM_COOK_DATA_H
+#ifndef TOOMCOOK_DATA
+#define TOOMCOOK_DATA
 
 #include <vector>
 #include <stack>
@@ -32,7 +32,7 @@ namespace BigMath
     vector<Long> q_table;
     vector<Long> r_table;
 
-    enum {CODE1 = -1, CODE2 = -2, CODE3 = -3};   
+    enum {CODE1 = -1, CODE2 = -2, CODE3 = -3};
 
     static inline Long sqr(Long n) { return n * n; }
     static inline Long twopow(Int pow) {  return 1L << pow; }

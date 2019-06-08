@@ -4,17 +4,16 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_BUILDER_H
-#define BIG_INTEGER_BUILDER_H
+#ifndef BIGINTEGER_BUILDER
+#define BIGINTEGER_BUILDER
 
 #include <vector>
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
+#include "algorithms/BigIntegerUtil.h"
 #include "BigIntegerParser.h"
 #include "BigInteger.h"
-#include "ClassicalAlgorithms.h"
 
 namespace BigMath
 {
