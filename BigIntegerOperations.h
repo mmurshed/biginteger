@@ -50,30 +50,31 @@ namespace BigMath
 
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
+      SizeT size = a.size() + b.size();
+
+      if(size <= MULTIPLICATION_SWITCH)
+      {
+        return BigInteger(
+          ClassicalAlgorithms::Multiply(
+            a.GetInteger(),
+            b.GetInteger(),
+            BigInteger::Base())
+        );
+      }
+
       return BigInteger(
-        ToomCookAlgorithm::Multiply(
-          a.GetInteger(), 
-          b.GetInteger(), 
+        KaratsubaAlgorithm::Multiply(
+          a.GetInteger(),
+          b.GetInteger(),
           BigInteger::Base())
       );
 
-      // SizeT size = a.size() + b.size();
-
-      // if(size <= MULTIPLICATION_SWITCH)
       // return BigInteger(
-      //   ClassicalAlgorithms::Multiply(
-      //     a.GetInteger(),
-      //     b.GetInteger(),
+      //   ToomCookAlgorithm::Multiply(
+      //     a.GetInteger(), 
+      //     b.GetInteger(), 
       //     BigInteger::Base())
-      // );
-
-      // return BigInteger(
-      //   KaratsubaAlgorithm::Multiply(
-      //     a.GetInteger(),
-      //     b.GetInteger(),
-      //     BigInteger::Base())
-      // );
-      
+      // );      
     }
 
 public:
