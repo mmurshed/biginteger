@@ -1,0 +1,74 @@
+/***************************************************************************
+                          main.cpp  -  description
+                             -------------------
+    begin                : Thu Aug 29 02:15:55 BDT 2002
+    copyright            : (C) 2002 by S. M. Mahbub Murshed
+    email                : murshed@gmail.com
+ ***************************************************************************/
+ 
+#include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <cstdio>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <ctime>
+#include <strstream>
+#include <string>
+#include <stdexcept>
+
+using namespace std;
+
+#include "BigInteger.h"
+#include "BigIntegerIO.h"
+#include "BigIntegerOperations.h"
+#include "BigIntegerParser.h"
+
+using namespace BigMath;
+
+
+int main(int argc, char *argv[])
+{
+  if(argc < 3)
+    return 1;
+
+  if(!freopen(argv[1],"rt",stdin))
+    return 1;
+
+  FILE *timeFile = fopen(argv[2], "wt");
+  if(!timeFile)
+    return 1;
+
+  char op;
+
+  cerr << "Toom R,Time" << endl;
+
+  BigInteger a, b;
+  
+  cin >> a >> op >> b;
+
+  for(SizeT R = 1; R <= 6; R ++)
+  {
+    clock_t start = clock();
+
+    vector<DataT> rKarat = ToomCookAlgorithm::Multiply(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base(),
+          R);
+
+    clock_t end = clock();
+    
+    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cerr.setf(ios::showpoint);
+    cerr << R << "," << timeTaken << endl;
+    fprintf(timeFile, "%u,%f\n", R, timeTaken);
+  }
+  
+  fclose(timeFile);
+
+  return EXIT_SUCCESS;
+}
+

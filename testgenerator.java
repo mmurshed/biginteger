@@ -41,7 +41,7 @@ public class testgenerator
             BigInteger b = new BigInteger (maxNumBits - rnd.nextInt(maxNumBits) , rnd);
             
             out.write(a.toString() + ' ' + op + ' ' + b.toString());
-            ans.write("Data : " + (i+1) + ' ');
+            // ans.write("Data : " + (i+1) + ' ');
             BigInteger c = new BigInteger("0");
             switch(op)
             {

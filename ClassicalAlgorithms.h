@@ -332,7 +332,7 @@ namespace BigMath
         multiply += carry;
         
         wPos = wStart + j;
-        if(wPos <= wEnd)
+        if(wPos < w.size())
         {
           w.at(wPos) = (DataT)(multiply % base);
         }
@@ -347,7 +347,7 @@ namespace BigMath
       wPos = wStart + len - 1;
       while(carry > 0)
       {
-        if(wPos <= wEnd)
+        if(wPos < w.size())
         {
           w.at(wPos) = (DataT)(carry % base);
         }

@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
 
       clock_t end = clock();
 
-      cout << "Data : " << DATA << " ";
+      // cout << "Data : " << DATA << " ";
 
       if(un) {
         if(rp) cout << "true";

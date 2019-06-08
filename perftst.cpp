@@ -25,6 +25,7 @@ using namespace std;
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
 #include "ToomCookAlgorithm.h"
+#include "BigIntegerComparator.h"
 
 using namespace BigMath;
 
@@ -84,8 +85,7 @@ int main(int argc, char *argv[])
 
     double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
 
-
-    Int cmp = ClassicalAlgorithms::CompareTo(rKarat, rClassical);
+    Int cmp = BigIntegerComparator::CompareTo(rKarat, rClassical);
     if(cmp != 0)
     {
       cerr << "Result mismatch" << endl;
@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
     }
    
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," rKarat.size() << endl;
+    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << rKarat.size() << endl;
     fprintf(timeFile, "%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, rKarat.size());
 
     DATA++;
