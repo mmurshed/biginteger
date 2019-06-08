@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
     
     clock_t start = clock();
 
-    vector<DataT> rKarat = KaratsubaAlgorithm::MultiplyUnsigned(
+    vector<DataT> rKarat = KaratsubaAlgorithm::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base());
@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
 
     start = clock();
 
-    vector<DataT> rClassical = ClassicalAlgorithms::MultiplyUnsigned(
+    vector<DataT> rClassical = ClassicalAlgorithms::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base());
@@ -77,8 +77,7 @@ int main(int argc, char *argv[])
 
     start = clock();
 
-    ToomCookAlgorithm tca;
-    vector<DataT> mult = tca.MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+    vector<DataT> mult = ToomCookAlgorithm::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
     string str = BigIntegerParser::ToString(mult);
 
     end = clock();
@@ -86,7 +85,7 @@ int main(int argc, char *argv[])
     double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
 
 
-    Int cmp = ClassicalAlgorithms::UnsignedCompareTo(rKarat, rClassical);
+    Int cmp = ClassicalAlgorithms::CompareTo(rKarat, rClassical);
     if(cmp != 0)
     {
       cerr << "Result mismatch" << endl;

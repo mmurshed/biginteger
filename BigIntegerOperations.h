@@ -50,9 +50,8 @@ namespace BigMath
 
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      ToomCookAlgorithm tca;
       return BigInteger(
-        tca.Multiply(
+        ToomCookAlgorithm::Multiply(
           a.GetInteger(), 
           b.GetInteger(), 
           BigInteger::Base())

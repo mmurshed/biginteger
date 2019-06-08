@@ -50,11 +50,11 @@ int main(int argc, char *argv[])
 
   for(SizeT k = 4; k <= 256; k += 2)
   {
-    KaratsubaAlgorithm::CUT_OFF = k;
+    KaratsubaAlgorithm::KARATSUBA_THRESHOLD = k;
 
     clock_t start = clock();
 
-    vector<DataT> rKarat = KaratsubaAlgorithm::MultiplyUnsigned(
+    vector<DataT> rKarat = KaratsubaAlgorithm::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base());

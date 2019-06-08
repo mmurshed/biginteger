@@ -57,20 +57,19 @@ namespace BigMath
     //
     // The multiplication of 70000-bit numbers would cause 
     // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
-    void ComputeTablesAndAllocate(SizeT n)
+    void ComputeTablesAndAllocate(SizeT n, Int R = 2) // R ← 2
     {
       K = 1;                // k ← 1
 
+      Int Q = R * 2;                 // Q ← 4
+
       // q_0 ← q_1 ← 16
-      q_table.push_back(4);
-      q_table.push_back(4);
+      q_table.push_back( twopow(Q) );
+      q_table.push_back( q_table[0] );
       
       // r_0 ← r_1 ← 4
-      r_table.push_back(2);
-      r_table.push_back(2);
-
-      Int Q = 2;                 // Q ← 4
-      Int R = 1;                 // R ← 2
+      r_table.push_back( twopow(R) );
+      r_table.push_back( r_table[0] );
 
       ULong p = P(K);
       ULong rSize = 2 * r_table[K] + 1;

@@ -57,16 +57,16 @@ namespace BigMath
               tcd.W.data, wt1r.first, wt1r.second,
               base);
 
-            string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
+            // string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
 
-            // W(t) /= j
+            // W(t) /= j  
             if(j > 1)
             {
               ClassicalAlgorithms::DivideTo(
                 tcd.W.data, wtr.first, wtr.second,
                 (DataT)j,
                 base);
-              string str2 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
+              // string str2 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
             }
           }
         }
@@ -76,6 +76,9 @@ namespace BigMath
         // Here j must decrease and t must increase. 
         for(Long j = _2r - 1; j >= 1; j--)
         {
+          Range wtr = tcd.W.ranges[wStart + j]; // W[j]
+          // string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
+
           // For t = j, j + 1, ..., 2r − 1, 
           for(Long t = j; t < _2r; t++)
           {
@@ -93,8 +96,8 @@ namespace BigMath
               tcd.WTemp, 0, tcd.WTemp.size() - 1,
               base);
 
-            string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
-            string str2 = BigIntegerParser::ToString(tcd.WTemp, 0, wEnd);
+            // string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
+            // string str2 = BigIntegerParser::ToString(tcd.WTemp, 0, wEnd);
 
             // set W(t) ← W(t) – j * W(t + 1).
             // W(t) ← W(t) – Wt1
@@ -104,10 +107,11 @@ namespace BigMath
               tcd.WTemp, 0, wEnd,
               base);
 
-            string str3 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
+            // string str3 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
 
             BigIntegerUtil::SetBit(tcd.WTemp, 0, wEnd, 0);
           }
+          // string str2 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
         }
 
         // Step 9. [Set answer.]
@@ -123,10 +127,12 @@ namespace BigMath
         for(Long i = _2r; i >= 0; i--)
         {
           Range wtr = tcd.W.Pop(); // W[i]
+          // string str1 = BigIntegerParser::ToString(tcd.W.data, wtr.first, wtr.second);
           ClassicalAlgorithms::AddTo(
-            tcd.WTemp, wAnsStart, wAnsEnd,
+            tcd.WTemp, wAnsStart, wsize - 1,
             tcd.W.data, wtr.first, wtr.second,
             base);
+          // string str2 = BigIntegerParser::ToString(tcd.WTemp, wAnsStart, wsize - 1);
 
           BigIntegerUtil::SetBit(tcd.W.data, wtr.first, wtr.second, 0);
           
@@ -136,8 +142,8 @@ namespace BigMath
 
         // Remove W(2r), . . . , W(0) from stack W.
         tcd.W.Push(tcd.WTemp, wsize);
-        string strWTemp = BigIntegerParser::ToString(tcd.WTemp, 0, wsize);
-        string str1 = BigIntegerParser::ToString(tcd.W.data, tcd.W.Top().first, tcd.W.Top().second);
+        // string strWTemp = BigIntegerParser::ToString(tcd.WTemp, 0, wsize);
+        // string str1 = BigIntegerParser::ToString(tcd.W.data, tcd.W.Top().first, tcd.W.Top().second);
     }
 
     static void MultiplyRPlus1Parts(
@@ -209,8 +215,8 @@ namespace BigMath
 
       Range rRange = make_pair(0, p - 1);
 
-      string stru = BigIntegerParser::ToString(tcd.U.data, ur.first, ur.second);
-      string strv = BigIntegerParser::ToString(tcd.V.data, vr.first, vr.second);
+      // string stru = BigIntegerParser::ToString(tcd.U.data, ur.first, ur.second);
+      // string strv = BigIntegerParser::ToString(tcd.V.data, vr.first, vr.second);
 
       // For j = 2r, 2r-1, ... , 1, 0      
       for(Long j = _2r; j >= 0; j--)
@@ -228,7 +234,7 @@ namespace BigMath
         
         tcd.U.Push(ur.first + rRange.first, ur.first + rRange.second);
 
-        string str1 = BigIntegerParser::ToString(tcd.VTemp, rRange.first, rRange.second);
+        // string str1 = BigIntegerParser::ToString(tcd.VTemp, rRange.first, rRange.second);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
@@ -239,7 +245,7 @@ namespace BigMath
           tcd.UTemp, rRange,
           q, r, base);
 
-        string str2 = BigIntegerParser::ToString(tcd.UTemp, rRange.first, rRange.second);
+        // string str2 = BigIntegerParser::ToString(tcd.UTemp, rRange.first, rRange.second);
         tcd.V.Push(vr.first + rRange.first, vr.first + rRange.second);
 
         rRange.first += p;
@@ -285,7 +291,7 @@ namespace BigMath
         tcd.V.data, vr.first, vr.second,
         tcd.W.data, wStart,
         base);
-      string str = BigIntegerParser::ToString(tcd.W.data, wStart, wEnd);
+      // string str = BigIntegerParser::ToString(tcd.W.data, wStart, wEnd);
 
       tcd.W.Push(wStart, wEnd);
     }
