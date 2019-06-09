@@ -26,13 +26,14 @@ namespace BigMath
       return ParseUnsigned(num.c_str(), 0, num.length());
     }
 
-    static BigInteger Parse(char const* num)
+    static BigInteger Parse(char const* num, Int* char_processed = 0)
     {
       Int len = (Int)strlen(num);
-      return ParseSigned(num, 0, len);
+      if(char_processed) *char_processed = 0;
+      return ParseSigned(num, 0, len, char_processed);
     }
 
-    static BigInteger ParseSigned(char const* num, Int start, Int len)
+    static BigInteger ParseSigned(char const* num, Int start, Int len, Int* char_processed = 0)
     {
       if(num == NULL || len == 0 || start < 0 || start >= len)
         return BigInteger();
@@ -44,34 +45,38 @@ namespace BigMath
       {
         isNegative = true;
         start++;
+        if(char_processed) (*char_processed)++;
       }
       else if (num[start] == '+')
       {
         start++;
+        if(char_processed) (*char_processed)++;
       }
 
       // Trim leading zeros
       while (num[start] == '0')
       {
         start++;
+        if(char_processed) (*char_processed)++;
       }
 
       // If the resulting string is empty return 0
       if (start >= len)
         return BigInteger();
 
-      vector<DataT> bigInt = ParseUnsigned(num, start, len);
+      vector<DataT> bigInt = ParseUnsigned(num, start, len, char_processed);
 
       return BigInteger(bigInt, isNegative);
     }
 
-    static vector<DataT> ParseUnsigned(char const* num, Int start, Int len)
+    static vector<DataT> ParseUnsigned(char const* num, Int start, Int len, Int* char_processed = 0)
     {
       vector<DataT> bigIntB1 = ParseUnsignedBase10n(
         num,
         start,
         len,
-        BigIntegerUtil::Base100M_Zeroes);
+        BigIntegerUtil::Base100M_Zeroes,
+        char_processed);
       vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
         bigIntB1,
         BigIntegerUtil::Base100M,
@@ -80,7 +85,7 @@ namespace BigMath
     }
 
     // Group by n, meaning 10^n base
-    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
+    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n, Int* char_processed = 0)
     {
       len--;
       vector<DataT> bigInt(len / n + 1);
@@ -88,6 +93,8 @@ namespace BigMath
       // Convert the string to int
       SizeT j = 0;
       len -= start;
+
+      bool error = false;
       
       while(len >= start)
       {
@@ -100,14 +107,17 @@ namespace BigMath
           int d = num[len] - '0';
           if(d < 0 || d > 9)
           {
-            // Error
+            error = true;
+            break;
           }
 
           digit += TEN * d;
           TEN *= 10;
+          if(char_processed) (*char_processed)++;
         }
  
         bigInt[j++] = digit;
+        if(error) break;
       }
       
       BigIntegerUtil::TrimZeros(bigInt);
