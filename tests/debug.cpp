@@ -30,14 +30,14 @@ using namespace BigMath;
 
 int main(int argc, char *argv[])
 {
-  BigInteger a = BigIntegerParser::Parse("10");
-  BigInteger b = BigIntegerParser::Parse("728");
+  BigInteger a = BigIntegerParser::Parse("123458");
+  BigInteger b = BigIntegerParser::Parse("234112");
 
   ToomCookMultiplicationAlt tcm;
 
   vector<DataT> mult = tcm.Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
   string str = BigIntegerParser::ToString(mult);
-  bool cmp = (str == "7280");
+  bool cmp = (str == "28902999296");
 
   return 0;
 }

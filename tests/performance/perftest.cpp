@@ -50,8 +50,8 @@ int main(int argc, char *argv[])
 
   char op;
 
-  cout << "Karatsuba,Classical,Toom-Cook,Toom-Cook-MemOptimized,Results Digit" << endl;
-  cerr << "Data,Karatsuba,Classical,Toom-Cook,Toom-Cook-MemOptimized,Results Digit" << endl;
+  cout << "Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
+  cerr << "Data,Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
 
   while(true)
   {
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    ToomCookMultiplicationAlt tcm;
+    ToomCookMultiplication tcm;
     vector<DataT> rToom = tcm.Multiply(
       a.GetInteger(),
       b.GetInteger(),
@@ -110,24 +110,27 @@ int main(int argc, char *argv[])
       return cmp;
     }
 
-    start = clock();
-    vector<DataT> rToomMem = ToomCookMultiplication::Multiply(
-      a.GetInteger(),
-      b.GetInteger(),
-      BigInteger::Base());
-    end = clock();
-    double timeTakenToomCookMem = (double)(end - start) / CLOCKS_PER_SEC;
+    // start = clock();
+    // vector<DataT> rToomMem = ToomCookMultiplication::Multiply(
+    //   a.GetInteger(),
+    //   b.GetInteger(),
+    //   BigInteger::Base());
+    // end = clock();
+    // double timeTakenToomCookMem = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(rToomMem, ans.GetInteger());
-    if(cmp != 0)
-    {
-      cerr << "Toom-Cook-Memory-Optimized algorithm failed." << endl;
-      return cmp;
-    }
+    // cmp = BigIntegerComparator::CompareTo(rToomMem, ans.GetInteger());
+    // if(cmp != 0)
+    // {
+    //   cerr << "Toom-Cook-Memory-Optimized algorithm failed." << endl;
+    //   return cmp;
+    // }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << timeTakenToomCookMem << "," << rKarat.size() << endl;
-    fprintf(timeFile, "%f,%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, timeTakenToomCookMem, rKarat.size());
+    // cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << timeTakenToomCookMem << "," << rKarat.size() << endl;
+    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << rKarat.size() << endl;
+    // fprintf(timeFile, "%f,%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, timeTakenToomCookMem, rKarat.size());
+    fprintf(timeFile, "%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, rKarat.size());
+    fflush(timeFile);
 
     DATA++;
   
