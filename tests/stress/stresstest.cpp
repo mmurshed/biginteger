@@ -33,7 +33,10 @@ using namespace BigMath;
 int main(int argc, char *argv[])
 {
   if(argc < 3)
+  {
+    cerr << "Usage: stresstest [INPUT] [ANSWER] [CSVFILE]" << endl;
     return 1;
+  }
 
   if(!freopen(argv[1],"rt",stdin))
     return 1;

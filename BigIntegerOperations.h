@@ -17,6 +17,7 @@ using namespace std;
 #include "algorithms/classic/ClassicMultiplication.h"
 #include "algorithms/karatsuba/KaratsubaMultiplication.h"
 #include "algorithms/toomcook/ToomCookMultiplication.h"
+#include "algorithms/toomcookalt/ToomCookMultiplicationAlt.h"
 
 namespace BigMath
 {
@@ -71,11 +72,20 @@ namespace BigMath
       );
 
       // return BigInteger(
-      //   ToomCookAlgorithm::Multiply(
+      //   ToomCookMultiplication::Multiply(
       //     a.GetInteger(), 
       //     b.GetInteger(), 
       //     BigInteger::Base())
       // );      
+
+      // ToomCookMultiplicationAlt tcm;
+      // return BigInteger(
+      //   tcm.Multiply(
+      //     a.GetInteger(), 
+      //     b.GetInteger(), 
+      //     BigInteger::Base())
+      // );      
+
     }
 
 public:
