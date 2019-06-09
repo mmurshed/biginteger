@@ -3,6 +3,65 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
+/*
+ * From https://www.strchr.com/expression_evaluator
+ * 
+ * Recursive descent parsing
+ * 
+ * A popular approach (called recursive descent parsing) views 
+ * an expression as a hierarchical structure. On the top level,
+ * an expression consists of several summands:
+ * 
+ *  1.5  +  2  +  3.4 * (25 – 4) / 2  –  8
+ * 
+ * [1.5] + [2] + [3.4 * (25 – 4) / 2] – [8]
+ * 
+ * Summands are 1.5, 2, 3.4 * (25 – 4) / 2, and 8
+ * 
+ * Summands are separated by "+" and "–" signs. They include 
+ * single numbers (1.5, 2, 8) and more complex expressions 
+ * [3.4 * (25 – 4) / 2].
+ * 
+ * (Strictly speaking, 8 is not a summand here, but a subtrahend.
+ * For the purposes of this article, we will refer to the parts 
+ * of expression separated by "–" as summands, though a 
+ * mathematician would say it's a misnomer.)
+ * 
+ * Each summand, in turn, consist of several factors (we will 
+ * call "factors" the things separated by "*" and "/"):
+ * 
+ *  3.4  *  (25 – 4)  /  2
+ * 
+ * [3.4] * [(25 – 4)] / [2]
+ * 
+ * Factors are 3.4, (25 – 4), and 2. In '1.5', there is one factor, 1.5
+ * 
+ * The summand "1.5" can be viewed as a degenerated case: it constists 
+ * of one factor, 1.5. The summand "3.4 * (25 – 4) / 2" consists of 
+ * three factors.
+ * 
+ * There are 2 types of factors: atoms and subexpressions in 
+ * parenthesis. In our simple expression evaluator, an atom is 
+ * just a number (in more complex translators, atoms can also 
+ * include variable names). Subexpressions can be parsed in the
+ *  same way as the whole expression (you again found the summands
+ *  inside the brackets, then factors, and then atoms).
+ * 
+ * The hierarchy of summands and factors
+ * 
+ * [1.5] + [2] + [3.4  * ( 25  –  4)  /  2] – [8]
+ *   ↓      ↓      ↓           ↓         ↓     ↓
+ * [1.5] + [2] + [3.4] * [(25  –  4)] / [2] – [8]
+ *                             ↓
+ *                       ([25  –  4])
+ *                         ↓      ↓
+ *                        [25] – [4]
+ * So, we have an hierarchy, where atoms constitute the lowest 
+ * level, then they are combined into factors, and the factors 
+ * are combined into summands. A natural way to parse such 
+ * hierarchical expression is to use recursion.
+*/
+
 #ifndef EXPRESSION_EVALUATOR
 #define EXPRESSION_EVALUATOR
 
