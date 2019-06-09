@@ -15,7 +15,7 @@ using namespace BigMath;
 class ExpressionEvaluator
 {
 	private:
-	int parenthesis_count;
+	int parenthesis;
 
 	// Parse a number or an expression in parenthesis
 	BigInteger ParseAtom(const char*& expr)
@@ -24,7 +24,7 @@ class ExpressionEvaluator
 		while(*expr == ' ')
 			expr++;
 
-		// Handle the sign before parenthesis (or before number)
+		// Sign before parenthesis or number
 		bool negative = false;
 
 		if(*expr == '-')
@@ -38,11 +38,11 @@ class ExpressionEvaluator
 			expr++;
 		}
 
-		// Check if there is parenthesis
+		// Parenthesis
 		if(*expr == '(')
 		{
 			expr++;
-			parenthesis_count++;
+			parenthesis++;
 
 			BigInteger res = ParseSummands(expr);
 			res.SetSign(negative);
@@ -53,7 +53,7 @@ class ExpressionEvaluator
 			}
 
 			expr++;
-			parenthesis_count--;
+			parenthesis--;
 
 			return res;
 		}
@@ -65,15 +65,11 @@ class ExpressionEvaluator
 		}
 
 		int count = 0;
-		cout << expr << endl;
 		BigInteger res = BigIntegerParser::Parse(expr, &count);
-		cout << count << endl;
-		cout << res << endl;
 		res.SetSign(negative);
 
 		// Advance the pointer and return the result
 		expr += count;
-		cout << expr << endl;
 
 		return res;
 	}
@@ -132,8 +128,6 @@ class ExpressionEvaluator
 			if(op != '-' && op != '+')
 				return a;
 
-			cout << op << endl;
-
 			expr++;
 
 			BigInteger b = ParseFactors(expr);
@@ -149,18 +143,18 @@ class ExpressionEvaluator
 
 public:
 	BigInteger Eval(const char* expr) {
-		parenthesis_count = 0;
+		parenthesis = 0;
 		BigInteger res = ParseSummands(expr);
-		// Expression should end, and parenthesis_count should be zero
+		// Expression should end, and parenthesis should be zero
 
-		if(parenthesis_count != 0 || *expr == ')')
+		if(parenthesis != 0 || *expr == ')')
 		{
 			throw "Parenthesis mismatch";
 		}
 
 		if(*expr != '\0')
 		{
-			throw "Invalid expression";
+				throw "Invalid expression";
 		}
 		return res;
 	};
