@@ -24,7 +24,7 @@ using namespace std;
 #include "../BigIntegerIO.h"
 #include "../BigIntegerOperations.h"
 #include "../BigIntegerParser.h"
-#include "../algorithms/toomcookalt/ToomCookMultiplication.h"
+#include "../algorithms/toomcookalt/ToomCookMultiplicationAlt.h"
 
 using namespace BigMath;
 
