@@ -11,7 +11,9 @@
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
+#include "../BigIntegerUtil.h"
+#include "ClassicAddition.h"
+#include "ClassicMultiplication.h"
 
 namespace BigMath
 {
@@ -48,11 +50,11 @@ namespace BigMath
 
       for(Int i = (Int)end; i >= (Int)start; i--)
       {
-        MultiplyTo(
+        ClassicMultiplication::MultiplyTo(
           bigIntB2,
           base1,
           base2);
-        AddTo(
+        ClassicAddition::AddTo(
           bigIntB2,
           bigIntB1[i],
           base2);

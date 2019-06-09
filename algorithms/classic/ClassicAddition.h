@@ -11,14 +11,14 @@
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
+#include "../BigIntegerUtil.h"
 
 namespace BigMath
 {
   // All operations are unsigned
   class ClassicAddition 
   {
-    private:
+    public:
     static void AddTo(
       vector<DataT> & a,
       ULong b,

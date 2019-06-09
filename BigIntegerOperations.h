@@ -182,7 +182,7 @@ public:
       }
 
       // Now: a > b
-      vector< vector<DataT> > result = ClassicalAlgorithms::DivideAndRemainder(
+      vector< vector<DataT> > result = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());

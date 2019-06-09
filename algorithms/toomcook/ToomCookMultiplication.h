@@ -12,13 +12,13 @@
 #include <stack>
 using namespace std;
 
-#include "BigInteger.h"
-#include "BigIntegerParser.h"
-#include "algorithms/BigIntegerUtil.h"
-#include "algorithms/toomcook/ToomCookData.h"
-#include "algorithms/classic/ClassicAddition.h"
-#include "algorithms/classic/ClassicSubtraction.h"
-#include "algorithms/classic/ClassicMultiplication.h"
+#include "ToomCookData.h"
+#include "../../BigInteger.h"
+#include "../BigIntegerUtil.h"
+#include "../classic/ClassicAddition.h"
+#include "../classic/ClassicSubtraction.h"
+#include "../classic/ClassicMultiplication.h"
+#include "../classic/ClassicDivision.h"
 
 
 namespace BigMath
@@ -63,7 +63,7 @@ namespace BigMath
             // W(t) /= j  
             if(j > 1)
             {
-              ClassicalAlgorithms::DivideTo(
+              ClassicDivision::DivideTo(
                 tcd.W.data, wtr.first, wtr.second,
                 (DataT)j,
                 base);

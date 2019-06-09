@@ -11,9 +11,9 @@
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
 #include "BigInteger.h"
-#include "ClassicalAlgorithms.h"
+#include "algorithms/BigIntegerUtil.h"
+#include "algorithms/classic/CommonAlgorithms.h"
 
 namespace BigMath
 {
@@ -67,8 +67,15 @@ namespace BigMath
 
     static vector<DataT> ParseUnsigned(char const* num, Int start, Int len)
     {
-      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base100M_Zeroes);
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base100M, BigInteger::Base());
+      vector<DataT> bigIntB1 = ParseUnsignedBase10n(
+        num,
+        start,
+        len,
+        BigIntegerUtil::Base100M_Zeroes);
+      vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
+        bigIntB1,
+        BigIntegerUtil::Base100M,
+        BigInteger::Base());
       return bigIntB2;
     }
 
@@ -126,7 +133,7 @@ namespace BigMath
         return *new string("0");
       }
 
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(
+      vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
         bigInt, start, end,
         BigInteger::Base(),
         BigIntegerUtil::Base100M);

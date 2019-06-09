@@ -12,12 +12,12 @@
 #include <stack>
 using namespace std;
 
-#include "BigInteger.h"
-#include "BigIntegerUtil.h"
-#include "BigIntegerParser.h"
-#include "algorithms/classic/ClassicAddition.h"
-#include "algorithms/classic/ClassicSubtraction.h"
-#include "algorithms/classic/ClassicMultiplication.h"
+#include "../../BigInteger.h"
+#include "../BigIntegerUtil.h"
+#include "../classic/ClassicAddition.h"
+#include "../classic/ClassicSubtraction.h"
+#include "../classic/ClassicMultiplication.h"
+#include "../classic/ClassicDivision.h"
 
 namespace BigMath
 {
@@ -80,8 +80,8 @@ namespace BigMath
             // W(t) /= j
             if(j > 1)
             {
-              vector<DataT> bigJ = BigIntegerParser::Convert(j);
-              ClassicalDivision::DivideTo(W[wPos], bigJ, base);
+              // vector<DataT> bigJ = BigIntegerParser::Convert(j);
+              ClassicDivision::DivideTo(W[wPos], j, base);
             }
           }
         }
@@ -100,11 +100,11 @@ namespace BigMath
             // The result of this operation will again be 
             // a nonnegative 2p-bit integer.
 
-            vector<DataT> bigJ = BigIntegerParser::Convert(j);
+            // vector<DataT> bigJ = BigIntegerParser::Convert(j);
             // Wt1 = W(t+1) * j
             vector<DataT> Wt1 = ClassicMultiplication::Multiply(
               W[wPos+1],
-              bigJ,
+              j,
               base);
 
             // set W(t) ← W(t) – j * W(t + 1).
@@ -148,14 +148,13 @@ namespace BigMath
         return w;
     }
 
-    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, vector<DataT> j, Long p, Long q, Long r, ULong base)
+    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, ULong base)
     {
       vector<DataT> Uj(p, 0);
 
-      if(BigIntegerUtil::IsZero(j))
+      if(j == 0)
       {
         BigIntegerUtil::Copy(U, 0, q - 1, Uj, 0, p - 1);
-        string str = BigIntegerParser::ToString(Uj);
         return Uj;
       }
 
@@ -177,7 +176,7 @@ namespace BigMath
         if(i > 0 && !BigIntegerUtil::IsZero(Uj))
         {
           // Case of j = zero is already elminiated
-          ClassicAddition::MultiplyTo(Uj, j, base);
+          ClassicMultiplication::MultiplyTo(Uj, j, base);
         }
 
         uEnd -= q;
@@ -217,18 +216,18 @@ namespace BigMath
         // code
         C.push( j == _2r ? CODE2 : CODE3 );
 
-        vector<DataT> jbig = BigIntegerParser::Convert(j);
+        // vector<DataT> jbig = BigIntegerParser::Convert(j);
 
         // Compute the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
-        vector<DataT> Vj = MultiplyRPlus1Part(V, jbig, p, q, r, base);
+        vector<DataT> Vj = MultiplyRPlus1Part(V, j, p, q, r, base);
         Cval.push_back(Vj);
         C.push((SizeT)Cval.size() - 1);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
         // and successively put these values onto stack U. 
-        vector<DataT> Uj = MultiplyRPlus1Part(U, jbig, p, q, r, base);
+        vector<DataT> Uj = MultiplyRPlus1Part(U, j, p, q, r, base);
         Cval.push_back(Uj);
         C.push((SizeT)Cval.size() - 1);
       }
@@ -324,7 +323,6 @@ namespace BigMath
           // Step 6. [Save one product.]
           // Go back to step T3.
           vector<DataT> w = Divide(k, base);
-          string str = BigIntegerParser::ToString(w);
           W.push_back(w);
           k = 0;
         }
@@ -332,7 +330,6 @@ namespace BigMath
         else if(code == CODE2)
         {
           vector<DataT> w = ComputeAnswer(k, base);
-          string str = BigIntegerParser::ToString(w);
           W.push_back(w);
         }
 

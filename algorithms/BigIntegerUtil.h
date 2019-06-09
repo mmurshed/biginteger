@@ -10,7 +10,7 @@
 #include <vector>
 using namespace std;
 
-#include "BigInteger.h"
+#include "../BigInteger.h"
 
 namespace BigMath
 {

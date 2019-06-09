@@ -11,7 +11,7 @@
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
+#include "../BigIntegerUtil.h"
 
 namespace BigMath
 {
@@ -108,7 +108,7 @@ namespace BigMath
         return 0;
       }
 
-      SizeT len = Len(aStart, aEnd);
+      SizeT len = BigIntegerUtil::Len(aStart, aEnd);
       SizeT wPos = wStart;
 
       ULong carry = 0;

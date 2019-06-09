@@ -11,12 +11,14 @@
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
+#include "../BigIntegerUtil.h"
+#include "../classic/ClassicMultiplication.h"
 
 namespace BigMath
 {
   class ClassicDivision 
   {
+    public:
     static void DivideTo(
       vector<DataT>& u,
       DataT d,
@@ -53,7 +55,7 @@ namespace BigMath
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
       {
-        SizeT n = Len(uStart, uEnd);
+        SizeT n = BigIntegerUtil::Len(uStart, uEnd);
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
 
         // Set r = 0, j = n − 1.
@@ -117,12 +119,12 @@ namespace BigMath
       // On a binary computer it may be preferable to choose d to be a power of 2 
       // instead of using the value suggested here.
       // Any value of d that results in v_n−1 >= ⌊b/2⌋ will suffice.
-      vector<DataT> u = Multiply(a, d, base);
+      vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
       if(u.size() <= m + n)
         u.push_back(0);
 
       // Set (v_n−1 . . . v_1 v_0)_b equal to (v_n−1 . . . v_1 v_0)_b times d.
-      vector<DataT> v = Multiply(b, d, base);
+      vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
 
       vector<DataT> q (m + 1);
 

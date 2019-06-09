@@ -12,7 +12,6 @@
 #include <stack>
 using namespace std;
 
-#include "BigIntegerUtil.h"
 #include "StackPool.h"
 
 namespace BigMath

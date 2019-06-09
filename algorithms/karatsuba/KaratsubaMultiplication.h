@@ -10,11 +10,11 @@
 #include <vector>
 using namespace std;
 
-#include "BigInteger.h"
-#include "BigIntegerUtil.h"
-#include "algorithms/classic/ClassicAddition.h"
-#include "algorithms/classic/ClassicSubtraction.h"
-#include "algorithms/classic/ClassicMultiplication.h"
+#include "../../BigInteger.h"
+#include "../BigIntegerUtil.h"
+#include "../classic/ClassicAddition.h"
+#include "../classic/ClassicSubtraction.h"
+#include "../classic/ClassicMultiplication.h"
 
 namespace BigMath
 {
