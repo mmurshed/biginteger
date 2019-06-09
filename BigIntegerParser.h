@@ -23,21 +23,13 @@ namespace BigMath
     static vector<DataT> Convert(ULong n)
     {
       string num = to_string(n);
-      return ParseUnsigned(num.c_str(), 0, num.length());
+      return Parse(num.c_str()).GetInteger();
     }
 
-    static BigInteger Parse(char const* num)
+    static Int FindRange(char const* num, Int& start, Int& end, bool& isNegative)
     {
-      Int len = (Int)strlen(num);
-      return ParseSigned(num, 0, len);
-    }
-
-    static BigInteger ParseSigned(char const* num, Int start, Int len)
-    {
-      if(num == NULL || len == 0 || start < 0 || start >= len)
-        return BigInteger();
-
-      bool isNegative = false;
+      Int char_processed = start;
+      isNegative = false;
 
       // Take care of the sign
       if (num[start] == '-')
@@ -51,26 +43,54 @@ namespace BigMath
       }
 
       // Trim leading zeros
-      while (num[start] == '0')
+      while(num[start] == '0')
       {
         start++;
       }
 
+      // Find the end of the string
+      end = start;
+      while(num[end] >= '0' && num[end] <= '9' && num[end] != 0)
+      {
+        end++;
+      }
+      char_processed = end - char_processed;
+      end--;
+
+      return char_processed;
+    }
+
+    static BigInteger Parse(char const* num, Int* char_processed = 0)
+    {
+      return Parse(num, 0, char_processed);
+    }
+
+    static BigInteger Parse(char const* num, Int start, Int* char_processed = 0)
+    {
+      if(num == NULL || start < 0)
+        return BigInteger();
+      
+      Int end;
+      bool isNegative;
+      Int processed = FindRange(num, start, end, isNegative);
+      if(char_processed != 0)
+        *char_processed = processed;
+
       // If the resulting string is empty return 0
-      if (start >= len)
+      if (start > end)
         return BigInteger();
 
-      vector<DataT> bigInt = ParseUnsigned(num, start, len);
+      vector<DataT> bigInt = ParseUnsigned(num, start, end);
 
       return BigInteger(bigInt, isNegative);
     }
 
-    static vector<DataT> ParseUnsigned(char const* num, Int start, Int len)
+    static vector<DataT> ParseUnsigned(char const* num, Int start, Int end)
     {
       vector<DataT> bigIntB1 = ParseUnsignedBase10n(
         num,
         start,
-        len,
+        end,
         BigIntegerUtil::Base100M_Zeroes);
       vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
         bigIntB1,
@@ -80,27 +100,27 @@ namespace BigMath
     }
 
     // Group by n, meaning 10^n base
-    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int len, SizeT n)
+    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int end, SizeT digits)
     {
-      len--;
-      vector<DataT> bigInt(len / n + 1);
+      vector<DataT> bigInt(end / digits + 1);
 
-      // Convert the string to int
       SizeT j = 0;
-      len -= start;
+
+      bool error = false;
       
-      while(len >= start)
+      while(end >= start)
       {
         DataT digit = 0;
         DataT TEN = 1;
         
-        for (SizeT i = 0; i < n && len >= start; i++, len--)
+        for (SizeT i = 0; i < digits && end >= start; i++, end--)
         {
           // Current digit
-          int d = num[len] - '0';
+          int d = num[end] - '0';
           if(d < 0 || d > 9)
           {
-            // Error
+            error = true;
+            break;
           }
 
           digit += TEN * d;
@@ -108,6 +128,7 @@ namespace BigMath
         }
  
         bigInt[j++] = digit;
+        if(error) break;
       }
       
       BigIntegerUtil::TrimZeros(bigInt);
