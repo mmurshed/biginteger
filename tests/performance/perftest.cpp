@@ -50,7 +50,9 @@ int main(int argc, char *argv[])
 
   char op;
 
-  cout << "Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
+  fprintf(timeFile, "Karatsuba,Classical,Toom-Cook,Results Digit");
+  fflush(timeFile);
+
   cerr << "Data,Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
 
   while(true)
