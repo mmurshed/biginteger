@@ -1,31 +1,37 @@
 /**
  * BigInteger Class
- * Version 8.0
+ * Version 9.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_OPERATIONS_H
-#define BIG_INTEGER_OPERATIONS_H
+#ifndef BIGINTEGER_OPERATIONS
+#define BIGINTEGER_OPERATIONS
 
 #include <vector>
 using namespace std;
 
-#include "BigIntegerUtil.h"
-#include "BigInteger.h"
-#include "ClassicalAlgorithms.h"
-#include "KaratsubaAlgorithm.h"
+#include "BigInteger.h"`
+#include "BigIntegerComparator.h"
+#include "algorithms/classic/ClassicAddition.h"
+#include "algorithms/classic/ClassicSubtraction.h"
+#include "algorithms/classic/ClassicMultiplication.h"
+#include "algorithms/karatsuba/KaratsubaMultiplication.h"
+#include "algorithms/toomcook/ToomCookMultiplication.h"
+#include "algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 
 namespace BigMath
 {
   class BigIntegerOperations
   {
+    // Karatsuba performs better for over 128 digits for the result
     static const SizeT MULTIPLICATION_SWITCH = 128;
-    public:
+
+    private:
     // Implentation of addition by paper-pencil method
     static BigInteger AddUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::AddUnsigned(
+        ClassicAddition::Add(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -37,7 +43,7 @@ namespace BigMath
     static BigInteger SubtractUnsigned(BigInteger const& a, BigInteger const& b)
     {
       return BigInteger(
-        ClassicalAlgorithms::SubtractUnsigned(
+        ClassicSubtraction::Subtract(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
@@ -47,22 +53,38 @@ namespace BigMath
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
       SizeT size = a.size() + b.size();
-      // Karatsuba performs better for over 256 digits for the result
+
       if(size <= MULTIPLICATION_SWITCH)
+      {
+        return BigInteger(
+          ClassicMultiplication::Multiply(
+            a.GetInteger(),
+            b.GetInteger(),
+            BigInteger::Base())
+        );
+      }
+
       return BigInteger(
-        ClassicalAlgorithms::MultiplyUnsigned(
+        KaratsubaMultiplication::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
       );
 
-      return BigInteger(
-        KaratsubaAlgorithm::MultiplyUnsigned(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base())
-      );
-      
+      // ToomCookMultiplication tcm;
+      // return BigInteger(
+      //   tcm.Multiply(
+      //     a.GetInteger(), 
+      //     b.GetInteger(), 
+      //     BigInteger::Base())
+      // );
+
+      // return BigInteger(
+      //   ToomCookMultiplicationMemOptimized::Multiply(
+      //     a.GetInteger(), 
+      //     b.GetInteger(), 
+      //     BigInteger::Base())
+      // );      
     }
 
 public:
@@ -121,7 +143,7 @@ public:
       else if(!aNeg && bNeg)
         return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp < 0)
         return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
       else if (cmp > 0)
@@ -152,7 +174,7 @@ public:
         return results; // case of 0
       }
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp == 0)
       {
         vector<DataT> one(1);
@@ -169,7 +191,11 @@ public:
       }
 
       // Now: a > b
-      vector< vector<DataT> > result = ClassicalAlgorithms::DivideAndRemainderUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      vector< vector<DataT> > result = ClassicDivision::DivideAndRemainder(
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
+
       results[0] = BigInteger(result[0], false);
       results[1] = BigInteger(result[1], false);
 

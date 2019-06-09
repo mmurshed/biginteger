@@ -42,30 +42,29 @@ int main(int argc, char *argv[])
 
   char op;
 
-  cerr << "Karat Cutoff,Time" << endl;
+  cerr << "Toom R,Time" << endl;
 
   BigInteger a, b;
   
   cin >> a >> op >> b;
 
-  for(SizeT k = 4; k <= 256; k += 2)
+  for(SizeT R = 1; R <= 6; R ++)
   {
-    KaratsubaAlgorithm::CUT_OFF = k;
-
     clock_t start = clock();
 
-    vector<DataT> rKarat = KaratsubaAlgorithm::MultiplyUnsigned(
+    vector<DataT> rKarat = ToomCookAlgorithm::Multiply(
           a.GetInteger(),
           b.GetInteger(),
-          BigInteger::Base());
+          BigInteger::Base(),
+          R);
 
     clock_t end = clock();
     
-    double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
+    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
     cerr.setf(ios::showpoint);
-    cerr << k << "," << timeTakenKarat << endl;
-    fprintf(timeFile, "%u,%f\n", k, timeTakenKarat);
+    cerr << R << "," << timeTaken << endl;
+    fprintf(timeFile, "%u,%f\n", R, timeTaken);
   }
   
   fclose(timeFile);

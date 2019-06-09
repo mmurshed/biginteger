@@ -40,57 +40,34 @@ int main(int argc, char *argv[])
   if(!timeFile)
     return 1;
 
-  long DATA = 1;
-
   char op;
 
-  cerr << "Data,Karatsuba,Classical,Results Digit" << endl;
+  cerr << "Karat Cutoff,Time" << endl;
 
-  while(true)
+  BigInteger a, b;
+  
+  cin >> a >> op >> b;
+
+  for(SizeT k = 4; k <= 256; k += 2)
   {
-    BigInteger a, b;
-   
-    cin >> a >> op >> b;
-    
+    KaratsubaAlgorithm::KARATSUBA_THRESHOLD = k;
+
     clock_t start = clock();
 
-    vector<DataT> rKarat = KaratsubaAlgorithm::MultiplyUnsigned(
+    vector<DataT> rKarat = KaratsubaAlgorithm::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base());
 
     clock_t end = clock();
-   
+    
     double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
 
-    start = clock();
-
-    vector<DataT> rClassical = ClassicalAlgorithms::MultiplyUnsigned(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base());
-
-    end = clock();
-   
-    double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
-
-    Int cmp = ClassicalAlgorithms::UnsignedCompareTo(rKarat, rClassical);
-    if(cmp != 0)
-    {
-      cerr << "Result mismatch" << endl;
-      return cmp;
-    }
-   
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << rKarat.size() << endl;
-    fprintf(timeFile, "%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, rKarat.size());
-
-    DATA++;
-  
-    if(cin.eof())
-      break;
+    cerr << k << "," << timeTakenKarat << endl;
+    fprintf(timeFile, "%u,%f\n", k, timeTakenKarat);
   }
-
+  
   fclose(timeFile);
 
   return EXIT_SUCCESS;

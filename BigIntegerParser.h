@@ -4,29 +4,39 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_PARSER_H
-#define BIG_INTEGER_PARSER_H
+#ifndef BIGINTEGER_PARSER
+#define BIGINTEGER_PARSER
 
 #include <vector>
 #include <string>
 using namespace std;
 
-#include "BigIntegerUtil.h"
 #include "BigInteger.h"
-#include "ClassicalAlgorithms.h"
+#include "algorithms/BigIntegerUtil.h"
+#include "algorithms/classic/CommonAlgorithms.h"
 
 namespace BigMath
 {
   class BigIntegerParser
   {
   public:
+    static vector<DataT> Convert(ULong n)
+    {
+      string num = to_string(n);
+      return ParseUnsigned(num.c_str(), 0, num.length());
+    }
+
     static BigInteger Parse(char const* num)
     {
-      Int len = strlen(num);
-      if(num == NULL || len == 0)
+      Int len = (Int)strlen(num);
+      return ParseSigned(num, 0, len);
+    }
+
+    static BigInteger ParseSigned(char const* num, Int start, Int len)
+    {
+      if(num == NULL || len == 0 || start < 0 || start >= len)
         return BigInteger();
 
-      Int start = 0;
       bool isNegative = false;
 
       // Take care of the sign
@@ -47,13 +57,26 @@ namespace BigMath
       }
 
       // If the resulting string is empty return 0
-      if (len <= start)
+      if (start >= len)
         return BigInteger();
 
-      vector<DataT> bigIntB1 = ParseUnsignedBase10n(num, start, len, BigIntegerUtil::Base10n_Digit);
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigIntB1, BigIntegerUtil::Base10n, BigInteger::Base());
+      vector<DataT> bigInt = ParseUnsigned(num, start, len);
 
-      return BigInteger(bigIntB2, isNegative);
+      return BigInteger(bigInt, isNegative);
+    }
+
+    static vector<DataT> ParseUnsigned(char const* num, Int start, Int len)
+    {
+      vector<DataT> bigIntB1 = ParseUnsignedBase10n(
+        num,
+        start,
+        len,
+        BigIntegerUtil::Base100M_Zeroes);
+      vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
+        bigIntB1,
+        BigIntegerUtil::Base100M,
+        BigInteger::Base());
+      return bigIntB2;
     }
 
     // Group by n, meaning 10^n base
@@ -95,19 +118,35 @@ namespace BigMath
     // Converts the integer to a string representation
     static string ToString(BigInteger const& bigInt)
     {
-      if(bigInt.IsZero())
+      return ToString(bigInt.GetInteger(), bigInt.IsNegative());
+    }
+
+    static string ToString(vector<DataT> const& bigInt, bool isNeg = false)
+    {
+      return ToString(bigInt, 0, bigInt.size() - 1, isNeg);
+    }
+
+    static string ToString(vector<DataT> const& bigInt, SizeT start, SizeT end, bool isNeg = false)
+    {
+      if(BigIntegerUtil::IsZero(bigInt, start, end))
       {
         return *new string("0");
       }
 
-      vector<DataT> bigIntB2 = ClassicalAlgorithms::ConvertBase(bigInt.GetInteger(), BigInteger::Base(), BigIntegerUtil::Base10n);
+      vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
+        bigInt, start, end,
+        BigInteger::Base(),
+        BigIntegerUtil::Base100M);
       
-      Int len = bigIntB2.size() * BigIntegerUtil::Base10n_Digit + 2;
+      Int len = (Int)bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
       char* num = new char[len];
 
-      Int j = UnsignedBase10nToString(bigIntB2, BigIntegerUtil::Base10n_Digit, num, len);
+      Int j = UnsignedBase10nToString(
+        bigIntB2, 0, bigIntB2.size() - 1,
+        BigIntegerUtil::Base100M_Zeroes,
+        num, len);
 
-      if(bigInt.IsNegative())
+      if(isNeg)
         num[j--] = '-';
 
       string converted(num + j + 1);
@@ -115,21 +154,20 @@ namespace BigMath
       delete [] num;
 
       return converted;
-    }    
+    }
 
     // Convert unsigned integer to base 10^n string
-    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT baseDigit, char *num, SizeT len)
+    static Int UnsignedBase10nToString(vector<DataT> const& a, SizeT start, SizeT end, SizeT baseDigit, char *num, SizeT len)
     {
-      SizeT j = len - 1;
+      Int j = len - 1;
       
       num[j--] = 0;
 
       // Trim zeros
-      SizeT size = a.size();
-      while(a[size-1] == 0)
-        size--;
+      while(end >= start && a[end] == 0)
+        end--;
 
-      for(Int i = 0; i < size; i++)
+      for(Int i = start; i <= end; i++)
       {
         DataT n = a[i];
         SizeT l = 0;

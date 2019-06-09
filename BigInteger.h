@@ -4,14 +4,14 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_H
-#define BIG_INTEGER_H
+#ifndef BIGINTEGER
+#define BIGINTEGER
 
 #include <vector>
 using namespace std;
 
-#include "BigIntegerUtil.h"
-#include "ClassicalAlgorithms.h"
+#include "algorithms/BigIntegerUtil.h"
+#include "BigIntegerComparator.h"
 
 namespace BigMath
 {
@@ -68,7 +68,7 @@ namespace BigMath
     // Properties
     SizeT size() const 
     {
-      return theInteger.size();
+      return (SizeT)theInteger.size();
     }
 
     static ULong Base()
@@ -120,7 +120,7 @@ public:
       else if(isNegative && !with.isNegative)
         return -1;
 
-      Int cmp = ClassicalAlgorithms::UnsignedCompareTo(theInteger, with.theInteger);
+      Int cmp = BigIntegerComparator::CompareTo(theInteger, with.theInteger);
       
       // Now, Both are Same Sign
       Int neg = 1;

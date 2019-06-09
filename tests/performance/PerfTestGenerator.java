@@ -9,9 +9,9 @@ public class PerfTestGenerator
 {
     public static void main(String args[]) throws IOException
     {
-        if(args.length < 3)
+        if(args.length < 4)
         {
-            System.out.println("Usage java perftestgenerator [INPUT] [OUTPUT] [NUM DATA]");
+            System.out.println("Usage java perftestgenerator [INPUT] [OUTPUT] [NUM DATA] [BIT]");
             return;
         }
         BufferedReader br = new BufferedReader (new InputStreamReader(System.in));
@@ -22,7 +22,9 @@ public class PerfTestGenerator
 
         Random rnd = new Random();
 
-        int maxNumBits = 10;
+        int bitIncrement = Integer.parseInt(args[3]);
+
+        int maxNumBits = bitIncrement;
 
         for(int i = 0; i < DATA; i++)
         {
@@ -31,7 +33,7 @@ public class PerfTestGenerator
             BigInteger b = new BigInteger (maxNumBits, rnd);
             
             out.write(a.toString() + " * " + b.toString());
-            ans.write("Data : " + (i+1) + ' ');
+            // ans.write("Data : " + (i+1) + ' ');
             BigInteger c = a.multiply(b);;
             ans.write(c.toString());
 
@@ -43,7 +45,7 @@ public class PerfTestGenerator
             out.flush();
             ans.flush();
 
-            maxNumBits += 10;
+            maxNumBits += bitIncrement;
         }
         out.close();
         ans.close();

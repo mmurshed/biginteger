@@ -25,7 +25,12 @@ public class testgenerator
 
         String op = args[4];
 
-        System.out.println("Generating " + DATA + " data.\nPlease wait...");
+        System.out.println("Generating " + DATA + " data.");
+        System.out.println("Input " + args[0]);
+        System.out.println("Output " + args[1]);
+        System.out.println("Number of test cases " + DATA);
+        System.out.println("Max number of bits " + maxNumBits);
+        System.out.println("Operator " + op);
 
         Random rnd = new Random();        
 
@@ -36,7 +41,7 @@ public class testgenerator
             BigInteger b = new BigInteger (maxNumBits - rnd.nextInt(maxNumBits) , rnd);
             
             out.write(a.toString() + ' ' + op + ' ' + b.toString());
-            ans.write("Data : " + (i+1) + ' ');
+            // ans.write("Data : " + (i+1) + ' ');
             BigInteger c = new BigInteger("0");
             switch(op)
             {

@@ -1,16 +1,15 @@
 /**
  * BigInteger Class
- * Version 8.0
+ * Version 9.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_IO_H
-#define BIG_INTEGER_IO_H
+#ifndef BIGINTEGER_IO
+#define BIGINTEGER_IO
 
 #include <iostream>
 using namespace std;
 
-#include "BigIntegerUtil.h"
 #include "BigInteger.h"
 #include "BigIntegerParser.h"
 
