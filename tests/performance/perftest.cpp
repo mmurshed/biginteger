@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     string line;
     std::getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
-    
+
     clock_t start = clock();
     vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
           a.GetInteger(),

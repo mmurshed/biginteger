@@ -10,6 +10,8 @@
 #include <vector>
 using namespace std;
 
+#include <easy/profiler.h>
+
 #include "../BigInteger.h"
 
 namespace BigMath
@@ -47,6 +49,7 @@ namespace BigMath
     // Runtime O(n), Space O(1)
     static SizeT TrimZeros(vector<DataT>& a, Int sizeTo = 0)
     {
+      EASY_FUNCTION(profiler::colors::Cyan);
       SizeT size = (SizeT)a.size();
       Int i = size;
       while(i > 0 && a[i - 1] == 0 && a.size() > sizeTo)
@@ -104,6 +107,7 @@ namespace BigMath
 
     static void Resize(vector<DataT>& u, SizeT n)
     {
+      EASY_FUNCTION(profiler::colors::DarkCyan);
       // Make to size n
       while(u.size() < n)
         u.push_back(0);

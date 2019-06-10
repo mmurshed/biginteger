@@ -11,6 +11,8 @@
 #include <string>
 using namespace std;
 
+#include <easy/profiler.h>
+
 #include "../BigIntegerUtil.h"
 
 namespace BigMath
@@ -101,6 +103,7 @@ namespace BigMath
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
     {
+      EASY_FUNCTION(profiler::colors::DarkBlue);
       if(b == 0 || // a times 0
         BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
       {
@@ -193,6 +196,7 @@ namespace BigMath
       vector<DataT>& result, SizeT rStart,
       ULong base)
     {
+      EASY_FUNCTION(profiler::colors::DarkRed);
       aEnd = min(aEnd, (SizeT) (a.size() - 1));
       bEnd = min(bEnd, (SizeT) (b.size() - 1));
 

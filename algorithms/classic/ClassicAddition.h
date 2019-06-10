@@ -11,6 +11,8 @@
 #include <string>
 using namespace std;
 
+#include <easy/profiler.h>
+
 #include "../BigIntegerUtil.h"
 
 namespace BigMath
@@ -32,6 +34,7 @@ namespace BigMath
       ULong b,
       ULong base)
     {
+      EASY_FUNCTION(profiler::colors::DarkBrown);
       ULong sum = b;
       ULong carry = 0;
       if(aEnd >= aStart)
@@ -112,6 +115,7 @@ namespace BigMath
       vector<DataT>& result, SizeT rStart,
       ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Teal);
       // bool aZero = BigIntegerUtil::IsZero(a, aStart, aEnd);
       // bool bZero = BigIntegerUtil::IsZero(b, bStart, bEnd);
       // if(aZero && bZero)

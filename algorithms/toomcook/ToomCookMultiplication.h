@@ -12,7 +12,10 @@
 #include <stack>
 using namespace std;
 
+#include <easy/profiler.h>
+
 #include "../../BigInteger.h"
+#include "../../BigIntegerOperations.h"
 #include "../BigIntegerUtil.h"
 #include "../classic/ClassicAddition.h"
 #include "../classic/ClassicSubtraction.h"
@@ -36,6 +39,7 @@ namespace BigMath
     public:
     vector<DataT> ComputeAnswer(SizeT k, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Magenta);
         // Step 7. [Find a’s.]
         // Set r ← r_k
         Long r = r_table[k];
@@ -80,7 +84,6 @@ namespace BigMath
             // W(t) /= j
             if(j > 1)
             {
-              // vector<DataT> bigJ = BigIntegerParser::Convert(j);
               ClassicDivision::DivideTo(W[wPos], j, base);
             }
           }
@@ -140,16 +143,19 @@ namespace BigMath
         }
 
         // Remove W(2r), . . . , W(0) from stack W.
+        EASY_BLOCK("Popback");
         for(Long i = _2r; i >= 0; i--)
         {
           W.pop_back();
         }
+        EASY_END_BLOCK;
 
         return w;
     }
 
     vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Amber);
       vector<DataT> Uj(p, 0);
 
       if(j == 0)
@@ -182,7 +188,6 @@ namespace BigMath
         uEnd -= q;
         uStart = uEnd - q + 1;
 
-        BigIntegerUtil::TrimZeros(Uj, p);
         BigIntegerUtil::Resize(Uj, p);
       }
 
@@ -191,6 +196,7 @@ namespace BigMath
 
     void BreakIntoRPlus1Parts(Long p, Long q, Long r, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Blue);
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
       // of r + 1 numbers with q bits each, (U_r . . . U_1U_0)_2q . 
@@ -241,6 +247,7 @@ namespace BigMath
 
     vector<DataT> DivideRecursive(SizeT k, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Red);
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
       --k;
@@ -282,6 +289,7 @@ namespace BigMath
 
     vector<DataT> Divide(SizeT k, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Red);
       // While k > 0
       while(--k > 0)
       {       
@@ -306,12 +314,12 @@ namespace BigMath
       // set w ← uv using a built-in routine for multiplying 
       // 32-bit numbers, and go to step 10.
       vector<DataT> w = ClassicMultiplication::Multiply(u, v, base);
-      BigIntegerUtil::TrimZeros(w);
       return w;
     }
 
     vector<DataT> Multiply(SizeT k, ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Yellow);
       Int code = CODE3;
 
       // Step 10. [Return.]
@@ -354,18 +362,19 @@ namespace BigMath
     // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
     SizeT ComputeTables(SizeT n)
     {
+      EASY_FUNCTION(profiler::colors::Green);
       SizeT k = 1;                // k ← 1
 
       // q_0 ← q_1 ← 16
-      q_table.push_back(16);
-      q_table.push_back(16);
+      q_table.push_back(256);
+      q_table.push_back(256);
       
       // r_0 ← r_1 ← 4
-      r_table.push_back(4);
-      r_table.push_back(4);
+      r_table.push_back(16);
+      r_table.push_back(16);
 
-      Int Q = 4;                 // Q ← 4
-      Int R = 2;                 // R ← 2
+      Int Q = 8;                 // Q ← 4
+      Int R = 4;                 // R ← 2
 
       // Now if q_k−1 + q_k < n
       // and repeat this operation until q_k−1 + q_k ≥ n. 
@@ -417,6 +426,7 @@ namespace BigMath
       ULong base,
       bool trim=true)
     {
+      EASY_FUNCTION(profiler::colors::Magenta);
       SizeT n = (SizeT)max(a.size(), b.size());
       SizeT k = ComputeTables(n);
 

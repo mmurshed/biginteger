@@ -52,41 +52,30 @@ namespace BigMath
 
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      SizeT size = a.size() + b.size();
-
-      if(size <= MULTIPLICATION_SWITCH)
-      {
-        return BigInteger(
-          ClassicMultiplication::Multiply(
-            a.GetInteger(),
-            b.GetInteger(),
-            BigInteger::Base())
-        );
-      }
-
       return BigInteger(
-        KaratsubaMultiplication::Multiply(
+        MultiplyUnsigned(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base())
       );
-
-      // ToomCookMultiplication tcm;
-      // return BigInteger(
-      //   tcm.Multiply(
-      //     a.GetInteger(), 
-      //     b.GetInteger(), 
-      //     BigInteger::Base())
-      // );
-
-      // return BigInteger(
-      //   ToomCookMultiplicationMemOptimized::Multiply(
-      //     a.GetInteger(), 
-      //     b.GetInteger(), 
-      //     BigInteger::Base())
-      // );      
     }
 
+    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    {
+      SizeT size = a.size() + b.size();
+
+      if(size <= MULTIPLICATION_SWITCH)
+      {
+        return ClassicMultiplication::Multiply(a, b, base);
+      }
+
+      return KaratsubaMultiplication::Multiply(a, b, base);
+
+      // ToomCookMultiplication tcm;
+      // return tcm.Multiply(a, b, base);
+
+      // return ToomCookMultiplicationMemOptimized::Multiply(a, b, base);
+    }
 public:
     static BigInteger Add(BigInteger const& a, BigInteger const& b)
     {

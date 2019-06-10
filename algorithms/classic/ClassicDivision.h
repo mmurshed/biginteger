@@ -11,6 +11,8 @@
 #include <string>
 using namespace std;
 
+#include <easy/profiler.h>
+
 #include "../BigIntegerUtil.h"
 #include "../classic/ClassicMultiplication.h"
 
@@ -55,6 +57,7 @@ namespace BigMath
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
       {
+        EASY_FUNCTION(profiler::colors::DarkRed);
         SizeT n = BigIntegerUtil::Len(uStart, uEnd);
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
 
@@ -98,6 +101,7 @@ namespace BigMath
       vector<DataT> const& b,
       ULong base)
     {
+      EASY_FUNCTION(profiler::colors::Brick);
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b, 
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b 
       // and the remainder u mod v = (r_n−1 . . . r_1 r_0)b.
