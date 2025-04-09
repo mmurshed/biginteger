@@ -4,15 +4,19 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef CLASSIC_DIVISION
-#define CLASSIC_DIVISION
+#ifndef CLASSIC_DIVISION_H
+#define CLASSIC_DIVISION_H
 
+#include "ClassicAddition.h"
+#include <cstddef>
 #include <vector>
 #include <string>
+#include <algorithm>
 using namespace std;
 
 #include "../BigIntegerUtil.h"
 #include "../classic/ClassicMultiplication.h"
+#include "../../BigInteger.h"
 
 namespace BigMath
 {
@@ -85,153 +89,133 @@ namespace BigMath
       vector<DataT> const& b,
       ULong base)
     {
-      vector< vector<DataT> > results = DivideAndRemainder(a, b, base);
-      a = results[0];
+      pair< vector<DataT>, vector<DataT> > results = DivideAndRemainder(a, b, base);
+      a = results.first;
     }
 
-    // Implentation of division by paper-pencil method
-    // Assumption: a > b
+    // Divide a by b.
+    // a and b are multi-precision numbers in little-endian order.
+    // B is the base of each digit.
+    // Returns a pair: (quotient, remainder)
     // See: D.E.Knuth 4.3.1
     // Runtime O(n^2), Space O(n)
-    static vector< vector<DataT> > DivideAndRemainder(
-      vector<DataT> const& a,
-      vector<DataT> const& b,
-      ULong base)
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+        const vector<DataT>& a,
+        const vector<DataT>& b,
+        ULong base)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b, 
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b 
       // and the remainder u mod v = (r_n−1 . . . r_1 r_0)b.
-      
-      // u is indexed from 0 to m + n - 1
-      // m + n = u.size()
-      // n = v.size()
-      // m = u.size() - v.size()
-      SizeT n = (SizeT)b.size();
-      SizeT m = (SizeT)(a.size() - b.size());
 
-      // 1. Normalize
-      // Set d = ⌊b / (v_n−1 + 1)⌋.
-      DataT d = (DataT)(base / (b[n - 1] + 1));
+      // Check divisor nonzero
+        if (b.empty() || (b.size() == 1 && b[0] == 0))
+            throw runtime_error("Division by zero.");
 
-      // Set (u_m+n u_m+n−1 . . . u_1 u_0)_b equal to (u_m+n−1 . . . u_1 u_0)_b times d
-      // Notice the introduction of a new digit position u_m+n at the left of u_m+n−1
-      // If d = 1, all we need to do in this step is to set u_m+n = 0.
-      // On a binary computer it may be preferable to choose d to be a power of 2 
-      // instead of using the value suggested here.
-      // Any value of d that results in v_n−1 >= ⌊b/2⌋ will suffice.
-      vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
-      if(u.size() <= m + n)
+        // If |a| < |b| then quotient = 0 and remainder = a.
+        if (BigIntegerComparator::CompareTo(a, b) < 0)
+            return make_pair(vector<DataT>{0}, a);
+
+
+        SizeT n = (SizeT)b.size();
+        SizeT m = (SizeT)(a.size() - n); // m >= 0
+
+        // Normalization: choose d so that b[n-1] >= B/2.
+        // (There is always such a digit multiplier d in [1, B).)
+        DataT d = base / (b.back() + 1);
+
+        // Normalize u and v.
+        vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
+        vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
+
+        // Append an extra digit to u (u[m+n] becomes available).
         u.push_back(0);
 
-      // Set (v_n−1 . . . v_1 v_0)_b equal to (v_n−1 . . . v_1 v_0)_b times d.
-      vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
+        // Initialize quotient.
+        vector<DataT> q(m + 1, 0);
+        cerr << "start" << endl;
 
-      vector<DataT> q (m + 1);
+        // Main loop: compute each quotient digit starting at index m downto 0.
+        for (long j = m; j >= 0; j--) {
+            // D3: Compute estimated quotient digit qhat.
+            // We form a 2-digit value from u[j+n] and u[j+n-1].
+            ULong numerator = u[j + n] * base + u[j + n - 1];
+            DataT qhat = numerator / v[n - 1];
+            ULong rhat = numerator % v[n - 1];
 
-      // 2. Loop over j from m to 0
-      // Set j = m. (The loop on j, steps 2 through 7, will be essentially a division of 
-      // (u_j+n . . . u_j+1 u_j)_b by (v_n−1 . . . v_1 v_0)_b to get a single quotient digit q_j
-      for(Int j = m; j >= 0; j--)
-      {
-        // 3. Calculate q_hat
-        // Set val = u_j+n * b + u_j+n−1
-        ULong val = u[j + n];
-        val *= base;
-        val += u[j + n - 1];
-        // Set q_hat = ⌊val / v_n−1⌋
-        ULong qhat = val / v[n - 1];
-        // Set r_hat be the remainder, r_hat = val mod v_n−1.
-        ULong rhat = val % v[n - 1];
+            // IMPORTANT FIX: Correct qhat while it is too large.
+            // In Knuth's algorithm, we must ensure that:
+            //      qhat * v[n-2] <= (rhat * B + u[j+n-2])
+            // (If n == 1, there is no v[n-2] so the loop does not run.)
+            while (qhat == base || (n > 1 && qhat * v[n - 2] > (rhat * base + u[j + n - 2]))) {
+                qhat -= 1;
+                rhat += v[n - 1];
+                if (rhat >= base)
+                    break;
+            }
+    
+            // D4: Multiply v by qhat and subtract from u[j...j+n].
+            // If the subtraction borrows (i.e. the result goes negative),
+            // then qhat was one too high; add back v and decrement qhat.
 
-        // Now test if q_hat >= b or q_hat * v_n−2 > b * r_hat + u_j+n−2;
-        // The test on v_n−2 determines at high speed most of the cases in which 
-        // the trial value q_hat is one too large, and it eliminates all cases where q_hat is two too large.
-        while(qhat >= base || (n > 1 && qhat * v[n - 2] > rhat * base + u[j + n - 2]) )
-        {
-          // Decrease q_hat by 1
-          qhat--;
-          // Increase r_hat by v_n−1
-          rhat += v[n - 1];
-          // Repeat this test if r_hat < b.
-          if(rhat >= base)
-            break;
+            // Propagate the borrow to the next digit.
+            pair<bool, DataT> sub = subtract(u, v, qhat, j, base);
+            if (sub.first)  // borrow produced
+            {
+                // Correction step: add back v.
+                add(u, v, sub.second, j, base);
+                qhat -= 1;
+            }
+            q[j] = qhat;
         }
 
-        // 4. Multiply and subtract
-        // Replace (u_j+n u_j+n−1 . . . u_j)_b by (u_j+n u_j+n−1 . . . u_j)_b - q_hat * (0 v_n-1 . . . v_1 v_0)_b
-        // This computation consists of a simple multiplication by a one-place number, combined with a subtraction.
-        ULong carry = 0;
-        for(SizeT i = 0; i <= n; i++)
-        {
-          ULong mult = carry;
-          if(i < v.size())
-            mult += qhat * v[i];
-          carry = mult / base;
-          mult %= base;
+        // Unnormalize the remainder.
+        vector<DataT> r = Divide(u, d, base);
 
-          // The digits (u_j+n, u_j+n−1, . . . , u_j) should be kept positive
-          // If the result of this step is actually negative, (u_j+n u_j+n−1 . . . u_j)_b should be left as the true 
-          // value plus b^n+1, namely as the b’s complement of the true value, and a "borrow" to the left should be remembered.
-          
-          Long diff = (Long)u[i + j] - (Long)mult;
-          if(diff < 0)
-          {
-            diff += base;
-            carry++;
-          }
-          u[i+j]  = (DataT)diff;
-        }
-
-        // 5. Test remainder
-        // Set q_j = q_hat
-        q[j] = (DataT)qhat;
-        
-        // Result was negative
-        // The probability that this step is necessary is very small, on the order of only 2/b.
-        // Test data to activate this step should therefore be specifically contrived when debugging.
-        if(carry > 0)
-        {
-          // 6. Add back
-          // Decrease q_j by 1
-          q[j]--;
-          // add (0 v_n−1 . . . v_1 v_0)_b to (u_j+n u_j+n−1 . . . u_j+1 u_j)_b.
-          for(SizeT i = 0; i <= n; i++)
-          {
-            ULong sum = 0;
-            if(i < v.size())
-              sum += v[i];
-
-            sum += u[i + j];
-            u[i + j] = (DataT)(sum % base);
-            // A carry will occur to the left of u_j+n, and it should be ignored since it cancels with 
-            // the borrow that occurred in step 4.
-          }
-        }
-      } // 7. Loop on j
-
-      // 8. Unnormalize
-      // Now (q_m . . . q_1 q_0)b is the desired quotient, and 
-      // the desired remainder may be obtained by dividing (u_n−1 . . . u_1 u_0)_b by d.
-      vector<DataT> w(n);
-
-      // Set r = 0, j = n − 1.
-      ULong r = 0;
-      for(Int j = n - 1; j >= 0; j--)
-      {
-        // Set val = r * b + u_j
-        ULong val = r * base + u[j];
-        // Set w_j = ⌊val / d⌋
-        w[j] = (DataT)(val / d);
-        // Set r = val mod d
-        r = val % d;
-      }
-
-      vector< vector<DataT> > result(2);
-      result[0] = q;
-      result[1] = w;
-
-      return result;
+        // Remove potential leading zeros.
+        BigIntegerUtil::TrimZeros(q);
+        BigIntegerUtil::TrimZeros(r);
+        return make_pair(q, r);
     }
+
+    private:
+
+    // Subtracts qhat * v from u, starting at index j.
+    // Returns true if a borrow is produced (meaning the subtraction went negative).
+    static pair<bool, DataT> subtract(vector<DataT>& u, vector<DataT>& v, DataT qhat, SizeT j, ULong base) {
+        DataT borrow = 0;
+        SizeT n = v.size();
+        for (SizeT i = 0; i < n; i++) {
+            // Multiply v[i] by qhat and subtract along with the borrow.
+            Long p = (Long)(qhat * v[i]);
+            Long sub = (Long)u[i + j] - p - (Long)borrow;
+            borrow = 0;
+            while (sub < 0) {
+                sub += base;
+                borrow++;
+            }
+            u[i + j] = sub;
+        }
+
+        Long sub = (Long)u[j + n] - (Long)borrow;
+        if (sub >= 0)
+            u[j + n] = sub;
+
+        return make_pair(sub < 0, borrow);
+    }
+
+    // Adds v to u starting at index j (used to undo an oversubtraction).
+    static void add(vector<DataT>& u, const vector<DataT>& v, DataT borrow, SizeT j, ULong base) {
+        DataT carry = 0;
+        SizeT n = v.size();
+        for (SizeT i = 0; i < n; i++) {
+            ULong sum = (ULong)u[i + j] + (ULong)v[i] + (ULong)carry;
+            u[i + j] = sum % base;
+            carry = sum / base;
+        }
+        u[j + n] = u[j + n] + carry - borrow;
+    }
+
    };
 }
 
