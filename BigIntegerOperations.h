@@ -7,6 +7,7 @@
 #ifndef BIGINTEGER_OPERATIONS
 #define BIGINTEGER_OPERATIONS
 
+#include <utility>
 #include <vector>
 using namespace std;
 
@@ -17,7 +18,7 @@ using namespace std;
 #include "algorithms/classic/ClassicMultiplication.h"
 #include "algorithms/karatsuba/KaratsubaMultiplication.h"
 #include "algorithms/toomcook/ToomCookMultiplication.h"
-#include "algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
+#include "algorithms/toomcook2/ToomCookMultiplication2.h"
 
 namespace BigMath
 {
@@ -164,14 +165,12 @@ public:
       return result;
     }
 
-    static vector<BigInteger> DivideAndRemainder(BigInteger const& a, BigInteger const& b)
+    static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const& a, BigInteger const& b)
     {
-      vector<BigInteger> results(2);
       if(a.IsZero() || b.IsZero())
       {
-        results[0] = BigInteger();
-        results[1] = BigInteger();
-        return results; // case of 0
+        BigInteger q = BigInteger();
+        return make_pair(q,q); // case of 0
       }
 
       Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
@@ -179,33 +178,33 @@ public:
       {
         vector<DataT> one(1);
         one[0] = 1;
-        results[0] = BigInteger(one, a.IsNegative() || b.IsNegative());
-        results[1] = BigInteger();
-        return results; // case of a/a
+        BigInteger q = BigInteger(one, a.IsNegative() || b.IsNegative());
+        BigInteger r = BigInteger();
+        return make_pair(q,r); // case of 0 // case of a/a
       }
       else if (cmp < 0)
       {
-        results[0] = BigInteger();
-        results[1] = BigInteger(a.GetInteger(), a.IsNegative() || b.IsNegative() );
-        return results; // case of a < b
+        BigInteger q = BigInteger();
+        BigInteger r = BigInteger(a.GetInteger(), a.IsNegative() || b.IsNegative() );
+        return make_pair(q,r); // case of a < b
       }
 
       // Now: a > b
-      vector< vector<DataT> > result = ClassicDivision::DivideAndRemainder(
+      pair< vector<DataT>, vector<DataT> > result = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
 
-      results[0] = BigInteger(result[0], false);
-      results[1] = BigInteger(result[1], false);
+      BigInteger q = BigInteger(result.first, false);
+      BigInteger r = BigInteger(result.second, false);
 
       if(a.IsNegative() != b.IsNegative())
       {
-        results[0].SetSign(true);
-        results[1].SetSign(true);
+        q.SetSign(true);
+        r.SetSign(true);
       }
       
-      return results;
+      return make_pair(q,r);
     }
    };
 
@@ -229,12 +228,12 @@ public:
 
   BigInteger operator/(BigInteger const& a, BigInteger const& b)
   {
-    return BigIntegerOperations::DivideAndRemainder(a, b)[0];
+    return BigIntegerOperations::DivideAndRemainder(a, b).first;
   }
 
   BigInteger operator%(BigInteger const& a, BigInteger const& b)
   {
-    return BigIntegerOperations::DivideAndRemainder(a, b)[1];
+    return BigIntegerOperations::DivideAndRemainder(a, b).second;
   }
 
   // Comparison operators
