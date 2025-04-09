@@ -134,7 +134,7 @@ namespace BigMath
         carry = multiply / base;
       }
 
-      wPos = wStart + len - 1;
+      wPos = wStart + len;
       while(carry > 0)
       {
         if(wPos < w.size())
