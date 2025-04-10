@@ -16,16 +16,17 @@ using namespace std;
 #include "algorithms/classic/ClassicAddition.h"
 #include "algorithms/classic/ClassicSubtraction.h"
 #include "algorithms/classic/ClassicMultiplication.h"
+#include "algorithms/classic/ClassicDivision.h"
+#include "algorithms/classic/CommonAlgorithms.h"
 #include "algorithms/karatsuba/KaratsubaMultiplication.h"
-#include "algorithms/toomcook/ToomCookMultiplication.h"
-#include "algorithms/toomcook2/ToomCookMultiplication2.h"
 
 namespace BigMath
 {
   class BigIntegerOperations
   {
     // Karatsuba performs better for over 128 digits for the result
-    static const SizeT MULTIPLICATION_SWITCH = 128;
+    static const SizeT KARATSUBA_THRESHOLD = 128;
+    static const SizeT TOOM_COOK_THRESHOLD = 512;
 
     private:
     // Implentation of addition by paper-pencil method
@@ -55,7 +56,7 @@ namespace BigMath
     {
       SizeT size = a.size() + b.size();
 
-      if(size <= MULTIPLICATION_SWITCH)
+      if(size <= KARATSUBA_THRESHOLD)
       {
         return BigInteger(
           ClassicMultiplication::Multiply(
@@ -71,21 +72,6 @@ namespace BigMath
           b.GetInteger(),
           BigInteger::Base())
       );
-
-      // ToomCookMultiplication tcm;
-      // return BigInteger(
-      //   tcm.Multiply(
-      //     a.GetInteger(), 
-      //     b.GetInteger(), 
-      //     BigInteger::Base())
-      // );
-
-      // return BigInteger(
-      //   ToomCookMultiplicationMemOptimized::Multiply(
-      //     a.GetInteger(), 
-      //     b.GetInteger(), 
-      //     BigInteger::Base())
-      // );      
     }
 
 public:
@@ -145,10 +131,17 @@ public:
         return AddUnsigned(a, b); // b is negative and a is not. return a + b
 
       Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
-      if(cmp < 0)
-        return SubtractUnsigned(b, a).SetSign(true); // -(b - a)
-      else if (cmp > 0)
-        return SubtractUnsigned(a, b); // a - b
+      if(cmp < 0) {
+        BigInteger result = SubtractUnsigned(b, a);
+        result.TrimZeros();
+        result.SetSign(true); // -(b - a)
+        return result;
+      }
+      else if (cmp > 0){
+        BigInteger result = SubtractUnsigned(a, b);
+        result.TrimZeros();
+        return result; // a - b
+      }
       
       return BigInteger(); // Zero when a == b
     }
@@ -160,6 +153,19 @@ public:
 
       BigInteger result = MultiplyUnsigned(a, b);
       if(a.IsNegative() != b.IsNegative())
+        result.SetSign(true);
+      
+      return result;
+    }
+
+    static BigInteger Multiply(BigInteger const& a, ULong b)
+    {
+      if(a.IsZero() || b == 0)
+        return BigInteger(); // 0 times anything is zero
+
+      vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
+      BigInteger result = BigInteger(m, false);
+      if(a.IsNegative() != b < 0)
         result.SetSign(true);
       
       return result;
@@ -206,6 +212,29 @@ public:
       
       return make_pair(q,r);
     }
+
+    static BigInteger Divide(BigInteger const& a, ULong b)
+    {
+      if(a.IsZero() || b == 0)
+      {
+        return BigInteger();// case of 0
+      }
+
+      // Assume a > b
+      vector<DataT> q = ClassicDivision::Divide(
+        a.GetInteger(),
+        b,
+        BigInteger::Base());
+
+      BigInteger result = BigInteger(q, false);
+
+      if(a.IsNegative() != b < 0)
+      {
+        result.SetSign(true);
+      }
+      
+      return result;
+    }    
    };
 
   // Adds Two BigInteger
@@ -226,9 +255,20 @@ public:
     return BigIntegerOperations::Multiply(a, b);
   }
 
+  BigInteger operator*(BigInteger const& a, ULong b)
+  {
+    return BigIntegerOperations::Multiply(a, b);
+  }
+
+  // Divides Two BigInteger
   BigInteger operator/(BigInteger const& a, BigInteger const& b)
   {
     return BigIntegerOperations::DivideAndRemainder(a, b).first;
+  }
+
+  BigInteger operator/(BigInteger const& a, ULong const& b)
+  {
+    return BigIntegerOperations::Divide(a, b);
   }
 
   BigInteger operator%(BigInteger const& a, BigInteger const& b)
@@ -266,6 +306,12 @@ public:
   {
     return a.CompareTo(b)<0;
   }
+
+  BigInteger operator<<(BigInteger const& a, DataT b)
+  {
+    vector<DataT> result = CommonAlgorithms::ShiftLeft(a.GetInteger(), b);
+    return BigInteger(result, a.IsNegative());
+  }  
 }
 
 #endif

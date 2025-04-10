@@ -26,7 +26,7 @@ namespace BigMath
     private:
 
     // Threshold for switching to the naive multiplication.
-    const SizeT baseCaseThreshold = 4;      
+    const SizeT baseCaseThreshold = 32;      
 
     // For evaluation, we need to compute 5 points (e.g., points for Toom–3: 0, 1, -1, 2, ∞).
     const int numPoints = 5;
