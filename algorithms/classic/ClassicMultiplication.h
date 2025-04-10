@@ -21,7 +21,7 @@ namespace BigMath
     public:
     static void MultiplyTo(
       vector<DataT>& a,
-      ULong b,
+      DataT b,
       ULong base)
     {
         MultiplyTo(
@@ -32,7 +32,7 @@ namespace BigMath
 
     static SizeT MultiplyTo(
       vector<DataT>& a, SizeT aStart, SizeT aEnd,
-      ULong b,
+      DataT b,
       ULong base)
     {
       if(b == 0 || // a times 0
@@ -83,7 +83,7 @@ namespace BigMath
 
     static vector<DataT> Multiply(
       vector<DataT> const& a,
-      ULong b,
+      DataT b,
       ULong base)
       {
         vector<DataT> w(a.size());
@@ -97,7 +97,7 @@ namespace BigMath
 
     static SizeT  Multiply(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd,
-      ULong b,
+      DataT b,
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
       ULong base)
     {
