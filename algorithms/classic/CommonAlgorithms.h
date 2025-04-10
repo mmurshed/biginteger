@@ -65,6 +65,27 @@ namespace BigMath
 
     // Returns an integer by shifting n places
     // Equivalent to a * B^n
+
+    /*
+	•	bigInt[0] = coefficient of B^0  (least significant digit),
+	•	bigInt[1] = coefficient of B^1,
+	•	…
+	•	bigInt[n - 1] = coefficient of B^{n-1} (most significant digit).
+
+Hence, “shifting left by shift digits” means multiplying by B^shift.
+In little‐endian form, you want to add shift zeros at the start (indices 0 to shift - 1) 
+so that the old digit at bigInt[i] (coefficient of B^i) now appears at index i + shift (coefficient of B^{i + shift}).
+
+An easy way to see this is with an example. Suppose
+	•	bigInt = [4, 3, 2, 1] (little‐endian).
+	•	That represents 4 * B^0 + 3 * B^1 + 2 * B^2 + 1 * B^3.
+
+Shifting left by 2 means the result should be:
+4 * B^2 + 3 * B^3 + 2 * B^4 + 1 * B^5,
+which in little‐endian form is
+[0,0,4,3,2,1].
+(Zero for B^0, zero for B^1, then 4 at B^2, 3 at B^3, etc.)    
+    */ 
     static vector<DataT> ShiftLeft(
       vector<DataT> const& bigInt,
       SizeT shift)

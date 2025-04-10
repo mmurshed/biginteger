@@ -99,6 +99,13 @@ namespace BigMath
       return bigIntB2;
     }
 
+    /*
+    “little‐endian” means:
+	•	bigInt[0] = coefficient of B^0  (least significant digit),
+	•	bigInt[1] = coefficient of B^1,
+	•	…
+	•	bigInt[n - 1] = coefficient of B^{n-1} (most significant digit).å
+    */
     // Group by n, meaning 10^n base
     static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int end, SizeT digits)
     {
