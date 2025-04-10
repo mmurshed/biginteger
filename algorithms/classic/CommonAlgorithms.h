@@ -91,22 +91,13 @@ which in little‐endian form is
       SizeT shift)
     {
       SizeT size = (SizeT)bigInt.size() + shift;
-      vector<DataT> result(size);
-
-      Int j = size - 1;
-
+      vector<DataT> result(size, 0);
       // Copy
-      for(Int i = (Int)bigInt.size() - 1; i >= 0; i--, j--)
+      for (DataT i = 0; i < bigInt.size(); i++)
       {
-        result[j] = bigInt[i];
+        result[i + shift] = bigInt[i];
       }
       
-      // Insert zeros
-      for(;j >= 0; j--)
-      {
-        result[j] = 0;
-      }
-
       return result;
     }
    };
