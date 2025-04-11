@@ -54,40 +54,12 @@ namespace BigMath
 
       return result;
     }
-
-    static BigInteger Divide(BigInteger const &a, DataT b)
-    {
-      if (a.IsZero() || b == 0)
-      {
-        return BigInteger(); // case of 0
-      }
-
-      // Assume a > b
-      vector<DataT> q = ClassicDivision::Divide(
-          a.GetInteger(),
-          b,
-          BigInteger::Base());
-
-      BigInteger result = BigInteger(q, false);
-
-      if (a.IsNegative() != b < 0)
-      {
-        result.SetSign(true);
-      }
-
-      return result;
-    }
   };
 
   // Divides Two BigInteger
   BigInteger operator/(BigInteger const &a, BigInteger const &b)
   {
     return BigIntegerDivision::DivideAndRemainder(a, b).first;
-  }
-
-  BigInteger operator/(BigInteger const &a, DataT const &b)
-  {
-    return BigIntegerDivision::Divide(a, b);
   }
 
   BigInteger operator%(BigInteger const &a, BigInteger const &b)

@@ -59,19 +59,6 @@ namespace BigMath
 
       return result;
     }
-
-    static BigInteger Multiply(BigInteger const &a, DataT b)
-    {
-      if (a.IsZero() || b == 0)
-        return BigInteger(); // 0 times anything is zero
-
-      vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
-      BigInteger result = BigInteger(m, false);
-      if (a.IsNegative() != b < 0)
-        result.SetSign(true);
-
-      return result;
-    }
   };
 
   // Multiplies Two BigInteger
@@ -79,12 +66,6 @@ namespace BigMath
   {
     return BigIntegerMultiplication::Multiply(a, b);
   }
-
-  BigInteger operator*(BigInteger const &a, DataT b)
-  {
-    return BigIntegerMultiplication::Multiply(a, b);
-  }
-
 }
 
 #endif

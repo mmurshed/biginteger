@@ -13,7 +13,9 @@ using namespace std;
 
 #include "BigIntegerAddition.h"
 #include "BigIntegerSubtraction.h"
+#include "BigIntegerScalarMultiplication.h"
 #include "BigIntegerMultiplication.h"
+#include "BigIntegerScalarDivision.h"
 #include "BigIntegerDivision.h"
 #include "BigIntegerShift.h"
 #include "BigIntegerComparison.h"
