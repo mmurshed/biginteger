@@ -34,7 +34,7 @@ namespace BigMath
         for (Int len = 2; len <= n; len <<= 1) {
             long double angle = 2 * PI / len * (invert ? -1 : 1);
             complex<long double> wlen(cos(angle), sin(angle));
-            for (int i = 0; i < n; i += len) {
+            for (Int i = 0; i < n; i += len) {
                 complex<long double> w(1);
                 for (int j = 0; j < len / 2; j++) {
                     complex<long double> u = a[i + j];
