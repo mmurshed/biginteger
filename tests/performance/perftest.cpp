@@ -28,6 +28,7 @@ using namespace std;
 #include "../../algorithms/toomcook/ToomCookMultiplication.h"
 #include "../../algorithms/toomcook/ToomCookMultiplication2.h"
 #include "../../algorithms/toomcook/ToomCookMultiplication2a.h"
+#include "../../algorithms/stonehagestrassen/FFTMultiplication.h"
 
 using namespace BigMath;
 
@@ -70,10 +71,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a\n");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,FFT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,FFT" << endl;
 
   while(true)
   {
@@ -162,9 +163,23 @@ int main(int argc, char *argv[])
       cerr << "Toom-Cook 2a algorithm failed." << endl;
     }
 
+    start = clock();
+    vector<DataT> fftm = FFTMultiplication::Multiply(
+      a.GetInteger(),
+      b.GetInteger(),
+      BigInteger::Base());
+    end = clock();
+    double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmp = BigIntegerComparator::CompareTo(fftm, ans.GetInteger());
+    if(cmp != 0)
+    {
+      cerr << "FFT algorithm failed." << endl;
+    }
+
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a);
+    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << timeTakenFft << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, timeTakenFft);
     fflush(timeFile);
 
     DATA++;

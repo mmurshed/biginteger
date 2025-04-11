@@ -29,6 +29,8 @@ using namespace std;
 #include "../algorithms/toomcook/ToomCookMultiplication2a.h"
 #include "../algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
+#include "../algorithms/stonehagestrassen/FFTMultiplication.h"
+
 
 using namespace BigMath;
 
@@ -89,24 +91,23 @@ int main(int argc, char *argv[])
     */
     
     clock_t start = clock();
-    ToomCookMultiplication2 tcm;
-    vector<DataT> rToom = tcm.Multiply(
+    vector<DataT> result = FFTMultiplication::Multiply(
       a.GetInteger(),
       b.GetInteger(),
       BigInteger::Base());
     clock_t end = clock();
-    double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
+    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
     // cout << ans << endl;
-    cout << rToom << endl;
+    cout << result << endl;
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenToomCook << "," << rToom.size() << endl;
+    cerr << DATA << "," << timeTaken << "," << result.size() << endl;
 
-    int cmp = BigIntegerComparator::CompareTo(rToom, ans.GetInteger());
+    int cmp = BigIntegerComparator::CompareTo(result, ans.GetInteger());
     if(cmp != 0)
     {
-      cerr << "Toom-Cook algorithm failed." << endl;
+      cerr << "Multiplication algorithm failed." << endl;
       return cmp;
     }
 
