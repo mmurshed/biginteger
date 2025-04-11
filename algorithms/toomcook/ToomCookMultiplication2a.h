@@ -4,20 +4,17 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOMCOOK_MULTIPLICATION_2a
-#define TOOMCOOK_MULTIPLICATION_2a
+#ifndef TOOMCOOK_MULTIPLICATION_2A
+#define TOOMCOOK_MULTIPLICATION_2A
 
 #include <vector>
 using namespace std;
 
 #include "../../BigInteger.h"
 #include "../BigIntegerUtil.h"
-#include "../classic/ClassicAddition.h"
-#include "../classic/ClassicSubtraction.h"
 #include "../classic/ClassicMultiplication.h"
-#include "../classic/ClassicDivision.h"
-#include "../classic/CommonAlgorithms.h"
-#include "../../BigIntegerOperations.h"
+#include "../../ops/BigIntegerAddition.h"
+#include "../../ops/BigIntegerSubtraction.h"
 
 namespace BigMath
 {
@@ -113,7 +110,7 @@ namespace BigMath
       evalPoints[0] = a0;                     // f(0)
       evalPoints[1] = (a0 + a1 + a2);         // f(1)
       evalPoints[2] = (a0 + a2 - a1);         // f(-1)
-      evalPoints[3] = a0 + (a1 * 2) + (a2 * 4); // f(2)
+      evalPoints[3] = a0 + (a1 * (DataT)2) + (a2 * (SizeT)4); // f(2)
       evalPoints[4] = a2;                     // f(∞)
 
       return evalPoints;

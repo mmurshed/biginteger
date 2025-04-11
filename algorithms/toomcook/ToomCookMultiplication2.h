@@ -17,7 +17,6 @@ using namespace std;
 #include "../classic/ClassicAddition.h"
 #include "../classic/ClassicSubtraction.h"
 #include "../classic/ClassicMultiplication.h"
-#include "../karatsuba/KaratsubaMultiplication.h"
 #include "../classic/ClassicDivision.h"
 #include "../classic/CommonAlgorithms.h"
 
