@@ -32,17 +32,24 @@ using namespace BigMath;
 
 int main(int argc, char *argv[])
 {
+  /*
   if(argc < 3)
   {
-    cerr << "Usage: stresstest [INPUT] [ANSWER] [CSVFILE]" << endl;
+    cerr << "Usage: stresstest [INPUT] [OUTPUT] [ANSWER] [CSVFILE]" << endl;
     return 1;
-  }
+  } */
 
-  if(!freopen(argv[1],"rt",stdin))
-    return 1;
-  if(!freopen(argv[2],"wt",stdout))
-    return 1;
+  string input("input.txt");
+  string output("output.txt");
+  string answer("answer.txt");
 
+  if(!freopen(input.c_str(),"rt",stdin))
+    return 1;
+  if(!freopen(output.c_str(),"wt",stdout))
+    return 1;
+  
+  ifstream ansFile(answer.c_str());
+  
   FILE *timeFile = fopen("time.csv", "wt");
   if(!timeFile)
     return 1;
@@ -94,6 +101,11 @@ int main(int argc, char *argv[])
       else cout << "false";
     }
     else cout << r;
+
+    string line;
+    std::getline(ansFile, line);
+    BigInteger ans = BigIntegerParser::Parse(line.c_str());
+
     
     double timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
     cerr << "Data : " << DATA << "  Time : " ;      
@@ -101,6 +113,14 @@ int main(int argc, char *argv[])
     cerr.setf(ios::showpoint);
     cerr << timeTaken << endl;
     fprintf(timeFile, "%d,%f\n", r.size(), timeTaken);
+
+    int cmp = BigIntegerComparator::CompareTo(r.GetInteger(), ans.GetInteger());
+    if(cmp != 0)
+    {
+      cerr << "Failed." << endl;
+      // return cmp;
+    }
+
 
     DATA++;
   

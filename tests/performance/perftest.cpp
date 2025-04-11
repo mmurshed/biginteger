@@ -25,24 +25,44 @@ using namespace std;
 #include "../../BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
+#include "../../algorithms/toomcook/ToomCookMultiplication.h"
+#include "../../algorithms/toomcook/ToomCookMultiplication2.h"
+#include "../../algorithms/toomcook/ToomCookMultiplication2a.h"
 
 using namespace BigMath;
 
 
 int main(int argc, char *argv[])
 {
-  if(argc < 4)
+  /*
+  if(argc < 5)
   {
-    cerr << "Usage: perftst [INPUT] [ANSWER] [CSVFILE]" << endl;
+    cerr << "Usage: perftst [INPUT] [OUTPUT] [ANSWER] [CSVFILE]" << endl;
     return 1;
   }
 
   if(!freopen(argv[1],"rt",stdin))
     return 1;
 
-  ifstream ansFile(argv[2]);
+  if(!freopen(argv[2],"wt",stdout))
+    return 1;
 
-  FILE *timeFile = fopen(argv[3], "wt");
+  ifstream ansFile(argv[3]);
+
+  FILE *timeFile = fopen(argv[4], "wt");
+  if(!timeFile)
+    return 1;
+*/
+
+  if(!freopen("input.txt","rt",stdin))
+  return 1;
+
+  if(!freopen("output.txt","wt",stdout))
+  return 1;
+
+  ifstream ansFile("answer.txt");
+
+  FILE *timeFile = fopen("result.csv", "wt");
   if(!timeFile)
     return 1;
 
@@ -50,10 +70,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Karatsuba,Classical,Toom-Cook,Results Digit");
+  fprintf(timeFile, "Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,Results Digit");
   fflush(timeFile);
 
-  cerr << "Data,Karatsuba,Classical,Toom-Cook,Results Digit" << endl;
+  cerr << "Data,Classical,KaratsubaToom-Cook,Toom-Cook2,Toom-Cook2a,Results Digit" << endl;
 
   while(true)
   {
@@ -66,33 +86,32 @@ int main(int argc, char *argv[])
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
     
     clock_t start = clock();
-    vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
+    vector<DataT> rClassical = ClassicMultiplication::Multiply(
           a.GetInteger(),
           b.GetInteger(),
           BigInteger::Base());
     clock_t end = clock();
-    double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
-
-    Int cmp = BigIntegerComparator::CompareTo(rKarat, ans.GetInteger());
-    if(cmp != 0)
-    {
-      cerr << "Karatsuba algorithm failed." << endl;
-      return cmp;
-    }
-   
-    start = clock();
-    vector<DataT> rClassical = ClassicMultiplication::Multiply(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base(),
-          true);
-    end = clock();
     double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(rClassical, ans.GetInteger());
+    Int cmp = BigIntegerComparator::CompareTo(rClassical, ans.GetInteger());
     if(cmp != 0)
     {
       cerr << "Classical algorithm failed." << endl;
+      return cmp;
+    }
+
+    start = clock();
+    vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
+          a.GetInteger(),
+          b.GetInteger(),
+          BigInteger::Base());
+    end = clock();
+    double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmp = BigIntegerComparator::CompareTo(rKarat, ans.GetInteger());
+    if(cmp != 0)
+    {
+      cerr << "Karatsuba algorithm failed." << endl;
       return cmp;
     }
 
@@ -109,29 +128,43 @@ int main(int argc, char *argv[])
     if(cmp != 0)
     {
       cerr << "Toom-Cook algorithm failed." << endl;
-      return cmp;
     }
 
-    // start = clock();
-    // vector<DataT> rToomMem = ToomCookMultiplication::Multiply(
-    //   a.GetInteger(),
-    //   b.GetInteger(),
-    //   BigInteger::Base());
-    // end = clock();
-    // double timeTakenToomCookMem = (double)(end - start) / CLOCKS_PER_SEC;
+    start = clock();
+    ToomCookMultiplication2 tcm2;
+    vector<DataT> rToom2 = tcm2.Multiply(
+      a.GetInteger(),
+      b.GetInteger(),
+      BigInteger::Base());
+    end = clock();
+    double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
 
-    // cmp = BigIntegerComparator::CompareTo(rToomMem, ans.GetInteger());
-    // if(cmp != 0)
-    // {
-    //   cerr << "Toom-Cook-Memory-Optimized algorithm failed." << endl;
-    //   return cmp;
-    // }
+    // cout << BigInteger(rToom2) << endl;
+
+    cmp = BigIntegerComparator::CompareTo(rToom2, ans.GetInteger());
+    if(cmp != 0)
+    {
+      cerr << "Toom-Cook 2 algorithm failed." << endl;
+    }
+
+    start = clock();
+    ToomCookMultiplication2a tcm2a;
+    vector<DataT> rToom2a = tcm2a.Multiply(
+      a.GetInteger(),
+      b.GetInteger(),
+      BigInteger::Base());
+    end = clock();
+    double timeTakenToomCook2a = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmp = BigIntegerComparator::CompareTo(rToom2a, ans.GetInteger());
+    if(cmp != 0)
+    {
+      cerr << "Toom-Cook 2a algorithm failed." << endl;
+    }
 
     cerr.setf(ios::showpoint);
-    // cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << timeTakenToomCookMem << "," << rKarat.size() << endl;
-    cerr << DATA << "," << timeTakenKarat << "," << timeTakenClassical << "," << timeTakenToomCook << "," << rKarat.size() << endl;
-    // fprintf(timeFile, "%f,%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, timeTakenToomCookMem, rKarat.size());
-    fprintf(timeFile, "%f,%f,%f,%lu\n", timeTakenKarat, timeTakenClassical, timeTakenToomCook, rKarat.size());
+    cerr << DATA << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << rKarat.size() << endl;
+    fprintf(timeFile, "%f,%f,%f,%f,%f,%lu\n", timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, rKarat.size());
     fflush(timeFile);
 
     DATA++;
