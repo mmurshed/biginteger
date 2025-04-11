@@ -38,6 +38,12 @@ namespace BigMath
 
     // Base 2
     static const BaseT Base2 = 2;
+    // Base 16
+    static const BaseT Base16 = 16;
+    // Base 2^8
+    static const BaseT Base2_8 = 256;
+    // Base 2^10
+    static const BaseT Base2_10 = 1024;
     // Base 2^16
     static const BaseT Base2_16 = 65536ul;
     // Base 2^32
