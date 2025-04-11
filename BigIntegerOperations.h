@@ -19,6 +19,8 @@ using namespace std;
 #include "algorithms/classic/ClassicDivision.h"
 #include "algorithms/classic/CommonAlgorithms.h"
 #include "algorithms/karatsuba/KaratsubaMultiplication.h"
+#include "algorithms/toomcook/ToomCookMultiplication2.h"
+#include "algorithms/stonehagestrassen/FFTMultiplication.h"
 
 namespace BigMath
 {
@@ -27,6 +29,7 @@ namespace BigMath
     // Karatsuba performs better for over 128 digits for the result
     static const SizeT KARATSUBA_THRESHOLD = 128;
     static const SizeT TOOM_COOK_THRESHOLD = 512;
+    static const SizeT FFT_THRESHOLD = 1024;
 
     private:
     // Implentation of addition by paper-pencil method
@@ -61,8 +64,17 @@ namespace BigMath
       {
         return ClassicMultiplication::Multiply(a, b, base);
       }
+      else if(size <= TOOM_COOK_THRESHOLD)
+      {
+        return KaratsubaMultiplication::Multiply(a, b, base);
+      }
+      else if(size <= FFT_THRESHOLD)
+      {
+        ToomCookMultiplication2 toomCook;
+        return toomCook.Multiply(a, b, base);
+      }
 
-      return KaratsubaMultiplication::Multiply(a, b,base);
+      return FFTMultiplication::Multiply(a, b,base);
     }
 
 public:
