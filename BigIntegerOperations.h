@@ -54,24 +54,25 @@ namespace BigMath
 
     static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
     {
-      SizeT size = a.size() + b.size();
-
-      if(size <= KARATSUBA_THRESHOLD)
-      {
         return BigInteger(
-          ClassicMultiplication::Multiply(
+          MultiplyUnsigned(
             a.GetInteger(),
             b.GetInteger(),
             BigInteger::Base())
         );
+    }
+
+    public:
+    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    {
+      SizeT size = a.size() + b.size();
+
+      if(size <= KARATSUBA_THRESHOLD)
+      {
+        return ClassicMultiplication::Multiply(a, b, base);
       }
 
-      return BigInteger(
-        KaratsubaMultiplication::Multiply(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base())
-      );
+      return KaratsubaMultiplication::Multiply(a, b,base);
     }
 
 public:
@@ -133,13 +134,11 @@ public:
       Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp < 0) {
         BigInteger result = SubtractUnsigned(b, a);
-        result.TrimZeros();
         result.SetSign(true); // -(b - a)
         return result;
       }
       else if (cmp > 0){
         BigInteger result = SubtractUnsigned(a, b);
-        result.TrimZeros();
         return result; // a - b
       }
       
