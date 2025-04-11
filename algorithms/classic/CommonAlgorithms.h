@@ -128,6 +128,69 @@ which in little‐endian form is
 
       return result;
     }
+
+    static vector<DataT> ShiftLeftBits(vector<DataT> bigInt, SizeT bits)
+    {
+      vector<DataT> result = bigInt;
+      const int limbBits = sizeof(DataT) * CHAR_BIT;
+      // Compute whole-limb shifts and bit shifts separately.
+      int wholeLimbShift = bits / limbBits;
+      int bitShift = bits % limbBits;
+      // First, shift by whole limbs:
+      if (wholeLimbShift > 0)
+      {
+        vector<DataT> newDigits(wholeLimbShift, 0);
+        newDigits.insert(newDigits.end(), result.begin(), result.end());
+        result = newDigits;
+      }
+      // Then, shift by bits.
+      if (bitShift > 0)
+      {
+        DataT carry = 0;
+        for (SizeT i = 0; i < result.size(); i++)
+        {
+          uint32_t cur = result[i];
+          uint32_t shifted = (cur << bitShift) | carry;
+          result[i] = static_cast<DataT>(shifted & ((1 << limbBits) - 1));
+          carry = shifted >> limbBits;
+        }
+        if (carry != 0)
+          result.push_back(carry);
+      }
+      // Optionally trim any extra zeros.
+      return result;
+    }
+
+    static vector<DataT> ShiftRightBits(vector<DataT> bigInt, SizeT bits)
+    {
+      // Create a copy and shift its limbs right by 'bits'.
+      vector<DataT> result = bigInt;
+      const int limbBits = sizeof(DataT) * CHAR_BIT;
+      int wholeLimbShift = bits / limbBits;
+      int bitShift = bits % limbBits;
+
+      // Remove whole limbs from the least-significant end.
+      if (wholeLimbShift > 0)
+      {
+        if (wholeLimbShift >= result.size())
+          return vector<DataT>{0};
+        result.erase(result.begin(), result.begin() + wholeLimbShift);
+      }
+      // Shift bitwise.
+      if (bitShift > 0)
+      {
+        DataT carry = 0;
+        // Process from most-significant to least-significant.
+        for (SizeT i = result.size(); i-- > 0;)
+        {
+          UInt cur = result[i];
+          UInt newVal = (cur >> bitShift) | (carry << (limbBits - bitShift));
+          result[i] = static_cast<DataT>(newVal);
+          carry = cur & ((1 << bitShift) - 1);
+        }
+      }
+      return result;
+    }
   };
 }
 
