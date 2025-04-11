@@ -94,6 +94,7 @@ namespace BigMath
           b,
           w, 0, w.size() - 1,
           base);
+        BigIntegerUtil::TrimZeros(w);
         return w;
       }
 
@@ -152,8 +153,6 @@ namespace BigMath
         wPos++;
       }
 
-      BigIntegerUtil::TrimZeros(w);
-
       return wPos;
     }
 
@@ -178,6 +177,8 @@ namespace BigMath
       vector<DataT> result(size);
 
       Multiply(a, 0, (SizeT)a.size() - 1, b, 0, (SizeT)b.size() - 1, result, 0, base);
+
+      BigIntegerUtil::TrimZeros(result);
       return result;      
     }
 
@@ -190,30 +191,12 @@ namespace BigMath
       vector<DataT>& result, SizeT rStart,
       ULong base)
     {
-      // case of zero
-      if (a.size() == 0 || b.size() == 0) {
-        result.clear();
-        return 0;
-      }
-      if(aStart >= a.size() || bStart >= b.size())
-      {
-        result.clear();
-        return 0;
-      }
 
       aEnd = min(aEnd, (SizeT) (a.size() - 1));
       bEnd = min(bEnd, (SizeT) (b.size() - 1));
 
       SizeT k = rStart;
       SizeT lenA = aEnd - aStart + 1;
-      SizeT lenB = bEnd - bStart + 1;
-
-      // Ensure 'result' has enough capacity:
-      // In the worst case, we need rStart + lenA + lenB limbs.
-      SizeT neededSize = rStart + lenA + lenB;
-      if (result.size() < neededSize) {
-          result.resize(neededSize, 0);
-      }
       
       for(SizeT i = bStart; i <= bEnd; i++)
       {
@@ -233,8 +216,6 @@ namespace BigMath
         k = jStart + lenA;
         result.at(k) = (DataT)carry;
       }
-
-      BigIntegerUtil::TrimZeros(result);
       return k;
     }
    };

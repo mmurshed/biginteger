@@ -102,6 +102,8 @@ namespace BigMath
           b, 0, (SizeT)b.size() - 1,
           result, 0,
           base);
+
+      BigIntegerUtil::TrimZeros(result);
       
       return result;
     }
@@ -114,27 +116,11 @@ namespace BigMath
       vector<DataT>& result, SizeT rStart,
       ULong base)
     {
-      // bool aZero = BigIntegerUtil::IsZero(a, aStart, aEnd);
-      // bool bZero = BigIntegerUtil::IsZero(b, bStart, bEnd);
-      // if(aZero && bZero)
-      //   return;
-      // else if(aZero)
-      // {
-      //   BigIntegerUtil::Copy(b, bStart, result, rStart);
-      //   return;
-      // }
+      aEnd = min(aEnd, (SizeT) (a.size() - 1));
 
-      aEnd = min(
-        aEnd,
-        (SizeT) (a.size() - 1));
+      bEnd = min(bEnd, (SizeT) (b.size() - 1));
 
-      bEnd = min(
-        bEnd,
-        (SizeT) (b.size() - 1));
-
-      Int size = max(
-        BigIntegerUtil::Len(aStart, aEnd),
-        BigIntegerUtil::Len(bStart, bEnd));
+      Int size = max(BigIntegerUtil::Len(aStart, aEnd), BigIntegerUtil::Len(bStart, bEnd));
 
       Long carry = 0;
 
@@ -160,8 +146,6 @@ namespace BigMath
       Int rPos = rStart + size;
       if(carry > 0 && rPos < result.size())
         result.at(rPos) += carry;
-
-      BigIntegerUtil::TrimZeros(result);
     }
    };
 }

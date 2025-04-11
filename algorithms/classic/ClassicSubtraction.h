@@ -42,6 +42,8 @@ namespace BigMath
            a, 0, (SizeT)a.size() - 1,
            b, 0, (SizeT)b.size() - 1,
            result, 0, base);
+
+      BigIntegerUtil::TrimZeros(result);
       
       return result;
     }
@@ -94,8 +96,6 @@ namespace BigMath
         if(rPos < result.size())
           result.at(rPos) = (DataT)digitOps;
       }
-
-      BigIntegerUtil::TrimZeros(result);
     }
    };
 }

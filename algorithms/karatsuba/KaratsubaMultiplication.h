@@ -75,9 +75,7 @@ namespace BigMath
         // c -= al * bl * B^m
 
         // Clear carry digit
-        size_t pos1 = wStart + m;
-        if(pos1 < w.size())
-          w.at(pos1) = 0;
+        w.at(wStart + m) = 0;
 
         // Save al + ah into w_0,...,w_m
         ClassicAddition::Add(
@@ -87,9 +85,7 @@ namespace BigMath
           base);
   
         // Clear carry digit
-        size_t pos2 = wStart + m + m + 1;
-        if (pos2 < w.size())
-          w.at(pos2) = 0;
+        w.at(wStart + m + m + 1) = 0;
       
         // Save bl + bh into w_m+1, ... w_2m+1
         ClassicAddition::Add(
