@@ -33,7 +33,7 @@ namespace BigMath
 
     void Push(Int first, Int second)
     {
-      ranges.push_back(make_pair(first, second));
+      ranges.push_back({first, second});
     }
 
     void Push(vector<T> const &u, SizeT p)
@@ -45,7 +45,7 @@ namespace BigMath
           u, 0, u.size() - 1,
           data, start, end);
 
-      ranges.push_back(make_pair(start, end));
+      ranges.push_back({start, end});
     }
 
     Range Pop()

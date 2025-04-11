@@ -46,7 +46,7 @@ namespace BigMath
     {
       if (a.IsZero() || b == 0)
       {
-        return make_pair(BigInteger(), BigInteger()); // case of 0
+        return {BigInteger(), BigInteger()}; // case of 0
       }
 
       // Assume a > b
@@ -64,7 +64,7 @@ namespace BigMath
         r.SetSign(true);
       }
 
-      return make_pair(q, r);
+      return {q, r};
     }
   };
 

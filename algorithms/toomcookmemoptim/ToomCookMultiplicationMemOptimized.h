@@ -201,7 +201,7 @@ namespace BigMath
       // Remove V_r ... V_1 V_0 from stack C.
       Range vr = tcd.V.Pop();
 
-      Range rRange = make_pair(0, p - 1);
+      Range rRange = {0, p - 1};
 
       // For j = 2r, 2r-1, ... , 1, 0
       for (Long j = _2r; j >= 0; j--)
