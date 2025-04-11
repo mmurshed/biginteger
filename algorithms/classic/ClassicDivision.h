@@ -113,7 +113,7 @@ namespace BigMath
           v, 0, v.size() - 1,
           base);
 
-      return make_pair(w, v);
+      return {w, v};
     }
 
     static void DivideAndRemainder(
@@ -197,7 +197,7 @@ namespace BigMath
 
       // If |a| < |b| then quotient = 0 and remainder = a.
       if (BigIntegerComparator::CompareTo(a, b) < 0)
-        return make_pair(vector<DataT>{0}, a);
+        return {vector<DataT>{0}, a};
 
       SizeT n = (SizeT)b.size();
       SizeT m = (SizeT)(a.size() - n); // m >= 0
@@ -258,7 +258,7 @@ namespace BigMath
       // Remove potential leading zeros.
       BigIntegerUtil::TrimZeros(q);
       BigIntegerUtil::TrimZeros(r);
-      return make_pair(q, r);
+      return {q, r};
     }
 
   private:
@@ -287,7 +287,7 @@ namespace BigMath
       if (sub1 >= 0)
         u[j + n] = sub1;
 
-      return make_pair(sub1 < 0, borrow);
+      return {sub1 < 0, borrow};
     }
 
     // Adds v to u starting at index j (used to undo an oversubtraction).
