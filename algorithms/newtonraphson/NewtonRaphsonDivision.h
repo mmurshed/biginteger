@@ -1,9 +1,13 @@
 #include <vector>
 #include <cassert>
 
-#include "../BigInteger.h"
+#include "../../BigInteger.h"
 #include "../BigIntegerUtil.h"
-#include "../../BigIntegerOperations.h"
+#include "../../ops/BigIntegerAddition.h"
+#include "../../ops/BigIntegerSubtraction.h"
+#include "../../ops/BigIntegerMultiplication.h"
+#include "../../ops/BigIntegerComparison.h"
+#include "../../ops/BigIntegerShift.h"
 
 using namespace std;
 
@@ -19,7 +23,7 @@ namespace BigMath
   // For example, if our BigInteger is internally stored in base 2^16,
   // we want to shift the divisor so that its most significant digit
   // uses as many bits as possible.
-  static SizeT getNormalizationShift(const BigInteger &d) {
+  static SizeT getNormalizationShift(BigInteger const& d) {
       // Assume BigInteger has a method size() that returns the count of base–2^16 digits,
       // and that digits() returns a vector in little‑endian order.
       // We normalize by ensuring that the highest digit (in the most–significant limb) is large.
@@ -51,7 +55,7 @@ namespace BigMath
 public:
   // Newton–Raphson division: Returns a pair {Q, R} such that Q = floor(N/D) and R = N - Q*D.
   // 'iterations' controls the number of Newton iterations.
-  static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const&N, BigInteger const& D, int iterations = 5) {
+  static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const& N, BigInteger const& D, int iterations = 5) {
       
       // Normalize divisor and dividend.
       SizeT shift = getNormalizationShift(D);
@@ -59,8 +63,8 @@ public:
       BigInteger nNorm = N << shift;
       
       // Choose fixed-point scaling precision. For instance, if dNorm has L limbs (each being 16 bits):
-      DataT L = dNorm.size();
-      DataT k = 2 * L * 16;
+      SizeT L = dNorm.size();
+      SizeT k = 2 * L * 16;
       BigInteger R_val = ONE << k;
       
       // Compute an initial guess for x ≈ R/dNorm.
@@ -69,7 +73,7 @@ public:
       // Newton–Raphson iterations: x_{i+1} = (x_i * (2R - dNorm * x_i)) / R.
       for (int i = 0; i < iterations; i++) {
           BigInteger prod = dNorm * x;            // Compute dNorm * x.
-          BigInteger correction = (R_val << 1) - prod; // Compute 2R - dNorm*x.
+          BigInteger correction = (R_val << (SizeT)1) - prod; // Compute 2R - dNorm*x.
           x = (x * correction) >> k;                // Update: dividing by R via shifting.
       }
       
@@ -78,12 +82,16 @@ public:
       
       // Correct Q in case of slight over- or under-estimation.
       while (Q * D > N)
-          Q = Q - 1;
-      while ((Q + 1) * D <= N)
-          Q = Q + 1;
+          Q = Q - ONE;
+
+      BigInteger Qp1 = Q + ONE;
+      while (Qp1 * D <= N) {
+          Q = Qp1;
+          Qp1 = Q + ONE;
+      }
       
       // Once Q is computed, the remainder is calculated as:
-      BigInteger Remainder = N - Q * D;
+      BigInteger Remainder = N - (Q * D);
       
       return {Q, Remainder};
   }
