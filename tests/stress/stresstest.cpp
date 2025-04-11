@@ -72,10 +72,17 @@ int main(int argc, char *argv[])
       cout << endl;
     
     first = false;
+    clock_t start = clock();
     cin >> m >> op >> n;
+    clock_t end = clock();
+
+    double timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
+    cerr << "Read in : " << timeTaken << endl;
+    cerr << m.size() << " digits " << op << " " << n.size() << " digits" << endl;
+
     un = false;
 
-    clock_t start = clock();
+    start = clock();
 
     try {
       switch (op)
@@ -92,9 +99,7 @@ int main(int argc, char *argv[])
       }
     } catch(...) {}
 
-    clock_t end = clock();
-
-    // cout << "Data : " << DATA << " ";
+    end = clock();
 
     if(un) {
       if(rp) cout << "true";
@@ -107,7 +112,7 @@ int main(int argc, char *argv[])
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
     
-    double timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
+    timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
     cerr << "Data : " << DATA << "  Time : " ;      
     
     cerr.setf(ios::showpoint);
