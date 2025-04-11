@@ -414,8 +414,7 @@ namespace BigMath
     vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base,
-      bool trim=true)
+      ULong base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
       SizeT k = ComputeTables(n);
@@ -448,10 +447,7 @@ namespace BigMath
 
       vector<DataT> w = Multiply(k, base);
 
-      if(trim)
-      {
-        BigIntegerUtil::TrimZeros(w);
-      }
+      BigIntegerUtil::TrimZeros(w);
       
       return w;
 
