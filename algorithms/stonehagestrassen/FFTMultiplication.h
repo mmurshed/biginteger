@@ -12,7 +12,7 @@ using namespace std;
 
 namespace BigMath
 {
-    const double PI = acos(-1.0);    
+    const long double PI = acos(-1.0L);    
   
     class FFTMultiplication
   {
@@ -99,6 +99,7 @@ namespace BigMath
             c.push_back(carry % base);
             carry /= base;
         }
+        BigIntegerUtil::TrimZeros(c);
         return c;
     }
   };
