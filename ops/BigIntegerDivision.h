@@ -55,7 +55,7 @@ namespace BigMath
       return result;
     }
 
-    static BigInteger Divide(BigInteger const& a, ULong b)
+    static BigInteger Divide(BigInteger const& a, DataT b)
     {
       if(a.IsZero() || b == 0)
       {
@@ -86,7 +86,7 @@ namespace BigMath
     return BigIntegerDivision::DivideAndRemainder(a, b).first;
   }
 
-  BigInteger operator/(BigInteger const& a, ULong const& b)
+  BigInteger operator/(BigInteger const& a, DataT const& b)
   {
     return BigIntegerDivision::Divide(a, b);
   }
