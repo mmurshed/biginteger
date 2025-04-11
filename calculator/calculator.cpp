@@ -11,6 +11,7 @@ using namespace std;
 #include "../BigIntegerIO.h"
 #include "ExpressionEvaluator.h"
 
+using namespace std;
 using namespace BigMath;
 
 int main()
@@ -20,7 +21,7 @@ int main()
 	{
 		// Get a string from console
 		string line;
-		std::getline(cin, line);
+		getline(cin, line);
 
 		// If the string is empty, then exit
 		if (line.size() == 0)

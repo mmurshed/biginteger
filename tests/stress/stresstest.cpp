@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
       cout << r;
 
     string line;
-    std::getline(ansFile, line);
+    getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;

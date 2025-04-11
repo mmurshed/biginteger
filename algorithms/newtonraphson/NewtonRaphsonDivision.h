@@ -68,9 +68,9 @@ namespace BigMath
             Long computedExponent = static_cast<Long>((totalLimbs - K) * limbBits);
 
             // Check against the maximum exponent for long double.
-            // std::numeric_limits<long double>::max_exponent gives the maximum exponent value,
+            // numeric_limits<long double>::max_exponent gives the maximum exponent value,
             // i.e. the power of 2 below which numbers are representable.
-            Long maxExp = std::numeric_limits<long double>::max_exponent;
+            Long maxExp = numeric_limits<long double>::max_exponent;
 
             long double result;
             if (computedExponent > maxExp)
@@ -109,12 +109,12 @@ namespace BigMath
             if (scaled == 0.0L)
             {
                 // If underflow occurs, clamp to the smallest normalized value.
-                scaled = std::numeric_limits<long double>::min();
+                scaled = numeric_limits<long double>::min();
             }
-            else if (!std::isfinite(scaled))
+            else if (!isfinite(scaled))
             {
                 // If the value is too high, clamp to the maximum finite value.
-                scaled = std::numeric_limits<long double>::max();
+                scaled = numeric_limits<long double>::max();
             }
 
             // Construct and return a BigInteger from the scaled value.
@@ -125,12 +125,12 @@ namespace BigMath
     public:
         // Newton–Raphson division: Returns a pair {Q, R} such that Q = floor(N/D) and R = N - Q*D.
         // 'iterations' controls the number of Newton iterations.
-        static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &N, BigInteger const &D, int iterations = 5)
+        static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, BigInteger const &b, int iterations = 5)
         {
             // Normalize divisor and dividend.
-            SizeT shift = getNormalizationShift(D);
-            BigInteger dNorm = D << shift;
-            BigInteger nNorm = N << shift;
+            SizeT shift = getNormalizationShift(b);
+            BigInteger dNorm = b << shift;
+            BigInteger nNorm = a << shift;
 
             // Choose fixed-point scaling precision. For instance, if dNorm has L limbs (each being 16 bits):
             SizeT L = dNorm.size();
@@ -149,23 +149,23 @@ namespace BigMath
             }
 
             // Compute quotient. With x ≈ R/dNorm, the normalized quotient is:
-            BigInteger Q = (x * nNorm) >> k;
+            BigInteger q = (x * nNorm) >> k;
 
             // Correct Q in case of slight over- or under-estimation.
-            while (Q * D > N)
-                Q = Q - ONE;
+            while (q * b > a)
+                q = q - ONE;
 
-            BigInteger Qp1 = Q + ONE;
-            while (Qp1 * D <= N)
+            BigInteger Qp1 = q + ONE;
+            while (Qp1 * b <= a)
             {
-                Q = Qp1;
-                Qp1 = Q + ONE;
+                q = Qp1;
+                Qp1 = q + ONE;
             }
 
             // Once Q is computed, the remainder is calculated as:
-            BigInteger Remainder = N - (Q * D);
+            BigInteger r = a - (q * b);
 
-            return {Q, Remainder};
+            return {q, r};
         }
     };
 }

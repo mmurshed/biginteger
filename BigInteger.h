@@ -147,9 +147,9 @@ namespace BigMath
       }
 
       // Create a new vector<int> to hold the block digits.
-      // Use std::copy to transfer the digits from the original vector.
+      // Use copy to transfer the digits from the original vector.
       vector<DataT> blockDigits(endIndex - startIndex);
-      std::copy(digits.begin() + startIndex, digits.begin() + endIndex, blockDigits.begin());
+      copy(digits.begin() + startIndex, digits.begin() + endIndex, blockDigits.begin());
 
       // Construct and return a BigInteger from this block of digits.
       return BigInteger(blockDigits);

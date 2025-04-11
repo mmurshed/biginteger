@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     cin >> a >> op >> b;
 
     string line;
-    std::getline(ansFile, line);
+    getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
     clock_t start = clock();
