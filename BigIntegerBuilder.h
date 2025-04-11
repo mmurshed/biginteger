@@ -30,16 +30,16 @@ namespace BigMath
       return From(to_string(n));
     }
 
-    static BigInteger From(string const& num)
+    static BigInteger From(string const &num)
     {
       return From(num.c_str());
     }
 
-    static BigInteger From(char const* num)
+    static BigInteger From(char const *num)
     {
       return BigIntegerParser::Parse(num);
     }
-   };
+  };
 }
 
 #endif

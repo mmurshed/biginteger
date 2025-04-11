@@ -17,34 +17,34 @@ using namespace std;
 namespace BigMath
 {
   // Comparison operators
-  bool operator==(BigInteger const& a, BigInteger const& b)
+  bool operator==(BigInteger const &a, BigInteger const &b)
   {
     return a.CompareTo(b) == 0;
   }
 
-  bool operator!=(BigInteger const& a, BigInteger const& b)
+  bool operator!=(BigInteger const &a, BigInteger const &b)
   {
     return a.CompareTo(b) != 0;
   }
 
-  bool operator>=(BigInteger const& a, BigInteger const& b)
+  bool operator>=(BigInteger const &a, BigInteger const &b)
   {
     return a.CompareTo(b) >= 0;
   }
 
-  bool operator<=(BigInteger const& a, BigInteger const& b)
+  bool operator<=(BigInteger const &a, BigInteger const &b)
   {
     return a.CompareTo(b) <= 0;
   }
 
-  bool operator>(BigInteger const& a, BigInteger const& b)
+  bool operator>(BigInteger const &a, BigInteger const &b)
   {
-    return a.CompareTo(b)>0;
+    return a.CompareTo(b) > 0;
   }
 
-  bool operator<(BigInteger const& a, BigInteger const& b)
+  bool operator<(BigInteger const &a, BigInteger const &b)
   {
-    return a.CompareTo(b)<0;
+    return a.CompareTo(b) < 0;
   }
 }
 

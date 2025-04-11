@@ -16,14 +16,14 @@ using namespace BigMath;
 int main()
 {
 	cout << "Enter an expression (enter to exit)" << endl;
-	while(true)
+	while (true)
 	{
 		// Get a string from console
 		string line;
 		std::getline(cin, line);
 
 		// If the string is empty, then exit
-		if(line.size() == 0)
+		if (line.size() == 0)
 			break;
 
 		// Evaluate the expression
@@ -33,7 +33,7 @@ int main()
 			BigInteger res = eval.Eval(line.c_str());
 			cout << res << endl;
 		}
-		catch(const char* msg)
+		catch (const char *msg)
 		{
 			cerr << msg << endl;
 		}

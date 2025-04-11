@@ -16,25 +16,25 @@ using namespace std;
 namespace BigMath
 {
   // All operations are unsigned
-  class ClassicAddition 
+  class ClassicAddition
   {
-    public:
+  public:
     static void AddTo(
-      vector<DataT> & a,
-      ULong b,
-      BaseT base)
-      {
-        AddTo(a, 0, a.size() - 1, b, base);
-      }
+        vector<DataT> &a,
+        ULong b,
+        BaseT base)
+    {
+      AddTo(a, 0, a.size() - 1, b, base);
+    }
 
     static void AddTo(
-      vector<DataT> & a, SizeT aStart, SizeT aEnd, 
-      ULong b,
-      BaseT base)
+        vector<DataT> &a, SizeT aStart, SizeT aEnd,
+        ULong b,
+        BaseT base)
     {
       ULong sum = b;
       ULong carry = 0;
-      if(aEnd >= aStart)
+      if (aEnd >= aStart)
       {
         sum += a[aStart];
         a[aStart] = (DataT)(sum % base);
@@ -47,10 +47,10 @@ namespace BigMath
       carry = sum / base;
 
       SizeT aPos = aStart + 1;
-      while(carry > 0)
+      while (carry > 0)
       {
         sum = carry;
-        if(aEnd >= aPos)
+        if (aEnd >= aPos)
         {
           sum += a[aPos];
           a[aPos] = (DataT)(sum % base);
@@ -61,22 +61,22 @@ namespace BigMath
         aPos++;
       }
 
-      while(carry > 0)
+      while (carry > 0)
       {
-        if(aEnd >= aPos)
+        if (aEnd >= aPos)
           a[aPos] = (DataT)(carry % base);
         else
           a.push_back((DataT)(carry % base));
         carry = carry / base;
         aPos++;
       }
-    }    
+    }
 
-    public:
+  public:
     static void AddTo(
-      vector<DataT>& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd,
-      BaseT base)
+        vector<DataT> &a, SizeT aStart, SizeT aEnd,
+        vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+        BaseT base)
     {
       Add(
           a, aStart, aEnd,
@@ -86,15 +86,15 @@ namespace BigMath
     }
 
     static vector<DataT> Add(
-      vector<DataT> const& a,
-      vector<DataT> const& b,
-      BaseT base)
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base)
     {
-      SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
+      SizeT size = (SizeT)max(a.size(), b.size()) + 1;
       vector<DataT> result(size);
 
       result[size - 1] = 0;
-      
+
       Add(
           a, 0, (SizeT)a.size() - 1,
           b, 0, (SizeT)b.size() - 1,
@@ -102,50 +102,50 @@ namespace BigMath
           base);
 
       BigIntegerUtil::TrimZeros(result);
-      
+
       return result;
     }
 
     // Implentation of addition by paper-pencil method
     // Runtime O(n), Space O(n)
     static void Add(
-      vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
-      vector<DataT>& result, SizeT rStart,
-      BaseT base)
+        vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+        vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+        vector<DataT> &result, SizeT rStart,
+        BaseT base)
     {
-      aEnd = min(aEnd, (SizeT) (a.size() - 1));
+      aEnd = min(aEnd, (SizeT)(a.size() - 1));
 
-      bEnd = min(bEnd, (SizeT) (b.size() - 1));
+      bEnd = min(bEnd, (SizeT)(b.size() - 1));
 
       Int size = max(BigIntegerUtil::Len(aStart, aEnd), BigIntegerUtil::Len(bStart, bEnd));
 
       Long carry = 0;
 
-      for(Int i = 0; i < size; i++)
+      for (Int i = 0; i < size; i++)
       {
         Long digitOps = 0;
 
         Int aPos = i + aStart;
-        if(aPos <= aEnd && aPos < a.size())
+        if (aPos <= aEnd && aPos < a.size())
           digitOps = a.at(aPos);
 
         digitOps += carry;
-        
+
         Int bPos = i + bStart;
-        if(bPos <= bEnd && bPos < b.size())
+        if (bPos <= bEnd && bPos < b.size())
           digitOps += b.at(bPos);
 
         Int rPos = rStart + i;
-        if(rPos < result.size()) 
+        if (rPos < result.size())
           result.at(rPos) = (DataT)(digitOps % base);
         carry = digitOps / base;
       }
       Int rPos = rStart + size;
-      if(carry > 0 && rPos < result.size())
+      if (carry > 0 && rPos < result.size())
         result.at(rPos) += carry;
     }
-   };
+  };
 }
 
 #endif

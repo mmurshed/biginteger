@@ -21,26 +21,26 @@ namespace BigMath
 {
   class BigIntegerSubtraction
   {
-    public:
+  public:
     // Implentation of subtraction by paper-pencil method
-    static BigInteger SubtractCompared(BigInteger const& a, BigInteger const& b)
+    static BigInteger SubtractCompared(BigInteger const &a, BigInteger const &b)
     {
       int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
-      if(cmp > 0) {
+      if (cmp > 0)
+      {
         return BigInteger(
-          ClassicSubtraction::Subtract(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base())
-        );
+            ClassicSubtraction::Subtract(
+                a.GetInteger(),
+                b.GetInteger(),
+                BigInteger::Base()));
       }
-      else if (cmp < 0) {
+      else if (cmp < 0)
+      {
         BigInteger result = BigInteger(
-          ClassicSubtraction::Subtract(
-            b.GetInteger(),
-            a.GetInteger(),
-            BigInteger::Base())
-        );  
+            ClassicSubtraction::Subtract(
+                b.GetInteger(),
+                a.GetInteger(),
+                BigInteger::Base()));
         result.SetSign(true);
         return result;
       }
@@ -49,18 +49,18 @@ namespace BigMath
 
   public:
     // Straight pen-pencil implementation for subtraction
-    static BigInteger Subtract(BigInteger const& a, BigInteger const& b)
+    static BigInteger Subtract(BigInteger const &a, BigInteger const &b)
     {
       // Check for zero
       bool aZero = a.IsZero();
       bool bZero = b.IsZero();
-      
+
       // 0 - 0
-      if(aZero && bZero)
+      if (aZero && bZero)
         return BigInteger();
 
       // 0 - b
-      if(aZero)
+      if (aZero)
       {
         BigInteger result(b);
         result.SetSign(!b.IsNegative());
@@ -68,39 +68,38 @@ namespace BigMath
       }
 
       // a - 0
-      if(bZero)
+      if (bZero)
         return BigInteger(a);
 
       // Check if actually addition is needed
       bool aNeg = a.IsNegative();
       bool bNeg = b.IsNegative();
-      
+
       // either a or b is negative
-      if(aNeg != bNeg)
+      if (aNeg != bNeg)
       {
         BigInteger result = BigInteger(
-          ClassicAddition::Add(
-            a.GetInteger(),
-            b.GetInteger(),
-            BigInteger::Base())
-        );
+            ClassicAddition::Add(
+                a.GetInteger(),
+                b.GetInteger(),
+                BigInteger::Base()));
         // if a is negative and b is not, result is -(a + b)
-        if(!aNeg && bNeg)
+        if (!aNeg && bNeg)
           result.SetSign(true);
         return result;
       }
 
       return SubtractCompared(a, b); // Zero when a == b
-    } 
-   };
+    }
+  };
 
   // Subtructs Two BigInteger
-  BigInteger operator-(BigInteger const& a, BigInteger const& b)
+  BigInteger operator-(BigInteger const &a, BigInteger const &b)
   {
     return BigIntegerSubtraction::Subtract(a, b);
   }
 
-  BigInteger operator-(BigInteger const& a, DataT b)
+  BigInteger operator-(BigInteger const &a, DataT b)
   {
     return BigIntegerSubtraction::Subtract(a, BigIntegerBuilder::From(b));
   }

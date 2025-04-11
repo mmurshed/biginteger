@@ -5,7 +5,7 @@
     copyright            : (C) 2002 by S. M. Mahbub Murshed
     email                : murshed@gmail.com
  ***************************************************************************/
- 
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -32,7 +32,6 @@ using namespace std;
 
 using namespace BigMath;
 
-
 int main(int argc, char *argv[])
 {
   /*
@@ -55,16 +54,16 @@ int main(int argc, char *argv[])
     return 1;
 */
 
-  if(!freopen("input.txt","rt",stdin))
-  return 1;
+  if (!freopen("input.txt", "rt", stdin))
+    return 1;
 
-  if(!freopen("output.txt","wt",stdout))
-  return 1;
+  if (!freopen("output.txt", "wt", stdout))
+    return 1;
 
   ifstream ansFile("answer.txt");
 
   FILE *timeFile = fopen("result.csv", "wt");
-  if(!timeFile)
+  if (!timeFile)
     return 1;
 
   long DATA = 1;
@@ -76,43 +75,43 @@ int main(int argc, char *argv[])
 
   cerr << "Data,Results Digit,Toom-Cook2,FFT" << endl;
 
-  while(true)
+  while (true)
   {
     BigInteger a, b;
-   
+
     cin >> a >> op >> b;
 
     string line;
     std::getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
-    
+
     clock_t start = clock();
     ToomCookMultiplication2 tcm2;
     vector<DataT> rToom2 = tcm2.Multiply(
-      a.GetInteger(),
-      b.GetInteger(),
-      BigInteger::Base());
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
     clock_t end = clock();
     double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
 
     // cout << BigInteger(rToom2) << endl;
 
     int cmp = BigIntegerComparator::CompareTo(rToom2, ans.GetInteger());
-    if(cmp != 0)
+    if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
     }
 
     start = clock();
     vector<DataT> fftm = FFTMultiplication::Multiply(
-      a.GetInteger(),
-      b.GetInteger(),
-      BigInteger::Base());
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
     end = clock();
     double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmp = BigIntegerComparator::CompareTo(fftm, ans.GetInteger());
-    if(cmp != 0)
+    if (cmp != 0)
     {
       cerr << "FFT algorithm failed." << endl;
     }
@@ -123,8 +122,8 @@ int main(int argc, char *argv[])
     fflush(timeFile);
 
     DATA++;
-  
-    if(cin.eof())
+
+    if (cin.eof())
       break;
   }
 
@@ -132,4 +131,3 @@ int main(int argc, char *argv[])
 
   return EXIT_SUCCESS;
 }
-

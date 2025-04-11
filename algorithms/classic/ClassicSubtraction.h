@@ -15,36 +15,36 @@ using namespace std;
 
 namespace BigMath
 {
-  class ClassicSubtraction 
+  class ClassicSubtraction
   {
-    public:
+  public:
     static void SubtractFrom(
-      vector<DataT>& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd,
-      BaseT base)
+        vector<DataT> &a, SizeT aStart, SizeT aEnd,
+        vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+        BaseT base)
     {
       Subtract(
-           a, aStart, aEnd,
-           b, bStart, bEnd,
-           a, aStart,
-           base);
+          a, aStart, aEnd,
+          b, bStart, bEnd,
+          a, aStart,
+          base);
     }
 
     static vector<DataT> Subtract(
-      vector<DataT> const& a, 
-      vector<DataT> const& b,
-      BaseT base)
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base)
     {
-      SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
+      SizeT size = (SizeT)max(a.size(), b.size()) + 1;
       vector<DataT> result(size);
 
       Subtract(
-           a, 0, (SizeT)a.size() - 1,
-           b, 0, (SizeT)b.size() - 1,
-           result, 0, base);
+          a, 0, (SizeT)a.size() - 1,
+          b, 0, (SizeT)b.size() - 1,
+          result, 0, base);
 
       BigIntegerUtil::TrimZeros(result);
-      
+
       return result;
     }
 
@@ -52,52 +52,52 @@ namespace BigMath
     // Assumption: a > b
     // Runtime O(n), Space O(n)
     static void Subtract(
-      vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
-      vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
-      vector<DataT>& result, SizeT rStart,
-      BaseT base)
+        vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+        vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+        vector<DataT> &result, SizeT rStart,
+        BaseT base)
     {
       aEnd = min(
-        aEnd,
-        (SizeT) (a.size() - 1));
+          aEnd,
+          (SizeT)(a.size() - 1));
 
       bEnd = min(
-        bEnd,
-        (SizeT) (b.size() - 1));
-      
+          bEnd,
+          (SizeT)(b.size() - 1));
+
       Int size = max(
-        BigIntegerUtil::Len(aStart, aEnd), 
-        BigIntegerUtil::Len(bStart, bEnd));
+          BigIntegerUtil::Len(aStart, aEnd),
+          BigIntegerUtil::Len(bStart, bEnd));
 
       Long carry = 0;
 
-      for(Int i = 0; i < size; i++)
+      for (Int i = 0; i < size; i++)
       {
         Long digitOps = 0;
 
         Int aPos = aStart + i;
-        if(aPos <= aEnd && aPos < a.size())
+        if (aPos <= aEnd && aPos < a.size())
           digitOps = a.at(aPos);
 
         digitOps -= carry;
-        
+
         Int bPos = bStart + i;
-        if(bPos <= bEnd && bPos < b.size())
+        if (bPos <= bEnd && bPos < b.size())
           digitOps -= b.at(bPos);
 
         carry = 0;
-        if(digitOps < 0)
+        if (digitOps < 0)
         {
           digitOps += base;
           carry = 1;
         }
 
         Int rPos = rStart + i;
-        if(rPos < result.size())
+        if (rPos < result.size())
           result.at(rPos) = (DataT)digitOps;
       }
     }
-   };
+  };
 }
 
 #endif

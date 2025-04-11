@@ -5,7 +5,7 @@
     copyright            : (C) 2002 by S. M. Mahbub Murshed
     email                : murshed@gmail.com
  ***************************************************************************/
- 
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -29,7 +29,6 @@ using namespace BigMath;
 
 #define DEBUG 0
 
-
 int main(int argc, char *argv[])
 {
   /*
@@ -43,15 +42,15 @@ int main(int argc, char *argv[])
   string output("output.txt");
   string answer("answer.txt");
 
-  if(!freopen(input.c_str(),"rt",stdin))
+  if (!freopen(input.c_str(), "rt", stdin))
     return 1;
-  if(!freopen(output.c_str(),"wt",stdout))
+  if (!freopen(output.c_str(), "wt", stdout))
     return 1;
-  
+
   ifstream ansFile(answer.c_str());
-  
+
   FILE *timeFile = fopen("time.csv", "wt");
-  if(!timeFile)
+  if (!timeFile)
     return 1;
 
   long DATA = 1;
@@ -64,19 +63,19 @@ int main(int argc, char *argv[])
 
   clock_t startTotal = clock();
 
-  while(true)
+  while (true)
   {
     BigInteger m, n;
     BigInteger r;
-    if(!first)
+    if (!first)
       cout << endl;
-    
+
     first = false;
     clock_t start = clock();
     cin >> m >> op >> n;
     clock_t end = clock();
 
-    double timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
+    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
     cerr << "Read in : " << timeTaken << endl;
     cerr << m.size() << " digits " << op << " " << n.size() << " digits" << endl;
 
@@ -84,62 +83,87 @@ int main(int argc, char *argv[])
 
     start = clock();
 
-    try {
+    try
+    {
       switch (op)
       {
-        case '+': r = m + n; break;
-        case '-': r = m - n; break;
-        case '*': r = m * n; break;
-        case '/': r = m / n; break;
-        case '%': r = m % n; break;
-        case '=': rp = m.CompareTo(n) == 0; un = true; break;
-        case '>': rp = m.CompareTo(n) > 0; un = true; break;
-        case '<': rp = m.CompareTo(n) < 0; un = true; break;
-        default: break;
+      case '+':
+        r = m + n;
+        break;
+      case '-':
+        r = m - n;
+        break;
+      case '*':
+        r = m * n;
+        break;
+      case '/':
+        r = m / n;
+        break;
+      case '%':
+        r = m % n;
+        break;
+      case '=':
+        rp = m.CompareTo(n) == 0;
+        un = true;
+        break;
+      case '>':
+        rp = m.CompareTo(n) > 0;
+        un = true;
+        break;
+      case '<':
+        rp = m.CompareTo(n) < 0;
+        un = true;
+        break;
+      default:
+        break;
       }
-    } catch(...) {}
+    }
+    catch (...)
+    {
+    }
 
     end = clock();
 
-    if(un) {
-      if(rp) cout << "true";
-      else cout << "false";
+    if (un)
+    {
+      if (rp)
+        cout << "true";
+      else
+        cout << "false";
     }
-    else cout << r;
+    else
+      cout << r;
 
     string line;
     std::getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
-    
-    timeTaken = (double)(end-start)/CLOCKS_PER_SEC;
-    cerr << "Data : " << DATA << "  Time : " ;      
-    
+    timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
+    cerr << "Data : " << DATA << "  Time : ";
+
     cerr.setf(ios::showpoint);
     cerr << timeTaken << endl;
     fprintf(timeFile, "%d,%f\n", r.size(), timeTaken);
 
     int cmp = BigIntegerComparator::CompareTo(r.GetInteger(), ans.GetInteger());
-    if(cmp != 0)
+    if (cmp != 0)
     {
       cerr << "Failed." << endl;
       // return cmp;
     }
 
-
     DATA++;
-  
-    if(cin.eof())
+
+    if (cin.eof())
       break;
   }
 
   clock_t endTotal = clock();
-  cerr << "Total  Time : " ;
+  cerr << "Total  Time : ";
   cerr.setf(ios::showpoint);
-  cerr << (double)(endTotal-startTotal)/CLOCKS_PER_SEC << endl;
+  cerr << (double)(endTotal - startTotal) / CLOCKS_PER_SEC << endl;
 
   fclose(timeFile);
 
   return EXIT_SUCCESS;
 }
-

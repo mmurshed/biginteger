@@ -20,161 +20,160 @@ using namespace std;
 #include "../classic/ClassicMultiplication.h"
 #include "../classic/ClassicDivision.h"
 
-
 namespace BigMath
 {
   class ToomCookMultiplicationMemOptimized
   {
-    private:
-    static void ComputeAnswer(ToomCookData& tcd, SizeT k, BaseT base)
+  private:
+    static void ComputeAnswer(ToomCookData &tcd, SizeT k, BaseT base)
     {
-        // Step 7. [Find a’s.]
-        Long _2r = 2 * tcd.R(k);
-        Long q = tcd.Q(k);
-        Long p = tcd.P(k);
+      // Step 7. [Find a’s.]
+      Long _2r = 2 * tcd.R(k);
+      Long q = tcd.Q(k);
+      Long p = tcd.P(k);
 
-        Long wStart = tcd.W.ranges.size() - _2r - 1;
+      Long wStart = tcd.W.ranges.size() - _2r - 1;
 
-        // At this point stack W contains a sequence of numbers
-        // ending with W(0), W(1), ..., W(2r) from bottom to 
-        // top, where each W(j) is a 2p-bit number.
-        Long _2p = 2 * p;
+      // At this point stack W contains a sequence of numbers
+      // ending with W(0), W(1), ..., W(2r) from bottom to
+      // top, where each W(j) is a 2p-bit number.
+      Long _2p = 2 * p;
 
-        // Now for j = 1, 2, 3, ... , 2r, perform the following 
-        // Here j must increase and t must decrease.
-        for(Long j = 1; j <= _2r; j++)
+      // Now for j = 1, 2, 3, ... , 2r, perform the following
+      // Here j must increase and t must decrease.
+      for (Long j = 1; j <= _2r; j++)
+      {
+        // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,
+        for (Long t = _2r; t >= j; t--)
         {
-          // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,  
-          for(Long t = _2r; t >= j; t--)
-          {
-            Range wtr = tcd.W.ranges[wStart + t]; // W[t]
-            Range wt1r = tcd.W.ranges[wStart + t - 1]; // W[t-1]
+          Range wtr = tcd.W.ranges[wStart + t];      // W[t]
+          Range wt1r = tcd.W.ranges[wStart + t - 1]; // W[t-1]
 
-            // set W(t) ← ( W(t) – W(t − 1) ) / j.
-            // The quantity ( W(t) - W(t-1) ) / j will always be a 
-            // nonnegative integer that fits in 2p bits.
+          // set W(t) ← ( W(t) – W(t − 1) ) / j.
+          // The quantity ( W(t) - W(t-1) ) / j will always be a
+          // nonnegative integer that fits in 2p bits.
 
-            // W(t) –= W(t − 1)
-            ClassicSubtraction::SubtractFrom(
+          // W(t) –= W(t − 1)
+          ClassicSubtraction::SubtractFrom(
               tcd.W.data, wtr.first, wtr.second,
               tcd.W.data, wt1r.first, wt1r.second,
               base);
 
-            // W(t) /= j  
-            if(j > 1)
-            {
-              ClassicDivision::DivideTo(
+          // W(t) /= j
+          if (j > 1)
+          {
+            ClassicDivision::DivideTo(
                 tcd.W.data, wtr.first, wtr.second,
                 (DataT)j,
                 base);
-            }
           }
         }
+      }
 
-        // Step 8. [Find W’s.]        
-        // For j = 2r − 1, 2r – 2, ..., 1, perform the following 
-        // Here j must decrease and t must increase. 
-        SizeT wEnd = _2p;
-        for(Long j = _2r - 1; j >= 1; j--)
+      // Step 8. [Find W’s.]
+      // For j = 2r − 1, 2r – 2, ..., 1, perform the following
+      // Here j must decrease and t must increase.
+      SizeT wEnd = _2p;
+      for (Long j = _2r - 1; j >= 1; j--)
+      {
+        Range wtr = tcd.W.ranges[wStart + j]; // W[j]
+
+        // For t = j, j + 1, ..., 2r − 1,
+        for (Long t = j; t < _2r; t++)
         {
-          Range wtr = tcd.W.ranges[wStart + j]; // W[j]
+          Range wtr = tcd.W.ranges[wStart + t];      // W[t]
+          Range wt1r = tcd.W.ranges[wStart + t + 1]; // W[t+1]
 
-          // For t = j, j + 1, ..., 2r − 1, 
-          for(Long t = j; t < _2r; t++)
-          {
-            Range wtr = tcd.W.ranges[wStart + t]; // W[t]
-            Range wt1r = tcd.W.ranges[wStart + t + 1]; // W[t+1]
+          // set W(t) ← W(t) – j * W(t + 1).
+          // The result of this operation will again be
+          // a nonnegative 2p-bit integer.
 
-            // set W(t) ← W(t) – j * W(t + 1).
-            // The result of this operation will again be 
-            // a nonnegative 2p-bit integer.
-
-            // Wt1 = W(t+1) * j
-            wEnd = ClassicMultiplication::Multiply(
+          // Wt1 = W(t+1) * j
+          wEnd = ClassicMultiplication::Multiply(
               tcd.W.data, wt1r.first, wt1r.second,
               (ULong)j,
               tcd.WTemp, 0, wEnd,
               base);
 
-            // set W(t) ← W(t) – j * W(t + 1).
-            // W(t) ← W(t) – Wt1
-            // W(t) -= Wt1
-            ClassicSubtraction::SubtractFrom(
+          // set W(t) ← W(t) – j * W(t + 1).
+          // W(t) ← W(t) – Wt1
+          // W(t) -= Wt1
+          ClassicSubtraction::SubtractFrom(
               tcd.W.data, wtr.first, wtr.second,
               tcd.WTemp, 0, wEnd,
               base);
 
-            BigIntegerUtil::SetBit(tcd.WTemp, 0, tcd.WTemp.size() - 1, 0);
-          }
+          BigIntegerUtil::SetBit(tcd.WTemp, 0, tcd.WTemp.size() - 1, 0);
         }
+      }
 
-        // Step 9. [Set answer.]
-        // Set w to the 2(q_k + q_k+1)-bit integer
-        // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
+      // Step 9. [Set answer.]
+      // Set w to the 2(q_k + q_k+1)-bit integer
+      // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
 
-        // Long wsize = 2 * tcd.S(k);
-        Long wsize = _2p + _2r * q;
+      // Long wsize = 2 * tcd.S(k);
+      Long wsize = _2p + _2r * q;
 
-        SizeT wAnsStart = wsize - _2p;
-        SizeT wAnsEnd = wsize - 1;
+      SizeT wAnsStart = wsize - _2p;
+      SizeT wAnsEnd = wsize - 1;
 
-        for(Long i = _2r; i >= 0; i--)
-        {
-          Range wtr = tcd.W.Pop(); // W[i]
-          ClassicAddition::AddTo(
+      for (Long i = _2r; i >= 0; i--)
+      {
+        Range wtr = tcd.W.Pop(); // W[i]
+        ClassicAddition::AddTo(
             tcd.WTemp, wAnsStart, wsize - 1,
             tcd.W.data, wtr.first, wtr.second,
             base);
 
-          BigIntegerUtil::SetBit(tcd.W.data, wtr.first, wtr.second, 0);
-          
-          wAnsStart -= q;
-          wAnsEnd = wAnsStart + _2p - 1;
-        }
+        BigIntegerUtil::SetBit(tcd.W.data, wtr.first, wtr.second, 0);
 
-        // Remove W(2r), . . . , W(0) from stack W.
-        tcd.W.Push(tcd.WTemp, wsize);
+        wAnsStart -= q;
+        wAnsEnd = wAnsStart + _2p - 1;
+      }
+
+      // Remove W(2r), . . . , W(0) from stack W.
+      tcd.W.Push(tcd.WTemp, wsize);
     }
 
     static void MultiplyRPlus1Parts(
-      vector<DataT> const& u, Range ur, 
-      DataT j, 
-      vector<DataT>& result, Range rRes,  
-      Long q, Long r, BaseT base)
+        vector<DataT> const &u, Range ur,
+        DataT j,
+        vector<DataT> &result, Range rRes,
+        Long q, Long r, BaseT base)
     {
-      if(j == 0)
+      if (j == 0)
       {
         BigIntegerUtil::Copy(
-          u, ur.first, ur.second, 
-          result, rRes.first, rRes.second);
+            u, ur.first, ur.second,
+            result, rRes.first, rRes.second);
       }
 
       BigIntegerUtil::SetBit(
-        result, rRes.first, rRes.second,
-        0);
+          result, rRes.first, rRes.second,
+          0);
 
       Long uEnd = ur.second;
       Long uStart = uEnd - q + 1;
 
       // Compute the p-bit numbers
       // Given U =  U_r ... U_1 U_0
-      // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
-      for(Long i = r; i >= 0; i--)
+      // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0
+      for (Long i = r; i >= 0; i--)
       {
         ClassicAddition::AddTo(
-          result, rRes.first, rRes.second,
-          u, uStart, uEnd,
-          base);
-        
+            result, rRes.first, rRes.second,
+            u, uStart, uEnd,
+            base);
+
         // Don't multiply if it's U_0
         // Or if result is already zero
-        if(i > 0 && !BigIntegerUtil::IsZero(result, rRes.first, rRes.second))
+        if (i > 0 && !BigIntegerUtil::IsZero(result, rRes.first, rRes.second))
         {
           // Case of j = zero is already eliminated
           ClassicMultiplication::MultiplyTo(
-            result, rRes.first, rRes.second,
-            j,
-            base);
+              result, rRes.first, rRes.second,
+              j,
+              base);
         }
 
         uEnd -= q;
@@ -182,7 +181,7 @@ namespace BigMath
       }
     }
 
-    static void BreakIntoRPlus1Parts(ToomCookData& tcd, Long k, BaseT base)
+    static void BreakIntoRPlus1Parts(ToomCookData &tcd, Long k, BaseT base)
     {
       Long p = tcd.P(k);
       Long q = tcd.Q(k);
@@ -190,13 +189,13 @@ namespace BigMath
       Long _2r = 2 * r;
 
       // Step 4. [Break into r + 1 parts.]
-      // Let the number at the top of stack C be regarded as a list 
-      // of r + 1 numbers with q bits each, (U_r . . . U_1U_0)_2q . 
-  
+      // Let the number at the top of stack C be regarded as a list
+      // of r + 1 numbers with q bits each, (U_r . . . U_1U_0)_2q .
+
       // The top of stack C now contains an (r + 1)q = (q_k + q_k+1)-bit number.
       // Remove U_r ... U_1 U_0 from stack C.
       Range ur = tcd.U.Pop();
-      
+
       // Now the top of stack C contains another list of
       // r + 1 q-bit numbers, V_r ... V_1 V_0.
       // Remove V_r ... V_1 V_0 from stack C.
@@ -204,30 +203,30 @@ namespace BigMath
 
       Range rRange = make_pair(0, p - 1);
 
-      // For j = 2r, 2r-1, ... , 1, 0      
-      for(Long j = _2r; j >= 0; j--)
+      // For j = 2r, 2r-1, ... , 1, 0
+      for (Long j = _2r; j >= 0; j--)
       {
         // code
-        tcd.C.push( j == _2r ? ToomCookData::CODE2 : ToomCookData::CODE3 );
+        tcd.C.push(j == _2r ? ToomCookData::CODE2 : ToomCookData::CODE3);
 
         // Compute the p-bit numbers
-        // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0 
+        // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0
         MultiplyRPlus1Parts(
-          tcd.V.data, vr,
-          j,
-          tcd.VTemp, rRange,
-          q, r, base);
-        
+            tcd.V.data, vr,
+            j,
+            tcd.VTemp, rRange,
+            q, r, base);
+
         tcd.U.Push(ur.first + rRange.first, ur.first + rRange.second);
 
         // Compute the p-bit numbers
-        // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0 
-        // and successively put these values onto stack U. 
+        // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0
+        // and successively put these values onto stack U.
         MultiplyRPlus1Parts(
-          tcd.U.data, ur,
-          j,
-          tcd.UTemp, rRange,
-          q, r, base);
+            tcd.U.data, ur,
+            j,
+            tcd.UTemp, rRange,
+            q, r, base);
 
         tcd.V.Push(vr.first + rRange.first, vr.first + rRange.second);
 
@@ -236,13 +235,13 @@ namespace BigMath
       }
 
       copy(
-        tcd.UTemp.begin(),
-        tcd.UTemp.begin() + rRange.first,
-        tcd.U.data.begin() + ur.first);
+          tcd.UTemp.begin(),
+          tcd.UTemp.begin() + rRange.first,
+          tcd.U.data.begin() + ur.first);
       copy(
-        tcd.VTemp.begin(),
-        tcd.VTemp.begin() + rRange.first,
-        tcd.V.data.begin() + vr.first);
+          tcd.VTemp.begin(),
+          tcd.VTemp.begin() + rRange.first,
+          tcd.V.data.begin() + vr.first);
 
       // Stack C contains
       // code-2, V(2r), U(2r),
@@ -252,9 +251,9 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    static void BreakIntoParts(ToomCookData& tcd, SizeT k, BaseT base)
+    static void BreakIntoParts(ToomCookData &tcd, SizeT k, BaseT base)
     {
-      while(--k > 0)
+      while (--k > 0)
       {
         BreakIntoRPlus1Parts(tcd, k, base);
       }
@@ -266,28 +265,28 @@ namespace BigMath
       Range ur = tcd.U.Pop();
       Range vr = tcd.V.Pop();
 
-      // set w ← uv using a built-in routine for multiplying 
+      // set w ← uv using a built-in routine for multiplying
       // 32-bit numbers, and go to step 10.
       SizeT wStart = tcd.W.ranges.empty() ? 0 : tcd.W.Top().second + 1;
       SizeT wEnd = ClassicMultiplication::Multiply(
-        tcd.U.data, ur.first, ur.second,
-        tcd.V.data, vr.first, vr.second,
-        tcd.W.data, wStart,
-        base);
+          tcd.U.data, ur.first, ur.second,
+          tcd.V.data, vr.first, vr.second,
+          tcd.W.data, wStart,
+          base);
 
       tcd.W.Push(wStart, wEnd);
     }
 
-    static vector<DataT> Multiply(ToomCookData& tcd, BaseT base)
+    static vector<DataT> Multiply(ToomCookData &tcd, BaseT base)
     {
       SizeT k = tcd.K;
       Int code = ToomCookData::CODE3;
 
       // Step 10. [Return.]
-      while(code != ToomCookData::CODE1)
+      while (code != ToomCookData::CODE1)
       {
         // If it is code-3, go to step T6.
-        if(code == ToomCookData::CODE3)
+        if (code == ToomCookData::CODE3)
         {
           // Step 6. [Save one product.]
           // Go back to step T3.
@@ -295,7 +294,7 @@ namespace BigMath
           k = 0;
         }
         // If it is code-2, put w onto stack W and go to step 7.
-        else if(code == ToomCookData::CODE2)
+        else if (code == ToomCookData::CODE2)
         {
           ComputeAnswer(tcd, k, base);
         }
@@ -308,32 +307,32 @@ namespace BigMath
       // And if it is code-1, terminate the algorithm (w is the answer).
       return tcd.W.data;
     }
-    
-    public:
+
+  public:
     /*
-     * Given a positive integer n and two nonnegative n-bit integers 
-     * u and v, this algorithm forms their 2n-bit product, w. 
+     * Given a positive integer n and two nonnegative n-bit integers
+     * u and v, this algorithm forms their 2n-bit product, w.
      *
-     * Four auxiliary stacks are used to hold the long numbers that 
+     * Four auxiliary stacks are used to hold the long numbers that
      * are manipulated during the procedure:
-     * 
+     *
      * Stack U, V: Temporary storage of U(j) and V(j) in step 4.
      * Stack C: Numbers to be multiplied, and control codes.
      * Stack W: Storage W(j).
-     * 
-     * These stacks may contain either binary numbers or special 
-     * control symbols called code-1, code-2, and code-3. The 
+     *
+     * These stacks may contain either binary numbers or special
+     * control symbols called code-1, code-2, and code-3. The
      * algorithm also constructs an auxiliary table of numbers qk, rk;
-     * this table is maintained in such a manner that it may be stored 
+     * this table is maintained in such a manner that it may be stored
      * as a linear list, where a single pointer that traverses the list
      * (moving back and forth) can be used to access the current table
      * entry of interest.
-    */
+     */
     static vector<DataT> Multiply(
-      vector<DataT> const& a,
-      vector<DataT> const& b,
-      BaseT base,
-      bool trim=true)
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool trim = true)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
       ToomCookData tcd(n);
@@ -350,14 +349,14 @@ namespace BigMath
 
       vector<DataT> w = Multiply(tcd, base);
 
-      if(trim)
+      if (trim)
       {
         BigIntegerUtil::TrimZeros(w);
       }
-      
+
       return w;
     }
-   };
+  };
 }
 
 #endif

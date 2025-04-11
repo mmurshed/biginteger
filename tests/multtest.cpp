@@ -5,7 +5,7 @@
     copyright            : (C) 2002 by S. M. Mahbub Murshed
     email                : murshed@gmail.com
  ***************************************************************************/
- 
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -31,32 +31,30 @@ using namespace std;
 #include "../algorithms/classic/ClassicMultiplication.h"
 #include "../algorithms/stonehagestrassen/FFTMultiplication.h"
 
-
 using namespace BigMath;
-
 
 int main(int argc, char *argv[])
 {
-/*
-  if(argc < 3)
-  {
-    cerr << "Usage: toomtest [INPUT] [OUTPUT] [ANSWER]" << endl;
+  /*
+    if(argc < 3)
+    {
+      cerr << "Usage: toomtest [INPUT] [OUTPUT] [ANSWER]" << endl;
+      return 1;
+    }
+
+    if(!freopen(argv[1],"rt",stdin))
+      return 1;
+
+    if(!freopen(argv[2],"wt",stdout))
+      return 1;
+
+    ifstream ansFile(argv[3]);
+  */
+
+  if (!freopen("input.txt", "rt", stdin))
     return 1;
-  }
 
-  if(!freopen(argv[1],"rt",stdin))
-    return 1;
-
-  if(!freopen(argv[2],"wt",stdout))
-    return 1;
-
-  ifstream ansFile(argv[3]);
-*/
-
-  if(!freopen("input.txt","rt",stdin))
-    return 1;
-
-  if(!freopen("output.txt","wt",stdout))
+  if (!freopen("output.txt", "wt", stdout))
     return 1;
 
   ifstream ansFile("answer.txt");
@@ -65,14 +63,13 @@ int main(int argc, char *argv[])
 
   char op;
 
-
   cerr << "Data,Results Digit,Time" << endl;
 
-  while(true)
+  while (true)
   {
     BigInteger a, b;
     cerr << "reading" << endl;
-   
+
     clock_t start = clock();
     cin >> a >> op >> b;
 
@@ -93,9 +90,9 @@ int main(int argc, char *argv[])
 
     start = clock();
     vector<DataT> result = FFTMultiplication::Multiply(
-      a.GetInteger(),
-      b.GetInteger(),
-      BigInteger::Base());
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
@@ -103,21 +100,20 @@ int main(int argc, char *argv[])
     cout << result << endl;
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << result.size() << "," <<  timeTaken << endl;
+    cerr << DATA << "," << result.size() << "," << timeTaken << endl;
 
     int cmp = BigIntegerComparator::CompareTo(result, ans.GetInteger());
-    if(cmp != 0)
+    if (cmp != 0)
     {
       cerr << "Multiplication algorithm failed." << endl;
       return cmp;
     }
 
     DATA++;
-  
-    if(cin.eof())
+
+    if (cin.eof())
       break;
   }
 
   return EXIT_SUCCESS;
 }
-

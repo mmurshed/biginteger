@@ -16,14 +16,14 @@ using namespace std;
 namespace BigMath
 {
   // Inserter
-  ostream& operator<<(ostream& stream,  BigInteger const& out)
+  ostream &operator<<(ostream &stream, BigInteger const &out)
   {
     stream << BigIntegerParser::ToString(out);
     return stream;
   }
 
   // Extracter
-  istream& operator>>(istream& stream, BigInteger& in)
+  istream &operator>>(istream &stream, BigInteger &in)
   {
     SizeT SIZE = 10000;
     char *data = new char[SIZE];
@@ -34,22 +34,22 @@ namespace BigMath
 
     int input = stream.get();
 
-    if(input == '-')
+    if (input == '-')
       isNegative = true;
-    else if(input == '+')
+    else if (input == '+')
       isNegative = false;
     else
       stream.putback(input);
-    
+
     SizeT len = 0;
-    
-    while(!stream.eof())
+
+    while (!stream.eof())
     {
       input = stream.get();
-      if(stream.eof())
+      if (stream.eof())
         break;
 
-      if(isdigit(input))
+      if (isdigit(input))
         data[len++] = input;
       else
       {
@@ -58,23 +58,23 @@ namespace BigMath
       }
 
       // Resize the input buffer
-      if(len >= SIZE)
+      if (len >= SIZE)
       {
         SIZE += SIZE;
-        char *p = new char [SIZE];
+        char *p = new char[SIZE];
         strncpy(p, data, SIZE);
-        delete [] data;
+        delete[] data;
         data = p;
       }
     }
     data[len] = 0;
-    
-    in = BigIntegerParser::Parse(data);
-    
-    if(!in.IsZero() && isNegative)
-        in.SetSign(isNegative);
 
-    delete [] data;
+    in = BigIntegerParser::Parse(data);
+
+    if (!in.IsZero() && isNegative)
+      in.SetSign(isNegative);
+
+    delete[] data;
 
     return stream;
   }

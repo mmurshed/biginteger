@@ -16,7 +16,7 @@ namespace BigMath
 {
   typedef int64_t Long;
   typedef uint64_t ULong;
-  
+
   typedef int32_t Int;
   typedef uint32_t UInt;
 
@@ -26,7 +26,7 @@ namespace BigMath
 
   class BigIntegerUtil
   {
-    public:
+  public:
     // Base 10
     static const BaseT Base10 = 10;
     // Base 10^3
@@ -51,14 +51,14 @@ namespace BigMath
     // Base 2^31
     static const BaseT Base2_31 = 2147483648; // 2^31
 
-    public:
+  public:
     // Trims Leading Zeros
     // Runtime O(n), Space O(1)
-    static SizeT TrimZeros(vector<DataT>& a, Int sizeTo = 0)
+    static SizeT TrimZeros(vector<DataT> &a, Int sizeTo = 0)
     {
       SizeT size = (SizeT)a.size();
       Int i = size;
-      while(i > 0 && a[i - 1] == 0 && a.size() > sizeTo)
+      while (i > 0 && a[i - 1] == 0 && a.size() > sizeTo)
       {
         a.pop_back();
         i--;
@@ -67,64 +67,64 @@ namespace BigMath
     }
 
     // Runtime O(n), Space O(1)
-    static SizeT FindNonZeroByte(vector<DataT> const& a, Int start = 0, Int end = -1)
+    static SizeT FindNonZeroByte(vector<DataT> const &a, Int start = 0, Int end = -1)
     {
       Int i = (end == -1 ? (Int)a.size() : end + 1);
-      while(i > start && a[i - 1] == 0)
+      while (i > start && a[i - 1] == 0)
         i--;
       return i;
     }
-    
+
     // Runtime O(n), Space O(1)
-    static bool IsZero(vector<DataT> const& a, Int start = 0, Int end = -1)
+    static bool IsZero(vector<DataT> const &a, Int start = 0, Int end = -1)
     {
       bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
       return zero ? zero : FindNonZeroByte(a, start, end) == start;
     }
 
     // Sets some elements of the array to zero.
-    static void SetBit(vector<DataT>& r, SizeT rStart, SizeT rEnd, DataT bit = 0)
+    static void SetBit(vector<DataT> &r, SizeT rStart, SizeT rEnd, DataT bit = 0)
     {
-      if(r.size() == 0)
+      if (r.size() == 0)
         return;
       rEnd = min(rEnd, (SizeT)(r.size() - 1));
-      for(SizeT i = rStart; i <= rEnd; i++)
+      for (SizeT i = rStart; i <= rEnd; i++)
         r.at(i) = bit;
     }
 
     // Copy
-    static void Copy(vector<DataT> const& p, vector<DataT>& q)
+    static void Copy(vector<DataT> const &p, vector<DataT> &q)
     {
-        Copy(p, 0, p.size() - 1, q, 0, q.size() - 1);
+      Copy(p, 0, p.size() - 1, q, 0, q.size() - 1);
     }
 
-    static void Copy(vector<DataT> const& p, SizeT pStart, SizeT pEnd, vector<DataT>& q, SizeT qStart, SizeT qEnd)
+    static void Copy(vector<DataT> const &p, SizeT pStart, SizeT pEnd, vector<DataT> &q, SizeT qStart, SizeT qEnd)
     {
-      if(p.size() == 0)
+      if (p.size() == 0)
         return;
-      for(SizeT i = pStart, j = qStart; i <= pEnd && j <= qEnd; i++, j++)
+      for (SizeT i = pStart, j = qStart; i <= pEnd && j <= qEnd; i++, j++)
         q.at(j) = p.at(i);
     }
 
-    static void MakeSameSize(vector<DataT>& u, vector<DataT>& v)
+    static void MakeSameSize(vector<DataT> &u, vector<DataT> &v)
     {
       // Make both same size
       Resize(v, u.size());
       Resize(u, v.size());
     }
 
-    static void Resize(vector<DataT>& u, SizeT n)
+    static void Resize(vector<DataT> &u, SizeT n)
     {
       // Make to size n
-      while(u.size() < n)
+      while (u.size() < n)
         u.push_back(0);
     }
 
     static Int Len(SizeT start, SizeT end)
     {
-      return (Int) end - (Int) start + 1;
+      return (Int)end - (Int)start + 1;
     }
-   };
+  };
 }
 
 #endif

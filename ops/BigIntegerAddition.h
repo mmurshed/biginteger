@@ -22,59 +22,57 @@ namespace BigMath
 
   class BigIntegerAddition
   {
-    public:
-    static BigInteger Add(BigInteger const& a, BigInteger const& b)
+  public:
+    static BigInteger Add(BigInteger const &a, BigInteger const &b)
     {
       // Check for zero
       bool aZero = a.IsZero();
       bool bZero = b.IsZero();
       // 0 + 0
-      if(aZero && bZero)
+      if (aZero && bZero)
         return BigInteger();
       // 0 + b
-      if(aZero)
+      if (aZero)
         return BigInteger(b);
       // a + 0
-      if(bZero)
+      if (bZero)
         return BigInteger(a);
 
       // Check if actually subtraction is needed
       bool aNeg = a.IsNegative();
       bool bNeg = b.IsNegative();
-      
+
       // a is negative, b is not. return b - a
-      if(aNeg != bNeg)
+      if (aNeg != bNeg)
       {
         return BigIntegerSubtraction::SubtractCompared(b, a);
       }
       // b is negative and a is not. return a - b
-      else if(!aNeg && bNeg)
+      else if (!aNeg && bNeg)
       {
         return BigIntegerSubtraction::SubtractCompared(a, b);
       }
 
       // Both are positive or both are negative
       BigInteger result = BigInteger(
-        ClassicAddition::Add(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base())
-      );
+          ClassicAddition::Add(
+              a.GetInteger(),
+              b.GetInteger(),
+              BigInteger::Base()));
 
       // Flip the sign when adding two negative numbers
-      if(aNeg && bNeg)
+      if (aNeg && bNeg)
         result.SetSign(true);
 
       return result;
     }
-
-   };
+  };
 
   // Adds Two BigInteger
-  BigInteger operator+(BigInteger const& a, BigInteger const& b)
+  BigInteger operator+(BigInteger const &a, BigInteger const &b)
   {
     return BigIntegerAddition::Add(a, b);
-  } 
+  }
 }
 
 #endif

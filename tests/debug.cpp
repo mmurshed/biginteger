@@ -5,7 +5,7 @@
     copyright            : (C) 2002 by S. M. Mahbub Murshed
     email                : murshed@gmail.com
  ***************************************************************************/
- 
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>

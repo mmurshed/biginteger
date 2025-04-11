@@ -26,62 +26,61 @@ namespace BigMath
     static const SizeT TOOM_COOK_THRESHOLD = 512;
     static const SizeT FFT_THRESHOLD = 1024;
 
-    public:
-    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, BaseT base)
+  public:
+    static vector<DataT> MultiplyUnsigned(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
     {
       SizeT size = a.size() + b.size();
 
-      if(size <= KARATSUBA_THRESHOLD)
+      if (size <= KARATSUBA_THRESHOLD)
       {
         return ClassicMultiplication::Multiply(a, b, base);
       }
-      else if(size <= TOOM_COOK_THRESHOLD)
+      else if (size <= TOOM_COOK_THRESHOLD)
       {
         return KaratsubaMultiplication::Multiply(a, b, base);
       }
-      else if(size <= FFT_THRESHOLD)
+      else if (size <= FFT_THRESHOLD)
       {
         ToomCookMultiplication2 toomCook;
         return toomCook.Multiply(a, b, base);
       }
 
-      return FFTMultiplication::Multiply(a, b,base);
+      return FFTMultiplication::Multiply(a, b, base);
     }
- 
-    static BigInteger Multiply(BigInteger const& a, BigInteger const& b)
+
+    static BigInteger Multiply(BigInteger const &a, BigInteger const &b)
     {
-      if(a.IsZero() || b.IsZero())
+      if (a.IsZero() || b.IsZero())
         return BigInteger(); // 0 times anything is zero
 
       BigInteger result = MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-      if(a.IsNegative() != b.IsNegative())
+      if (a.IsNegative() != b.IsNegative())
         result.SetSign(true);
-      
+
       return result;
     }
 
-    static BigInteger Multiply(BigInteger const& a, DataT b)
+    static BigInteger Multiply(BigInteger const &a, DataT b)
     {
-      if(a.IsZero() || b == 0)
+      if (a.IsZero() || b == 0)
         return BigInteger(); // 0 times anything is zero
 
       vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
       BigInteger result = BigInteger(m, false);
-      if(a.IsNegative() != b < 0)
+      if (a.IsNegative() != b < 0)
         result.SetSign(true);
-      
+
       return result;
     }
-
-   };
+  };
 
   // Multiplies Two BigInteger
-  BigInteger operator*(BigInteger const& a, BigInteger const& b)
+  BigInteger operator*(BigInteger const &a, BigInteger const &b)
   {
     return BigIntegerMultiplication::Multiply(a, b);
   }
 
-  BigInteger operator*(BigInteger const& a, DataT b)
+  BigInteger operator*(BigInteger const &a, DataT b)
   {
     return BigIntegerMultiplication::Multiply(a, b);
   }

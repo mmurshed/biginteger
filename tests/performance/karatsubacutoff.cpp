@@ -5,7 +5,7 @@
     copyright            : (C) 2002 by S. M. Mahbub Murshed
     email                : murshed@gmail.com
  ***************************************************************************/
- 
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -27,17 +27,16 @@ using namespace std;
 
 using namespace BigMath;
 
-
 int main(int argc, char *argv[])
 {
-  if(argc < 3)
+  if (argc < 3)
     return 1;
 
-  if(!freopen(argv[1],"rt",stdin))
+  if (!freopen(argv[1], "rt", stdin))
     return 1;
 
   FILE *timeFile = fopen(argv[2], "wt");
-  if(!timeFile)
+  if (!timeFile)
     return 1;
 
   char op;
@@ -45,31 +44,30 @@ int main(int argc, char *argv[])
   cerr << "Karat Cutoff,Time" << endl;
 
   BigInteger a, b;
-  
+
   cin >> a >> op >> b;
 
-  for(SizeT k = 4; k <= 256; k += 2)
+  for (SizeT k = 4; k <= 256; k += 2)
   {
     KaratsubaAlgorithm::KARATSUBA_THRESHOLD = k;
 
     clock_t start = clock();
 
     vector<DataT> rKarat = KaratsubaAlgorithm::Multiply(
-          a.GetInteger(),
-          b.GetInteger(),
-          BigInteger::Base());
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
 
     clock_t end = clock();
-    
+
     double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
 
     cerr.setf(ios::showpoint);
     cerr << k << "," << timeTakenKarat << endl;
     fprintf(timeFile, "%u,%f\n", k, timeTakenKarat);
   }
-  
+
   fclose(timeFile);
 
   return EXIT_SUCCESS;
 }
-

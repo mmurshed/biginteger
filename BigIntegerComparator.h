@@ -16,8 +16,7 @@ namespace BigMath
   class BigIntegerComparator
   {
 
-    public:
-
+  public:
     // Compares this with `with' irrespective of sign
     // Returns
     // 0 if equal
@@ -25,39 +24,39 @@ namespace BigMath
     // -value if this < with
     // Runtime O(n), Space O(1)
     static Int CompareTo(
-      vector<DataT> const& a,
-      vector<DataT> const& b)
+        vector<DataT> const &a,
+        vector<DataT> const &b)
     {
       // Case with zero
       bool aIsZero = BigIntegerUtil::IsZero(a);
       bool bIsZero = BigIntegerUtil::IsZero(b);
 
-      if(aIsZero && bIsZero)
+      if (aIsZero && bIsZero)
         return 0;
-      else if(!aIsZero && bIsZero)
+      else if (!aIsZero && bIsZero)
         return 1;
-      else if(aIsZero && !bIsZero)
+      else if (aIsZero && !bIsZero)
         return -1;
 
       // Different in size
       Long diff = a.size();
       diff -= b.size();
-      if(diff != 0)
+      if (diff != 0)
         return (Int)diff;
 
       // Both ints have same number of digits
       Int cmp = 0;
-      for(Int i = (Int)a.size() - 1; i >= 0; i--)
+      for (Int i = (Int)a.size() - 1; i >= 0; i--)
       {
         diff = a[i];
         diff -= b[i];
-        if(diff != 0)
+        if (diff != 0)
           return (Int)diff;
       }
 
       return cmp;
     }
-   };
+  };
 }
 
 #endif
