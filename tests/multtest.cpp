@@ -66,12 +66,14 @@ int main(int argc, char *argv[])
   char op;
 
 
-  cerr << "Data,Time,Results Digit" << endl;
+  cerr << "Data,Results Digit,Time" << endl;
 
   while(true)
   {
     BigInteger a, b;
+    cerr << "reading" << endl;
    
+    clock_t start = clock();
     cin >> a >> op >> b;
 
     // vector<DataT> res1 = CommonAlgorithms::ShiftLeft(a.GetInteger(), 2);
@@ -82,20 +84,26 @@ int main(int argc, char *argv[])
     string line;
     std::getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
+    clock_t end = clock();
+    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
-    clock_t start = clock();
+    cerr << "Reading time: " << timeTaken << endl;
+
+    cerr << "started" << endl;
+
+    start = clock();
     vector<DataT> result = FFTMultiplication::Multiply(
       a.GetInteger(),
       b.GetInteger(),
       BigInteger::Base());
-    clock_t end = clock();
-    double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
+    end = clock();
+    timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
     // cout << ans << endl;
     cout << result << endl;
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTaken << "," << result.size() << endl;
+    cerr << DATA << "," << result.size() << "," <<  timeTaken << endl;
 
     int cmp = BigIntegerComparator::CompareTo(result, ans.GetInteger());
     if(cmp != 0)
