@@ -106,6 +106,23 @@ public:
       isNegative = !isNegative;
       return *this;
     }
+
+    long double ToDouble() const {
+        const long double base = Base(); // 2^16
+        long double result = 0.0L;
+        
+        // Process digits from the most significant to the least significant.
+        // The digits are stored in little-endian order, so we iterate in reverse.
+        for (size_t i = theInteger.size(); i > 0; i--) {
+            result = result * base + static_cast<long double>(theInteger[i - 1]);
+        }
+        
+        // Apply the sign.
+        if (isNegative)
+            result = -result;
+        
+        return result;
+    }    
 public:
     // Compares this with `with'
     // Returns
@@ -132,6 +149,8 @@ public:
     }
    };
 
+  BigInteger const& ONE = BigInteger(1, false, 1);
+  BigInteger const& ZERO = BigInteger();
 }
 
 #endif
