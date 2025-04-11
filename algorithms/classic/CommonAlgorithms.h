@@ -24,8 +24,8 @@ namespace BigMath
     public:
     static vector<DataT> ConvertBase(
       vector<DataT> const& bigIntB1,
-      ULong base1,
-      ULong base2)
+      BaseT base1,
+      BaseT base2)
       {
         return ConvertBase(
           bigIntB1, 0, bigIntB1.size() - 1,
@@ -37,8 +37,8 @@ namespace BigMath
     // Donald E. Knuth 4.4
     static vector<DataT> ConvertBase(
       vector<DataT> const& bigIntB1, SizeT start, SizeT end,
-      ULong base1,
-      ULong base2)
+      BaseT base1,
+      BaseT base2)
     {
       if(base1 == base2)
       {

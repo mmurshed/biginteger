@@ -21,7 +21,7 @@ namespace BigMath
     static void SubtractFrom(
       vector<DataT>& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd,
-      ULong base)
+      BaseT base)
     {
       Subtract(
            a, aStart, aEnd,
@@ -33,7 +33,7 @@ namespace BigMath
     static vector<DataT> Subtract(
       vector<DataT> const& a, 
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
       vector<DataT> result(size);
@@ -55,7 +55,7 @@ namespace BigMath
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart,
-      ULong base)
+      BaseT base)
     {
       aEnd = min(
         aEnd,

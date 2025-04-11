@@ -52,18 +52,8 @@ namespace BigMath
       );
     }
 
-    static BigInteger MultiplyUnsigned(BigInteger const& a, BigInteger const& b)
-    {
-        return BigInteger(
-          MultiplyUnsigned(
-            a.GetInteger(),
-            b.GetInteger(),
-            BigInteger::Base())
-        );
-    }
-
     public:
-    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, ULong base)
+    static vector<DataT> MultiplyUnsigned(vector<DataT> const& a, vector<DataT> const& b, BaseT base)
     {
       SizeT size = a.size() + b.size();
 
@@ -150,7 +140,7 @@ public:
       if(a.IsZero() || b.IsZero())
         return BigInteger(); // 0 times anything is zero
 
-      BigInteger result = MultiplyUnsigned(a, b);
+      BigInteger result = MultiplyUnsigned(a.GetInteger(), b.GetInteger(), BigInteger::Base());
       if(a.IsNegative() != b.IsNegative())
         result.SetSign(true);
       
@@ -181,8 +171,7 @@ public:
       Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
       if(cmp == 0)
       {
-        vector<DataT> one(1);
-        one[0] = 1;
+        vector<DataT> one(1, 1); // size 1, value 1
         BigInteger q = BigInteger(one, a.IsNegative() || b.IsNegative());
         BigInteger r = BigInteger();
         return make_pair(q,r); // case of 0 // case of a/a
@@ -233,7 +222,13 @@ public:
       }
       
       return result;
-    }    
+    }
+    
+    static BigInteger ShiftLeft(BigInteger const& a, DataT b)
+    {
+      vector<DataT> result = CommonAlgorithms::ShiftLeft(a.GetInteger(), b);
+      return BigInteger(result, a.IsNegative());
+    }
    };
 
   // Adds Two BigInteger

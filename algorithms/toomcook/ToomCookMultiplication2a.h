@@ -26,7 +26,7 @@ namespace BigMath
     private:
 
     // Threshold for switching to the naive multiplication.
-    const SizeT baseCaseThreshold = 32;      
+    const SizeT baseCaseThreshold = 256;      
 
     // For evaluation, we need to compute 5 points (e.g., points for Toom–3: 0, 1, -1, 2, ∞).
     const int numPoints = 5;
@@ -36,7 +36,7 @@ namespace BigMath
     vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
 

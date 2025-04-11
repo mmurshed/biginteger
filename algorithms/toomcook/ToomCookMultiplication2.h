@@ -31,19 +31,19 @@ namespace BigMath
       vector<DataT> tempBuffer;
 
     // Threshold for switching to the naive multiplication.
-    static const SizeT baseCaseThreshold = 32;      
+    static const SizeT baseCaseThreshold = 256;      
       
     public:
     vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base,
+      BaseT base,
       bool trim=true)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
 
       if (n < baseCaseThreshold) {
-          return ClassicMultiplication::Multiply(a, b, base);
+          return BigIntegerOperations::MultiplyUnsigned(a, b, base);
       }      
 
       // For a Toom–3 algorithm, we typically split the input into 3 parts.
@@ -96,7 +96,7 @@ namespace BigMath
           // The multiplication result at each point requires room for 2*segmentSize elements.
           tempProducts[i].resize(2 * segmentSize);
           // For pointwise multiplication, you can call the naive multiplication routine.
-          tempProducts[i] = ClassicMultiplication::Multiply(evalA[i], evalB[i], base);
+          tempProducts[i] = BigIntegerOperations::MultiplyUnsigned(evalA[i], evalB[i], base);
       }
 
       int fm1Sign = fm1SignA * fm1SignB;
@@ -126,7 +126,7 @@ namespace BigMath
     static int evaluatePoly(const vector<DataT>& poly,
                              SizeT partSize,
                              vector< vector<DataT> >& evalPoints,
-                             ULong base)
+                             BaseT base)
     {
         // Split the input poly into three parts: a0, a1, and a2.
         vector<DataT> a0, a1, a2;
@@ -218,7 +218,7 @@ namespace BigMath
     static vector<DataT> interpolate(const vector< vector<DataT> >& products,
                             int rm1Sign,
                             SizeT partSize,
-                            ULong base)
+                            BaseT base)
     {
         // For clarity, assume the products are indexed as follows:
         //   products[0] = r0  (evaluation at 0)

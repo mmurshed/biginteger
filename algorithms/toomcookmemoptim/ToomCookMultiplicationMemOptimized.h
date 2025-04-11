@@ -26,7 +26,7 @@ namespace BigMath
   class ToomCookMultiplicationMemOptimized
   {
     private:
-    static void ComputeAnswer(ToomCookData& tcd, SizeT k, ULong base)
+    static void ComputeAnswer(ToomCookData& tcd, SizeT k, BaseT base)
     {
         // Step 7. [Find a’s.]
         Long _2r = 2 * tcd.R(k);
@@ -140,7 +140,7 @@ namespace BigMath
       vector<DataT> const& u, Range ur, 
       DataT j, 
       vector<DataT>& result, Range rRes,  
-      Long q, Long r, ULong base)
+      Long q, Long r, BaseT base)
     {
       if(j == 0)
       {
@@ -182,7 +182,7 @@ namespace BigMath
       }
     }
 
-    static void BreakIntoRPlus1Parts(ToomCookData& tcd, Long k, ULong base)
+    static void BreakIntoRPlus1Parts(ToomCookData& tcd, Long k, BaseT base)
     {
       Long p = tcd.P(k);
       Long q = tcd.Q(k);
@@ -252,7 +252,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    static void BreakIntoParts(ToomCookData& tcd, SizeT k, ULong base)
+    static void BreakIntoParts(ToomCookData& tcd, SizeT k, BaseT base)
     {
       while(--k > 0)
       {
@@ -278,7 +278,7 @@ namespace BigMath
       tcd.W.Push(wStart, wEnd);
     }
 
-    static vector<DataT> Multiply(ToomCookData& tcd, ULong base)
+    static vector<DataT> Multiply(ToomCookData& tcd, BaseT base)
     {
       SizeT k = tcd.K;
       Int code = ToomCookData::CODE3;
@@ -332,7 +332,7 @@ namespace BigMath
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base,
+      BaseT base,
       bool trim=true)
     {
       SizeT n = (SizeT)max(a.size(), b.size());

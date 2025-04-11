@@ -22,7 +22,7 @@ namespace BigMath
     static void AddTo(
       vector<DataT> & a,
       ULong b,
-      ULong base)
+      BaseT base)
       {
         AddTo(a, 0, a.size() - 1, b, base);
       }
@@ -30,7 +30,7 @@ namespace BigMath
     static void AddTo(
       vector<DataT> & a, SizeT aStart, SizeT aEnd, 
       ULong b,
-      ULong base)
+      BaseT base)
     {
       ULong sum = b;
       ULong carry = 0;
@@ -70,15 +70,13 @@ namespace BigMath
         carry = carry / base;
         aPos++;
       }
-
-      BigIntegerUtil::TrimZeros(a);
     }    
 
     public:
     static void AddTo(
       vector<DataT>& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd,
-      ULong base)
+      BaseT base)
     {
       Add(
           a, aStart, aEnd,
@@ -90,7 +88,7 @@ namespace BigMath
     static vector<DataT> Add(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       SizeT size = (SizeT)max(a.size(),  b.size()) + 1;
       vector<DataT> result(size);
@@ -114,7 +112,7 @@ namespace BigMath
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart,
-      ULong base)
+      BaseT base)
     {
       aEnd = min(aEnd, (SizeT) (a.size() - 1));
 

@@ -14,33 +14,36 @@ using namespace std;
 
 namespace BigMath
 {
-  typedef long long Long;
-  typedef unsigned long long ULong;
+  typedef int64_t Long;
+  typedef uint64_t ULong;
   
-  typedef int Int;
-  typedef unsigned int UInt;
+  typedef int32_t Int;
+  typedef uint32_t UInt;
 
-  typedef UInt DataT;
-  typedef UInt SizeT;
+  typedef int64_t DataT;
+  typedef uint32_t SizeT;
+  typedef int64_t BaseT;
 
   class BigIntegerUtil
   {
     public:
     // Base 10
-    static const ULong Base10 = 10;
+    static const BaseT Base10 = 10;
     // Base 100
-    static const ULong Base100 = 100;
+    static const BaseT Base100 = 100;
     // Base 10^8
-    static const ULong Base100M = 100000000lu;
+    static const BaseT Base100M = 100000000lu;
     // Number of digits in `BASE'
     static const SizeT Base100M_Zeroes = 8;
 
     // Base 2
-    static const ULong Base2 = 2;
+    static const BaseT Base2 = 2;
     // Base 2^16
-    static const ULong Base2_16 = 65536ul;
+    static const BaseT Base2_16 = 65536ul;
     // Base 2^32
-    static const ULong Base2_32 = 4294967296ul; // 2^32
+    static const BaseT Base2_32 = 4294967296ul; // 2^32
+    // Base 2^31
+    static const BaseT Base2_31 = 2147483648; // 2^31
 
     public:
     // Trims Leading Zeros

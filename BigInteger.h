@@ -29,14 +29,7 @@ namespace BigMath
     BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
     
     BigInteger(vector<DataT> const& aInt, bool negative = false) : theInteger(aInt), isNegative(negative)
-    {
-      // Trim zeros so representation is canonical
-      BigIntegerUtil::TrimZeros(theInteger);
-      
-      // If the number is all zeros, ensure it’s not negative
-      if (BigIntegerUtil::IsZero(theInteger))
-          isNegative = false;
-    }
+    {}
 
     // Filled with specified data
     BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
@@ -79,9 +72,9 @@ namespace BigMath
       return (SizeT)theInteger.size();
     }
 
-    static ULong Base()
+    static BaseT Base()
     {
-      return BigIntegerUtil::Base2_32;
+      return BigIntegerUtil::Base2_31;
     }
 
     bool IsNegative() const

@@ -48,7 +48,7 @@ namespace BigMath
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& c, SizeT cStart, 
       vector<DataT>& w, SizeT wStart, 
-      ULong base)
+      BaseT base)
       {
         Int la = BigIntegerUtil::Len(aStart, aEnd);
         Int lb = BigIntegerUtil::Len(bStart, bEnd);
@@ -170,7 +170,7 @@ namespace BigMath
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
       SizeT size = 3 * n;

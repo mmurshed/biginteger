@@ -34,7 +34,7 @@ namespace BigMath
     vector<Long> r_table;
     
     public:
-    vector<DataT> ComputeAnswer(SizeT k, ULong base)
+    vector<DataT> ComputeAnswer(SizeT k, BaseT base)
     {
         // Step 7. [Find a’s.]
         // Set r ← r_k
@@ -148,7 +148,7 @@ namespace BigMath
         return w;
     }
 
-    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, ULong base)
+    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, BaseT base)
     {
       vector<DataT> Uj(p, 0);
 
@@ -189,7 +189,7 @@ namespace BigMath
       return Uj;
     }
 
-    void BreakIntoRPlus1Parts(Long p, Long q, Long r, ULong base)
+    void BreakIntoRPlus1Parts(Long p, Long q, Long r, BaseT base)
     {
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list 
@@ -239,7 +239,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    vector<DataT> DivideRecursive(SizeT k, ULong base)
+    vector<DataT> DivideRecursive(SizeT k, BaseT base)
     {
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
@@ -280,7 +280,7 @@ namespace BigMath
       return DivideRecursive(k, base);
     }
 
-    vector<DataT> Divide(SizeT k, ULong base)
+    vector<DataT> Divide(SizeT k, BaseT base)
     {
       // While k > 0
       while(--k > 0)
@@ -310,7 +310,7 @@ namespace BigMath
       return w;
     }
 
-    vector<DataT> Multiply(SizeT k, ULong base)
+    vector<DataT> Multiply(SizeT k, BaseT base)
     {
       Int code = CODE3;
 
@@ -414,7 +414,7 @@ namespace BigMath
     vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
       SizeT k = ComputeTables(n);

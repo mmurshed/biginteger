@@ -22,7 +22,7 @@ namespace BigMath
     static void MultiplyTo(
       vector<DataT>& a,
       DataT b,
-      ULong base)
+      BaseT base)
     {
         MultiplyTo(
           a, 0, a.size() - 1,
@@ -33,7 +33,7 @@ namespace BigMath
     static SizeT MultiplyTo(
       vector<DataT>& a, SizeT aStart, SizeT aEnd,
       DataT b,
-      ULong base)
+      BaseT base)
     {
       if(b == 0 || // a times 0
         BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
@@ -78,15 +78,13 @@ namespace BigMath
         j++;
       }
 
-      BigIntegerUtil::TrimZeros(a);
-
       return j;
     }    
 
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       DataT b,
-      ULong base)
+      BaseT base)
       {
         vector<DataT> w(a.size());
         Multiply(
@@ -100,9 +98,9 @@ namespace BigMath
 
     static SizeT  Multiply(
       vector<DataT> const& a, SizeT aStart, SizeT aEnd,
-      DataT b,
+      ULong b,
       vector<DataT>& w, SizeT wStart, SizeT wEnd,
-      ULong base)
+      BaseT base)
     {
       if(b == 0 || // a times 0
         BigIntegerUtil::IsZero(a, aStart, aEnd)) // 0 times b
@@ -160,7 +158,7 @@ namespace BigMath
     static void MultiplyTo(
       vector<DataT> & a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       a = Multiply(a, b, base);
     }
@@ -168,7 +166,7 @@ namespace BigMath
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       if(BigIntegerUtil::IsZero(a) || BigIntegerUtil::IsZero(b)) // 0 times
         return vector<DataT>();
@@ -189,9 +187,8 @@ namespace BigMath
       vector<DataT> const& a, SizeT aStart, SizeT aEnd, 
       vector<DataT> const& b, SizeT bStart, SizeT bEnd, 
       vector<DataT>& result, SizeT rStart,
-      ULong base)
+      BaseT base)
     {
-
       aEnd = min(aEnd, (SizeT) (a.size() - 1));
       bEnd = min(bEnd, (SizeT) (b.size() - 1));
 
