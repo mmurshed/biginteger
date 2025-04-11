@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <string>
+#include <cassert>
 using namespace std;
 
 #include "BigInteger.h"
@@ -91,10 +92,14 @@ namespace BigMath
         num,
         start,
         end,
-        BigIntegerUtil::Base100M_Zeroes);
-      vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
+        BigIntegerUtil::Base100_Zeroes);
+
+        if (BigIntegerUtil::Base100 == BigInteger::Base())
+        return bigIntB1;
+
+        vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
         bigIntB1,
-        BigIntegerUtil::Base100M,
+        BigIntegerUtil::Base100,
         BigInteger::Base());
       return bigIntB2;
     }
@@ -107,43 +112,69 @@ namespace BigMath
 	•	bigInt[n - 1] = coefficient of B^{n-1} (most significant digit).å
     */
     // Group by n, meaning 10^n base
-    static vector<DataT> ParseUnsignedBase10n(char const* num, Int start, Int end, SizeT digits)
-    {
-      vector<DataT> bigInt(end / digits + 1);
-
-      SizeT j = 0;
-
-      bool error = false;
+    static vector<DataT> ParseUnsignedBase10n(const char* num, Int start, Int end, SizeT digits) {
+      // Calculate the total number of digits (assumes num is a null-terminated string)
+      SizeT len = end - start + 1;
+      SizeT numBlocks = len / digits;
+      SizeT remainder = len % digits;
       
-      while(end >= start)
-      {
-        DataT digit = 0;
-        DataT TEN = 1;
-        
-        for (SizeT i = 0; i < digits && end >= start; i++, end--)
-        {
-          // Current digit
-          int d = num[end] - '0';
-          if(d < 0 || d > 9)
-          {
-            error = true;
-            break;
-          }
-
-          digit += TEN * d;
-          TEN *= 10;
-        }
- 
-        bigInt[j++] = digit;
-        if(error) break;
+      // Reserve space for full blocks plus one block for the remainder if any.
+      vector<DataT> bigInt(numBlocks + (remainder ? 1 : 0));
+      
+      // Precompute powers of 10 for a block of the given digit length.
+      // For instance, for digits == 8, power[0] = 1, power[1] = 10, ... power[7] = 10^7.
+      DataT power[20];  // Ensure the array is large enough.
+      power[0] = 1;
+      for (SizeT i = 1; i < digits; i++) {
+          power[i] = power[i - 1] * 10;
       }
       
+      SizeT j = 0;
+      bool error = false;
+      
+      // Process the remainder (if the number of digits isn't a multiple of `digits`)
+      if (remainder > 0) {
+          DataT digit = 0;
+          // The remainder block is the most-significant digits.
+          // They reside at positions: start to start + remainder - 1.
+          for (SizeT i = 0; i < remainder; i++) {
+              int d = num[start + i] - '0';
+              assert(d >= 0 && d <= 9);  // For performance, you might remove these in production.
+              digit = digit * 10 + d;
+          }
+          // Place this block at the end of the vector (most significant block in little-endian)
+          bigInt[numBlocks + (remainder ? 1 : 0) - 1] = digit;
+      }
+      
+      // Process full blocks.
+      // Each full block has exactly `digits` digits.
+      // We process from the least-significant block upward.
+      // The least-significant digit is at the end of the string.
+      for (SizeT block = 0; block < numBlocks; block++) {
+          DataT digit = 0;
+          // Compute the block value by reading the last `digits` digits.
+          // Compute the starting index for this block.
+          SizeT blockEnd = end - block * digits;      // index of last digit in the block
+          SizeT blockStart = blockEnd - digits + 1;     // index of first digit in the block
+          // Process the block in little-endian order:
+          // i.e. the least-significant digit of the block comes first.
+          for (SizeT i = 0; i < digits; i++) {
+              int d = num[blockEnd - i] - '0';
+              assert(d >= 0 && d <= 9);
+              digit += d * power[i];  // Use precomputed multiplier for position i.
+          }
+          bigInt[block] = digit;
+      }
+      
+      // The bigInt vector is built as little-endian:
+      //   block 0 holds the least-significant digits.
+      //   The remainder block (if exists) is the most-significant block.
+      
       BigIntegerUtil::TrimZeros(bigInt);
-
       return bigInt;
-    }
+  }
 
-    // Converts the integer to a string representation
+  // Converts the integer to a string representation
     static string ToString(BigInteger const& bigInt)
     {
       return ToString(bigInt.GetInteger(), bigInt.IsNegative());
@@ -164,14 +195,14 @@ namespace BigMath
       vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
         bigInt, start, end,
         BigInteger::Base(),
-        BigIntegerUtil::Base100M);
+        BigIntegerUtil::Base100);
       
-      Int len = (Int)bigIntB2.size() * BigIntegerUtil::Base100M_Zeroes + 2;
+      Int len = (Int)bigIntB2.size() * BigIntegerUtil::Base100_Zeroes + 2;
       char* num = new char[len];
 
       Int j = UnsignedBase10nToString(
         bigIntB2, 0, bigIntB2.size() - 1,
-        BigIntegerUtil::Base100M_Zeroes,
+        BigIntegerUtil::Base100_Zeroes,
         num, len);
 
       if(isNeg)

@@ -29,12 +29,12 @@ namespace BigMath
     public:
     // Base 10
     static const BaseT Base10 = 10;
-    // Base 100
+    // Base 10^3
     static const BaseT Base100 = 100;
     // Base 10^8
     static const BaseT Base100M = 100000000lu;
     // Number of digits in `BASE'
-    static const SizeT Base100M_Zeroes = 8;
+    static const SizeT Base100_Zeroes = 2;
 
     // Base 2
     static const BaseT Base2 = 2;

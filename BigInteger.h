@@ -74,7 +74,7 @@ namespace BigMath
 
     static BaseT Base()
     {
-      return BigIntegerUtil::Base2_31;
+      return BigIntegerUtil::Base100;
     }
 
     bool IsNegative() const
