@@ -36,8 +36,7 @@ namespace BigMath
     vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base,
-      bool trim=true)
+      ULong base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
 
@@ -60,14 +59,11 @@ namespace BigMath
           // The multiplication result at each point requires room for 2*segmentSize elements.
           // For pointwise multiplication, you can call the naive multiplication routine.
           tempProducts[i] = evalA[i] * evalB[i];
-          // cerr << evalA[i] << " * " << evalB[i] << " = " <<  tempProducts[i] << endl;
       }
       
       // Step 3: Interpolate to combine the evaluated products back into the final result.
       BigInteger result = interpolate(tempProducts, partSize);
 
-      result.TrimZeros();
-      
       return result.GetInteger();
     }
 
@@ -165,46 +161,30 @@ namespace BigMath
 
         // c2 = (r1 + r-1 - 2*c0 - 2*c4) / 2
         BigInteger c2 = ( (r1 + rm1) - ( (c0 * 2) + (c4 * 2) ) ) / (DataT)2;
-
-        // cerr << "(" << r1 << " + " << rm1 << " - " <<  c0 << " * " << 2 << " - " << c4 << " * " << 2 << ")/2" << " = " << c2 << endl;
         
         // s = (r1 - r-1) / 2
         BigInteger s = (r1 - rm1) / (DataT)2;
-        // cerr << "(" << r1 << " - " << rm1 << ")/2" << " = " << s << endl;
 
         // X = (r2 - c0 - 4*c2 - 16*c4) / 2
         BigInteger fourC2 = c2 * (DataT)4;
-        // cerr << "4*" << c2 << " = " << fourC2 << endl;
         BigInteger sixteenC4 = c4 * (DataT)16;
-        // cerr << "16*" << c4 << " = " << sixteenC4 << endl;
         BigInteger Xsum = c0 + fourC2 + sixteenC4;
-        // cerr << c0 << " + " << fourC2 << " + " << sixteenC4 << " = " << Xsum << endl;
         BigInteger X = (r2 - Xsum) / (DataT)2;
-        // cerr << "(" << r2 << " - " << Xsum  << ")/2" << " = " << X << endl;
 
         // c3 = (X - s) / 3
         BigInteger c3 = (X - s) / (DataT)3; // (X - s) / 3
-        // cerr << "(" << X << " - " << s << ")/3" << " = " << c3 << endl;
 
         // c1 = s - c3
         BigInteger c1 = s - c3; // s - c3
-        // cerr << s << " - " << c3 << " = " << c1 << endl;
 
         // Combine coefficients into the final result:
-        // result = c0 + (c1 << partSize) + (c2 << 2*partSize) + (c3 << 3*partSize) + (c4 << 4*partSize)
         BigInteger res0 = c0;
         BigInteger res1 = c1 << partSize;
-        // cerr << c1 << " << " << partSize << " = " << res1 << endl;
         BigInteger res2 = c2 << (2 * partSize);
-        // cerr << c2 << " << " << (2*partSize) << " = " << res2 << endl;
         BigInteger res3 = c3 << (3 * partSize);
-        // cerr << c3 << " << " << (3*partSize) << " = " << res3 << endl;
         BigInteger res4 = c4 << (4 * partSize);
-        // cerr << c4 << " << " << (4*partSize) << " = " << res4 << endl;
 
         BigInteger res = res0 + res1 + res2 + res3 + res4;
-
-        // cerr << res0 << " + " << res1 << " + " << res2 << " + " << res3 << " + " << res4 << " = " << res << endl;
 
         return res;
     }
