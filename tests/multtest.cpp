@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
   char op;
 
 
-  cerr << "Data,Toom-Cook,Results Digit" << endl;
+  cerr << "Data,Time,Results Digit" << endl;
 
   while(true)
   {
@@ -83,13 +83,6 @@ int main(int argc, char *argv[])
     std::getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
-    /*
-    vector<DataT> ans = ClassicMultiplication::Multiply(
-      a.GetInteger(),
-      b.GetInteger(),
-      BigInteger::Base());
-    */
-    
     clock_t start = clock();
     vector<DataT> result = FFTMultiplication::Multiply(
       a.GetInteger(),
