@@ -1,3 +1,6 @@
+#ifndef NEWTONRAPHSON_DIVISION
+#define NEWTONRAPHSON_DIVISION
+
 #include <vector>
 #include <cassert>
 
@@ -10,9 +13,6 @@
 #include "../../ops/BigIntegerShift.h"
 
 using namespace std;
-
-#ifndef NEWTONRAPHSON_DIVISION
-#define NEWTONRAPHSON_DIVISION
 
 namespace BigMath
 {

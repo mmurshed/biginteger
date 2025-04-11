@@ -1,3 +1,6 @@
+#ifndef FFT_MULTIPLICATION
+#define FFT_MULTIPLICATION
+
 #include <vector>
 #include <complex>
 #include <cmath>
@@ -5,9 +8,6 @@
 #include "../BigIntegerUtil.h"
 
 using namespace std;
-
-#ifndef FFT_MULTIPLICATION
-#define FFT_MULTIPLICATION
 
 namespace BigMath
 {
