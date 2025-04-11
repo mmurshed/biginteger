@@ -58,7 +58,9 @@ namespace BigMath
       for (int i = 0; i < numPoints; i++) {
           // The multiplication result at each point requires room for 2*segmentSize elements.
           // For pointwise multiplication, you can call the naive multiplication routine.
-          tempProducts[i] = evalA[i] * evalB[i];
+          tempProducts[i] = BigInteger(
+            Multiply(evalA[i].GetInteger(), evalB[i].GetInteger(), base),
+            evalA[i].IsNegative() ^ evalB[i].IsNegative());
       }
       
       // Step 3: Interpolate to combine the evaluated products back into the final result.
