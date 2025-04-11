@@ -102,6 +102,31 @@ namespace BigMath
         BigIntegerUtil::TrimZeros(c);
         return c;
     }
-  };
+
+    // Multiply two vectors of digits using FFT-based convolution.
+    // Here each vector element is assumed to be a digit (0–9).
+    static vector<DataT> Multiply(const vector<DataT> & a, DataT b, BaseT base) {
+        if(b == 0 || BigIntegerUtil::IsZero(a))
+          {
+            return vector<DataT>(1, 0);
+          }        
+
+        vector<DataT> c(1, b);
+        return Multiply(a, c, base);
+    }
+
+    // Multiply two vectors of digits using FFT-based convolution.
+    // Here each vector element is assumed to be a digit (0–9).
+    static void MultiplyTo(vector<DataT> & a, DataT b, BaseT base) {
+        if(b == 0 || BigIntegerUtil::IsZero(a))
+        {
+            a = vector<DataT>(1, 0);
+            return;
+          }        
+        vector<DataT> c(1, b);
+        a = Multiply(a, c, base);
+    }
+
+    };
 }
 #endif // TOOMCOOK_MULTIPLICATION_2a
