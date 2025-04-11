@@ -16,7 +16,8 @@ using namespace std;
 #include "../../ops/BigIntegerAddition.h"
 #include "../../ops/BigIntegerSubtraction.h"
 #include "../../ops/BigIntegerMultiplication.h"
-#include "../../ops/BigIntegerDivision.h"
+#include "../../ops/BigIntegerShift.h"
+#include "../../ops/BigIntegerScalarDivision.h"
 
 namespace BigMath
 {
