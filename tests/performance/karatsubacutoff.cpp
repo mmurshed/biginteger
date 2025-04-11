@@ -24,6 +24,7 @@ using namespace std;
 #include "BigIntegerIO.h"
 #include "BigIntegerOperations.h"
 #include "BigIntegerParser.h"
+#include "../algorithms/karatsuba/KaratsubaMultiplication.h"
 
 using namespace BigMath;
 
@@ -49,11 +50,11 @@ int main(int argc, char *argv[])
 
   for (SizeT k = 4; k <= 256; k += 2)
   {
-    KaratsubaAlgorithm::KARATSUBA_THRESHOLD = k;
+    // KaratsubaMultiplication::KARATSUBA_THRESHOLD = k;
 
     clock_t start = clock();
 
-    vector<DataT> rKarat = KaratsubaAlgorithm::Multiply(
+    vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
