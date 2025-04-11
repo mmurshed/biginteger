@@ -96,7 +96,7 @@ namespace BigMath
           // The multiplication result at each point requires room for 2*segmentSize elements.
           tempProducts[i].resize(2 * segmentSize);
           // For pointwise multiplication, you can call the naive multiplication routine.
-          tempProducts[i] = ClassicMultiplication::Multiply(evalA[i], evalB[i], base);
+          tempProducts[i] = BigIntegerOperations::MultiplyUnsigned(evalA[i], evalB[i], base);
       }
 
       int fm1Sign = fm1SignA * fm1SignB;

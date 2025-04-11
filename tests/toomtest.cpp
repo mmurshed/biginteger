@@ -25,8 +25,8 @@ using namespace std;
 #include "../BigIntegerParser.h"
 #include "../BigIntegerComparator.h"
 #include "../algorithms/toomcook/ToomCookMultiplication.h"
-#include "../algorithms/toomcook2/ToomCookMultiplication2.h"
-#include "../algorithms/toomcook2/ToomCookMultiplication2a.h"
+#include "../algorithms/toomcook/ToomCookMultiplication2.h"
+#include "../algorithms/toomcook/ToomCookMultiplication2a.h"
 #include "../algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
 
