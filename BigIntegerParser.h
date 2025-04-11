@@ -158,7 +158,7 @@ namespace BigMath
     {
       if(BigIntegerUtil::IsZero(bigInt, start, end))
       {
-        return *new string("0");
+        return string("0");
       }
 
       vector<DataT> bigIntB2 = CommonAlgorithms::ConvertBase(
@@ -194,6 +194,17 @@ namespace BigMath
       // Trim zeros
       while(end >= start && a[end] == 0)
         end--;
+
+      if (end < start) {
+        // Means entire number is zero
+        // so produce "0" in the string
+        if (len > 1) {
+          num[0] = '0';
+          num[1] = '\0';
+          return 0; // string starts at num[0]
+        }
+        return -1; // or handle the error if len=0
+      }
 
       for(Int i = start; i <= end; i++)
       {
