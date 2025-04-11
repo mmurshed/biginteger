@@ -70,10 +70,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,Results Digit");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a\n");
   fflush(timeFile);
 
-  cerr << "Data,Classical,KaratsubaToom-Cook,Toom-Cook2,Toom-Cook2a,Results Digit" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a" << endl;
 
   while(true)
   {
@@ -163,8 +163,8 @@ int main(int argc, char *argv[])
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << rKarat.size() << endl;
-    fprintf(timeFile, "%f,%f,%f,%f,%f,%lu\n", timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, rKarat.size());
+    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a);
     fflush(timeFile);
 
     DATA++;
