@@ -31,12 +31,6 @@ namespace BigMath
       return result;
     }
   };
-
-  // Multiplies Two BigInteger
-  BigInteger operator*(BigInteger const &a, BigInteger const &b)
-  {
-    return BigIntegerClassicMultiplication::Multiply(a, b);
-  }
 }
 
 #endif

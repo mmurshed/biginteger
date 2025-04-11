@@ -52,18 +52,6 @@ namespace BigMath
       return make_pair(q, r);
     }
   };
-
-  // Divides Two BigInteger
-  BigInteger operator/(BigInteger const &a, BigInteger const &b)
-  {
-    return BigIntegerClassicDivision::DivideAndRemainder(a, b).first;
-  }
-
-  BigInteger operator%(BigInteger const &a, BigInteger const &b)
-  {
-    return BigIntegerClassicDivision::DivideAndRemainder(a, b).second;
-  }
-
 }
 
 #endif
