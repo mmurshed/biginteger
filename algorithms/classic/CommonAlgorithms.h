@@ -90,6 +90,9 @@ which in little‐endian form is
         vector<DataT> const &bigInt,
         SizeT shift)
     {
+      if (shift == 0 || BigIntegerUtil::IsZero(bigInt))
+        return bigInt;
+
       SizeT size = (SizeT)bigInt.size() + shift;
       vector<DataT> result(size, 0);
       // Copy
@@ -103,6 +106,9 @@ which in little‐endian form is
 
     static vector<DataT> ShiftRight(const vector<DataT> &bigInt, SizeT shift)
     {
+      if (shift == 0 || BigIntegerUtil::IsZero(bigInt))
+        return bigInt;
+
       // If shifting by more digits than exist, return 0.
       if (shift >= bigInt.size())
       {

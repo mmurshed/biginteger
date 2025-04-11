@@ -18,12 +18,16 @@ namespace BigMath
 {
   BigInteger operator<<(BigInteger const &a, SizeT b)
   {
+    if (b == 0 || a.IsZero())
+      return a;
     vector<DataT> result = CommonAlgorithms::ShiftLeft(a.GetInteger(), b);
     return BigInteger(result, a.IsNegative());
   }
 
   BigInteger operator>>(BigInteger const &a, SizeT b)
   {
+    if (b == 0 || a.IsZero())
+      return a;
     vector<DataT> result = CommonAlgorithms::ShiftRight(a.GetInteger(), b);
     return BigInteger(result, a.IsNegative());
   }
