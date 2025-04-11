@@ -5,6 +5,7 @@
 #include <cassert>
 
 #include "../../BigInteger.h"
+#include "../../BigIntegerBuilder.h"
 #include "../BigIntegerUtil.h"
 #include "../../ops/BigIntegerAddition.h"
 #include "../../ops/BigIntegerSubtraction.h"
@@ -39,18 +40,85 @@ namespace BigMath
             return shift;
         }
 
-        // Helper: obtain an initial guess for the reciprocal using a double approximation.
-        // The guess is computed for fixed point reciprocal with scaling factor R = 2^k.
+        static long double toDouble(BigInteger const &x)
+        {
+            // Assume Base() returns 65536.0L (i.e. 2^16), and the integer is stored
+            // in little-endian order in the vector theInteger.
+            const long double base = BigInteger::Base();
+            const SizeT totalLimbs = x.size();
+
+            // Choose K such that we use only K most-significant limbs.
+            // For example, if long double has an 80-bit significand and each limb holds 16 bits,
+            // then K = 5 is a reasonable choice.
+            const SizeT K = (totalLimbs < 5 ? totalLimbs : 5);
+
+            // Compute the fraction from the top K limbs.
+            // Since theInteger is stored in little-endian order, the most-significant limbs
+            // are at the end.
+            long double fraction = 0.0L;
+            vector<DataT> theInteger = x.GetInteger();
+            // Start from index = totalLimbs - K up to totalLimbs - 1.
+            for (size_t i = totalLimbs - K; i < totalLimbs; i++)
+            {
+                fraction = fraction * base + static_cast<long double>(theInteger[i]);
+            }
+
+            // Each limb represents 16 bits, so the total number of bits represented by the skipped limbs is:
+            const Long limbBits = 16;
+            Long computedExponent = static_cast<Long>((totalLimbs - K) * limbBits);
+
+            // Check against the maximum exponent for long double.
+            // std::numeric_limits<long double>::max_exponent gives the maximum exponent value,
+            // i.e. the power of 2 below which numbers are representable.
+            Long maxExp = std::numeric_limits<long double>::max_exponent;
+
+            long double result;
+            if (computedExponent > maxExp)
+            {
+                // The exponent is too high; clamp the result.
+                // We use the maximum finite long double value.
+                result = (fraction < 0.0L ? -numeric_limits<long double>::max()
+                                          : numeric_limits<long double>::max());
+            }
+            else
+            {
+                // Use ldexpl to compute fraction * 2^(computedExponent).
+                result = ldexpl(fraction, computedExponent);
+            }
+
+            // Apply the sign.
+            if (x.IsNegative())
+                result = -result;
+
+            return result;
+        }
+
+        // Assume toDouble(BigInteger const &) is implemented elsewhere.
         static BigInteger initialGuess(BigInteger const &dNorm, SizeT k)
         {
-            // Convert dNorm to double.
-            long double dDouble = dNorm.ToDouble(); // You must implement toDouble() appropriately.
-            long double xDouble = 1.0 / dDouble;
-            // Create fixed-point scaling factor R = 2^k.
-            BigInteger R = ONE << k; // assumes << operator works
-            // Multiply xDouble by R and convert to BigInteger.
-            // For example, if BigInteger can be constructed from a double, do:
-            BigInteger x = BigInteger(xDouble * R.ToDouble());
+            // Convert dNorm to long double (this gives an approximate magnitude).
+            long double dDouble = toDouble(dNorm);
+            // Compute the reciprocal in double precision.
+            long double xDouble = 1.0L / dDouble;
+
+            // Instead of computing R = ONE << k and then toDouble(R),
+            // use ldexpl to scale xDouble by 2^k directly.
+            long double scaled = ldexpl(xDouble, static_cast<int>(k));
+
+            // Optionally, you can add a check to clamp the result if necessary.
+            if (scaled == 0.0L)
+            {
+                // If underflow occurs, clamp to the smallest normalized value.
+                scaled = std::numeric_limits<long double>::min();
+            }
+            else if (!std::isfinite(scaled))
+            {
+                // If the value is too high, clamp to the maximum finite value.
+                scaled = std::numeric_limits<long double>::max();
+            }
+
+            // Construct and return a BigInteger from the scaled value.
+            BigInteger x = BigIntegerBuilder::From(scaled);
             return x;
         }
 
@@ -59,7 +127,6 @@ namespace BigMath
         // 'iterations' controls the number of Newton iterations.
         static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &N, BigInteger const &D, int iterations = 5)
         {
-
             // Normalize divisor and dividend.
             SizeT shift = getNormalizationShift(D);
             BigInteger dNorm = D << shift;
