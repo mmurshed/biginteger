@@ -96,6 +96,77 @@ namespace BigMath
       BigIntegerUtil::TrimZeros(w);
     }
 
+    static pair< vector<DataT>, vector<DataT> > DivideAndRemainder(
+        vector<DataT> const &u,
+        DataT d,
+        BaseT base)
+    {
+      SizeT n = (SizeT)u.size();
+      // Divide (u_n−1 . . . u_1 u_0)_b by d.
+      vector<DataT> w(n);
+      vector<DataT> v(n);
+
+      DivideAndRemainder(
+          u, 0, u.size() - 1,
+          d,
+          w, 0, w.size() - 1,
+          v, 0, v.size() - 1,
+          base);
+
+      return make_pair(w, v);
+    }
+
+    static void DivideAndRemainder(
+        vector<DataT> const &u, SizeT uStart, SizeT uEnd,
+        DataT d,
+        vector<DataT> &w, SizeT wStart, SizeT wEnd,
+        vector<DataT> &v, SizeT vStart, SizeT vEnd,
+        BaseT base)
+    {
+      // Number of limbs in [uStart..uEnd]
+      SizeT n = (uEnd >= uStart) ? (uEnd - uStart + 1) : 0;
+      if (n == 0)
+      {
+        // Nothing to divide
+        return;
+      }
+
+      // Make sure 'w' can hold at least n limbs for the quotient
+      SizeT neededSize = wStart + n;
+      if (w.size() < neededSize)
+        w.resize(neededSize, 0);
+
+      // 'r' is the running remainder.
+      ULong r = 0;
+
+      // Process from the highest index (uEnd) down to the lowest (uStart).
+      //   For little-endian, u[uEnd] is the most significant limb.
+      for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
+      {
+        ULong val = r * base + u[i]; // Combine remainder + next limb
+        DataT q = (DataT)(val / d);  // Quotient digit
+        r = val % d;                 // Remainder
+
+        // The quotient digit for this place goes at wPos (also in little-endian).
+        SizeT wPos = wStart + (i - uStart);
+        if (wPos <= wEnd)
+          w[wPos] = q;
+        else
+          w.push_back(q);
+
+        // The quotient digit for this place goes at wPos (also in little-endian).
+        SizeT vPos = vStart + (i - uStart);
+        if (vPos <= vEnd)
+          v[vPos] = r;
+        else
+          v.push_back(r);
+      }
+
+      // Remove any leading zero-limbs in the quotient.
+      BigIntegerUtil::TrimZeros(w);
+      BigIntegerUtil::TrimZeros(v);
+    }
+
     static void DivideTo(
         vector<DataT> &a,
         vector<DataT> const &b,

@@ -41,12 +41,43 @@ namespace BigMath
 
       return result;
     }
+
+    static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, DataT b)
+    {
+      if (a.IsZero() || b == 0)
+      {
+        return make_pair(BigInteger(), BigInteger()); // case of 0
+      }
+
+      // Assume a > b
+      pair< vector<DataT>, vector<DataT> > result = ClassicDivision::DivideAndRemainder(
+          a.GetInteger(),
+          b,
+          BigInteger::Base());
+
+      BigInteger q = BigInteger(result.first, false);
+      BigInteger r = BigInteger(result.second, false);
+
+      if (a.IsNegative() != b < 0)
+      {
+        q.SetSign(true);
+        r.SetSign(true);
+      }
+
+      return make_pair(q, r);
+    }
   };
 
   // Divides Two BigInteger
   BigInteger operator/(BigInteger const &a, DataT const &b)
   {
     return BigIntegerScalarDivision::Divide(a, b);
+  }
+
+  // Divides Two BigInteger
+  BigInteger operator%(BigInteger const &a, DataT const &b)
+  {
+    return BigIntegerScalarDivision::DivideAndRemainder(a, b).second;
   }
 }
 
