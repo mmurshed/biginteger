@@ -26,7 +26,7 @@ namespace BigMath
     static void DivideTo(
       vector<DataT>& u,
       DataT d,
-      ULong base)
+      BaseT base)
       {
         Divide(u, 0, u.size() - 1, d, u, 0, u.size() - 1, base);
       }
@@ -34,7 +34,7 @@ namespace BigMath
     static void DivideTo(
       vector<DataT>& u, SizeT uStart, SizeT uEnd,
       DataT d,
-      ULong base)
+      BaseT base)
       {
         Divide(u, uStart, uEnd, d, u, uStart, uEnd, base);
       }
@@ -42,7 +42,7 @@ namespace BigMath
     static vector<DataT> Divide(
       vector<DataT> const& u,
       DataT d,
-      ULong base)
+      BaseT base)
       {
         SizeT n = (SizeT)u.size();
         // Divide (u_n−1 . . . u_1 u_0)_b by d.
@@ -53,43 +53,53 @@ namespace BigMath
         return w;
       }
     
-    static void Divide(
-      vector<DataT> const& u, SizeT uStart, SizeT uEnd,
-      DataT d,
-      vector<DataT>& w, SizeT wStart, SizeT wEnd,
-      ULong base)
-      {
-        SizeT n = BigIntegerUtil::Len(uStart, uEnd);
-        // Divide (u_n−1 . . . u_1 u_0)_b by d.
-
-        // Set r = 0, j = n − 1.
-        ULong r = 0;
-        for(Int j = n - 1; j >= 0; j--)
+      static void Divide(
+        vector<DataT> const& u, SizeT uStart, SizeT uEnd,
+        DataT d,
+        vector<DataT>& w, SizeT wStart, SizeT wEnd,
+        BaseT base)
+    {
+        // Number of limbs in [uStart..uEnd]
+        SizeT n = (uEnd >= uStart) ? (uEnd - uStart + 1) : 0;
+        if(n == 0)
         {
-          // Set val = r * b + u_j
-          ULong val = r * base;
-          SizeT uPos = uStart + j;
-          if(uPos <= uEnd)
-            val += u.at(uPos);
-          // Set w_j = ⌊val / d⌋
-          SizeT wPos = wStart + j;
-          if(wPos <= wEnd)
-            w.at(wPos) = (DataT)(val / d);
-          else
-          {
-            w.push_back((DataT)(val / d));
-          }
-          // Set r = val mod d
-          r = val % d;
+            // Nothing to divide
+            w.clear();
+            return;
         }
-
+    
+        // Make sure 'w' can hold at least n limbs for the quotient
+        SizeT neededSize = wStart + n;
+        if(w.size() < neededSize)
+            w.resize(neededSize, 0);
+    
+        // 'r' is the running remainder.
+        ULong r = 0;
+    
+        // Process from the highest index (uEnd) down to the lowest (uStart).
+        //   For little-endian, u[uEnd] is the most significant limb.
+        for(Int i = (Int)uEnd; i >= (Int)uStart; i--)
+        {
+            ULong val = r * base + u[i];  // Combine remainder + next limb
+            DataT q   = (DataT)(val / d); // Quotient digit
+            r         = val % d;          // Remainder
+    
+            // The quotient digit for this place goes at wPos (also in little-endian).
+            SizeT wPos = wStart + (i - uStart);
+            if(wPos <= wEnd)
+                w[wPos] = q;
+            else
+                w.push_back(q);
+        }
+    
+        // Remove any leading zero-limbs in the quotient.
         BigIntegerUtil::TrimZeros(w);
-      }
+    }
 
     static void DivideTo(
       vector<DataT> & a,
       vector<DataT> const& b,
-      ULong base)
+      BaseT base)
     {
       pair< vector<DataT>, vector<DataT> > results = DivideAndRemainder(a, b, base);
       a = results.first;
@@ -104,7 +114,7 @@ namespace BigMath
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
         const vector<DataT>& a,
         const vector<DataT>& b,
-        ULong base)
+        BaseT base)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b, 
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b 
@@ -135,14 +145,13 @@ namespace BigMath
 
         // Initialize quotient.
         vector<DataT> q(m + 1, 0);
-        cerr << "start" << endl;
 
         // Main loop: compute each quotient digit starting at index m downto 0.
-        for (long j = m; j >= 0; j--) {
+        for (Int j = m; j >= 0; j--) {
             // D3: Compute estimated quotient digit qhat.
             // We form a 2-digit value from u[j+n] and u[j+n-1].
             ULong numerator = u[j + n] * base + u[j + n - 1];
-            DataT qhat = numerator / v[n - 1];
+            ULong qhat = numerator / v[n - 1];
             ULong rhat = numerator % v[n - 1];
 
             // IMPORTANT FIX: Correct qhat while it is too large.
@@ -161,7 +170,7 @@ namespace BigMath
             // then qhat was one too high; add back v and decrement qhat.
 
             // Propagate the borrow to the next digit.
-            pair<bool, DataT> sub = subtract(u, v, qhat, j, base);
+            pair<bool, Long> sub = subtract(u, v, qhat, j, base);
             if (sub.first)  // borrow produced
             {
                 // Correction step: add back v.
@@ -184,30 +193,31 @@ namespace BigMath
 
     // Subtracts qhat * v from u, starting at index j.
     // Returns true if a borrow is produced (meaning the subtraction went negative).
-    static pair<bool, DataT> subtract(vector<DataT>& u, vector<DataT>& v, DataT qhat, SizeT j, ULong base) {
-        DataT borrow = 0;
+    static pair<bool, Long> subtract(vector<DataT>& u, vector<DataT>& v, DataT qhat, SizeT j, BaseT base) {
+      Long borrow = 0;
         SizeT n = v.size();
         for (SizeT i = 0; i < n; i++) {
             // Multiply v[i] by qhat and subtract along with the borrow.
             Long p = (Long)(qhat * v[i]);
             Long sub = (Long)u[i + j] - p - (Long)borrow;
             borrow = 0;
-            while (sub < 0) {
-                sub += base;
-                borrow++;
-            }
-            u[i + j] = sub;
+          if (sub < 0) {
+            Long t = (-sub + base - 1) / base; // Compute how many times we need to add base.
+            sub += t * base;                   // Adjust sub in one go.
+            borrow += t;                       // Increase borrow by that number.
+          }
+          u[i + j] = sub;
         }
 
-        Long sub = (Long)u[j + n] - (Long)borrow;
-        if (sub >= 0)
-            u[j + n] = sub;
+        Long sub1 = (Long)u[j + n] - (Long)borrow;
+        if (sub1 >= 0)
+            u[j + n] = sub1;
 
-        return make_pair(sub < 0, borrow);
+        return make_pair(sub1 < 0, borrow);
     }
 
     // Adds v to u starting at index j (used to undo an oversubtraction).
-    static void add(vector<DataT>& u, const vector<DataT>& v, DataT borrow, SizeT j, ULong base) {
+    static void add(vector<DataT>& u, const vector<DataT>& v, Long borrow, SizeT j, BaseT base) {
         DataT carry = 0;
         SizeT n = v.size();
         for (SizeT i = 0; i < n; i++) {
