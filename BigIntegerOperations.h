@@ -21,6 +21,7 @@ using namespace std;
 #include "algorithms/karatsuba/KaratsubaMultiplication.h"
 #include "algorithms/toomcook/ToomCookMultiplication2.h"
 #include "algorithms/stonehagestrassen/FFTMultiplication.h"
+#include "algorithms/newtonraphson/NewtonRaphsonDivision.h"
 
 namespace BigMath
 {
@@ -196,21 +197,9 @@ public:
       }
 
       // Now: a > b
-      pair< vector<DataT>, vector<DataT> > result = ClassicDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-
-      BigInteger q = BigInteger(result.first, false);
-      BigInteger r = BigInteger(result.second, false);
-
-      if(a.IsNegative() != b.IsNegative())
-      {
-        q.SetSign(true);
-        r.SetSign(true);
-      }
+      pair<BigInteger, BigInteger> result = NewtonRaphsonDivision::DivideAndRemainder(a, b);
       
-      return make_pair(q,r);
+      return result;
     }
 
     static BigInteger Divide(BigInteger const& a, ULong b)
@@ -313,11 +302,17 @@ public:
     return a.CompareTo(b)<0;
   }
 
-  BigInteger operator<<(BigInteger const& a, DataT b)
+  BigInteger operator<<(BigInteger const& a, SizeT b)
   {
     vector<DataT> result = CommonAlgorithms::ShiftLeft(a.GetInteger(), b);
     return BigInteger(result, a.IsNegative());
-  }  
+  }
+
+  BigInteger operator>>(BigInteger const& a, SizeT b)
+  {
+    vector<DataT> result = CommonAlgorithms::ShiftRight(a.GetInteger(), b);
+    return BigInteger(result, a.IsNegative());
+  }    
 }
 
 #endif
