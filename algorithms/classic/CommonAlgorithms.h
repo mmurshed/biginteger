@@ -100,6 +100,25 @@ which in little‐endian form is
       
       return result;
     }
+
+    static vector<DataT> ShiftRight(const vector<DataT>& bigInt, SizeT shift) {
+        // If shifting by more digits than exist, return 0.
+        if (shift >= bigInt.size()) {
+            return vector<DataT>{0};
+        }
+        
+        // The new size is reduced by the shift amount.
+        SizeT newSize = bigInt.size() - shift;
+        vector<DataT> result(newSize, 0);
+        
+        // Copy the higher-order digits from bigInt.
+        // Since bigInt is little-endian, we start copying from index "shift".
+        for (SizeT i = shift; i < bigInt.size(); i++) {
+            result[i - shift] = bigInt[i];
+        }
+        
+        return result;
+    }    
    };
 }
 
