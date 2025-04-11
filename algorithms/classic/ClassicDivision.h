@@ -82,6 +82,8 @@ namespace BigMath
           // Set r = val mod d
           r = val % d;
         }
+
+        BigIntegerUtil::TrimZeros(w);
       }
 
     static void DivideTo(

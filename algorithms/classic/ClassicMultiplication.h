@@ -78,6 +78,8 @@ namespace BigMath
         j++;
       }
 
+      BigIntegerUtil::TrimZeros(a);
+
       return j;
     }    
 
@@ -150,6 +152,8 @@ namespace BigMath
         wPos++;
       }
 
+      BigIntegerUtil::TrimZeros(w);
+
       return wPos;
     }
 
@@ -165,8 +169,7 @@ namespace BigMath
     static vector<DataT> Multiply(
       vector<DataT> const& a,
       vector<DataT> const& b,
-      ULong base,
-      bool trim=false)
+      ULong base)
     {
       if(BigIntegerUtil::IsZero(a) || BigIntegerUtil::IsZero(b)) // 0 times
         return vector<DataT>();
@@ -175,12 +178,6 @@ namespace BigMath
       vector<DataT> result(size);
 
       Multiply(a, 0, (SizeT)a.size() - 1, b, 0, (SizeT)b.size() - 1, result, 0, base);
-
-      if(trim)
-      {
-        BigIntegerUtil::TrimZeros(result);
-      }
-
       return result;      
     }
 
@@ -217,6 +214,8 @@ namespace BigMath
         k = jStart + lenA;
         result.at(k) = (DataT)carry;
       }
+
+      BigIntegerUtil::TrimZeros(result);
       return k;
     }
    };

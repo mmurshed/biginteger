@@ -70,6 +70,8 @@ namespace BigMath
         carry = carry / base;
         aPos++;
       }
+
+      BigIntegerUtil::TrimZeros(a);
     }    
 
     public:
@@ -158,6 +160,8 @@ namespace BigMath
       Int rPos = rStart + size;
       if(carry > 0 && rPos < result.size())
         result.at(rPos) += carry;
+
+      BigIntegerUtil::TrimZeros(result);
     }
    };
 }
