@@ -33,7 +33,7 @@ namespace BigMath
         ///   - operator+(const BigInteger &)
         ///
         public:
-        static std::pair<BigInteger, BigInteger> DivideAndRemainder(const BigInteger &U, const BigInteger &V)
+        static pair<BigInteger, BigInteger> DivideAndRemainder(const BigInteger &U, const BigInteger &V)
         {
             if (V.IsZero())
             {
@@ -44,7 +44,7 @@ namespace BigMath
             // If the dividend U is smaller than V, the quotient is zero.
             if (U < V)
             {
-                return {BigInteger(0), U};
+                return {BigInteger(), U};
             }
 
             // For small divisors, use the classical division algorithm.
@@ -70,7 +70,7 @@ namespace BigMath
             // Process blocks from the most-significant block (index t-1) to the least-significant (index 0).
             // (This loop assumes that U is represented so that block 0 corresponds to the least-significant block.
             //  Adjust if your internal representation differs.)
-            for (SizeT i = t; i > 0; i--)
+            for (Int i = t; i > 0; i--)
             {
                 // Extract the (i-1)-th block of 2*n digits.
                 BigInteger block = U.GetBlock(i - 1, 2 * n);
