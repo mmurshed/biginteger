@@ -127,6 +127,53 @@ namespace BigMath
       return result;
     }
 
+    // Returns a BigInteger corresponding to the block (of blockSize digits) at position blockIndex,
+    // where blockIndex 0 corresponds to the most-significant block. If the requested block does not exist,
+    // returns a BigInteger representing 0.
+    BigInteger GetBlock(SizeT blockIndex, SizeT blockSize) const
+    {
+      // Obtain the digits (stored in little-endian order: index 0 is the least-significant digit)
+      vector<DataT> const& digits = GetInteger();
+      SizeT totalDigits = digits.size();
+
+      // Compute the total number of blocks (ceiling division)
+      SizeT totalBlocks = (totalDigits + blockSize - 1) / blockSize;
+
+      // If the requested block index is out-of-range, return 0.
+      if (blockIndex >= totalBlocks)
+      {
+        return BigInteger(0);
+      }
+
+      // The most-significant block (block 0) may be smaller than blockSize.
+      SizeT msBlockSize = totalDigits % blockSize;
+      if (msBlockSize == 0)
+        msBlockSize = blockSize; // all blocks are full if totalDigits is a multiple of blockSize
+
+      SizeT startIndex, endIndex;
+      if (blockIndex == 0)
+      {
+        // Block 0 corresponds to the most-significant digits.
+        startIndex = totalDigits - msBlockSize;
+        endIndex = totalDigits;
+      }
+      else
+      {
+        // For subsequent blocks, every block has full blockSize digits.
+        // The blocks are counted from the most-significant side.
+        startIndex = totalDigits - msBlockSize - (blockIndex * blockSize);
+        endIndex = startIndex + blockSize;
+      }
+
+      // Create a new vector<int> to hold the block digits.
+      // Use std::copy to transfer the digits from the original vector.
+      vector<DataT> blockDigits(endIndex - startIndex);
+      std::copy(digits.begin() + startIndex, digits.begin() + endIndex, blockDigits.begin());
+
+      // Construct and return a BigInteger from this block of digits.
+      return BigInteger(blockDigits);
+    }
+
   public:
     // Compares this with `with'
     // Returns
