@@ -23,7 +23,7 @@ namespace BigMath
     // +value if this > with
     // -value if this < with
     // Runtime O(n), Space O(1)
-    static Int CompareTo(
+    static Int Compare(
         vector<DataT> const &a,
         vector<DataT> const &b)
     {

@@ -25,7 +25,7 @@ namespace BigMath
     // Implentation of subtraction by paper-pencil method
     static BigInteger SubtractCompared(BigInteger const &a, BigInteger const &b)
     {
-      int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
+      int cmp = BigIntegerComparator::Compare(a.GetInteger(), b.GetInteger());
       if (cmp > 0)
       {
         return BigInteger(

@@ -171,7 +171,7 @@ namespace BigMath
       {
         // cerr << a0 << " - " << a1 << " + " << a2;
         vector<DataT> tmp2 = ClassicAddition::Add(a0, a2, base);
-        if (BigIntegerComparator::CompareTo(tmp2, a1) < 0)
+        if (BigIntegerComparator::Compare(tmp2, a1) < 0)
         {
           fm1Sign = -1;
           evalPoints[2] = ClassicSubtraction::Subtract(a1, tmp2, base);
@@ -276,7 +276,7 @@ namespace BigMath
       vector<DataT> numeratorC2;
       int c2neg = 1;
       // r1 + rm1 - 2*c0 - 2*c4 or r1 - 2*c0 - 2*c4 - rm1
-      if (BigIntegerComparator::CompareTo(temp1, temp2) >= 0)
+      if (BigIntegerComparator::Compare(temp1, temp2) >= 0)
       {
         numeratorC2 = ClassicSubtraction::Subtract(temp1, temp2, base);
       }
@@ -295,7 +295,7 @@ namespace BigMath
       vector<DataT> numeratorS;
       if (rm1Sign == 1)
       {
-        if (BigIntegerComparator::CompareTo(r1, rm1) >= 0)
+        if (BigIntegerComparator::Compare(r1, rm1) >= 0)
         {
           numeratorS = ClassicSubtraction::Subtract(r1, rm1, base); // r1 - rm1
         }
@@ -323,7 +323,7 @@ namespace BigMath
 
       vector<DataT> numeratorX;
       int Xneg = 1;
-      if (BigIntegerComparator::CompareTo(r2, temp4) >= 0)
+      if (BigIntegerComparator::Compare(r2, temp4) >= 0)
       {
         numeratorX = ClassicSubtraction::Subtract(r2, temp4, base); // r2 - c0 - 4*c2 - 16*c4
       }
@@ -340,7 +340,7 @@ namespace BigMath
       if (Xneg == -1 && sneg == -1)
       {
         // c3 = -(X - s)/3 = (s - X)/3
-        if (BigIntegerComparator::CompareTo(s, X) >= 0)
+        if (BigIntegerComparator::Compare(s, X) >= 0)
         {
           c3neg = 1;
           numeratorC3 = ClassicSubtraction::Subtract(s, X, base); // c3 = (s - X)/3
@@ -363,7 +363,7 @@ namespace BigMath
       }
       else
       {
-        if (BigIntegerComparator::CompareTo(X, s) >= 0)
+        if (BigIntegerComparator::Compare(X, s) >= 0)
         {
           c3neg = 1;
           numeratorC3 = ClassicSubtraction::Subtract(X, s, base); // c3 = (X - s)/3
@@ -383,7 +383,7 @@ namespace BigMath
       if (c3neg == -1 && sneg == -1)
       {
         // c1 = -(s - c3) = c3-s
-        if (BigIntegerComparator::CompareTo(c3, s) >= 0)
+        if (BigIntegerComparator::Compare(c3, s) >= 0)
         {
           c1neg = 1;
           c1 = ClassicSubtraction::Subtract(c3, s, base);
@@ -407,7 +407,7 @@ namespace BigMath
       else
       {
         // c1 = s - c3
-        if (BigIntegerComparator::CompareTo(s, c3) >= 0)
+        if (BigIntegerComparator::Compare(s, c3) >= 0)
         {
           c1neg = 1;
           c1 = ClassicSubtraction::Subtract(s, c3, base);
@@ -457,7 +457,7 @@ namespace BigMath
       }
 
       int sumneg = 1;
-      if (BigIntegerComparator::CompareTo(sum, sub) >= 0)
+      if (BigIntegerComparator::Compare(sum, sub) >= 0)
         sum = ClassicSubtraction::Subtract(sum, sub, base); // sum - sub
       else
       {

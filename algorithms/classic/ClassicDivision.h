@@ -196,7 +196,7 @@ namespace BigMath
         throw runtime_error("Division by zero.");
 
       // If |a| < |b| then quotient = 0 and remainder = a.
-      if (BigIntegerComparator::CompareTo(a, b) < 0)
+      if (BigIntegerComparator::Compare(a, b) < 0)
         return {vector<DataT>{0}, a};
 
       SizeT n = (SizeT)b.size();

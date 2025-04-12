@@ -170,7 +170,7 @@ namespace BigMath
       else if (isNegative && !with.isNegative)
         return -1;
 
-      Int cmp = BigIntegerComparator::CompareTo(theInteger, with.theInteger);
+      Int cmp = BigIntegerComparator::Compare(theInteger, with.theInteger);
 
       // Now, Both are Same Sign
       Int neg = 1;

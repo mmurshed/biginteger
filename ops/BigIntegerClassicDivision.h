@@ -27,7 +27,7 @@ namespace BigMath
         return {q, q}; // case of 0
       }
 
-      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::Compare(a.GetInteger(), b.GetInteger());
       if (cmp == 0)
       {
         vector<DataT> one(1, 1); // size 1, value 1
