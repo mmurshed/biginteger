@@ -70,7 +70,6 @@ int main(int argc, char *argv[])
   while (true)
   {
     BigInteger a, b;
-    cerr << "reading" << endl;
 
     clock_t start = clock();
     cin >> a >> op >> b;
@@ -83,8 +82,6 @@ int main(int argc, char *argv[])
 
     cerr << "Reading time: " << timeTaken << endl;
 
-    cerr << "started" << endl;
-
     start = clock();
     BigInteger result = BurnikelZieglerDivision::DivideAndRemainder(
         a,
@@ -92,7 +89,6 @@ int main(int argc, char *argv[])
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
-    // cout << ans << endl;
     cout << result << endl;
 
     cerr.setf(ios::showpoint);
@@ -100,7 +96,7 @@ int main(int argc, char *argv[])
 
     if (result != ans)
     {
-      cerr << "Multiplication algorithm failed." << endl;
+      cerr << "Algorithm failed." << endl;
     }
 
     DATA++;
