@@ -147,6 +147,10 @@ int main(int argc, char *argv[])
     int cmp = BigIntegerComparator::Compare(r.GetInteger(), ans.GetInteger());
     if (cmp != 0)
     {
+      cerr << "a: " << m << endl;
+      cerr << "b: " << n << endl;
+      cerr << "answer: " << ans << endl;
+      cerr << "result: " << r << endl;
       cerr << "Failed." << endl;
       return cmp;
     }
