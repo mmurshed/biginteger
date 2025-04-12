@@ -4,14 +4,11 @@
 #include <vector>
 #include <cassert>
 
-#include "../../BigInteger.h"
 #include "../../BigIntegerBuilder.h"
 #include "../BigIntegerUtil.h"
-#include "../../ops/BigIntegerAddition.h"
-#include "../../ops/BigIntegerSubtraction.h"
-#include "../../ops/BigIntegerMultiplication.h"
-#include "../../ops/BigIntegerComparison.h"
-#include "../../ops/BigIntegerShift.h"
+#include "../classic/CommonAlgorithms.h"
+#include "../classic/ClassicAddition.h"
+#include "../classic/ClassicSubtraction.h"
 
 using namespace std;
 
@@ -23,12 +20,12 @@ namespace BigMath
         // For example, if our BigInteger is internally stored in base 2^16,
         // we want to shift the divisor so that its most significant digit
         // uses as many bits as possible.
-        static SizeT getNormalizationShift(BigInteger const &d)
+        static SizeT getNormalizationShift(vector<DataT> const &d)
         {
             // Assume BigInteger has a method size() that returns the count of base–2^16 digits,
             // and that digits() returns a vector in little‑endian order.
             // We normalize by ensuring that the highest digit (in the most–significant limb) is large.
-            DataT highest = d.GetInteger().back(); // access the most significant digit
+            DataT highest = d.back(); // access the most significant digit
             SizeT shift = 0;
             // For base 2^16, the maximum value of a digit is 65535.
             // We shift until the high bit of the highest digit is set.
@@ -40,11 +37,11 @@ namespace BigMath
             return shift;
         }
 
-        static long double toDouble(BigInteger const &x)
+        static long double toDouble(vector<DataT> const &x, BaseT B)
         {
             // Assume Base() returns 65536.0L (i.e. 2^16), and the integer is stored
             // in little-endian order in the vector theInteger.
-            const long double base = BigInteger::Base();
+            const long double base = B;
             const SizeT totalLimbs = x.size();
 
             // Choose K such that we use only K most-significant limbs.
@@ -56,7 +53,7 @@ namespace BigMath
             // Since theInteger is stored in little-endian order, the most-significant limbs
             // are at the end.
             long double fraction = 0.0L;
-            vector<DataT> theInteger = x.GetInteger();
+            vector<DataT> theInteger = x;
             // Start from index = totalLimbs - K up to totalLimbs - 1.
             for (size_t i = totalLimbs - K; i < totalLimbs; i++)
             {
@@ -86,18 +83,14 @@ namespace BigMath
                 result = ldexpl(fraction, computedExponent);
             }
 
-            // Apply the sign.
-            if (x.IsNegative())
-                result = -result;
-
             return result;
         }
 
         // Assume toDouble(BigInteger const &) is implemented elsewhere.
-        static BigInteger initialGuess(BigInteger const &dNorm, SizeT k)
+        static vector<DataT> initialGuess(vector<DataT> const &dNorm, BaseT base, SizeT k)
         {
             // Convert dNorm to long double (this gives an approximate magnitude).
-            long double dDouble = toDouble(dNorm);
+            long double dDouble = toDouble(dNorm, base);
             // Compute the reciprocal in double precision.
             long double xDouble = 1.0L / dDouble;
 
@@ -118,52 +111,61 @@ namespace BigMath
             }
 
             // Construct and return a BigInteger from the scaled value.
-            BigInteger x = BigIntegerBuilder::From(scaled);
+            vector<DataT> x = BigIntegerBuilder::VectorFrom(scaled).first;
             return x;
         }
 
     public:
-        // Newton–Raphson division: Returns a pair {Q, R} such that Q = floor(N/D) and R = N - Q*D.
+        // Newton–Raphson division: Returns a pair {q, r} such that q = floor(a/b) and r = a - q*b.
         // 'iterations' controls the number of Newton iterations.
-        static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, BigInteger const &b, int iterations = 5)
+        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, int iterations = 5)
         {
             // Normalize divisor and dividend.
             SizeT shift = getNormalizationShift(b);
-            BigInteger dNorm = b << shift;
-            BigInteger nNorm = a << shift;
+            vector<DataT> dNorm = CommonAlgorithms::ShiftLeft(b, shift);
+            vector<DataT> nNorm = CommonAlgorithms::ShiftLeft(a, shift);
+            const vector<DataT> ONE(1, 1); // size 1, value 1
 
             // Choose fixed-point scaling precision. For instance, if dNorm has L limbs (each being 16 bits):
             SizeT L = dNorm.size();
             SizeT k = 2 * L * 16;
-            BigInteger R_val = ONE << k;
+            vector<DataT> R_val = CommonAlgorithms::ShiftLeft(ONE, k);
 
-            // Compute an initial guess for x ≈ R/dNorm.
-            BigInteger x = initialGuess(dNorm, k);
+            // Compute an initial guess for x ≈ r/dNorm.
+            vector<DataT> x = initialGuess(dNorm, base, k);
 
             // Newton–Raphson iterations: x_{i+1} = (x_i * (2R - dNorm * x_i)) / R.
             for (int i = 0; i < iterations; i++)
             {
-                BigInteger prod = dNorm * x;                        // Compute dNorm * x.
-                BigInteger correction = (R_val << (SizeT)1) - prod; // Compute 2R - dNorm*x.
-                x = (x * correction) >> k;                          // Update: dividing by R via shifting.
+                vector<DataT> prod = BigIntegerMultiplication::MultiplyUnsigned(dNorm, x, base);                        // Compute dNorm * x.
+                vector<DataT> rshift = ClassicMultiplication::Multiply(R_val, (DataT)2, base);
+                vector<DataT> correction = ClassicSubtraction::Subtract(rshift, prod, base); // Compute 2R - dNorm*x.
+                vector<DataT> xcor = BigIntegerMultiplication::MultiplyUnsigned(x, correction, base);
+                x = CommonAlgorithms::ShiftRight(xcor, k);                          // Update: dividing by R via shifting.
             }
 
             // Compute quotient. With x ≈ R/dNorm, the normalized quotient is:
-            BigInteger q = (x * nNorm) >> k;
+            vector<DataT> xn = BigIntegerMultiplication::MultiplyUnsigned(x, nNorm, base);
+            vector<DataT> q = CommonAlgorithms::ShiftLeft(xn, k);
 
             // Correct Q in case of slight over- or under-estimation.
-            while (q * b > a)
-                q = q - ONE;
-
-            BigInteger Qp1 = q + ONE;
-            while (Qp1 * b <= a)
-            {
-                q = Qp1;
-                Qp1 = q + ONE;
+            vector<DataT> qb = BigIntegerMultiplication::MultiplyUnsigned(q, b, base);
+            while (qb > a) {
+                q = ClassicSubtraction::Subtract(q, ONE, base);
+                qb = BigIntegerMultiplication::MultiplyUnsigned(q, b, base);
             }
 
-            // Once Q is computed, the remainder is calculated as:
-            BigInteger r = a - (q * b);
+            vector<DataT> Qp1 = ClassicAddition::Add(q, ONE, base);
+            qb = BigIntegerMultiplication::MultiplyUnsigned(Qp1, b, base);
+            while (qb <= a)
+            {
+                q = ClassicAddition::Add(q, ONE, base);
+                qb = BigIntegerMultiplication::MultiplyUnsigned(q, b, base);
+            }
+
+            // Once q is computed, the remainder is calculated as:
+            qb = BigIntegerMultiplication::MultiplyUnsigned(q, b, base);
+            vector<DataT> r = ClassicSubtraction::Subtract(a, qb, base);
 
             return {q, r};
         }
