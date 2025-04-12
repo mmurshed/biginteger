@@ -14,6 +14,7 @@ using namespace std;
 #include "../../BigIntegerUtil.h"
 #include "ClassicAddition.h"
 #include "ClassicMultiplication.h"
+#include "ClassicDivision.h"
 
 namespace BigMath
 {
@@ -129,6 +130,22 @@ which in little‐endian form is
       return result;
     }
 
+    static vector<DataT> ShiftLeftByMultiplication(vector<DataT> const& val, SizeT shift, BaseT base)
+    {
+        vector<DataT> result = val;
+        for (SizeT i = 0; i < shift; i++)
+            result = ClassicMultiplication::Multiply(result, base, base);
+        return result;
+    }
+
+    static vector<DataT> ShiftRightByDivision(vector<DataT> const& val, SizeT shift, BaseT base)
+    {
+        vector<DataT> result = val;
+        for (SizeT i = 0; i < shift; i++)
+            result = ClassicDivision::DivideAndRemainder(result, base, base).first;
+        return result;
+    }    
+
     static vector<DataT> ShiftLeftBits(vector<DataT> bigInt, SizeT bits)
     {
       vector<DataT> result = bigInt;
@@ -149,9 +166,9 @@ which in little‐endian form is
         DataT carry = 0;
         for (SizeT i = 0; i < result.size(); i++)
         {
-          uint32_t cur = result[i];
-          uint32_t shifted = (cur << bitShift) | carry;
-          result[i] = static_cast<DataT>(shifted & ((1 << limbBits) - 1));
+          ULong cur = result[i];
+          ULong shifted = (cur << bitShift) | carry;
+          result[i] = static_cast<DataT>(shifted & ((static_cast<ULong>(1) << limbBits) - 1));
           carry = shifted >> limbBits;
         }
         if (carry != 0)
@@ -183,10 +200,10 @@ which in little‐endian form is
         // Process from most-significant to least-significant.
         for (SizeT i = result.size(); i-- > 0;)
         {
-          UInt cur = result[i];
-          UInt newVal = (cur >> bitShift) | (carry << (limbBits - bitShift));
+          DataT cur = result[i];
+          ULong newVal = (cur >> bitShift) | (carry << (limbBits - bitShift));
           result[i] = static_cast<DataT>(newVal);
-          carry = cur & ((1 << bitShift) - 1);
+          carry = cur & ((static_cast<ULong>(1) << bitShift) - 1);
         }
       }
       return result;
