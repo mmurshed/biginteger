@@ -8,13 +8,45 @@
 #define BIGINTEGER_IO
 
 #include <iostream>
+#include <iomanip>
+#include <vector>
 using namespace std;
 
 #include "../BigInteger.h"
+#include "../BigIntegerUtil.h"
 #include "../BigIntegerParser.h"
 
 namespace BigMath
 {
+  // Inserter for vector
+  #include <iomanip>  // for setw and setfill
+
+  ostream &operator<<(ostream &stream, const vector<DataT> &out)
+  {
+      if (out.empty())
+      {
+          stream << "0";
+          return stream;
+      }
+
+      int pad = BigIntegerUtil::Base100_Zeroes; // Number of digits to pad with leading zeros
+  
+      // Print in reverse order (most-significant digit first)
+      auto it = out.rbegin();
+  
+      // First digit: print without leading zeros (optional – if you want to avoid 0005 printing as 0005 at the front)
+      stream << *it;
+      ++it;
+  
+      // Remaining digits: pad to 4 digits with leading zeros
+      for (; it != out.rend(); ++it)
+      {
+          stream << setw(pad) << setfill('0') << *it;
+      }
+  
+      return stream;
+  }
+
   // Inserter
   ostream &operator<<(ostream &stream, BigInteger const &out)
   {
