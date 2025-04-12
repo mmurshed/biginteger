@@ -6,167 +6,159 @@
 using namespace std;
 
 #include "../../BigInteger.h"
+#include "../BigIntegerUtil.h"
 #include "../classic/CommonAlgorithms.h"
+#include "../classic/ClassicDivision.h"
 #include "../../ops/BigIntegerAddition.h"
 #include "../../ops/BigIntegerShift.h"
-#include "../../ops/BigIntegerClassicDivision.h"
 #include "../../ops/BigIntegerComparison.h"
 
 namespace BigMath
 {
     class BurnikelZieglerDivision
     {
-        // A threshold (in digits or limbs) below which we use classical long division.
-        // You may choose this value based on experiments.
         static const SizeT DIVISION_THRESHOLD = 4;
 
     private:
-        // Normalize the divisor a so that its most significant limb has the highest bit set.
-        // Both dividend and divisor b are shifted left by the same number of bits.
-        // Returns the shift amount.
-        static int Normalize(BigInteger &a, BigInteger &b)
+        static int Normalize(vector<DataT> &a, vector<DataT> &b)
         {
-            if (b.IsZero())
-                throw runtime_error("Division by zero in normalization");
-
-            // Determine the number of bits per limb.
-            const Int limbBits = sizeof(DataT) * CHAR_BIT; // For DataT = uint16_t, limbBits = 16
-
-            // In little-endian order, the most significant limb is at the end.
-            vector<DataT> dvec = b.GetInteger();
+            const Int limbBits = sizeof(DataT) * CHAR_BIT;
+            vector<DataT> dvec = b;
             DataT msd = dvec.back();
 
-            // Compute s such that (msd << s) has its most significant bit set.
             Int s = 0;
-            // We want: msd << s >= 1 << (limbBits - 1)
-            // (Assume msd is nonzero.)
             while (((UInt)msd << s) < (1U << (limbBits - 1)))
-            {
                 s++;
-            }
-            // Shift both dividend and divisor left by s bits.
-            a = BigInteger(
-                CommonAlgorithms::ShiftLeftBits(a.GetInteger(), s));
-            b = BigInteger(
-                CommonAlgorithms::ShiftLeftBits(b.GetInteger(), s));
+
+            a = CommonAlgorithms::ShiftLeftBits(a, s);
+            b = CommonAlgorithms::ShiftLeftBits(b, s);
             return s;
         }
 
-        // After performing division on normalized operands, denormalize the remainder r
-        // by shifting it right by s bits.
-        static BigInteger Denormalize(const BigInteger &r, int s)
+        static vector<DataT> Denormalize(const vector<DataT> &r, int s)
         {
-            return BigInteger(
-                CommonAlgorithms::ShiftRightBits(r.GetInteger(), s));
+            return CommonAlgorithms::ShiftRightBits(r, s);
         }
 
-        ///
-        /// Recursive Burnikel–Ziegler division algorithm.
-        /// Divides a by b, returning {q, r} with q = floor(a/b) and r = a - q*b.
-        ///
-    private:
-        static pair<BigInteger, BigInteger> DivideAndRemainderRecursive(const BigInteger &a, const BigInteger &b)
+        /// Combines two normalized BigIntegers into a single number where:
+        /// combined = (low + high * base^num_low_digits)
+        static vector<DataT> Combine(const vector<DataT> &high, const vector<DataT> &low)
         {
-            if (b.IsZero())
+            const auto &low_digits = low;
+            const auto &high_digits = high;
+
+            vector<DataT> combined_digits;
+            combined_digits.reserve(low_digits.size() + high_digits.size());
+
+            // Append low-order digits first (little-endian: least significant first)
+            combined_digits.insert(combined_digits.end(),
+                                   low_digits.begin(),
+                                   low_digits.end());
+
+            // Append high-order digits (more significant) after low digits
+            combined_digits.insert(combined_digits.end(),
+                                   high_digits.begin(),
+                                   high_digits.end());
+
+            // Remove trailing zeros (which are leading zeros in big-endian representation)
+            while (!combined_digits.empty() && combined_digits.back() == 0)
             {
-                // Division by zero is undefined.
-                throw runtime_error("Division by zero");
+                combined_digits.pop_back();
             }
 
-            // If the dividend a is smaller than b, the quotient is zero.
-            if (a < b)
+            // Handle all-zero case
+            if (combined_digits.empty())
             {
-                return {BigInteger(), a};
+                return vector<DataT>{0};
             }
 
-            // For small divisors, use the classical division algorithm.
+            return std::move(combined_digits);
+        }
+
+        static pair<vector<DataT>, vector<DataT>> SplitAt(const vector<DataT> &num, SizeT n)
+        {
+            vector<DataT> digits = num;
+            if (n >= digits.size())
+                return {vector<DataT>{0}, num};
+
+            return {
+                vector<DataT>(digits.begin() + n, digits.end()),
+                vector<DataT>(digits.begin(), digits.begin() + n)};
+        }
+
+        static pair<vector<DataT>, vector<DataT>> Divide2n1n(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
+        {
+            // If a < b, then quotient is 0
+            if (BigIntegerComparator::Compare(a, b) < 0)
+                return {vector<DataT>{0}, a};
+
             if (b.size() <= DIVISION_THRESHOLD)
-            {
-                return BigIntegerClassicDivision::DivideAndRemainder(a, b);
-            }
+                return ClassicDivision::DivideAndRemainder(a, b, base);
 
-            // --- Recursive case ---
-            // Determine block size.
-            // A common choice is to let n = ceil(m/2), where m = b.numDigits().
-            SizeT m = b.size();
-            SizeT n = (m + 1) / 2;
+            SizeT n = b.size() / 2;
+            // If n is 0 or n is not a proper split or a is too small, fallback
+            if (n == 0 || n >= b.size() || a.size() < n)
+                return ClassicDivision::DivideAndRemainder(a, b, base);
 
-            // We partition the dividend U into blocks of length 2*n (i.e. 2n digits).
-            // Let t be the number of blocks:
-            SizeT t = (a.size() + (2 * n) - 1) / (2 * n);
+            auto [b1, b0] = SplitAt(b, n);
 
-            // We will compute the quotient Q and remainder R iteratively.
-            BigInteger q;
-            BigInteger r;
+            auto [a12, a3] = SplitAt(a, n);
 
-            // Process blocks from the most-significant block (index t-1) to the least-significant (index 0).
-            // (This loop assumes that a is represented so that block 0 corresponds to the least-significant block.
-            //  Adjust if your internal representation differs.)
-            for (Int i = t; i > 0; i--)
-            {
-                // Extract the (i-1)-th block of 2*n digits.
-                BigInteger block = a.GetBlock(i - 1, 2 * n);
+            // If a12 is trivial (i.e. zero), use classical division.
+            if (BigIntegerUtil::IsZero(a12))
+                return ClassicDivision::DivideAndRemainder(a, b, base);
 
-                // Incorporate this block into the current remainder:
-                // r = r * (base^(2*n)) + block.
-                r = r << (2 * n);
-                r = r + block;
+            auto [a1, a2] = SplitAt(a12, n);
 
-                // Now compute the quotient digit for this block.
-                // Recursively divide r by b.
-                auto qr = DivideAndRemainderRecursive(r, b);
-                BigInteger q_i = qr.first; // This is the quotient block (could be more than one digit).
-                r = qr.second;             // Remainder after subtracting q_i * V.
+            auto [q1, r1] = Divide3n2n(Combine(a1, a2), b1, base);
+            auto r1a3 = Combine(r1, a3);
+            auto [q0, r] = Divide3n2n(r1a3, b, base);
 
-                // *** Correction step: ensure r < b by subtracting multiples of b if needed.
-                while (r >= b)
-                {
-                    r = r - b;
-                    q_i = q_i + ONE;
-                }
+            return {Combine(q1, q0), r};
+        }
 
-                // Accumulate the quotient:
-                q = q << (2 * n); // Shift Q left by 2*n digits.
-                q = q + q_i;
-            }
+        static pair<vector<DataT>, vector<DataT>> Divide3n2n(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
+        {
+            // If a < b, quotient is 0.
+            if (BigIntegerComparator::Compare(a, b) < 0)
+                return {vector<DataT>{0}, a};
 
-            // At this point q holds the quotient and r the remainder.
+            if (b.size() <= DIVISION_THRESHOLD)
+                return ClassicDivision::DivideAndRemainder(a, b, base);
+
+            SizeT n = b.size() / 2;
+            if (n == 0 || n >= b.size() || a.size() < 2 * n)
+                return ClassicDivision::DivideAndRemainder(a, b, base);
+
+            auto [b1, b0] = SplitAt(b, n);
+            auto [a12, a3] = SplitAt(a, 2 * n);
+            if (BigIntegerUtil::IsZero(a12))
+                return ClassicDivision::DivideAndRemainder(a, b, base);
+
+            auto [q1, r1] = Divide2n1n(a12, b, base);
+            auto r1a3 = Combine(r1, a3);
+            auto [q0, r] = Divide2n1n(r1a3, b, base);
+
+            vector<DataT> q = Combine(q1, q0);
             return {q, r};
         }
 
     public:
-        static pair<BigInteger, BigInteger> DivideAndRemainder(const BigInteger &a, const BigInteger &b)
+        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
         {
-            if (b.IsZero())
-            {
-                // Division by zero is undefined.
+            if (BigIntegerUtil::IsZero(b))
                 throw runtime_error("Division by zero");
-            }
+            if (BigIntegerComparator::Compare(a, b) < 0)
+                return {vector<DataT>{0}, a};
 
-            // If the dividend a is smaller than b, the quotient is zero.
-            if (a < b)
-            {
-                return {BigInteger(), a};
-            }
+            vector<DataT> a_norm = a;
+            vector<DataT> b_norm = b;
+            int shift = Normalize(a_norm, b_norm);
 
-            // For small divisors, use the classical division algorithm.
-            if (b.size() <= DIVISION_THRESHOLD)
-            {
-                return BigIntegerClassicDivision::DivideAndRemainder(a, b);
-            }
-
-            BigInteger q = a;
-            BigInteger r = b;
-
-            int s = Normalize(q, r);
-            auto qr = DivideAndRemainderRecursive(q, r);
-            q = qr.first;
-            r = qr.second;
-            r = Denormalize(r, s);
-            return {q, r};
+            auto [q, r] = Divide3n2n(a_norm, b_norm, base);
+            return {q, Denormalize(r, shift)};
         }
     };
-
 } // namespace BigMath
 
 #endif // BURNIKEL_ZIEGLER_DIVISION
