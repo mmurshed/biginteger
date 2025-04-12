@@ -29,7 +29,7 @@ namespace BigMath
         return {q, q}; // case of 0
       }
 
-      Int cmp = BigIntegerComparator::CompareTo(a.GetInteger(), b.GetInteger());
+      Int cmp = BigIntegerComparator::Compare(a.GetInteger(), b.GetInteger());
       if (cmp == 0)
       {
         vector<DataT> one(1, 1); // size 1, value 1
@@ -45,15 +45,13 @@ namespace BigMath
       }
 
       // Now: a > b
-      pair<BigInteger, BigInteger> result = BurnikelZieglerDivision::DivideAndRemainder(a, b);
+      pair<vector<DataT>, vector<DataT>> result = BurnikelZieglerDivision::DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
 
-      if (a.IsNegative() != b.IsNegative())
-      {
-        result.first.SetSign(true);
-        result.second.SetSign(true);
-      }
+      // Convert to BigInteger
+      BigInteger q = BigInteger(result.first, a.IsNegative() || b.IsNegative());
+      BigInteger r = BigInteger(result.second, a.IsNegative() || b.IsNegative());
 
-      return result;
+      return {q, r};
     }
   };
 
