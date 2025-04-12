@@ -145,11 +145,11 @@ int main(int argc, char *argv[])
     cerr << timeTaken << endl;
     fprintf(timeFile, "%d,%f\n", r.size(), timeTaken);
 
-    int cmp = BigIntegerComparator::CompareTo(r.GetInteger(), ans.GetInteger());
+    int cmp = BigIntegerComparator::Compare(r.GetInteger(), ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Failed." << endl;
-      // return cmp;
+      return cmp;
     }
 
     DATA++;

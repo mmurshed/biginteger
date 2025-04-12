@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
 
     // cout << BigInteger(rToom2) << endl;
 
-    int cmp = BigIntegerComparator::CompareTo(rToom2, ans.GetInteger());
+    int cmp = BigIntegerComparator::Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(fftm, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(fftm, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "FFT algorithm failed." << endl;

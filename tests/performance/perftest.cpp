@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
     clock_t end = clock();
     double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
 
-    Int cmp = BigIntegerComparator::CompareTo(rClassical, ans.GetInteger());
+    Int cmp = BigIntegerComparator::Compare(rClassical, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Classical algorithm failed." << endl;
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(rKarat, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(rKarat, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Karatsuba algorithm failed." << endl;
@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(rToom, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(rToom, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook algorithm failed." << endl;
@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
 
     // cout << BigInteger(rToom2) << endl;
 
-    cmp = BigIntegerComparator::CompareTo(rToom2, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenToomCook2a = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(rToom2a, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(rToom2a, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2a algorithm failed." << endl;
@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::CompareTo(fftm, ans.GetInteger());
+    cmp = BigIntegerComparator::Compare(fftm, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "FFT algorithm failed." << endl;
