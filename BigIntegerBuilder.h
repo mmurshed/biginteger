@@ -43,6 +43,18 @@ namespace BigMath
     // Convert from long double.
     static BigInteger From(long double value)
     {
+      auto [theInteger, isNegative] = VectorFrom(value);
+      return BigInteger(theInteger, isNegative);
+    }
+
+    static pair<vector<DataT>, bool> VectorFrom(long double value)
+    {
+      // If the value is zero, simply store one limb with zero.
+      if (value == 0.0L)
+      {
+        return {vector<DataT>{0}, false};
+      }
+
       bool isNegative = false;
       vector<DataT> theInteger;
       // Set the sign flag and work with the absolute value.
@@ -50,12 +62,6 @@ namespace BigMath
       {
         isNegative = true;
         value = -value;
-      }
-
-      // If the value is zero, simply store one limb with zero.
-      if (value == 0.0L)
-      {
-        return BigInteger();
       }
 
       // Define the base for one limb. For example, if each limb is 16 bits:
@@ -77,7 +83,7 @@ namespace BigMath
       // to keep the representation as compact as possible.
       BigIntegerUtil::TrimZeros(theInteger);
 
-      return BigInteger(theInteger, isNegative);
+      return {theInteger, isNegative};
     }
   };
 }
