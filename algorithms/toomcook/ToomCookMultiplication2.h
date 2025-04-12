@@ -13,7 +13,7 @@
 using namespace std;
 
 #include "../../BigInteger.h"
-#include "../BigIntegerUtil.h"
+#include "../../BigIntegerUtil.h"
 #include "../classic/ClassicAddition.h"
 #include "../classic/ClassicSubtraction.h"
 #include "../classic/ClassicMultiplication.h"

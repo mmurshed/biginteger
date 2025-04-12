@@ -11,7 +11,7 @@
 #include <string>
 using namespace std;
 
-#include "algorithms/BigIntegerUtil.h"
+#include "BigIntegerUtil.h"
 #include "BigIntegerParser.h"
 #include "BigInteger.h"
 

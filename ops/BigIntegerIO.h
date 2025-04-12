@@ -10,8 +10,8 @@
 #include <iostream>
 using namespace std;
 
-#include "BigInteger.h"
-#include "BigIntegerParser.h"
+#include "../BigInteger.h"
+#include "../BigIntegerParser.h"
 
 namespace BigMath
 {

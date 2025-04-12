@@ -19,4 +19,5 @@ using namespace std;
 #include "BigIntegerDivision.h"
 #include "BigIntegerShift.h"
 #include "BigIntegerComparison.h"
+#include "BigIntegerIO.h"
 #endif

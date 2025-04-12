@@ -4,13 +4,13 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef BIG_INTEGER_UTIL_H
-#define BIG_INTEGER_UTIL_H
+#ifndef BIG_INTEGER_UTIL
+#define BIG_INTEGER_UTIL
 
 #include <vector>
 using namespace std;
 
-#include "../BigInteger.h"
+#include "BigInteger.h"
 
 namespace BigMath
 {

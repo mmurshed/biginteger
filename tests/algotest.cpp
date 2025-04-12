@@ -21,7 +21,7 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../BigIntegerIO.h"
+#include "../ops/BigIntegerIO.h"
 #include "../BigIntegerParser.h"
 #include "../BigIntegerComparator.h"
 #include "../algorithms/toomcook/ToomCookMultiplication.h"
@@ -84,8 +84,9 @@ int main(int argc, char *argv[])
 
     start = clock();
     BigInteger result = BurnikelZieglerDivision::DivideAndRemainder(
-        a,
-        b).first;
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base()).first;
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 

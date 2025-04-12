@@ -14,9 +14,9 @@
 #include <algorithm>
 using namespace std;
 
-#include "../BigIntegerUtil.h"
-#include "../classic/ClassicMultiplication.h"
 #include "../../BigInteger.h"
+#include "../../BigIntegerUtil.h"
+#include "../classic/ClassicMultiplication.h"
 
 namespace BigMath
 {

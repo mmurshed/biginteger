@@ -5,7 +5,7 @@
 #include <cassert>
 
 #include "../../BigIntegerBuilder.h"
-#include "../BigIntegerUtil.h"
+#include "../../BigIntegerUtil.h"
 #include "../classic/CommonAlgorithms.h"
 #include "../classic/ClassicAddition.h"
 #include "../classic/ClassicSubtraction.h"

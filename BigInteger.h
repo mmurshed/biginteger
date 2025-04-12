@@ -10,7 +10,7 @@
 #include <vector>
 using namespace std;
 
-#include "algorithms/BigIntegerUtil.h"
+#include "BigIntegerUtil.h"
 #include "BigIntegerComparator.h"
 
 namespace BigMath
