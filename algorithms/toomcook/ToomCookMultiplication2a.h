@@ -25,20 +25,20 @@ namespace BigMath
   {
   private:
     // Threshold for switching to the naive multiplication.
-    const SizeT baseCaseThreshold = 256;
+    static const SizeT BASE_CASE_THRESHOLD = 256;
 
     // For evaluation, we need to compute 5 points (e.g., points for Toom–3: 0, 1, -1, 2, ∞).
-    const int numPoints = 5;
+    static const int NUM_POINTS = 5;
 
   public:
-    vector<DataT> Multiply(
+    static vector<DataT> Multiply(
         vector<DataT> const &a,
         vector<DataT> const &b,
         BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
 
-      if (n < baseCaseThreshold)
+      if (n < BASE_CASE_THRESHOLD)
       {
         return ClassicMultiplication::Multiply(a, b, base);
       }
@@ -53,8 +53,8 @@ namespace BigMath
 
       // Step 2: Pointwise multiply the evaluations.
       // Use a container for the products at each evaluation point.
-      vector<BigInteger> tempProducts(numPoints);
-      for (int i = 0; i < numPoints; i++)
+      vector<BigInteger> tempProducts(NUM_POINTS);
+      for (int i = 0; i < NUM_POINTS; i++)
       {
         // The multiplication result at each point requires room for 2*segmentSize elements.
         // For pointwise multiplication, you can call the naive multiplication routine.
@@ -83,9 +83,9 @@ namespace BigMath
     //
     // The five evaluation results are stored in 'evalPoints', which is assumed
     // to have been preallocated with 5 vectors.
-    vector<BigInteger> evaluatePoly(const vector<DataT> &poly, SizeT partSize)
+    static vector<BigInteger> evaluatePoly(const vector<DataT> &poly, SizeT partSize)
     {
-      vector<BigInteger> evalPoints(numPoints);
+      vector<BigInteger> evalPoints(NUM_POINTS);
       // a0
       BigInteger a0(vector<DataT>(
           poly.begin(),
@@ -141,7 +141,7 @@ namespace BigMath
     //          + (c3 << 3 * partSize) + (c4 << 4 * partSize)
     //
     // Note: The shifts are in limbs (each limb is 32 bits).
-    BigInteger interpolate(vector<BigInteger> const &products, SizeT partSize)
+    static BigInteger interpolate(vector<BigInteger> const &products, SizeT partSize)
     {
       // For clarity, assume the products are indexed as follows:
       //   products[0] = r0  (evaluation at 0)

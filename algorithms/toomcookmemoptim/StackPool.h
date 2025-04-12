@@ -11,6 +11,8 @@
 #include <stack>
 using namespace std;
 
+#include "../BigIntegerUtil.h"
+
 namespace BigMath
 {
   typedef pair<Int, Int> Range;

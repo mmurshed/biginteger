@@ -18,6 +18,7 @@ using namespace std;
 #include "../classic/ClassicSubtraction.h"
 #include "../classic/ClassicMultiplication.h"
 #include "../classic/ClassicDivision.h"
+#include "ToomCookData.h"
 
 namespace BigMath
 {
@@ -30,28 +31,19 @@ namespace BigMath
       CODE3 = -3
     };
 
-  public:
   private:
-    vector<vector<DataT>> W;
-    stack<Int> C;
-    vector<vector<DataT>> Cval;
-
-    vector<Long> q_table;
-    vector<Long> r_table;
-
-  public:
-    vector<DataT> ComputeAnswer(SizeT k, BaseT base)
+    static vector<DataT> ComputeAnswer(ToomCookData &tcd, SizeT k, BaseT base)
     {
       // Step 7. [Find a’s.]
       // Set r ← r_k
-      Long r = r_table[k];
+      Long r = tcd.r_table[k];
       Long _2r = 2 * r;
       // q ← q_k
-      Long q = q_table[k];
+      Long q = tcd.q_table[k];
       // p ← q_k–1 + q_k
-      Long p = q_table[k - 1] + q_table[k];
+      Long p = tcd.q_table[k - 1] + tcd.q_table[k];
 
-      Long wStart = W.size() - _2r - 1;
+      Long wStart = tcd.W.size() - _2r - 1;
 
       // At this point stack W contains a sequence of numbers
       // ending with W(0), W(1), ..., W(2r) from bottom to
@@ -60,8 +52,8 @@ namespace BigMath
       for (Long j = 0; j <= _2r; j++)
       {
         Long wPos = wStart + j;
-        BigIntegerUtil::TrimZeros(W[wPos], _2p);
-        BigIntegerUtil::Resize(W[wPos], _2p);
+        BigIntegerUtil::TrimZeros(tcd.W[wPos], _2p);
+        BigIntegerUtil::Resize(tcd.W[wPos], _2p);
       }
 
       // Now for j = 1, 2, 3, ... , 2r, perform the following
@@ -79,15 +71,15 @@ namespace BigMath
 
           // W(t) –= W(t − 1)
           ClassicSubtraction::SubtractFrom(
-              W[wPos], 0, (SizeT)W[wPos].size() - 1,
-              W[wPos - 1], 0, (SizeT)W[wPos - 1].size() - 1,
+              tcd.W[wPos], 0, (SizeT)tcd.W[wPos].size() - 1,
+              tcd.W[wPos - 1], 0, (SizeT)tcd.W[wPos - 1].size() - 1,
               base);
 
           // W(t) /= j
           if (j > 1)
           {
             // vector<DataT> bigJ = BigIntegerParser::Convert(j);
-            ClassicDivision::DivideTo(W[wPos], j, base);
+            ClassicDivision::DivideTo(tcd.W[wPos], j, base);
           }
         }
       }
@@ -109,7 +101,7 @@ namespace BigMath
           // vector<DataT> bigJ = BigIntegerParser::Convert(j);
           // Wt1 = W(t+1) * j
           vector<DataT> Wt1 = ClassicMultiplication::Multiply(
-              W[wPos + 1],
+              tcd.W[wPos + 1],
               j,
               base);
 
@@ -117,7 +109,7 @@ namespace BigMath
           // W(t) ← W(t) – Wt1
           // W(t) -= Wt1
           ClassicSubtraction::SubtractFrom(
-              W[wPos], 0, (SizeT)W[wPos].size() - 1,
+              tcd.W[wPos], 0, (SizeT)tcd.W[wPos].size() - 1,
               Wt1, 0, (SizeT)Wt1.size() - 1,
               base);
         }
@@ -138,7 +130,7 @@ namespace BigMath
         Long wPos = wStart + i;
         ClassicAddition::AddTo(
             w, wAnsStart, wAnsEnd,
-            W[wPos], 0, W[wPos].size() - 1,
+            tcd.W[wPos], 0, tcd.W[wPos].size() - 1,
             base);
 
         wAnsStart -= q;
@@ -148,13 +140,13 @@ namespace BigMath
       // Remove W(2r), . . . , W(0) from stack W.
       for (Long i = _2r; i >= 0; i--)
       {
-        W.pop_back();
+        tcd.W.pop_back();
       }
 
       return w;
     }
 
-    vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, BaseT base)
+    static vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, BaseT base)
     {
       vector<DataT> Uj(p, 0);
 
@@ -195,7 +187,7 @@ namespace BigMath
       return Uj;
     }
 
-    void BreakIntoRPlus1Parts(Long p, Long q, Long r, BaseT base)
+    static void BreakIntoRPlus1Parts(ToomCookData &tcd, Long p, Long q, Long r, BaseT base)
     {
       // Step 4. [Break into r + 1 parts.]
       // Let the number at the top of stack C be regarded as a list
@@ -203,16 +195,16 @@ namespace BigMath
 
       // The top of stack C now contains an (r + 1)q = (q_k + q_k+1)-bit number.
       // Remove U_r ... U_1 U_0 from stack C.
-      vector<DataT> U = Cval[C.top()];
-      C.pop();
-      Cval.pop_back();
+      vector<DataT> U = tcd.Cval[tcd.C.top()];
+      tcd.C.pop();
+      tcd.Cval.pop_back();
 
       // Now the top of stack C contains another list of
       // r + 1 q-bit numbers, V_r ... V_1 V_0.
       // Remove V_r ... V_1 V_0 from stack C.
-      vector<DataT> V = Cval[C.top()];
-      C.pop();
-      Cval.pop_back();
+      vector<DataT> V = tcd.Cval[tcd.C.top()];
+      tcd.C.pop();
+      tcd.Cval.pop_back();
 
       Long _2r = 2 * r;
 
@@ -220,22 +212,22 @@ namespace BigMath
       for (Long j = _2r; j >= 0; j--)
       {
         // code
-        C.push(j == _2r ? CODE2 : CODE3);
+        tcd.C.push(j == _2r ? CODE2 : CODE3);
 
         // vector<DataT> jbig = BigIntegerParser::Convert(j);
 
         // Compute the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0
         vector<DataT> Vj = MultiplyRPlus1Part(V, j, p, q, r, base);
-        Cval.push_back(Vj);
-        C.push((SizeT)Cval.size() - 1);
+        tcd.Cval.push_back(Vj);
+        tcd.C.push((SizeT)tcd.Cval.size() - 1);
 
         // Compute the p-bit numbers
         // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0
         // and successively put these values onto stack U.
         vector<DataT> Uj = MultiplyRPlus1Part(U, j, p, q, r, base);
-        Cval.push_back(Uj);
-        C.push((SizeT)Cval.size() - 1);
+        tcd.Cval.push_back(Uj);
+        tcd.C.push((SizeT)tcd.Cval.size() - 1);
       }
       // Stack C contains
       // code-2, V(2r), U(2r),
@@ -245,7 +237,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    vector<DataT> DivideRecursive(SizeT k, BaseT base)
+    static vector<DataT> DivideRecursive(ToomCookData &tcd, SizeT k, BaseT base)
     {
       // Step 3. [Check recursion level.]
       // Decrease k by 1.
@@ -256,13 +248,13 @@ namespace BigMath
       if (k == 0)
       {
         // remove them
-        vector<DataT> u = Cval[C.top()];
-        C.pop();
-        Cval.pop_back();
+        vector<DataT> u = tcd.Cval[tcd.C.top()];
+        tcd.C.pop();
+        tcd.Cval.pop_back();
 
-        vector<DataT> v = Cval[C.top()];
-        C.pop();
-        Cval.pop_back();
+        vector<DataT> v = tcd.Cval[tcd.C.top()];
+        tcd.C.pop();
+        tcd.Cval.pop_back();
         // set w ← uv using a built-in routine for multiplying
         // 32-bit numbers, and go to step 10.
         vector<DataT> w = ClassicMultiplication::Multiply(u, v, base);
@@ -272,43 +264,43 @@ namespace BigMath
 
       // If k > 0
       // set r ← r_k
-      Long r = r_table[k];
+      Long r = tcd.r_table[k];
       // q ← q_k
-      Long q = q_table[k];
+      Long q = tcd.q_table[k];
       // p ← q_k–1 + q_k
-      Long p = q_table[k - 1] + q_table[k];
+      Long p = tcd.q_table[k - 1] + tcd.q_table[k];
 
       // go on to step 4.
-      BreakIntoRPlus1Parts(p, q, r, base);
+      BreakIntoRPlus1Parts(tcd, p, q, r, base);
 
       // Step 5. [Recurse.]
       // Go back to step 3.
-      return DivideRecursive(k, base);
+      return DivideRecursive(tcd, k, base);
     }
 
-    vector<DataT> Divide(SizeT k, BaseT base)
+    static vector<DataT> Divide(ToomCookData &tcd, SizeT k, BaseT base)
     {
       // While k > 0
       while (--k > 0)
       {
-        Long r = r_table[k];                  // r ← r_k
-        Long q = q_table[k];                  // q ← q_k
-        Long p = q_table[k - 1] + q_table[k]; // p ← q_k–1 + q_k
+        Long r = tcd.r_table[k];                      // r ← r_k
+        Long q = tcd.q_table[k];                      // q ← q_k
+        Long p = tcd.q_table[k - 1] + tcd.q_table[k]; // p ← q_k–1 + q_k
 
-        BreakIntoRPlus1Parts(p, q, r, base);
+        BreakIntoRPlus1Parts(tcd, p, q, r, base);
       }
 
       // At this point k is 0
       // the top of stack C now contains
       // two 32-bit numbers, u and v
       // remove them
-      vector<DataT> u = Cval[C.top()];
-      C.pop();
-      Cval.pop_back();
+      vector<DataT> u = tcd.Cval[tcd.C.top()];
+      tcd.C.pop();
+      tcd.Cval.pop_back();
 
-      vector<DataT> v = Cval[C.top()];
-      C.pop();
-      Cval.pop_back();
+      vector<DataT> v = tcd.Cval[tcd.C.top()];
+      tcd.C.pop();
+      tcd.Cval.pop_back();
       // set w ← uv using a built-in routine for multiplying
       // 32-bit numbers, and go to step 10.
       vector<DataT> w = ClassicMultiplication::Multiply(u, v, base);
@@ -316,7 +308,7 @@ namespace BigMath
       return w;
     }
 
-    vector<DataT> Multiply(SizeT k, BaseT base)
+    static vector<DataT> Multiply(ToomCookData &tcd, SizeT k, BaseT base)
     {
       Int code = CODE3;
 
@@ -328,74 +320,26 @@ namespace BigMath
         {
           // Step 6. [Save one product.]
           // Go back to step T3.
-          vector<DataT> w = Divide(k, base);
-          W.push_back(w);
+          vector<DataT> w = Divide(tcd, k, base);
+          tcd.W.push_back(w);
           k = 0;
         }
         // If it is code-2, put w onto stack W and go to step 7.
         else if (code == CODE2)
         {
-          vector<DataT> w = ComputeAnswer(k, base);
-          W.push_back(w);
+          vector<DataT> w = ComputeAnswer(tcd, k, base);
+          tcd.W.push_back(w);
         }
 
         // Set k ← k + 1.
         k++;
-        code = C.top();
-        C.pop();
+        code = tcd.C.top();
+        tcd.C.pop();
       }
 
       // And if it is code-1, terminate the algorithm (w is the answer).
-      return W.at(0);
+      return tcd.W.at(0);
     }
-
-    // Setp 1. [Compute q, r tables.]
-    // In this step we build the sequences
-    //
-    // k   = 0     1    2    3    4     5     6
-    // q_k = 2^4  2^4  2^6  2^8  2^10  2^13  2^16
-    // r_k = 2^2  2^2  2^2  2^2  2^3   2^3   2^4
-    //
-    // The multiplication of 70000-bit numbers would cause
-    // this step to terminate with k = 6, since 70000 < 2^13 + 2^16.)
-    SizeT ComputeTables(SizeT n)
-    {
-      SizeT k = 1; // k ← 1
-
-      // q_0 ← q_1 ← 16
-      q_table.push_back(16);
-      q_table.push_back(16);
-
-      // r_0 ← r_1 ← 4
-      r_table.push_back(4);
-      r_table.push_back(4);
-
-      Int Q = 4; // Q ← 4
-      Int R = 2; // R ← 2
-
-      // Now if q_k−1 + q_k < n
-      // and repeat this operation until q_k−1 + q_k ≥ n.
-      while (q_table[k - 1] + q_table[k] < n)
-      {
-        k++;    // k ← k + 1
-        Q += R; // Q ← Q + R
-
-        // R ← ⌊sqrt(Q)⌋
-        // Instead of sqrt calculation
-        // set R ← R + 1 if (R + 1)^2 ≤ Q
-        // leave R unchanged if (R + 1)^2 > Q.
-        if (sqr(R + 1) <= Q)
-          R++;
-
-        q_table.push_back(twopow(Q)); // q_k ← 2^Q
-        r_table.push_back(twopow(R)); // r_k ← 2^R
-      }
-
-      return k;
-    }
-
-    static inline Long sqr(Long n) { return n * n; }
-    static inline Long twopow(Int pow) { return 1L << pow; }
 
   public:
     /*
@@ -417,13 +361,14 @@ namespace BigMath
      * (moving back and forth) can be used to access the current table
      * entry of interest.
      */
-    vector<DataT> Multiply(
+    static vector<DataT> Multiply(
         vector<DataT> const &a,
         vector<DataT> const &b,
         BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
-      SizeT k = ComputeTables(n);
+
+      ToomCookData tcd(n);
 
       // Set stacks U, V, C, and W empty.
       // Stack C contains control code.
@@ -431,7 +376,7 @@ namespace BigMath
       // It also contains the locations of Cval as positive integers.
 
       // Step 2. [Put u, v on stack.]
-      Long p = q_table[k - 1] + q_table[k];
+      Long p = tcd.q_table[tcd.k - 1] + tcd.q_table[tcd.k];
 
       // u and v as numbers of exactly q_k-1 + q_k bits each.
       vector<DataT> u(p, 0);
@@ -441,17 +386,17 @@ namespace BigMath
       BigIntegerUtil::Copy(b, v);
 
       // Put code-1 on stack C
-      C.push(CODE1);
+      tcd.C.push(CODE1);
 
       // Place v onto stack C
-      Cval.push_back(v);
-      C.push(0);
+      tcd.Cval.push_back(v);
+      tcd.C.push(0);
 
       // Place u onto stack C
-      Cval.push_back(u);
-      C.push(1);
+      tcd.Cval.push_back(u);
+      tcd.C.push(1);
 
-      vector<DataT> w = Multiply(k, base);
+      vector<DataT> w = Multiply(tcd, tcd.k, base);
 
       BigIntegerUtil::TrimZeros(w);
 

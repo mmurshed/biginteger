@@ -12,7 +12,7 @@
 #include <stack>
 using namespace std;
 
-#include "ToomCookData.h"
+#include "ToomCookDataMemOptimized.h"
 #include "../../BigInteger.h"
 #include "../BigIntegerUtil.h"
 #include "../classic/ClassicAddition.h"
@@ -25,7 +25,7 @@ namespace BigMath
   class ToomCookMultiplicationMemOptimized
   {
   private:
-    static void ComputeAnswer(ToomCookData &tcd, SizeT k, BaseT base)
+    static void ComputeAnswer(ToomCookDataMemOptim &tcd, SizeT k, BaseT base)
     {
       // Step 7. [Find a’s.]
       Long _2r = 2 * tcd.R(k);
@@ -181,7 +181,7 @@ namespace BigMath
       }
     }
 
-    static void BreakIntoRPlus1Parts(ToomCookData &tcd, Long k, BaseT base)
+    static void BreakIntoRPlus1Parts(ToomCookDataMemOptim &tcd, Long k, BaseT base)
     {
       Long p = tcd.P(k);
       Long q = tcd.Q(k);
@@ -207,7 +207,7 @@ namespace BigMath
       for (Long j = _2r; j >= 0; j--)
       {
         // code
-        tcd.C.push(j == _2r ? ToomCookData::CODE2 : ToomCookData::CODE3);
+        tcd.C.push(j == _2r ? ToomCookDataMemOptim::CODE2 : ToomCookDataMemOptim::CODE3);
 
         // Compute the p-bit numbers
         // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0
@@ -251,7 +251,7 @@ namespace BigMath
       // code-3, V(0), U(0)
     }
 
-    static void BreakIntoParts(ToomCookData &tcd, SizeT k, BaseT base)
+    static void BreakIntoParts(ToomCookDataMemOptim &tcd, SizeT k, BaseT base)
     {
       while (--k > 0)
       {
@@ -277,16 +277,16 @@ namespace BigMath
       tcd.W.Push(wStart, wEnd);
     }
 
-    static vector<DataT> Multiply(ToomCookData &tcd, BaseT base)
+    static vector<DataT> Multiply(ToomCookDataMemOptim &tcd, BaseT base)
     {
       SizeT k = tcd.K;
-      Int code = ToomCookData::CODE3;
+      Int code = ToomCookDataMemOptim::CODE3;
 
       // Step 10. [Return.]
-      while (code != ToomCookData::CODE1)
+      while (code != ToomCookDataMemOptim::CODE1)
       {
         // If it is code-3, go to step T6.
-        if (code == ToomCookData::CODE3)
+        if (code == ToomCookDataMemOptim::CODE3)
         {
           // Step 6. [Save one product.]
           // Go back to step T3.
@@ -294,7 +294,7 @@ namespace BigMath
           k = 0;
         }
         // If it is code-2, put w onto stack W and go to step 7.
-        else if (code == ToomCookData::CODE2)
+        else if (code == ToomCookDataMemOptim::CODE2)
         {
           ComputeAnswer(tcd, k, base);
         }
@@ -335,7 +335,7 @@ namespace BigMath
         bool trim = true)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
-      ToomCookData tcd(n);
+      ToomCookDataMemOptim tcd(n);
 
       // Step 2. [Put u, v on stack.]
 
@@ -345,7 +345,7 @@ namespace BigMath
       tcd.V.Push(b, p);
 
       // Put code-1 on stack C
-      tcd.C.push(ToomCookData::CODE1);
+      tcd.C.push(ToomCookDataMemOptim::CODE1);
 
       vector<DataT> w = Multiply(tcd, base);
 

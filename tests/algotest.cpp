@@ -30,6 +30,8 @@ using namespace std;
 #include "../algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
 #include "../algorithms/stonehagestrassen/FFTMultiplication.h"
+#include "../algorithms/newtonraphson/NewtonRaphsonDivision.h"
+#include "../algorithms/burnikelziegler/BurnikelZieglerDivision.h"
 
 using namespace BigMath;
 
@@ -73,11 +75,6 @@ int main(int argc, char *argv[])
     clock_t start = clock();
     cin >> a >> op >> b;
 
-    // vector<DataT> res1 = CommonAlgorithms::ShiftLeft(a.GetInteger(), 2);
-
-    // cerr << a << endl;
-    // cerr << res1 << endl;
-
     string line;
     getline(ansFile, line);
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
@@ -89,10 +86,9 @@ int main(int argc, char *argv[])
     cerr << "started" << endl;
 
     start = clock();
-    vector<DataT> result = FFTMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
+    BigInteger result = BurnikelZieglerDivision::DivideAndRemainder(
+        a,
+        b).first;
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
@@ -102,11 +98,9 @@ int main(int argc, char *argv[])
     cerr.setf(ios::showpoint);
     cerr << DATA << "," << result.size() << "," << timeTaken << endl;
 
-    int cmp = BigIntegerComparator::CompareTo(result, ans.GetInteger());
-    if (cmp != 0)
+    if (result != ans)
     {
       cerr << "Multiplication algorithm failed." << endl;
-      return cmp;
     }
 
     DATA++;

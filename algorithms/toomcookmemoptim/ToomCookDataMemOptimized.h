@@ -1,22 +1,22 @@
-
 /**
  * BigInteger Class
  * Version 9.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOMCOOK_DATA
-#define TOOMCOOK_DATA
+#ifndef TOOMCOOK_DATA_MEM_OPTIMIZED
+#define TOOMCOOK_DATA_MEM_OPTIMIZED
 
 #include <vector>
 #include <stack>
 using namespace std;
 
 #include "StackPool.h"
+#include "../BigIntegerUtil.h"
 
 namespace BigMath
 {
-  class ToomCookData
+  class ToomCookDataMemOptim
   {
   public:
     StackPool<DataT> U;
@@ -47,7 +47,7 @@ namespace BigMath
     inline Long S(SizeT k) const { return r_table[k] + q_table[k + 1]; } // s ← q_k + q_k+1
     SizeT K;
 
-    ToomCookData(SizeT n)
+    ToomCookDataMemOptim(SizeT n)
     {
       ComputeTablesAndAllocate(n);
     }

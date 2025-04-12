@@ -25,18 +25,15 @@ namespace BigMath
   class ToomCookMultiplication2
   {
   private:
-    // Pre-allocated buffer for temporary storage
-    vector<DataT> tempBuffer;
-
     // Threshold for switching to the naive multiplication.
     static const SizeT baseCaseThreshold = 256;
 
-  public:
-    vector<DataT> Multiply(
+  private:
+    static vector<DataT> MultiplyRecursive(
         vector<DataT> const &a,
         vector<DataT> const &b,
-        BaseT base,
-        bool trim = true)
+        vector<DataT> &tempBuffer,
+        BaseT base)
     {
       SizeT n = (SizeT)max(a.size(), b.size());
 
@@ -98,7 +95,7 @@ namespace BigMath
         // The multiplication result at each point requires room for 2*segmentSize elements.
         tempProducts[i].resize(2 * segmentSize);
         // For pointwise multiplication, you can call the naive multiplication routine.
-        tempProducts[i] = Multiply(evalA[i], evalB[i], base);
+        tempProducts[i] = MultiplyRecursive(evalA[i], evalB[i], tempBuffer, base);
       }
 
       int fm1Sign = fm1SignA * fm1SignB;
@@ -472,6 +469,17 @@ namespace BigMath
         throw runtime_error("Negative result in multiplication.");
 
       return sum;
+    }
+
+  public:
+    static vector<DataT> Multiply(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base)
+    {
+      // Pre-allocated buffer for temporary storage
+      vector<DataT> tempBuffer;
+      return MultiplyRecursive(a, b, tempBuffer, base);
     }
   };
 }
