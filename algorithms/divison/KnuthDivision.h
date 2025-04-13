@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef CLASSIC_DIVISION_H
-#define CLASSIC_DIVISION_H
+#ifndef KNUTH_DIVISION
+#define KNUTH_DIVISION
 
 #include <cstddef>
 #include <vector>
@@ -19,7 +19,7 @@ using namespace std;
 
 namespace BigMath
 {
-  class ClassicDivision
+  class KnuthDivision
   {
   public:
     static void DivideTo(

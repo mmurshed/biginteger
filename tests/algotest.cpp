@@ -31,7 +31,7 @@ using namespace std;
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
 
-#include "../algorithms/divison/ClassicDivision.h"
+#include "../algorithms/divison/KnuthDivision.h"
 #include "../algorithms/divison/NewtonRaphsonDivision.h"
 #include "../algorithms/divison/MontgomeryDivision.h"
 
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = ClassicDivision::DivideAndRemainder(
+    BigInteger result = KnuthDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base()).first;

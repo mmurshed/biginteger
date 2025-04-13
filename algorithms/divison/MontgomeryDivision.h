@@ -13,7 +13,7 @@
 #include "../CommonAlgorithms.h"
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
-#include "../divison/ClassicDivision.h"
+#include "../divison/KnuthDivision.h"
 
 using namespace std;
 
@@ -51,7 +51,7 @@ namespace BigMath
             if (gcd(b0, base) != 1)
             {
                 // Fall back to classic division if b0 and base are not coprime
-                return ClassicDivision::DivideAndRemainder(a, b, base);
+                return KnuthDivision::DivideAndRemainder(a, b, base);
             }
 
             // Compute mu = -b0^{-1} mod base
@@ -68,7 +68,7 @@ namespace BigMath
             }
             if (!found)
             {
-                return ClassicDivision::DivideAndRemainder(a, b, base);
+                return KnuthDivision::DivideAndRemainder(a, b, base);
             }
 
             vector<DataT> r = a;
@@ -107,7 +107,7 @@ namespace BigMath
 
             // Compute quotient: (a - remainder) / b
             vector<DataT> a_minus_r = ClassicSubtraction::Subtract(a, r, base);
-            auto qr = ClassicDivision::DivideAndRemainder(a_minus_r, b, base);
+            auto qr = KnuthDivision::DivideAndRemainder(a_minus_r, b, base);
             BigIntegerUtil::TrimZeros(qr.first);
 
             return {qr.first, r};

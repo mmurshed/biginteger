@@ -13,7 +13,7 @@
 #include "../CommonAlgorithms.h"
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
-#include "../divison/ClassicDivision.h"
+#include "../divison/KnuthDivision.h"
 
 using namespace std;
 
@@ -40,7 +40,7 @@ namespace BigMath
             ten_power_F.push_back(1);
 
             // Compute the initial approximation X0 = ten_power_F / b.
-            auto div_result = ClassicDivision::DivideAndRemainder(ten_power_F, b, base);
+            auto div_result = KnuthDivision::DivideAndRemainder(ten_power_F, b, base);
             vector<DataT> X = div_result.first;
 
             // Perform a fixed number of Newton-Raphson iterations to refine X.
@@ -60,7 +60,7 @@ namespace BigMath
 
                 vector<DataT> delta = MultiplicationStrategy::MultiplyUnsigned(X, temp, base);
 
-                auto delta_div = ClassicDivision::DivideAndRemainder(delta, ten_power_F, base);
+                auto delta_div = KnuthDivision::DivideAndRemainder(delta, ten_power_F, base);
                 X = delta_div.first;
             }
 
@@ -68,7 +68,7 @@ namespace BigMath
             vector<DataT> a_times_X = MultiplicationStrategy::MultiplyUnsigned(a, X, base);
 
             // Compute the preliminary quotient: (a * X) / ten_power_F.
-            auto div_q = ClassicDivision::DivideAndRemainder(a_times_X, ten_power_F, base);
+            auto div_q = KnuthDivision::DivideAndRemainder(a_times_X, ten_power_F, base);
             vector<DataT> quotient = div_q.first;
 
             // --- Robust Final Correction ---
@@ -85,7 +85,7 @@ namespace BigMath
                 if (BigIntegerComparator::Compare(diff, b) < 0)
                     break;
                 // Compute extra = floor(diff / b).
-                auto extra_div = ClassicDivision::DivideAndRemainder(diff, b, base);
+                auto extra_div = KnuthDivision::DivideAndRemainder(diff, b, base);
                 vector<DataT> extra = extra_div.first;
                 if (BigIntegerComparator::Compare(extra, one) < 0)
                     extra = one;

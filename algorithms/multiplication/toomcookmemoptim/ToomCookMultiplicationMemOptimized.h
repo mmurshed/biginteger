@@ -18,7 +18,7 @@ using namespace std;
 #include "../../addition/ClassicAddition.h"
 #include "../../subtraction/ClassicSubtraction.h"
 #include "../../multiplication/ClassicMultiplication.h"
-#include "../../divison/ClassicDivision.h"
+#include "../../divison/KnuthDivision.h"
 
 namespace BigMath
 {
@@ -62,7 +62,7 @@ namespace BigMath
           // W(t) /= j
           if (j > 1)
           {
-            ClassicDivision::DivideTo(
+            KnuthDivision::DivideTo(
                 tcd.W.data, wtr.first, wtr.second,
                 (DataT)j,
                 base);

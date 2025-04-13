@@ -25,7 +25,7 @@ using namespace std;
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
-#include "../../algorithms/divison/ClassicDivision.h"
+#include "../../algorithms/divison/KnuthDivision.h"
 #include "../../algorithms/divison/NewtonRaphsonDivision.h"
 
 using namespace BigMath;
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     BigInteger ansr = BigIntegerParser::Parse(line.c_str());
 
     clock_t start = clock();
-    auto [q, r] = ClassicDivision::DivideAndRemainder(
+    auto [q, r] = KnuthDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());

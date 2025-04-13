@@ -17,7 +17,7 @@ using namespace std;
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
 #include "../multiplication/ClassicMultiplication.h"
-#include "../divison/ClassicDivision.h"
+#include "../divison/KnuthDivision.h"
 #include "../CommonAlgorithms.h"
 
 namespace BigMath
@@ -286,7 +286,7 @@ namespace BigMath
         numeratorC2 = ClassicSubtraction::Subtract(temp2, temp1, base);
       }
 
-      vector<DataT> c2 = ClassicDivision::Divide(numeratorC2, (DataT)2, base); // Divide by 2
+      vector<DataT> c2 = KnuthDivision::Divide(numeratorC2, (DataT)2, base); // Divide by 2
 
       // cerr << c2neg << " * " << c2 << endl;
 
@@ -310,7 +310,7 @@ namespace BigMath
         numeratorS = ClassicAddition::Add(r1, rm1, base); // r1 + rm1
       }
 
-      vector<DataT> s = ClassicDivision::Divide(numeratorS, (DataT)2, base);
+      vector<DataT> s = KnuthDivision::Divide(numeratorS, (DataT)2, base);
 
       // X = (r2 - c0 - 4*c2 - 16*c4) / 2
       vector<DataT> fourC2 = ClassicMultiplication::Multiply(c2, 4, base);
@@ -332,7 +332,7 @@ namespace BigMath
         Xneg = -1;
         numeratorX = ClassicSubtraction::Subtract(temp4, r2, base); // r2 - c0 - 4*c2 - 16*c4
       }
-      vector<DataT> X = ClassicDivision::Divide(numeratorX, 2, base);
+      vector<DataT> X = KnuthDivision::Divide(numeratorX, 2, base);
 
       int c3neg = 1;
       vector<DataT> numeratorC3;
@@ -375,7 +375,7 @@ namespace BigMath
         }
       }
 
-      vector<DataT> c3 = ClassicDivision::Divide(numeratorC3, 3, base);
+      vector<DataT> c3 = KnuthDivision::Divide(numeratorC3, 3, base);
 
       // c1 = s - c3
       int c1neg = 1;

@@ -17,7 +17,7 @@ using namespace std;
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
 #include "../multiplication/ClassicMultiplication.h"
-#include "../divison/ClassicDivision.h"
+#include "../divison/KnuthDivision.h"
 #include "ToomCookData.h"
 
 namespace BigMath
@@ -79,7 +79,7 @@ namespace BigMath
           if (j > 1)
           {
             // vector<DataT> bigJ = BigIntegerParser::Convert(j);
-            ClassicDivision::DivideTo(tcd.W[wPos], j, base);
+            KnuthDivision::DivideTo(tcd.W[wPos], j, base);
           }
         }
       }
