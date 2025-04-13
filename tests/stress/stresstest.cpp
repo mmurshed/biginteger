@@ -64,6 +64,9 @@ int main(int argc, char *argv[])
 
   while (true)
   {
+    if (cin.eof())
+      break;    
+
     BigInteger m, n;
     BigInteger r;
     if (!first)
@@ -117,8 +120,16 @@ int main(int argc, char *argv[])
         break;
       }
     }
+    catch (const std::exception &e)
+    {
+      auto what = string(e.what());
+      cerr << what << endl;
+      continue;
+    }
     catch (...)
     {
+      cerr << "exception occurred" << endl;
+      continue;
     }
 
     end = clock();
@@ -156,9 +167,6 @@ int main(int argc, char *argv[])
     }
 
     DATA++;
-
-    if (cin.eof())
-      break;
   }
 
   clock_t endTotal = clock();

@@ -43,6 +43,7 @@ public class testgenerator
             out.write(a.toString() + ' ' + op + ' ' + b.toString());
             // ans.write("Data : " + (i+1) + ' ');
             BigInteger c = new BigInteger("0");
+            int it = 0;
             switch(op)
             {
                 case "+":
@@ -55,9 +56,21 @@ public class testgenerator
                     c = a.multiply(b);
                     break;
                 case "/":
+                    it = 0;
+                    while(it <5 && b.equals(BigInteger.ZERO))
+                    {
+                        b = new BigInteger (maxNumBits - rnd.nextInt(maxNumBits) , rnd);
+                        it++;
+                    }
                     c = a.divide(b);
                     break;
                 case "%":
+                    it = 0;
+                    while(it <5 && b.equals(BigInteger.ZERO))
+                    {
+                        b = new BigInteger (maxNumBits - rnd.nextInt(maxNumBits) , rnd);
+                        it++;
+                    }
                     c = a.mod(b);
                     break;
             }

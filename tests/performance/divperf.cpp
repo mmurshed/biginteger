@@ -29,6 +29,7 @@ using namespace std;
 #include "../../algorithms/division/KnuthDivision.h"
 #include "../../algorithms/division/NewtonRaphsonDivision.h"
 #include "../../algorithms/division/MontgomeryDivision.h"
+#include "../../algorithms/division/BarrettDivision.h"
 
 using namespace BigMath;
 
@@ -70,10 +71,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery\n");
+  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery" << endl;
+  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett" << endl;
 
   while (true)
   {
@@ -99,8 +100,12 @@ int main(int argc, char *argv[])
     int cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
-      cerr << q << endl;
-      cerr << r << endl;
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "q: " << q << endl;
+      cerr << "r: " << r << endl;
+      cerr << "correct q: " << ansq << endl;
+      cerr << "correct r: " << ansr << endl;
       cerr << "Classic algorithm failed." << endl;
     }
 
@@ -116,8 +121,12 @@ int main(int argc, char *argv[])
     cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
-      cerr << q << endl;
-      cerr << r << endl;
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "q: " << q << endl;
+      cerr << "r: " << r << endl;
+      cerr << "correct q: " << ansq << endl;
+      cerr << "correct r: " << ansr << endl;
       cerr << "Knuth algorithm failed." << endl;
     }
 
@@ -133,8 +142,12 @@ int main(int argc, char *argv[])
     cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
-      cerr << q << endl;
-      cerr << r << endl;
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "q: " << q << endl;
+      cerr << "r: " << r << endl;
+      cerr << "correct q: " << ansq << endl;
+      cerr << "correct r: " << ansr << endl;
       cerr << "NewtonRaphsonDivision algorithm failed." << endl;
     }
 
@@ -150,14 +163,40 @@ int main(int argc, char *argv[])
     cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
-      cerr << q << endl;
-      cerr << r << endl;
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "q: " << q << endl;
+      cerr << "r: " << r << endl;
+      cerr << "correct q: " << ansq << endl;
+      cerr << "correct r: " << ansr << endl;
       cerr << "Montgomery algorithm failed." << endl;
     }
 
+
+    start = clock();
+    tie(q, r) = BarrettDivision::DivideAndRemainder(
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
+    end = clock();
+    double timeTakenB = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
+    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    if (cmpq != 0 || cmpr != 0)
+    {
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "q: " << q << endl;
+      cerr << "r: " << r << endl;
+      cerr << "correct q: " << ansq << endl;
+      cerr << "correct r: " << ansr << endl;
+      cerr << "Barrett algorithm failed." << endl;
+    }
+
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << q.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f\n", q.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM);
+    cerr << DATA << "," << ansq.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << "," << timeTakenB << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f\n", ansq.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM, timeTakenB);
     fflush(timeFile);
 
     DATA++;
