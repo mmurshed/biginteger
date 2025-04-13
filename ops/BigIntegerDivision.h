@@ -12,9 +12,9 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../algorithms/divison/KnuthDivision.h"
-#include "../algorithms/divison/NewtonRaphsonDivision.h"
-#include "../algorithms/divison/MontgomeryDivision.h"
+#include "../algorithms/division/KnuthDivision.h"
+#include "../algorithms/division/NewtonRaphsonDivision.h"
+#include "../algorithms/division/MontgomeryDivision.h"
 
 namespace BigMath
 {

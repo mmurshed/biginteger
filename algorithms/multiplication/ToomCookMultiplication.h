@@ -17,7 +17,7 @@ using namespace std;
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
 #include "../multiplication/ClassicMultiplication.h"
-#include "../divison/KnuthDivision.h"
+#include "../division/KnuthDivision.h"
 #include "../CommonAlgorithms.h"
 
 namespace BigMath

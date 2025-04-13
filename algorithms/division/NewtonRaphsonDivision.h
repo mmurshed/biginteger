@@ -13,7 +13,7 @@
 #include "../CommonAlgorithms.h"
 #include "../addition/ClassicAddition.h"
 #include "../subtraction/ClassicSubtraction.h"
-#include "../divison/KnuthDivision.h"
+#include "../division/KnuthDivision.h"
 
 using namespace std;
 

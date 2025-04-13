@@ -25,8 +25,10 @@ using namespace std;
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
-#include "../../algorithms/divison/KnuthDivision.h"
-#include "../../algorithms/divison/NewtonRaphsonDivision.h"
+#include "../../algorithms/division/ClassicDivision.h"
+#include "../../algorithms/division/KnuthDivision.h"
+#include "../../algorithms/division/NewtonRaphsonDivision.h"
+#include "../../algorithms/division/MontgomeryDivision.h"
 
 using namespace BigMath;
 
@@ -68,10 +70,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classic,Newton-Raphson,Newton-Raphson2\n");
+  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classic,Newton-Raphson,Newton-Raphson2" << endl;
+  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery" << endl;
 
   while (true)
   {
@@ -86,7 +88,7 @@ int main(int argc, char *argv[])
     BigInteger ansr = BigIntegerParser::Parse(line.c_str());
 
     clock_t start = clock();
-    auto [q, r] = KnuthDivision::DivideAndRemainder(
+    auto [q, r] = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
@@ -100,6 +102,23 @@ int main(int argc, char *argv[])
       cerr << q << endl;
       cerr << r << endl;
       cerr << "Classic algorithm failed." << endl;
+    }
+
+    start = clock();
+    tie(q, r) = KnuthDivision::DivideAndRemainder(
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
+    end = clock();
+    double timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
+    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    if (cmpq != 0 || cmpr != 0)
+    {
+      cerr << q << endl;
+      cerr << r << endl;
+      cerr << "Knuth algorithm failed." << endl;
     }
 
     start = clock();
@@ -119,10 +138,26 @@ int main(int argc, char *argv[])
       cerr << "NewtonRaphsonDivision algorithm failed." << endl;
     }
 
+    start = clock();
+    tie(q, r) = MontgomeryDivision::DivideAndRemainder(
+        a.GetInteger(),
+        b.GetInteger(),
+        BigInteger::Base());
+    end = clock();
+    double timeTakenM = (double)(end - start) / CLOCKS_PER_SEC;
+
+    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
+    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    if (cmpq != 0 || cmpr != 0)
+    {
+      cerr << q << endl;
+      cerr << r << endl;
+      cerr << "Montgomery algorithm failed." << endl;
+    }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << q.size() << "," << timeTakenClassic << "," << timeTakenNR << endl;
-    fprintf(timeFile, "%lu,%f,%f\n", q.size(), timeTakenClassic, timeTakenNR);
+    cerr << DATA << "," << q.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f\n", q.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM);
     fflush(timeFile);
 
     DATA++;
