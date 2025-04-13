@@ -25,10 +25,10 @@ using namespace std;
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
-#include "../../algorithms/toomcook/ToomCookMultiplication.h"
-#include "../../algorithms/toomcook/ToomCookMultiplication2.h"
-#include "../../algorithms/toomcook/ToomCookMultiplication2a.h"
-#include "../../algorithms/stonehagestrassen/FFTMultiplication.h"
+#include "../../algorithms/multiplication/ToomCookMultiplication.h"
+#include "../../algorithms/multiplication/ToomCookMultiplication2.h"
+#include "../../algorithms/multiplication/ToomCookMultiplication2a.h"
+#include "../../algorithms/multiplication/FFTMultiplication.h"
 
 using namespace BigMath;
 

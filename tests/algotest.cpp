@@ -24,14 +24,13 @@ using namespace std;
 #include "../ops/BigIntegerIO.h"
 #include "../BigIntegerParser.h"
 #include "../BigIntegerComparator.h"
-#include "../algorithms/toomcook/ToomCookMultiplication.h"
-#include "../algorithms/toomcook/ToomCookMultiplication2.h"
-#include "../algorithms/toomcook/ToomCookMultiplication2a.h"
-#include "../algorithms/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
+#include "../algorithms/multiplication/ToomCookMultiplication.h"
+#include "../algorithms/multiplication/ToomCookMultiplication2.h"
+#include "../algorithms/multiplication/ToomCookMultiplication2a.h"
+#include "../algorithms/multiplication/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
-#include "../algorithms/stonehagestrassen/FFTMultiplication.h"
-#include "../algorithms/newtonraphson/NewtonRaphsonDivision.h"
-#include "../algorithms/burnikelziegler/BurnikelZieglerDivision.h"
+#include "../algorithms/multiplication/FFTMultiplication.h"
+#include "../algorithms/divison/NewtonRaphsonDivision.h"
 
 using namespace BigMath;
 
@@ -83,7 +82,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = BurnikelZieglerDivision::DivideAndRemainder(
+    BigInteger result = NewtonRaphsonDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base()).first;

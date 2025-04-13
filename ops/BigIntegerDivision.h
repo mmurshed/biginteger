@@ -13,7 +13,7 @@ using namespace std;
 
 #include "../BigInteger.h"
 #include "../algorithms/classic/ClassicDivision.h"
-#include "../algorithms/newtonraphson/NewtonRaphsonDivision.h"
+#include "../algorithms/divison/NewtonRaphsonDivision.h"
 
 namespace BigMath
 {
