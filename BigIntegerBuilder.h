@@ -20,6 +20,11 @@ namespace BigMath
   class BigIntegerBuilder
   {
   public:
+    static vector<DataT> VectorFrom(ULong n)
+    {
+      return From(to_string(n)).GetInteger();
+    }
+
     static BigInteger From(ULong n)
     {
       return From(to_string(n));
