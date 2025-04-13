@@ -14,7 +14,6 @@ using namespace std;
 #include "../BigInteger.h"
 #include "../algorithms/classic/ClassicDivision.h"
 #include "../algorithms/newtonraphson/NewtonRaphsonDivision.h"
-#include "../algorithms/burnikelziegler/BurnikelZieglerDivision.h"
 
 namespace BigMath
 {
@@ -45,7 +44,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      pair<vector<DataT>, vector<DataT>> result = BurnikelZieglerDivision::DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      pair<vector<DataT>, vector<DataT>> result = NewtonRaphsonDivision::DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
 
       // Convert to BigInteger
       BigInteger q = BigInteger(result.first, a.IsNegative() || b.IsNegative());
