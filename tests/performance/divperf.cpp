@@ -27,7 +27,6 @@ using namespace std;
 #include "../../BigIntegerComparator.h"
 #include "../../algorithms/classic/ClassicDivision.h"
 #include "../../algorithms/newtonraphson/NewtonRaphsonDivision.h"
-#include "../../algorithms/newtonraphson/NewtonRaphsonDivision2.h"
 
 using namespace BigMath;
 
@@ -103,8 +102,6 @@ int main(int argc, char *argv[])
       cerr << "Classic algorithm failed." << endl;
     }
 
-    double timeTakenNR = 0;
-    /*
     start = clock();
     tie(q, r) = NewtonRaphsonDivision::DivideAndRemainder(
         a.GetInteger(),
@@ -120,28 +117,12 @@ int main(int argc, char *argv[])
       cerr << q << endl;
       cerr << r << endl;
       cerr << "NewtonRaphsonDivision algorithm failed." << endl;
-    }*/
-
-    start = clock();
-    tie(q, r) = NewtonRaphsonDivision2::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    double timeTakenNR2 = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << q << endl;
-      cerr << r << endl;
-      cerr << "NewtonRaphsonDivision2 algorithm failed." << endl;
     }
 
+
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << q.size() << "," << timeTakenClassic << "," << timeTakenNR << "," << timeTakenNR2 << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f\n", q.size(), timeTakenClassic, timeTakenNR, timeTakenNR2);
+    cerr << DATA << "," << q.size() << "," << timeTakenClassic << "," << timeTakenNR << endl;
+    fprintf(timeFile, "%lu,%f,%f\n", q.size(), timeTakenClassic, timeTakenNR);
     fflush(timeFile);
 
     DATA++;

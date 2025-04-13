@@ -1,5 +1,5 @@
-#ifndef NEWTONRAPHSON_DIVISION2
-#define NEWTONRAPHSON_DIVISION2
+#ifndef NEWTONRAPHSON_DIVISION
+#define NEWTONRAPHSON_DIVISION
 
 #include <iostream>
 #include <vector>
@@ -19,7 +19,7 @@ using namespace std;
 
 namespace BigMath
 {
-    class NewtonRaphsonDivision2
+    class NewtonRaphsonDivision
     {
     public:
         static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
