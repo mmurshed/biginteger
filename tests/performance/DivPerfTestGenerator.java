@@ -24,13 +24,15 @@ public class DivPerfTestGenerator
 
         int bitIncrement = Integer.parseInt(args[3]);
 
-        int maxNumBits = bitIncrement;
+        // we want the divisor to be smaller than the dividend
+        int maxNumBitsA = bitIncrement;
+        int maxNumBitsB = maxNumBitsA/2;
 
         for(int i = 0; i < DATA; i++)
         {
-            System.out.println( (i+1) + ": " + maxNumBits);
-            BigInteger a = new BigInteger (maxNumBits, rnd);
-            BigInteger b = new BigInteger (maxNumBits, rnd);
+            System.out.println( (i+1) + ": " + maxNumBitsA + " " + maxNumBitsB);
+            BigInteger a = new BigInteger (maxNumBitsA, rnd);
+            BigInteger b = new BigInteger (maxNumBitsB, rnd);
             
             out.write(a.toString() + " / " + b.toString());
             // ans.write("Data : " + (i+1) + ' ');
@@ -47,7 +49,8 @@ public class DivPerfTestGenerator
             out.flush();
             ans.flush();
 
-            maxNumBits += bitIncrement;
+            maxNumBitsA += bitIncrement;
+            maxNumBitsB = maxNumBitsA/2;
         }
         out.close();
         ans.close();
