@@ -15,6 +15,7 @@ using namespace std;
 #include "../algorithms/division/KnuthDivision.h"
 #include "../algorithms/division/NewtonRaphsonDivision.h"
 #include "../algorithms/division/MontgomeryDivision.h"
+#include "../algorithms/division/BarrettDivision.h"
 
 namespace BigMath
 {
@@ -23,10 +24,17 @@ namespace BigMath
   public:
     static pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, BigInteger const &b)
     {
-      if (a.IsZero() || b.IsZero())
+      // case of 0 divisor
+      if (b.IsZero())
+      {
+        throw invalid_argument("Division by zero");
+      }
+
+      // case of 0 dividend
+      if (a.IsZero())
       {
         BigInteger q = BigInteger();
-        return {q, q}; // case of 0
+        return {q, q};
       }
 
       Int cmp = BigIntegerComparator::Compare(a.GetInteger(), b.GetInteger());
