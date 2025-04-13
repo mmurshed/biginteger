@@ -14,7 +14,7 @@ using namespace std;
 #include "../BigInteger.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
 #include "../algorithms/multiplication/KaratsubaMultiplication.h"
-#include "../algorithms/multiplication/ToomCookMultiplication2.h"
+#include "../algorithms/multiplication/ToomCookMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
 
 namespace BigMath
@@ -41,8 +41,7 @@ namespace BigMath
       }
       else if (size <= FFT_THRESHOLD)
       {
-        ToomCookMultiplication2 toomCook;
-        return toomCook.Multiply(a, b, base);
+        return ToomCookMultiplication::Multiply(a, b, base);
       }
 
       return FFTMultiplication::Multiply(a, b, base);

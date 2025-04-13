@@ -1,7 +1,6 @@
-
 /**
  * BigInteger Class
- * Version 9.0
+ * Version 10.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
@@ -10,6 +9,7 @@
 
 #include <vector>
 #include <stack>
+#include <cassert>
 using namespace std;
 
 #include "../../BigInteger.h"
@@ -18,389 +18,468 @@ using namespace std;
 #include "../classic/ClassicSubtraction.h"
 #include "../classic/ClassicMultiplication.h"
 #include "../classic/ClassicDivision.h"
-#include "ToomCookData.h"
+#include "../classic/CommonAlgorithms.h"
 
 namespace BigMath
 {
   class ToomCookMultiplication
   {
-    enum
-    {
-      CODE1 = -1,
-      CODE2 = -2,
-      CODE3 = -3
-    };
+  private:
+    // Threshold for switching to the naive multiplication.
+    static const SizeT baseCaseThreshold = 256;
 
   private:
-    static vector<DataT> ComputeAnswer(ToomCookData &tcd, SizeT k, BaseT base)
+    static vector<DataT> MultiplyRecursive(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        vector<DataT> &tempBuffer,
+        BaseT base)
     {
-      // Step 7. [Find a’s.]
-      // Set r ← r_k
-      Long r = tcd.r_table[k];
-      Long _2r = 2 * r;
-      // q ← q_k
-      Long q = tcd.q_table[k];
-      // p ← q_k–1 + q_k
-      Long p = tcd.q_table[k - 1] + tcd.q_table[k];
+      SizeT n = (SizeT)max(a.size(), b.size());
 
-      Long wStart = tcd.W.size() - _2r - 1;
-
-      // At this point stack W contains a sequence of numbers
-      // ending with W(0), W(1), ..., W(2r) from bottom to
-      // top, where each W(j) is a 2p-bit number.
-      Long _2p = 2 * p;
-      for (Long j = 0; j <= _2r; j++)
+      if (n < baseCaseThreshold)
       {
-        Long wPos = wStart + j;
-        BigIntegerUtil::TrimZeros(tcd.W[wPos], _2p);
-        BigIntegerUtil::Resize(tcd.W[wPos], _2p);
+        return ClassicMultiplication::Multiply(a, b, base);
       }
 
-      // Now for j = 1, 2, 3, ... , 2r, perform the following
-      // Here j must increase and t must decrease.
-      for (Long j = 1; j <= _2r; j++)
+      // For a Toom–3 algorithm, we typically split the input into 3 parts.
+      // Calculate the part size (rounding up if necessary).
+      SizeT partSize = (n + 2) / 3;
+
+      // For evaluation, we need to compute 5 points (e.g., points for Toom–3: 0, 1, -1, 2, ∞).
+      constexpr int numPoints = 5;
+      // Determine the size required for each evaluation segment. It may be larger than
+      // partSize if extra space is needed for carries in the arithmetic.
+      SizeT segmentSize = partSize + 1; // adjust as needed
+
+      // We now use the provided tempBuffer to simulate multiple temporary arrays.
+      // We need numPoints segments for A and numPoints segments for B, i.e. 2*numPoints segments.
+      SizeT requiredSize = 2 * numPoints * segmentSize;
+
+      // Resize the buffer if needed
+      if (tempBuffer.size() < requiredSize)
       {
-        // loop: For t = 2r, 2r − 1, 2r – 2, ..., j,
-        for (Long t = _2r; t >= j; t--)
+        tempBuffer.resize(requiredSize, 0);
+      }
+
+      // Create containers for evaluated values. Instead of allocating new memory,
+      // we assign each evaluation vector to a segment of the tempBuffer.
+      // Here we use pointer arithmetic (or iterators) for clarity.
+      vector<vector<DataT>> evalA(numPoints, vector<DataT>(segmentSize));
+      vector<vector<DataT>> evalB(numPoints, vector<DataT>(segmentSize));
+
+      // Optionally, you could have these evaluation vectors view memory directly within tempBuffer.
+      // This example simply copies segments from the preallocated pool.
+      for (int i = 0; i < numPoints; i++)
+      {
+        // For evalA, use segment [i*segmentSize, (i+1)*segmentSize)
+        copy(tempBuffer.begin() + i * segmentSize,
+             tempBuffer.begin() + (i + 1) * segmentSize,
+             evalA[i].begin());
+        // For evalB, use segment [ (numPoints + i)*segmentSize, (numPoints + i + 1)*segmentSize )
+        copy(tempBuffer.begin() + (numPoints + i) * segmentSize,
+             tempBuffer.begin() + (numPoints + i + 1) * segmentSize,
+             evalB[i].begin());
+      }
+
+      // Step 1: Evaluate the polynomial representation of A and B at the chosen points.
+      int fm1SignA = evaluatePoly(a, partSize, evalA, base);
+      int fm1SignB = evaluatePoly(b, partSize, evalB, base);
+
+      // Step 2: Pointwise multiply the evaluations.
+      // Use a container for the products at each evaluation point.
+      vector<vector<DataT>> tempProducts(numPoints);
+      vector<int> tempProductsSign(numPoints, 1);
+      for (int i = 0; i < numPoints; i++)
+      {
+        // The multiplication result at each point requires room for 2*segmentSize elements.
+        tempProducts[i].resize(2 * segmentSize);
+        // For pointwise multiplication, you can call the naive multiplication routine.
+        tempProducts[i] = MultiplyRecursive(evalA[i], evalB[i], tempBuffer, base);
+      }
+
+      int fm1Sign = fm1SignA * fm1SignB;
+
+      // Step 3: Interpolate to combine the evaluated products back into the final result.
+      vector<DataT> result = interpolate(tempProducts, fm1Sign, partSize, base);
+
+      BigIntegerUtil::TrimZeros(result);
+
+      return result;
+    }
+
+  private:
+    // Evaluate the polynomial represented by 'poly' (a big number whose limbs
+    // are stored in little–endian order) by splitting it into parts of length 'partSize'.
+    //
+    // Let a₀ = lower part, a₁ = middle part, a₂ = higher part (if available).
+    // Then we compute:
+    //   f(0)   = a₀
+    //   f(1)   = a₀ + a₁ + a₂
+    //   f(–1)  = a₀ – a₁ + a₂
+    //   f(2)   = a₀ + 2*a₁ + 4*a₂
+    //   f(∞)   = a₂
+    //
+    // The five evaluation results are stored in 'evalPoints', which is assumed
+    // to have been preallocated with 5 vectors.
+    static int evaluatePoly(const vector<DataT> &poly,
+                            SizeT partSize,
+                            vector<vector<DataT>> &evalPoints,
+                            BaseT base)
+    {
+      // Split the input poly into three parts: a0, a1, and a2.
+      vector<DataT> a0, a1, a2;
+
+      // a0: limbs [0, partSize)
+      a0.assign(poly.begin(), poly.begin() + (SizeT)min((SizeT)partSize, (SizeT)poly.size()));
+
+      // a1: limbs [partSize, 2*partSize) if available; otherwise zero.
+      if (poly.size() > partSize)
+      {
+        a1.assign(poly.begin() + partSize,
+                  poly.begin() + (SizeT)min((SizeT)(2 * partSize), (SizeT)poly.size()));
+      }
+      else
+      {
+        // If poly does not have a middle part, represent a1 as zero.
+        a1.assign(1, 0);
+      }
+
+      // a2: limbs [2*partSize, 3*partSize) if available; otherwise zero.
+      if (poly.size() > 2 * partSize)
+      {
+        a2.assign(poly.begin() + 2 * partSize, poly.end());
+      }
+      else
+      {
+        a2.assign(1, 0);
+      }
+
+      // --- Evaluate at the five points ---
+
+      // f(0) = a0.
+      evalPoints[0] = a0;
+
+      // f(1) = a0 + a1 + a2.
+      {
+        vector<DataT> tmp1 = ClassicAddition::Add(a1, a2, base);
+        evalPoints[1] = ClassicAddition::Add(a0, tmp1, base);
+      }
+
+      // f(–1) = a0 – a1 + a2 = (a0 + a2) – a1.
+      int fm1Sign = 1;
+      {
+        // cerr << a0 << " - " << a1 << " + " << a2;
+        vector<DataT> tmp2 = ClassicAddition::Add(a0, a2, base);
+        if (BigIntegerComparator::Compare(tmp2, a1) < 0)
         {
-          Long wPos = wStart + t;
+          fm1Sign = -1;
+          evalPoints[2] = ClassicSubtraction::Subtract(a1, tmp2, base);
+        }
+        else
+        {
+          evalPoints[2] = ClassicSubtraction::Subtract(tmp2, a1, base);
+        }
+        // cerr << " = " << fm1Sign << " * " << evalPoints[2] << endl;
+      }
 
-          // set W(t) ← ( W(t) – W(t − 1) ) / j.
-          // The quantity ( W(t) - W(t-1) ) / j will always be a
-          // nonnegative integer that fits in 2p bits.
+      // f(2) = a0 + 2*a1 + 4*a2.
+      {
+        vector<DataT> two_a1 = ClassicMultiplication::Multiply(a1, 2, base);
+        vector<DataT> four_a2 = ClassicMultiplication::Multiply(a2, 4, base);
+        vector<DataT> sum = ClassicAddition::Add(two_a1, four_a2, base);
+        evalPoints[3] = ClassicAddition::Add(a0, sum, base);
+      }
 
-          // W(t) –= W(t − 1)
-          ClassicSubtraction::SubtractFrom(
-              tcd.W[wPos], 0, (SizeT)tcd.W[wPos].size() - 1,
-              tcd.W[wPos - 1], 0, (SizeT)tcd.W[wPos - 1].size() - 1,
-              base);
+      // f(∞) = a2.
+      evalPoints[4] = a2;
 
-          // W(t) /= j
-          if (j > 1)
-          {
-            // vector<DataT> bigJ = BigIntegerParser::Convert(j);
-            ClassicDivision::DivideTo(tcd.W[wPos], j, base);
-          }
+      return fm1Sign;
+    }
+
+    // Interpolates the evaluated products (contained in "products") to reconstruct
+    // the final result vector after multiplication.
+    // The five products correspond to the evaluations at:
+    //    r0   = f(0)
+    //    r1   = f(1)
+    //    rm1  = f(–1)
+    //    r2   = f(2)
+    //    rInf = f(∞)
+    //
+    // Using the standard Toom-3 formulas, we set:
+    //    c0 = r0,
+    //    c4 = rInf,
+    //    c2 = (r1 + rm1 − 2·r0 − 2·rInf) / 2 = ((r1 + rm1) − 2(r0 + rInf)) / 2,
+    //    s  = (r1 − rm1) / 2,
+    //    X  = (r2 − r0 − 4·c2 − 16·rInf) / 2,
+    //    c3 = (X − s) / 3,
+    //    c1 = s − c3.
+    //
+    // Then the final result is constructed as:
+    //   result = c0 + (c1 << partSize) + (c2 << 2 * partSize)
+    //          + (c3 << 3 * partSize) + (c4 << 4 * partSize)
+    //
+    // Note: The shifts are in limbs (each limb is 32 bits).
+    static vector<DataT> interpolate(const vector<vector<DataT>> &products,
+                                     int rm1Sign,
+                                     SizeT partSize,
+                                     BaseT base)
+    {
+      // For clarity, assume the products are indexed as follows:
+      //   products[0] = r0  (evaluation at 0)
+      //   products[1] = r1  (evaluation at 1)
+      //   products[2] = r-1 = rm1 (evaluation at -1)
+      //   products[3] = r2  (evaluation at 2)
+      //   products[4] = rInf (evaluation at ∞)
+      assert(products.size() == 5);
+
+      const vector<DataT> r0 = products[0];
+      const vector<DataT> r1 = products[1];
+      const vector<DataT> rm1 = products[2];
+      const vector<DataT> r2 = products[3];
+      const vector<DataT> rInf = products[4];
+
+      // c0 = r0 and c4 = rInf
+      vector<DataT> c0 = r0;
+      vector<DataT> c4 = rInf;
+
+      // c2 = (r1 + rm1 - 2*c0 - 2*c4) / 2
+      vector<DataT> temp1;
+      // cerr << "(";
+      if (rm1Sign == 1)
+      {
+        temp1 = ClassicAddition::Add(r1, rm1, base); // r1 + rm1
+        // cerr << r1 << " + " << rm1;
+      }
+      else
+      {
+        temp1 = r1;
+        // cerr << r1;
+      }
+
+      vector<DataT> twoC0 = ClassicMultiplication::Multiply(c0, 2, base); // 2 * c0
+      // cerr << " - " << c0 << " * 2";
+
+      vector<DataT> twoC4 = ClassicMultiplication::Multiply(c4, 2, base); // 2 * c4
+      // cerr << " - " << c4 << " * 2";
+
+      vector<DataT> temp2 = ClassicAddition::Add(twoC0, twoC4, base); // 2*c0 + 2*c4
+
+      if (rm1Sign == -1)
+      {
+        temp2 = ClassicAddition::Add(temp2, rm1, base); // 2*c0 + 2*c4 + rm1
+        // cerr << " - " << rm1;
+      }
+
+      // cerr << ") / 2 = ";
+
+      vector<DataT> numeratorC2;
+      int c2neg = 1;
+      // r1 + rm1 - 2*c0 - 2*c4 or r1 - 2*c0 - 2*c4 - rm1
+      if (BigIntegerComparator::Compare(temp1, temp2) >= 0)
+      {
+        numeratorC2 = ClassicSubtraction::Subtract(temp1, temp2, base);
+      }
+      else
+      {
+        c2neg = -1;
+        numeratorC2 = ClassicSubtraction::Subtract(temp2, temp1, base);
+      }
+
+      vector<DataT> c2 = ClassicDivision::Divide(numeratorC2, (DataT)2, base); // Divide by 2
+
+      // cerr << c2neg << " * " << c2 << endl;
+
+      // s = (r1 - rm1) / 2
+      int sneg = 1;
+      vector<DataT> numeratorS;
+      if (rm1Sign == 1)
+      {
+        if (BigIntegerComparator::Compare(r1, rm1) >= 0)
+        {
+          numeratorS = ClassicSubtraction::Subtract(r1, rm1, base); // r1 - rm1
+        }
+        else
+        {
+          sneg = -1;
+          numeratorS = ClassicSubtraction::Subtract(rm1, r1, base); // rm1 - r1
+        }
+      }
+      else
+      {
+        numeratorS = ClassicAddition::Add(r1, rm1, base); // r1 + rm1
+      }
+
+      vector<DataT> s = ClassicDivision::Divide(numeratorS, (DataT)2, base);
+
+      // X = (r2 - c0 - 4*c2 - 16*c4) / 2
+      vector<DataT> fourC2 = ClassicMultiplication::Multiply(c2, 4, base);
+
+      vector<DataT> sixteenC4 = ClassicMultiplication::Multiply(c4, 16, base);
+
+      vector<DataT> temp3 = ClassicAddition::Add(c0, fourC2, base);
+
+      vector<DataT> temp4 = ClassicAddition::Add(temp3, sixteenC4, base);
+
+      vector<DataT> numeratorX;
+      int Xneg = 1;
+      if (BigIntegerComparator::Compare(r2, temp4) >= 0)
+      {
+        numeratorX = ClassicSubtraction::Subtract(r2, temp4, base); // r2 - c0 - 4*c2 - 16*c4
+      }
+      else
+      {
+        Xneg = -1;
+        numeratorX = ClassicSubtraction::Subtract(temp4, r2, base); // r2 - c0 - 4*c2 - 16*c4
+      }
+      vector<DataT> X = ClassicDivision::Divide(numeratorX, 2, base);
+
+      int c3neg = 1;
+      vector<DataT> numeratorC3;
+      // c3 = (X - s) / 3
+      if (Xneg == -1 && sneg == -1)
+      {
+        // c3 = -(X - s)/3 = (s - X)/3
+        if (BigIntegerComparator::Compare(s, X) >= 0)
+        {
+          c3neg = 1;
+          numeratorC3 = ClassicSubtraction::Subtract(s, X, base); // c3 = (s - X)/3
+        }
+        else
+        {
+          c3neg = -1;
+          numeratorC3 = ClassicSubtraction::Subtract(X, s, base); // c3 = -(X - s)/3
+        }
+      }
+      else if (Xneg == 1 && sneg == -1)
+      {
+        c3neg = 1;
+        numeratorC3 = ClassicAddition::Add(X, s, base); // c3 = (X + s)/3
+      }
+      else if (Xneg == -1 && sneg == 1)
+      {
+        c3neg = -1;
+        numeratorC3 = ClassicAddition::Add(X, s, base); // c3 = -(X + s)/3
+      }
+      else
+      {
+        if (BigIntegerComparator::Compare(X, s) >= 0)
+        {
+          c3neg = 1;
+          numeratorC3 = ClassicSubtraction::Subtract(X, s, base); // c3 = (X - s)/3
+        }
+        else
+        {
+          c3neg = -1;
+          numeratorC3 = ClassicSubtraction::Subtract(s, X, base); // c3 = -(s - X)/3
         }
       }
 
-      // Step 8. [Find W’s.]
-      // For j = 2r − 1, 2r – 2, ..., 1, perform the following
-      // Here j must decrease and t must increase.
-      for (Long j = _2r - 1; j >= 1; j--)
+      vector<DataT> c3 = ClassicDivision::Divide(numeratorC3, 3, base);
+
+      // c1 = s - c3
+      int c1neg = 1;
+      vector<DataT> c1;
+      if (c3neg == -1 && sneg == -1)
       {
-        // For t = j, j + 1, ..., 2r − 1,
-        for (Long t = j; t < _2r; t++)
+        // c1 = -(s - c3) = c3-s
+        if (BigIntegerComparator::Compare(c3, s) >= 0)
         {
-          Long wPos = wStart + t;
-
-          // set W(t) ← W(t) – j * W(t + 1).
-          // The result of this operation will again be
-          // a nonnegative 2p-bit integer.
-
-          // vector<DataT> bigJ = BigIntegerParser::Convert(j);
-          // Wt1 = W(t+1) * j
-          vector<DataT> Wt1 = ClassicMultiplication::Multiply(
-              tcd.W[wPos + 1],
-              j,
-              base);
-
-          // set W(t) ← W(t) – j * W(t + 1).
-          // W(t) ← W(t) – Wt1
-          // W(t) -= Wt1
-          ClassicSubtraction::SubtractFrom(
-              tcd.W[wPos], 0, (SizeT)tcd.W[wPos].size() - 1,
-              Wt1, 0, (SizeT)Wt1.size() - 1,
-              base);
+          c1neg = 1;
+          c1 = ClassicSubtraction::Subtract(c3, s, base);
+        }
+        else
+        {
+          c1neg = -1;
+          c1 = ClassicSubtraction::Subtract(s, c3, base);
+        }
+      }
+      else if (c3neg == -1 && sneg == 1)
+      {
+        c1neg = 1;
+        c1 = ClassicAddition::Add(c3, s, base); // c1 = s + c3
+      }
+      else if (c3neg == 1 && sneg == -1)
+      {
+        c1neg = -1;
+        c1 = ClassicAddition::Add(c3, s, base); // c1 = -s - c3 = -(s + c3)
+      }
+      else
+      {
+        // c1 = s - c3
+        if (BigIntegerComparator::Compare(s, c3) >= 0)
+        {
+          c1neg = 1;
+          c1 = ClassicSubtraction::Subtract(s, c3, base);
+        }
+        else
+        {
+          c1neg = -1;
+          c1 = ClassicSubtraction::Subtract(c3, s, base);
         }
       }
 
-      // Step 9. [Set answer.]
-      // Set w to the 2(q_k + q_k+1)-bit integer
-      // ( ... (W(2r) * 2^q + W(2r-1)) * 2^q + ... + W(1)) * 2^q + W(0)
-      // Long wsize = 2 * (q_table[k] + q_table[k+1]);
-      Long wsize = _2p + _2r * q;
-      vector<DataT> w(wsize, 0);
+      // Combine coefficients into the final result:
+      // result = c0 + (c1 << partSize) + (c2 << 2*partSize) + (c3 << 3*partSize) + (c4 << 4*partSize)
+      vector<DataT> res0 = c0;
+      vector<DataT> res1 = CommonAlgorithms::ShiftLeft(c1, partSize);
+      vector<DataT> res2 = CommonAlgorithms::ShiftLeft(c2, 2 * partSize);
+      vector<DataT> res3 = CommonAlgorithms::ShiftLeft(c3, 3 * partSize);
+      vector<DataT> res4 = CommonAlgorithms::ShiftLeft(c4, 4 * partSize);
 
-      SizeT wAnsStart = wsize - _2p;
-      SizeT wAnsEnd = wsize - 1;
-
-      for (Long i = _2r; i >= 0; i--)
+      vector<DataT> sum = res0;
+      if (c1neg == 1)
       {
-        Long wPos = wStart + i;
-        ClassicAddition::AddTo(
-            w, wAnsStart, wAnsEnd,
-            tcd.W[wPos], 0, tcd.W[wPos].size() - 1,
-            base);
+        sum = ClassicAddition::Add(sum, res1, base); // c1
+      }
+      if (c2neg == 1)
+      {
+        sum = ClassicAddition::Add(sum, res2, base); // c2
+      }
+      if (c3neg == 1)
+      {
+        sum = ClassicAddition::Add(sum, res3, base); // c3
+      }
+      sum = ClassicAddition::Add(sum, res4, base);
 
-        wAnsStart -= q;
-        wAnsEnd = wAnsStart + _2p - 1;
+      vector<DataT> sub(1, 0);
+      if (c1neg == -1)
+      {
+        sub = ClassicAddition::Add(sub, res1, base);
+      }
+      if (c2neg == -1)
+      {
+        sub = ClassicAddition::Add(sub, res2, base); // c2 = -c2
+      }
+      if (c3neg == -1)
+      {
+        sub = ClassicAddition::Add(sub, res3, base); // c3 = -c3
       }
 
-      // Remove W(2r), . . . , W(0) from stack W.
-      for (Long i = _2r; i >= 0; i--)
+      int sumneg = 1;
+      if (BigIntegerComparator::Compare(sum, sub) >= 0)
+        sum = ClassicSubtraction::Subtract(sum, sub, base); // sum - sub
+      else
       {
-        tcd.W.pop_back();
+        sumneg = -1;
+        sum = ClassicSubtraction::Subtract(sub, sum, base); // sub - sum
       }
 
-      return w;
-    }
+      if (sumneg == -1)
+        throw runtime_error("Negative result in multiplication.");
 
-    static vector<DataT> MultiplyRPlus1Part(vector<DataT> U, DataT j, Long p, Long q, Long r, BaseT base)
-    {
-      vector<DataT> Uj(p, 0);
-
-      if (j == 0)
-      {
-        BigIntegerUtil::Copy(U, 0, q - 1, Uj, 0, p - 1);
-        return Uj;
-      }
-
-      Long uEnd = U.size() - 1;
-      Long uStart = uEnd - q + 1;
-
-      // Compute the p-bit numbers
-      // Given U =  U_r ... U_1 U_0
-      // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0
-      for (Long i = r; i >= 0; i--)
-      {
-        ClassicAddition::AddTo(
-            Uj, 0, p - 1,
-            U, uStart, uEnd,
-            base);
-
-        // Don't multiply if it's U_0
-        // Or if Uj is already zero
-        if (i > 0 && !BigIntegerUtil::IsZero(Uj))
-        {
-          // Case of j = zero is already elminiated
-          ClassicMultiplication::MultiplyTo(Uj, j, base);
-        }
-
-        uEnd -= q;
-        uStart = uEnd - q + 1;
-
-        BigIntegerUtil::TrimZeros(Uj, p);
-        BigIntegerUtil::Resize(Uj, p);
-      }
-
-      return Uj;
-    }
-
-    static void BreakIntoRPlus1Parts(ToomCookData &tcd, Long p, Long q, Long r, BaseT base)
-    {
-      // Step 4. [Break into r + 1 parts.]
-      // Let the number at the top of stack C be regarded as a list
-      // of r + 1 numbers with q bits each, (U_r . . . U_1U_0)_2q .
-
-      // The top of stack C now contains an (r + 1)q = (q_k + q_k+1)-bit number.
-      // Remove U_r ... U_1 U_0 from stack C.
-      vector<DataT> U = tcd.Cval[tcd.C.top()];
-      tcd.C.pop();
-      tcd.Cval.pop_back();
-
-      // Now the top of stack C contains another list of
-      // r + 1 q-bit numbers, V_r ... V_1 V_0.
-      // Remove V_r ... V_1 V_0 from stack C.
-      vector<DataT> V = tcd.Cval[tcd.C.top()];
-      tcd.C.pop();
-      tcd.Cval.pop_back();
-
-      Long _2r = 2 * r;
-
-      // For j = 2r, 2r-1, ... , 1, 0
-      for (Long j = _2r; j >= 0; j--)
-      {
-        // code
-        tcd.C.push(j == _2r ? CODE2 : CODE3);
-
-        // vector<DataT> jbig = BigIntegerParser::Convert(j);
-
-        // Compute the p-bit numbers
-        // ( ... (V_r * j + V_r-1) * j + ... + V_1) * j + V_0
-        vector<DataT> Vj = MultiplyRPlus1Part(V, j, p, q, r, base);
-        tcd.Cval.push_back(Vj);
-        tcd.C.push((SizeT)tcd.Cval.size() - 1);
-
-        // Compute the p-bit numbers
-        // ( ... (U_r * j + U_r-1) * j + ... + U_1) * j + U_0
-        // and successively put these values onto stack U.
-        vector<DataT> Uj = MultiplyRPlus1Part(U, j, p, q, r, base);
-        tcd.Cval.push_back(Uj);
-        tcd.C.push((SizeT)tcd.Cval.size() - 1);
-      }
-      // Stack C contains
-      // code-2, V(2r), U(2r),
-      // code-3, V(2r-1), U(2r-1),
-      // ... ,
-      // code-3, V(1), U(1),
-      // code-3, V(0), U(0)
-    }
-
-    static vector<DataT> DivideRecursive(ToomCookData &tcd, SizeT k, BaseT base)
-    {
-      // Step 3. [Check recursion level.]
-      // Decrease k by 1.
-      --k;
-
-      // If k = 0, the top of stack C now contains
-      // two 32-bit numbers, u and v
-      if (k == 0)
-      {
-        // remove them
-        vector<DataT> u = tcd.Cval[tcd.C.top()];
-        tcd.C.pop();
-        tcd.Cval.pop_back();
-
-        vector<DataT> v = tcd.Cval[tcd.C.top()];
-        tcd.C.pop();
-        tcd.Cval.pop_back();
-        // set w ← uv using a built-in routine for multiplying
-        // 32-bit numbers, and go to step 10.
-        vector<DataT> w = ClassicMultiplication::Multiply(u, v, base);
-        BigIntegerUtil::TrimZeros(w);
-        return w;
-      }
-
-      // If k > 0
-      // set r ← r_k
-      Long r = tcd.r_table[k];
-      // q ← q_k
-      Long q = tcd.q_table[k];
-      // p ← q_k–1 + q_k
-      Long p = tcd.q_table[k - 1] + tcd.q_table[k];
-
-      // go on to step 4.
-      BreakIntoRPlus1Parts(tcd, p, q, r, base);
-
-      // Step 5. [Recurse.]
-      // Go back to step 3.
-      return DivideRecursive(tcd, k, base);
-    }
-
-    static vector<DataT> Divide(ToomCookData &tcd, SizeT k, BaseT base)
-    {
-      // While k > 0
-      while (--k > 0)
-      {
-        Long r = tcd.r_table[k];                      // r ← r_k
-        Long q = tcd.q_table[k];                      // q ← q_k
-        Long p = tcd.q_table[k - 1] + tcd.q_table[k]; // p ← q_k–1 + q_k
-
-        BreakIntoRPlus1Parts(tcd, p, q, r, base);
-      }
-
-      // At this point k is 0
-      // the top of stack C now contains
-      // two 32-bit numbers, u and v
-      // remove them
-      vector<DataT> u = tcd.Cval[tcd.C.top()];
-      tcd.C.pop();
-      tcd.Cval.pop_back();
-
-      vector<DataT> v = tcd.Cval[tcd.C.top()];
-      tcd.C.pop();
-      tcd.Cval.pop_back();
-      // set w ← uv using a built-in routine for multiplying
-      // 32-bit numbers, and go to step 10.
-      vector<DataT> w = ClassicMultiplication::Multiply(u, v, base);
-      BigIntegerUtil::TrimZeros(w);
-      return w;
-    }
-
-    static vector<DataT> Multiply(ToomCookData &tcd, SizeT k, BaseT base)
-    {
-      Int code = CODE3;
-
-      // Step 10. [Return.]
-      while (code != CODE1)
-      {
-        // If it is code-3, go to step T6.
-        if (code == CODE3)
-        {
-          // Step 6. [Save one product.]
-          // Go back to step T3.
-          vector<DataT> w = Divide(tcd, k, base);
-          tcd.W.push_back(w);
-          k = 0;
-        }
-        // If it is code-2, put w onto stack W and go to step 7.
-        else if (code == CODE2)
-        {
-          vector<DataT> w = ComputeAnswer(tcd, k, base);
-          tcd.W.push_back(w);
-        }
-
-        // Set k ← k + 1.
-        k++;
-        code = tcd.C.top();
-        tcd.C.pop();
-      }
-
-      // And if it is code-1, terminate the algorithm (w is the answer).
-      return tcd.W.at(0);
+      return sum;
     }
 
   public:
-    /*
-     * Given a positive integer n and two nonnegative n-bit integers
-     * u and v, this algorithm forms their 2n-bit product, w.
-     *
-     * Four auxiliary stacks are used to hold the long numbers that
-     * are manipulated during the procedure:
-     *
-     * Stack U, V: Temporary storage of U(j) and V(j) in step 4.
-     * Stack C: Numbers to be multiplied, and control codes.
-     * Stack W: Storage W(j).
-     *
-     * These stacks may contain either binary numbers or special
-     * control symbols called code-1, code-2, and code-3. The
-     * algorithm also constructs an auxiliary table of numbers qk, rk;
-     * this table is maintained in such a manner that it may be stored
-     * as a linear list, where a single pointer that traverses the list
-     * (moving back and forth) can be used to access the current table
-     * entry of interest.
-     */
     static vector<DataT> Multiply(
         vector<DataT> const &a,
         vector<DataT> const &b,
         BaseT base)
     {
-      SizeT n = (SizeT)max(a.size(), b.size());
-
-      ToomCookData tcd(n);
-
-      // Set stacks U, V, C, and W empty.
-      // Stack C contains control code.
-      // code-1 as -1, code-2 as -2, and code-3 as -3.
-      // It also contains the locations of Cval as positive integers.
-
-      // Step 2. [Put u, v on stack.]
-      Long p = tcd.q_table[tcd.k - 1] + tcd.q_table[tcd.k];
-
-      // u and v as numbers of exactly q_k-1 + q_k bits each.
-      vector<DataT> u(p, 0);
-      vector<DataT> v(p, 0);
-
-      BigIntegerUtil::Copy(a, u);
-      BigIntegerUtil::Copy(b, v);
-
-      // Put code-1 on stack C
-      tcd.C.push(CODE1);
-
-      // Place v onto stack C
-      tcd.Cval.push_back(v);
-      tcd.C.push(0);
-
-      // Place u onto stack C
-      tcd.Cval.push_back(u);
-      tcd.C.push(1);
-
-      vector<DataT> w = Multiply(tcd, tcd.k, base);
-
-      BigIntegerUtil::TrimZeros(w);
-
-      return w;
+      // Pre-allocated buffer for temporary storage
+      vector<DataT> tempBuffer;
+      return MultiplyRecursive(a, b, tempBuffer, base);
     }
   };
 }

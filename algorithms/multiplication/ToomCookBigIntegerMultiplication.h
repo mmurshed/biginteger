@@ -4,8 +4,8 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOMCOOK_MULTIPLICATION_2A
-#define TOOMCOOK_MULTIPLICATION_2A
+#ifndef TOOMCOOK_BIGINTEGER_MULTIPLICATION
+#define TOOMCOOK_BIGINTEGER_MULTIPLICATION
 
 #include <vector>
 using namespace std;
@@ -21,7 +21,7 @@ using namespace std;
 
 namespace BigMath
 {
-  class ToomCookMultiplication2a
+  class ToomCookBigIntegerMultiplication
   {
   private:
     // Threshold for switching to the naive multiplication.

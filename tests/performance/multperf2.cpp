@@ -26,8 +26,6 @@ using namespace std;
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
 #include "../../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication2.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication2a.h"
 #include "../../algorithms/multiplication/FFTMultiplication.h"
 
 using namespace BigMath;
@@ -70,10 +68,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Toom-Cook2,FFT\n");
+  fprintf(timeFile, "Results Digit,Toom-Cook,FFT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Toom-Cook2,FFT" << endl;
+  cerr << "Data,Results Digit,Toom-Cook,FFT" << endl;
 
   while (true)
   {
@@ -86,8 +84,7 @@ int main(int argc, char *argv[])
     BigInteger ans = BigIntegerParser::Parse(line.c_str());
 
     clock_t start = clock();
-    ToomCookMultiplication2 tcm2;
-    vector<DataT> rToom2 = tcm2.Multiply(
+    vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());

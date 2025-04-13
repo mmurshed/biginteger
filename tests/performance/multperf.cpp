@@ -25,9 +25,9 @@ using namespace std;
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
+#include "../../algorithms/multiplication/ToomCookKnuthMultiplication.h"
 #include "../../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication2.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication2a.h"
+#include "../../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../../algorithms/multiplication/FFTMultiplication.h"
 
 using namespace BigMath;
@@ -70,10 +70,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,FFT\n");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,FFT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,Toom-Cook2,Toom-Cook2a,FFT" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,FFT" << endl;
 
   while (true)
   {
@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    vector<DataT> rToom = ToomCookMultiplication::Multiply(
+    vector<DataT> rToom = ToomCookKnuthMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
@@ -130,8 +130,7 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    ToomCookMultiplication2 tcm2;
-    vector<DataT> rToom2 = tcm2.Multiply(
+    vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
@@ -147,8 +146,7 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    ToomCookMultiplication2a tcm2a;
-    vector<DataT> rToom2a = tcm2a.Multiply(
+    vector<DataT> rToom2a = ToomCookBigIntegerMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
