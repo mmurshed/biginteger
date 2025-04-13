@@ -12,7 +12,7 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../algorithms/classic/CommonAlgorithms.h"
+#include "../algorithms/CommonAlgorithms.h"
 
 namespace BigMath
 {

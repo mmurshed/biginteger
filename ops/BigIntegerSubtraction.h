@@ -14,8 +14,8 @@ using namespace std;
 #include "../BigInteger.h"
 #include "../BigIntegerBuilder.h"
 #include "../BigIntegerComparator.h"
-#include "../algorithms/classic/ClassicAddition.h"
-#include "../algorithms/classic/ClassicSubtraction.h"
+#include "../algorithms/addition/ClassicAddition.h"
+#include "../algorithms/subtraction/ClassicSubtraction.h"
 
 namespace BigMath
 {

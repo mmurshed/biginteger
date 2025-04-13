@@ -12,7 +12,7 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../algorithms/classic/ClassicAddition.h"
+#include "../algorithms/addition/ClassicAddition.h"
 #include "BigIntegerSubtraction.h"
 
 namespace BigMath

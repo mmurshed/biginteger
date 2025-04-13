@@ -12,9 +12,9 @@ using namespace std;
 
 #include "../../BigInteger.h"
 #include "../../BigIntegerUtil.h"
-#include "../classic/ClassicAddition.h"
-#include "../classic/ClassicSubtraction.h"
-#include "../classic/ClassicMultiplication.h"
+#include "../addition/ClassicAddition.h"
+#include "../subtraction/ClassicSubtraction.h"
+#include "../multiplication/ClassicMultiplication.h"
 
 namespace BigMath
 {

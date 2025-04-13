@@ -12,7 +12,7 @@ using namespace std;
 
 #include "../../BigInteger.h"
 #include "../../BigIntegerUtil.h"
-#include "../classic/ClassicMultiplication.h"
+#include "../multiplication/ClassicMultiplication.h"
 #include "../../ops/BigIntegerAddition.h"
 #include "../../ops/BigIntegerSubtraction.h"
 #include "../../ops/BigIntegerMultiplication.h"

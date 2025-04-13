@@ -15,10 +15,10 @@ using namespace std;
 #include "ToomCookDataMemOptimized.h"
 #include "../../../BigInteger.h"
 #include "../../../BigIntegerUtil.h"
-#include "../../classic/ClassicAddition.h"
-#include "../../classic/ClassicSubtraction.h"
-#include "../../classic/ClassicMultiplication.h"
-#include "../../classic/ClassicDivision.h"
+#include "../../addition/ClassicAddition.h"
+#include "../../subtraction/ClassicSubtraction.h"
+#include "../../multiplication/ClassicMultiplication.h"
+#include "../../divison/ClassicDivision.h"
 
 namespace BigMath
 {

@@ -12,7 +12,7 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../algorithms/classic/ClassicDivision.h"
+#include "../algorithms/divison/ClassicDivision.h"
 
 namespace BigMath
 {

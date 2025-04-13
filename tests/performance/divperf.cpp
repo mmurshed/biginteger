@@ -25,7 +25,7 @@ using namespace std;
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
-#include "../../algorithms/classic/ClassicDivision.h"
+#include "../../algorithms/divison/ClassicDivision.h"
 #include "../../algorithms/divison/NewtonRaphsonDivision.h"
 
 using namespace BigMath;

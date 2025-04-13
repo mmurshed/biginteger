@@ -10,10 +10,10 @@
 #include "../../BigIntegerUtil.h"
 #include "../../ops/BigIntegerIO.h"
 #include "../../ops/MultiplicationStrategy.h"
-#include "../classic/CommonAlgorithms.h"
-#include "../classic/ClassicAddition.h"
-#include "../classic/ClassicSubtraction.h"
-#include "../classic/ClassicDivision.h"
+#include "../CommonAlgorithms.h"
+#include "../addition/ClassicAddition.h"
+#include "../subtraction/ClassicSubtraction.h"
+#include "../divison/ClassicDivision.h"
 
 using namespace std;
 

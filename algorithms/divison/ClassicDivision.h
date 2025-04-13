@@ -7,7 +7,6 @@
 #ifndef CLASSIC_DIVISION_H
 #define CLASSIC_DIVISION_H
 
-#include "ClassicAddition.h"
 #include <cstddef>
 #include <vector>
 #include <string>
@@ -16,7 +15,7 @@ using namespace std;
 
 #include "../../BigInteger.h"
 #include "../../BigIntegerUtil.h"
-#include "../classic/ClassicMultiplication.h"
+#include "../multiplication/ClassicMultiplication.h"
 
 namespace BigMath
 {

@@ -28,10 +28,10 @@ using namespace std;
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
 #include "../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../algorithms/multiplication/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
-#include "../algorithms/classic/ClassicMultiplication.h"
+#include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
 
-#include "../algorithms/classic/ClassicDivision.h"
+#include "../algorithms/divison/ClassicDivision.h"
 #include "../algorithms/divison/NewtonRaphsonDivision.h"
 #include "../algorithms/divison/MontgomeryDivision.h"
 

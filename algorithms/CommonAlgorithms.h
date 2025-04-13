@@ -11,10 +11,10 @@
 #include <string>
 using namespace std;
 
-#include "../../BigIntegerUtil.h"
-#include "ClassicAddition.h"
-#include "ClassicMultiplication.h"
-#include "ClassicDivision.h"
+#include "../BigIntegerUtil.h"
+#include "addition/ClassicAddition.h"
+#include "multiplication/ClassicMultiplication.h"
+#include "divison/ClassicDivision.h"
 
 namespace BigMath
 {
