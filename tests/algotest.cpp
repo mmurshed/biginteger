@@ -23,14 +23,17 @@ using namespace std;
 #include "../BigInteger.h"
 #include "../ops/BigIntegerIO.h"
 #include "../BigIntegerParser.h"
-#include "../BigIntegerComparator.h"
+#include "../ops/BigIntegerComparison.h"
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
 #include "../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../algorithms/multiplication/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
 #include "../algorithms/classic/ClassicMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
+
+#include "../algorithms/classic/ClassicDivision.h"
 #include "../algorithms/divison/NewtonRaphsonDivision.h"
+#include "../algorithms/divison/MontgomeryDivision.h"
 
 using namespace BigMath;
 
@@ -82,7 +85,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = NewtonRaphsonDivision::DivideAndRemainder(
+    BigInteger result = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base()).first;
