@@ -17,9 +17,6 @@ using namespace std;
 
 namespace BigMath
 {
-  // Forward declaration of class BigIntegerSubtraction
-  class BigIntegerSubtraction;
-
   class BigIntegerAddition
   {
   public:
