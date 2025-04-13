@@ -18,33 +18,33 @@ using namespace std;
 
 namespace BigMath
 {
-  // Inserter for vector
-  #include <iomanip>  // for setw and setfill
+// Inserter for vector
+#include <iomanip> // for setw and setfill
 
   ostream &operator<<(ostream &stream, const vector<DataT> &out)
   {
-      if (out.empty())
-      {
-          stream << "0";
-          return stream;
-      }
-
-      int pad = BigIntegerUtil::Base100_Zeroes; // Number of digits to pad with leading zeros
-  
-      // Print in reverse order (most-significant digit first)
-      auto it = out.rbegin();
-  
-      // First digit: print without leading zeros (optional – if you want to avoid 0005 printing as 0005 at the front)
-      stream << *it;
-      ++it;
-  
-      // Remaining digits: pad to 4 digits with leading zeros
-      for (; it != out.rend(); ++it)
-      {
-          stream << setw(pad) << setfill('0') << *it;
-      }
-  
+    if (out.empty())
+    {
+      stream << "0";
       return stream;
+    }
+
+    int pad = BigIntegerUtil::Base100_Zeroes; // Number of digits to pad with leading zeros
+
+    // Print in reverse order (most-significant digit first)
+    auto it = out.rbegin();
+
+    // First digit: print without leading zeros (optional – if you want to avoid 0005 printing as 0005 at the front)
+    stream << *it;
+    ++it;
+
+    // Remaining digits: pad to 4 digits with leading zeros
+    for (; it != out.rend(); ++it)
+    {
+      stream << setw(pad) << setfill('0') << *it;
+    }
+
+    return stream;
   }
 
   // Inserter
