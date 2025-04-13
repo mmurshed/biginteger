@@ -14,7 +14,7 @@ using namespace std;
 #include "../BigInteger.h"
 #include "../algorithms/divison/KnuthDivision.h"
 #include "../algorithms/divison/NewtonRaphsonDivision.h"
-#include "../algorithms/divison/MontgomeryDivision2.h"
+#include "../algorithms/divison/MontgomeryDivision.h"
 
 namespace BigMath
 {
@@ -45,7 +45,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      pair<vector<DataT>, vector<DataT>> result = MontgomeryDivision2::DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      pair<vector<DataT>, vector<DataT>> result = MontgomeryDivision::DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
 
       // Convert to BigInteger
       BigInteger q = BigInteger(result.first, a.IsNegative() || b.IsNegative());

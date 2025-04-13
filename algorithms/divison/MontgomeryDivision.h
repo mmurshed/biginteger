@@ -19,7 +19,7 @@ using namespace std;
 
 namespace BigMath
 {
-    class MontgomeryDivision2
+    class MontgomeryDivision
     {
         // Helper function to compute the greatest common divisor (GCD)
         static DataT gcd(DataT a, DataT b)
