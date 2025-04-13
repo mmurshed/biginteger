@@ -21,7 +21,7 @@
 using namespace std;
 
 #include "../../BigInteger.h"
-#include "../../BigIntegerIO.h"
+#include "../../ops/BigIntegerIO.h"
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
@@ -116,8 +116,7 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    ToomCookMultiplication tcm;
-    vector<DataT> rToom = tcm.Multiply(
+    vector<DataT> rToom = ToomCookMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());

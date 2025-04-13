@@ -21,7 +21,7 @@
 using namespace std;
 
 #include "../../BigInteger.h"
-#include "../../BigIntegerIO.h"
+#include "../../ops/BigIntegerIO.h"
 #include "../../ops/BigIntegerOperations.h"
 #include "../../BigIntegerParser.h"
 #include "../../BigIntegerComparator.h"
