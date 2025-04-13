@@ -180,9 +180,6 @@ namespace BigMath
       return cmp * neg;
     }
   };
-
-  BigInteger const &ONE = BigInteger(1, false, 1);
-  BigInteger const &ZERO = BigInteger();
 }
 
 #endif
