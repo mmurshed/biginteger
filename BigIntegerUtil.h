@@ -20,7 +20,7 @@ namespace BigMath
   typedef int32_t Int;
   typedef uint32_t UInt;
 
-  typedef int64_t DataT;
+  typedef uint64_t DataT;
   typedef uint32_t SizeT;
   typedef int64_t BaseT;
 
