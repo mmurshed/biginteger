@@ -78,6 +78,9 @@ int main(int argc, char *argv[])
 
   while (true)
   {
+    if (cin.eof())
+      break;
+
     BigInteger a, b;
 
     cin >> a >> op >> b;
@@ -88,26 +91,39 @@ int main(int argc, char *argv[])
     getline(ansFile, line);
     BigInteger ansr = Parse(line.c_str());
 
-    clock_t start = clock();
-    auto [q, r] = ClassicDivision::DivideAndRemainder(
+    clock_t start, end;
+    vector<DataT> q, r;
+    double timeTakenClassic = 0., timeTakenKnuth = 0., timeTakenNR = 0., timeTakenM = 0., timeTakenB = 0.;
+    int cmpq, cmpr;
+
+    /*
+    start = clock();
+    tie(q, r) = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
-    clock_t end = clock();
-    double timeTakenClassic = (double)(end - start) / CLOCKS_PER_SEC;
+    end = clock();
+    timeTakenClassic = (double)(end - start) / CLOCKS_PER_SEC;
 
-    int cmpq = Compare(q, ansq.GetInteger());
-    int cmpr = Compare(r, ansr.GetInteger());
+    cmpq = Compare(q, ansq.GetInteger());
+    cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
+      cerr << "Classic algorithm failed." << endl;
       cerr << "a: " << a << endl;
       cerr << "b: " << b << endl;
-      cerr << "q: " << q << endl;
-      cerr << "r: " << r << endl;
-      cerr << "correct q: " << ansq << endl;
-      cerr << "correct r: " << ansr << endl;
-      cerr << "Classic algorithm failed." << endl;
+      if (cmpq != 0)
+      {
+        cerr << "q: " << q << endl;
+        cerr << "correct q: " << ansq << endl;
+      }
+      if (cmpr != 0)
+      {
+        cerr << "r: " << r << endl;
+        cerr << "correct r: " << ansr << endl;
+      }
     }
+    */
 
     start = clock();
     tie(q, r) = KnuthDivision::DivideAndRemainder(
@@ -115,21 +131,28 @@ int main(int argc, char *argv[])
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    double timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmpq = Compare(q, ansq.GetInteger());
     cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
+      cerr << "Knuth algorithm failed." << endl;
       cerr << "a: " << a << endl;
       cerr << "b: " << b << endl;
-      cerr << "q: " << q << endl;
-      cerr << "r: " << r << endl;
-      cerr << "correct q: " << ansq << endl;
-      cerr << "correct r: " << ansr << endl;
-      cerr << "Knuth algorithm failed." << endl;
+      if (cmpq != 0)
+      {
+        cerr << "q: " << q << endl;
+        cerr << "correct q: " << ansq << endl;
+      }
+      if (cmpr != 0)
+      {
+        cerr << "r: " << r << endl;
+        cerr << "correct r: " << ansr << endl;
+      }
     }
 
+    /*
     start = clock();
     tie(q, r) = NewtonRaphsonDivision::DivideAndRemainder(
         a.GetInteger(),
@@ -142,14 +165,21 @@ int main(int argc, char *argv[])
     cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
+      cerr << "Newton Raphson algorithm failed." << endl;
       cerr << "a: " << a << endl;
       cerr << "b: " << b << endl;
-      cerr << "q: " << q << endl;
-      cerr << "r: " << r << endl;
-      cerr << "correct q: " << ansq << endl;
-      cerr << "correct r: " << ansr << endl;
-      cerr << "NewtonRaphsonDivision algorithm failed." << endl;
+      if (cmpq != 0)
+      {
+        cerr << "q: " << q << endl;
+        cerr << "correct q: " << ansq << endl;
+      }
+      if (cmpr != 0)
+      {
+        cerr << "r: " << r << endl;
+        cerr << "correct r: " << ansr << endl;
+      }
     }
+    */
 
     start = clock();
     tie(q, r) = MontgomeryDivision::DivideAndRemainder(
@@ -157,21 +187,26 @@ int main(int argc, char *argv[])
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    double timeTakenM = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenM = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmpq = Compare(q, ansq.GetInteger());
     cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
+      cerr << "Montgomery algorithm failed." << endl;
       cerr << "a: " << a << endl;
       cerr << "b: " << b << endl;
-      cerr << "q: " << q << endl;
-      cerr << "r: " << r << endl;
-      cerr << "correct q: " << ansq << endl;
-      cerr << "correct r: " << ansr << endl;
-      cerr << "Montgomery algorithm failed." << endl;
+      if (cmpq != 0)
+      {
+        cerr << "q: " << q << endl;
+        cerr << "correct q: " << ansq << endl;
+      }
+      if (cmpr != 0)
+      {
+        cerr << "r: " << r << endl;
+        cerr << "correct r: " << ansr << endl;
+      }
     }
-
 
     start = clock();
     tie(q, r) = BarrettDivision::DivideAndRemainder(
@@ -179,19 +214,25 @@ int main(int argc, char *argv[])
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    double timeTakenB = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenB = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmpq = Compare(q, ansq.GetInteger());
     cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
+      cerr << "Barrett algorithm failed." << endl;
       cerr << "a: " << a << endl;
       cerr << "b: " << b << endl;
-      cerr << "q: " << q << endl;
-      cerr << "r: " << r << endl;
-      cerr << "correct q: " << ansq << endl;
-      cerr << "correct r: " << ansr << endl;
-      cerr << "Barrett algorithm failed." << endl;
+      if (cmpq != 0)
+      {
+        cerr << "q: " << q << endl;
+        cerr << "correct q: " << ansq << endl;
+      }
+      if (cmpr != 0)
+      {
+        cerr << "r: " << r << endl;
+        cerr << "correct r: " << ansr << endl;
+      }
     }
 
     cerr.setf(ios::showpoint);
@@ -200,9 +241,6 @@ int main(int argc, char *argv[])
     fflush(timeFile);
 
     DATA++;
-
-    if (cin.eof())
-      break;
   }
 
   fclose(timeFile);
