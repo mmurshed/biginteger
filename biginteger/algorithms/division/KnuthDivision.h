@@ -95,7 +95,7 @@ namespace BigMath
       TrimZeros(w);
     }
 
-    static pair< vector<DataT>, vector<DataT> > DivideAndRemainder(
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
         vector<DataT> const &u,
         DataT d,
         BaseT base)
@@ -184,7 +184,8 @@ namespace BigMath
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
         const vector<DataT> &a,
         const vector<DataT> &b,
-        BaseT base)
+        BaseT base,
+        bool computeRemainder = true)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b,
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b
@@ -251,13 +252,26 @@ namespace BigMath
         q[j] = qhat;
       }
 
-      // Unnormalize the remainder.
-      vector<DataT> r = Divide(u, d, base);
-
-      // Remove potential leading zeros.
       TrimZeros(q);
-      TrimZeros(r);
+
+      vector<DataT> r;
+
+      // Unnormalize the remainder.
+      if (computeRemainder)
+      {
+        r = Divide(u, d, base);
+        TrimZeros(r);
+      }
+
       return {q, r};
+    }
+
+    static vector<DataT> Divide(
+        const vector<DataT> &a,
+        const vector<DataT> &b,
+        BaseT base)
+    {
+      return DivideAndRemainder(a, b, base, false).first;
     }
 
   private:
