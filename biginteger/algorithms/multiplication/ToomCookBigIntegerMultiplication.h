@@ -49,10 +49,10 @@ namespace BigMath
 
       // If b is a single digit, use the scalar multiplication
       if (b.size() == 1)
-        return MultiplyClassic(a, b[0]);
+        return a * b[0];
       // If a is a single digit, use the scalar multiplication
       if (a.size() == 1)
-        return MultiplyClassic(b, a[0]);
+        return b * a[0];
 
       SizeT n = (SizeT)max(a.size(), b.size());
 

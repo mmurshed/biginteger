@@ -85,9 +85,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = ToomCookBigIntegerMultiplication::Multiply(
-                          a,
-                          b);
+    BigInteger result = ToomCookBigIntegerMultiplication::Multiply(a,b);
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
