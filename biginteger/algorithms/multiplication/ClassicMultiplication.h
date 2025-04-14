@@ -35,7 +35,7 @@ namespace BigMath
         DataT b,
         BaseT base)
     {
-      if (b == 0 ||                                // a times 0
+      if (b == 0 ||                // a times 0
           IsZero(a, aStart, aEnd)) // 0 times b
       {
         SetBit(a, aStart, aEnd, 0);
@@ -102,7 +102,7 @@ namespace BigMath
         vector<DataT> &w, SizeT wStart, SizeT wEnd,
         BaseT base)
     {
-      if (b == 0 ||                                // a times 0
+      if (b == 0 ||                // a times 0
           IsZero(a, aStart, aEnd)) // 0 times b
       {
         SetBit(w, wStart, wEnd, 0);
@@ -170,6 +170,13 @@ namespace BigMath
     {
       if (IsZero(a) || IsZero(b)) // 0 times
         return vector<DataT>();
+
+        // If b is a single digit, use the scalar multiplication
+      if (b.size() == 1)
+        return Multiply(a, b[0], base);
+      // If a is a single digit, use the scalar multiplication
+      if (a.size() == 1)
+        return Multiply(b, a[0], base);
 
       SizeT size = (SizeT)(a.size() + b.size() + 1);
       vector<DataT> result(size);

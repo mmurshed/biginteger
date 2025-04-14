@@ -30,6 +30,13 @@ namespace BigMath
     if (IsZero(a) || IsZero(b))
       return vector<DataT>{0}; // 0 times anything is zero
 
+    // If b is a single digit, use the scalar multiplication
+    if(b.size() == 1)
+      return ClassicMultiplication::Multiply(a, b[0], base);
+    // If a is a single digit, use the scalar multiplication
+    if(a.size() == 1)
+      return ClassicMultiplication::Multiply(b, a[0], base);
+
     SizeT size = a.size() + b.size();
 
     if (size <= KARATSUBA_THRESHOLD)

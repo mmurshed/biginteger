@@ -17,10 +17,10 @@ namespace BigMath
       DataT b)
   {
     // a has more digits than b
-    if(a.size() > 1)
+    if (a.size() > 1)
       return 1;
 
-      // Case with zero
+    // Case with zero
     bool aIsZero = IsZero(a);
     bool bIsZero = (b == 0);
     if (aIsZero && bIsZero)
