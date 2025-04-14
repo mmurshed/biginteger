@@ -102,6 +102,19 @@ namespace BigMath
   }
 
   void AddTo(
+      vector<DataT> &a,
+      vector<DataT> const &b,
+      BaseT base)
+  {
+
+    Add(
+        a, 0, a.size() - 1,
+        b, 0, b.size() - 1,
+        a, 0,
+        base);
+  }
+
+  void AddTo(
       vector<DataT> &a, SizeT aStart, SizeT aEnd,
       vector<DataT> const &b, SizeT bStart, SizeT bEnd,
       BaseT base)

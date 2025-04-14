@@ -101,7 +101,7 @@ namespace BigMath
                 // In the Montgomery reduction formula this term would be shifted by the digit index.
                 // However, since we always operate on the least significant digit,
                 // no extra shift is needed.
-                r = Add(r, qb, base);
+                AddTo(r, qb, base);
 
                 // "Divide" r by base by removing the least significant digit.
                 if (!r.empty())
@@ -116,7 +116,7 @@ namespace BigMath
             // Because norm_b is now normalized and r has at most m digits, the following loop will not iterate many times.
             while (Compare(r, B) >= 0)
             {
-                r = Subtract(r, B, base);
+                SubtractFrom(r, B, base);
             }
             TrimZeros(r);
 
