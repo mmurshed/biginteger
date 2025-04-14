@@ -20,9 +20,9 @@
 
 using namespace std;
 
-#include "../../BigInteger.h"
-#include "../../ops/BigIntegerOperations.h"
-#include "../../BigIntegerParser.h"
+#include "../../biginteger/BigInteger.h"
+#include "../../biginteger/ops/Operations.h"
+#include "../../biginteger/common/Parser.h"
 
 using namespace BigMath;
 
@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 
     string line;
     getline(ansFile, line);
-    BigInteger ans = BigIntegerParser::Parse(line.c_str());
+    BigInteger ans = Parse(line.c_str());
 
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
     cerr << "Data : " << DATA << "  Time : ";
@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
     cerr << timeTaken << endl;
     fprintf(timeFile, "%d,%f\n", r.size(), timeTaken);
 
-    int cmp = BigIntegerComparator::Compare(r.GetInteger(), ans.GetInteger());
+    int cmp = Compare(r.GetInteger(), ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "a: " << m << endl;

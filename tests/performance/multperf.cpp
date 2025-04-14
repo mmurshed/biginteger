@@ -20,15 +20,15 @@
 
 using namespace std;
 
-#include "../../BigInteger.h"
-#include "../../ops/BigIntegerIO.h"
-#include "../../ops/BigIntegerOperations.h"
-#include "../../BigIntegerParser.h"
-#include "../../BigIntegerComparator.h"
-#include "../../algorithms/multiplication/ToomCookKnuthMultiplication.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
-#include "../../algorithms/multiplication/FFTMultiplication.h"
+#include "../../biginteger/BigInteger.h"
+#include "../../biginteger/ops/IO.h"
+#include "../../biginteger/ops/Operations.h"
+#include "../../biginteger/common/Parser.h"
+#include "../../biginteger/common/Comparator.h"
+#include "../../biginteger/algorithms/multiplication/ToomCookKnuthMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/FFTMultiplication.h"
 
 using namespace BigMath;
 
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 
     string line;
     getline(ansFile, line);
-    BigInteger ans = BigIntegerParser::Parse(line.c_str());
+    BigInteger ans = Parse(line.c_str());
 
     clock_t start = clock();
     vector<DataT> rClassical = ClassicMultiplication::Multiply(
@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
     clock_t end = clock();
     double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
 
-    Int cmp = BigIntegerComparator::Compare(rClassical, ans.GetInteger());
+    Int cmp = Compare(rClassical, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Classical algorithm failed." << endl;
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::Compare(rKarat, ans.GetInteger());
+    cmp = Compare(rKarat, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Karatsuba algorithm failed." << endl;
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::Compare(rToom, ans.GetInteger());
+    cmp = Compare(rToom, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook algorithm failed." << endl;
@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
 
     // cout << BigInteger(rToom2) << endl;
 
-    cmp = BigIntegerComparator::Compare(rToom2, ans.GetInteger());
+    cmp = Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenToomCook2a = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::Compare(rToom2a, ans.GetInteger());
+    cmp = Compare(rToom2a, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2a algorithm failed." << endl;
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::Compare(fftm, ans.GetInteger());
+    cmp = Compare(fftm, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "FFT algorithm failed." << endl;

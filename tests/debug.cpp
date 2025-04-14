@@ -20,23 +20,21 @@
 
 using namespace std;
 
-#include "../BigInteger.h"
-#include "../BigIntegerIO.h"
-#include "../BigIntegerOperations.h"
-#include "../BigIntegerParser.h"
-#include "../algorithms/toomcook2/ToomCookMultiplication2.h"
+#include "../biginteger/BigInteger.h"
+#include "../biginteger/ops/IO.h"
+#include "../biginteger/ops/Operations.h"
+#include "../biginteger/common/Parser.h"
+#include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 
 using namespace BigMath;
 
 int main(int argc, char *argv[])
 {
-  BigInteger a = BigIntegerParser::Parse("123458");
-  BigInteger b = BigIntegerParser::Parse("234112");
+  BigInteger a = Parse("123458");
+  BigInteger b = Parse("234112");
 
-  ToomCookMultiplication2 tcm;
-
-  vector<DataT> mult = tcm.Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-  string str = BigIntegerParser::ToString(mult);
+  vector<DataT> mult = ToomCookMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  string str = ToString(mult);
   bool cmp = (str == "28902999296");
 
   return 0;

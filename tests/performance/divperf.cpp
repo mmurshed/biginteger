@@ -20,16 +20,16 @@
 
 using namespace std;
 
-#include "../../BigInteger.h"
-#include "../../ops/BigIntegerIO.h"
-#include "../../ops/BigIntegerOperations.h"
-#include "../../BigIntegerParser.h"
-#include "../../BigIntegerComparator.h"
-#include "../../algorithms/division/ClassicDivision.h"
-#include "../../algorithms/division/KnuthDivision.h"
-#include "../../algorithms/division/NewtonRaphsonDivision.h"
-#include "../../algorithms/division/MontgomeryDivision.h"
-#include "../../algorithms/division/BarrettDivision.h"
+#include "../../biginteger/BigInteger.h"
+#include "../../biginteger/ops/IO.h"
+#include "../../biginteger/ops/Operations.h"
+#include "../../biginteger/common/Parser.h"
+#include "../../biginteger/common/Comparator.h"
+#include "../../biginteger/algorithms/division/ClassicDivision.h"
+#include "../../biginteger/algorithms/division/KnuthDivision.h"
+#include "../../biginteger/algorithms/division/NewtonRaphsonDivision.h"
+#include "../../biginteger/algorithms/division/MontgomeryDivision.h"
+#include "../../biginteger/algorithms/division/BarrettDivision.h"
 
 using namespace BigMath;
 
@@ -84,9 +84,9 @@ int main(int argc, char *argv[])
 
     string line;
     getline(ansFile, line);
-    BigInteger ansq = BigIntegerParser::Parse(line.c_str());
+    BigInteger ansq = Parse(line.c_str());
     getline(ansFile, line);
-    BigInteger ansr = BigIntegerParser::Parse(line.c_str());
+    BigInteger ansr = Parse(line.c_str());
 
     clock_t start = clock();
     auto [q, r] = ClassicDivision::DivideAndRemainder(
@@ -96,8 +96,8 @@ int main(int argc, char *argv[])
     clock_t end = clock();
     double timeTakenClassic = (double)(end - start) / CLOCKS_PER_SEC;
 
-    int cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    int cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    int cmpq = Compare(q, ansq.GetInteger());
+    int cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
       cerr << "a: " << a << endl;
@@ -117,8 +117,8 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    cmpq = Compare(q, ansq.GetInteger());
+    cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
       cerr << "a: " << a << endl;
@@ -138,8 +138,8 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenNR = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    cmpq = Compare(q, ansq.GetInteger());
+    cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
       cerr << "a: " << a << endl;
@@ -159,8 +159,8 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenM = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    cmpq = Compare(q, ansq.GetInteger());
+    cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
       cerr << "a: " << a << endl;
@@ -181,8 +181,8 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenB = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = BigIntegerComparator::Compare(q, ansq.GetInteger());
-    cmpr = BigIntegerComparator::Compare(r, ansr.GetInteger());
+    cmpq = Compare(q, ansq.GetInteger());
+    cmpr = Compare(r, ansr.GetInteger());
     if (cmpq != 0 || cmpr != 0)
     {
       cerr << "a: " << a << endl;

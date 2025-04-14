@@ -20,13 +20,13 @@
 
 using namespace std;
 
-#include "../../BigInteger.h"
-#include "../../ops/BigIntegerIO.h"
-#include "../../ops/BigIntegerOperations.h"
-#include "../../BigIntegerParser.h"
-#include "../../BigIntegerComparator.h"
-#include "../../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../algorithms/multiplication/FFTMultiplication.h"
+#include "../../biginteger/BigInteger.h"
+#include "../../biginteger/ops/IO.h"
+#include "../../biginteger/ops/Operations.h"
+#include "../../biginteger/common/Parser.h"
+#include "../../biginteger/common/Comparator.h"
+#include "../../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/FFTMultiplication.h"
 
 using namespace BigMath;
 
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
 
     string line;
     getline(ansFile, line);
-    BigInteger ans = BigIntegerParser::Parse(line.c_str());
+    BigInteger ans = Parse(line.c_str());
 
     clock_t start = clock();
     vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
     // cout << BigInteger(rToom2) << endl;
 
-    int cmp = BigIntegerComparator::Compare(rToom2, ans.GetInteger());
+    int cmp = Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = BigIntegerComparator::Compare(fftm, ans.GetInteger());
+    cmp = Compare(fftm, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "FFT algorithm failed." << endl;

@@ -20,11 +20,11 @@
 
 using namespace std;
 
-#include "BigInteger.h"
-#include "BigIntegerIO.h"
-#include "BigIntegerOperations.h"
-#include "BigIntegerParser.h"
-#include "../algorithms/karatsuba/KaratsubaMultiplication.h"
+#include "../../biginteger/BigInteger.h"
+#include "../../biginteger/ops/IO.h"
+#include "../../biginteger/ops/Operations.h"
+#include "../../biginteger/common/Parser.h"
+#include "../../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 
 using namespace BigMath;
 

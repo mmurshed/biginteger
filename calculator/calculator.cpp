@@ -7,8 +7,8 @@
 
 using namespace std;
 
-#include "../BigInteger.h"
-#include "../BigIntegerIO.h"
+#include "../biginteger/BigInteger.h"
+#include "../biginteger/ops/IO.h"
 #include "ExpressionEvaluator.h"
 
 using namespace std;

@@ -65,9 +65,9 @@
 #ifndef EXPRESSION_EVALUATOR
 #define EXPRESSION_EVALUATOR
 
-#include "../BigInteger.h"
-#include "../BigIntegerParser.h"
-#include "../BigIntegerOperations.h"
+#include "../biginteger/BigInteger.h"
+#include "../biginteger/common/Parser.h"
+#include "../biginteger/ops/Operations.h"
 
 using namespace BigMath;
 
@@ -124,7 +124,7 @@ private:
 		}
 
 		int count = 0;
-		BigInteger res = BigIntegerParser::Parse(expr, &count);
+		BigInteger res = Parse(expr, &count);
 		res.SetSign(negative);
 
 		// Advance the pointer and return the result
@@ -160,7 +160,7 @@ private:
 			if (op == '/')
 			{
 				// Division by zero
-				if (b.IsZero())
+				if (b.Zero())
 				{
 					throw "Division by zero";
 				}

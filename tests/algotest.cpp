@@ -20,20 +20,20 @@
 
 using namespace std;
 
-#include "../BigInteger.h"
-#include "../ops/BigIntegerIO.h"
-#include "../BigIntegerParser.h"
-#include "../ops/BigIntegerComparison.h"
-#include "../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
-#include "../algorithms/multiplication/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
-#include "../algorithms/multiplication/ClassicMultiplication.h"
-#include "../algorithms/multiplication/FFTMultiplication.h"
+#include "../biginteger/BigInteger.h"
+#include "../biginteger/ops/IO.h"
+#include "../biginteger/common/Parser.h"
+#include "../biginteger/ops/Comparison.h"
+#include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "../biginteger/algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
+#include "../biginteger/algorithms/multiplication/toomcookmemoptim/ToomCookMultiplicationMemOptimized.h"
+#include "../biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "../biginteger/algorithms/multiplication/FFTMultiplication.h"
 
-#include "../algorithms/divison/KnuthDivision.h"
-#include "../algorithms/divison/NewtonRaphsonDivision.h"
-#include "../algorithms/divison/MontgomeryDivision.h"
+#include "../biginteger/algorithms/division/KnuthDivision.h"
+#include "../biginteger/algorithms/division/NewtonRaphsonDivision.h"
+#include "../biginteger/algorithms/division/MontgomeryDivision.h"
 
 using namespace BigMath;
 
@@ -78,17 +78,19 @@ int main(int argc, char *argv[])
 
     string line;
     getline(ansFile, line);
-    BigInteger ans = BigIntegerParser::Parse(line.c_str());
+    BigInteger ans = Parse(line.c_str());
     clock_t end = clock();
     double timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = KnuthDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base()).first;
+    BigInteger result(KnuthDivision::DivideAndRemainder(
+                          a.GetInteger(),
+                          b.GetInteger(),
+                          BigInteger::Base())
+                          .first,
+                      false);
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
