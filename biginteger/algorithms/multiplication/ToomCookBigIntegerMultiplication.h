@@ -14,9 +14,10 @@ using namespace std;
 #include "../../common/Util.h"
 #include "../../ops/Addition.h"
 #include "../../ops/Subtraction.h"
-#include "../../ops/ClassicMultiplication.h"
 #include "../../ops/Shift.h"
 #include "../../ops/ScalarDivision.h"
+#include "../../ops/ScalarMultiplication.h"
+#include "../../ops/ClassicMultiplication.h"
 
 namespace BigMath
 {
@@ -43,6 +44,16 @@ namespace BigMath
         BigInteger const &a,
         BigInteger const &b)
     {
+      if (a.Zero() || b.Zero()) // 0 times
+        return BigInteger();
+
+      // If b is a single digit, use the scalar multiplication
+      if (b.size() == 1)
+        return MultiplyClassic(a, b[0]);
+      // If a is a single digit, use the scalar multiplication
+      if (a.size() == 1)
+        return MultiplyClassic(b, a[0]);
+
       SizeT n = (SizeT)max(a.size(), b.size());
 
       if (n < BASE_CASE_THRESHOLD)
@@ -119,11 +130,11 @@ namespace BigMath
                         false);
       }
 
-      evalPoints[0] = a0;                                     // f(0)
-      evalPoints[1] = (a0 + a1 + a2);                         // f(1)
-      evalPoints[2] = (a0 + a2 - a1);                         // f(-1)
-      evalPoints[3] = a0 + (a1 * (DataT)2) + (a2 * (SizeT)4); // f(2)
-      evalPoints[4] = a2;                                     // f(∞)
+      evalPoints[0] = a0;                       // f(0)
+      evalPoints[1] = (a0 + a1 + a2);           // f(1)
+      evalPoints[2] = (a0 + a2 - a1);           // f(-1)
+      evalPoints[3] = a0 + (a1 * 2) + (a2 * 4); // f(2)
+      evalPoints[4] = a2;                       // f(∞)
 
       return evalPoints;
     }
@@ -171,10 +182,10 @@ namespace BigMath
       BigInteger c4 = rInf;
 
       // c2 = (r1 + r-1 - 2*c0 - 2*c4) / 2
-      BigInteger c2 = ((r1 + rm1) - ((c0 * 2) + (c4 * 2))) / (DataT)2;
+      BigInteger c2 = ((r1 + rm1) - ((c0 * 2) + (c4 * 2))) / 2;
 
       // s = (r1 - r-1) / 2
-      BigInteger s = (r1 - rm1) / (DataT)2;
+      BigInteger s = (r1 - rm1) / 2;
 
       // X = (r2 - c0 - 4*c2 - 16*c4) / 2
       BigInteger fourC2 = c2 * (DataT)4;

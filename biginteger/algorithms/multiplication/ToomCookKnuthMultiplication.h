@@ -366,6 +366,16 @@ namespace BigMath
         vector<DataT> const &b,
         BaseT base)
     {
+      if (IsZero(a) || IsZero(b)) // 0 times
+        return vector<DataT>();
+
+      // If b is a single digit, use the scalar multiplication
+      if (b.size() == 1)
+        return ClassicMultiplication::Multiply(a, b[0], base);
+      // If a is a single digit, use the scalar multiplication
+      if (a.size() == 1)
+        return ClassicMultiplication::Multiply(b, a[0], base);
+
       SizeT n = (SizeT)max(a.size(), b.size());
 
       ToomCookData tcd(n);

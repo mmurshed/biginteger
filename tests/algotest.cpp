@@ -85,12 +85,9 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result(KnuthDivision::DivideAndRemainder(
-                          a.GetInteger(),
-                          b.GetInteger(),
-                          BigInteger::Base())
-                          .first,
-                      false);
+    BigInteger result = ToomCookBigIntegerMultiplication::Multiply(
+                          a,
+                          b);
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 

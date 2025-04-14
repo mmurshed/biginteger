@@ -16,27 +16,19 @@ using namespace std;
 
 namespace BigMath
 {
-  class BigIntegerScalarMultiplication
+  BigInteger Multiply(BigInteger const &a, DataT b)
   {
-  public:
-    static BigInteger Multiply(BigInteger const &a, DataT b)
-    {
-      if (a.Zero() || b == 0)
-        return BigInteger(); // 0 times anything is zero
+    if (b == 0 || a.Zero())
+      return BigInteger(); // 0 times anything is zero
 
-      vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
-      BigInteger result = BigInteger(m, false);
-      if (a.IsNegative() != b < 0)
-        result.SetSign(true);
-
-      return result;
-    }
-  };
+    vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
+    return BigInteger(m, a.IsNegative() != b < 0);
+  }
 
   // Multiplies Two BigInteger
   BigInteger operator*(BigInteger const &a, DataT b)
   {
-    return BigIntegerScalarMultiplication::Multiply(a, b);
+    return Multiply(a, b);
   }
 
 }

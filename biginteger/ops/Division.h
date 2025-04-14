@@ -32,21 +32,6 @@ namespace BigMath
     BigInteger q = BigInteger(qv, a.IsNegative() != b.IsNegative());
     return q;
   }
-
-  pair<BigInteger, BigInteger> DivideAndRemainderBigInt(BigInteger const &a,  DataT b)
-  {
-    auto [qv, rv] = DivideAndRemainder(a.GetInteger(), b, BigInteger::Base());
-    BigInteger q = BigInteger(qv, a.IsNegative() != b < 0);
-    BigInteger r = BigInteger(rv, a.IsNegative() || b < 0);
-    return {q, r};
-  }
-
-  BigInteger DivideBigInt(BigInteger const &a,  DataT b)
-  {
-    auto qv = Divide(a.GetInteger(), b, BigInteger::Base());
-    BigInteger q = BigInteger(qv, a.IsNegative() != b < 0);
-    return q;
-  }
   
   // Divides Two BigInteger
   BigInteger operator/(BigInteger const &a, BigInteger const &b)
@@ -54,19 +39,9 @@ namespace BigMath
     return Divide(a, b);
   }
 
-  BigInteger operator/(BigInteger const &a, DataT b)
-  {
-    return DivideBigInt(a, b);
-  }
-
   BigInteger operator%(BigInteger const &a, BigInteger const &b)
   {
     return DivideAndRemainder(a, b).second;
-  }
-
-  BigInteger operator%(BigInteger const &a, DataT b)
-  {
-    return DivideAndRemainderBigInt(a, b).second;
   }
 }
 

@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "../../common/Util.h"
+#include "ClassicMultiplication.h"
 
 using namespace std;
 
@@ -95,7 +96,17 @@ namespace BigMath
         // Here each vector element is assumed to be a digit (0–9).
         static vector<DataT> Multiply(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
         {
-            // Compute the convolution which gives the raw coefficient vector.
+            if (IsZero(a) || IsZero(b)) // 0 times
+                return vector<DataT>();
+
+            // If b is a single digit, use the scalar multiplication
+            if (b.size() == 1)
+                return ClassicMultiplication::Multiply(a, b[0], base);
+            // If a is a single digit, use the scalar multiplication
+            if (a.size() == 1)
+                return ClassicMultiplication::Multiply(b, a[0], base);
+
+                // Compute the convolution which gives the raw coefficient vector.
             vector<DataT> c = convolution(a, b);
             DataT carry = 0;
             for (SizeT i = 0; i < c.size(); i++)
@@ -112,32 +123,6 @@ namespace BigMath
             }
             TrimZeros(c);
             return c;
-        }
-
-        // Multiply two vectors of digits using FFT-based convolution.
-        // Here each vector element is assumed to be a digit (0–9).
-        static vector<DataT> Multiply(const vector<DataT> &a, DataT b, BaseT base)
-        {
-            if (b == 0 || IsZero(a))
-            {
-                return vector<DataT>(1, 0);
-            }
-
-            vector<DataT> c(1, b);
-            return Multiply(a, c, base);
-        }
-
-        // Multiply two vectors of digits using FFT-based convolution.
-        // Here each vector element is assumed to be a digit (0–9).
-        static void MultiplyTo(vector<DataT> &a, DataT b, BaseT base)
-        {
-            if (b == 0 || IsZero(a))
-            {
-                a = vector<DataT>(1, 0);
-                return;
-            }
-            vector<DataT> c(1, b);
-            a = Multiply(a, c, base);
         }
     };
 }

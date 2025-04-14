@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
     cmp = Compare(rToom, ans.GetInteger());
     if (cmp != 0)
     {
-      cerr << "Toom-Cook algorithm failed." << endl;
+      cerr << "Toom-Cook-Knuth algorithm failed." << endl;
     }
 
     start = clock();
@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
     cmp = Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
-      cerr << "Toom-Cook 2 algorithm failed." << endl;
+      cerr << "Toom-Cook algorithm failed." << endl;
     }
 
     start = clock();
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
     cmp = Compare(rToom2a, ans.GetInteger());
     if (cmp != 0)
     {
-      cerr << "Toom-Cook 2a algorithm failed." << endl;
+      cerr << "ToomCookBigIntegerMultiplication algorithm failed." << endl;
     }
 
     start = clock();
