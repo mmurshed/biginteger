@@ -25,7 +25,7 @@ namespace BigMath
     class ClassicDivision
     {
     public:
-        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, DataT base)
+        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
         {
             if (IsZero(b))
             {
@@ -45,43 +45,45 @@ namespace BigMath
             vector<DataT> remainder = a;
             vector<DataT> quotient;
 
-            while (Compare(remainder, b) >= 0)
+            int max_d = a.size() - b.size();
+            for (int d = max_d; d >= 0; --d)
             {
-                int d = remainder.size() - b.size();
                 vector<DataT> shifted_divisor;
+                shifted_divisor.insert(shifted_divisor.end(), d, 0);
+                shifted_divisor.insert(shifted_divisor.end(), b.begin(), b.end());
 
-                while (d >= 0)
+                if (Compare(shifted_divisor, remainder) > 0)
                 {
-                    shifted_divisor.clear();
-                    shifted_divisor.insert(shifted_divisor.end(), d, 0);
-                    shifted_divisor.insert(shifted_divisor.end(), b.begin(), b.end());
-                    if (Compare(shifted_divisor, remainder) <= 0)
+                    if (quotient.size() > static_cast<size_t>(d))
                     {
-                        break;
+                        quotient[d] = 0;
                     }
-                    d--;
+                    continue;
                 }
 
-                if (d < 0)
-                {
-                    break;
-                }
-
+                DataT q_low = 1, q_high = base - 1;
                 DataT q = 0;
-                for (DataT candidate = base - 1; candidate >= 1; --candidate)
+                while (q_low <= q_high)
                 {
+                    DataT candidate = (q_low + q_high) / 2;
                     vector<DataT> candidate_vec = {candidate};
                     vector<DataT> product = Multiply(shifted_divisor, candidate_vec, base);
-                    if (Compare(product, remainder) <= 0)
+
+                    int cmp = Compare(product, remainder);
+                    if (cmp <= 0)
                     {
                         q = candidate;
-                        break;
+                        q_low = candidate + 1;
+                    }
+                    else
+                    {
+                        q_high = candidate - 1;
                     }
                 }
 
                 if (q == 0)
                 {
-                    throw runtime_error("Failed to find quotient digit");
+                    continue;
                 }
 
                 vector<DataT> q_vec = {q};
@@ -95,28 +97,15 @@ namespace BigMath
                 quotient[d] = q;
             }
 
-            // Convert quotient to little-endian with proper trimming
-            vector<DataT> little_endian_quotient;
-            for (size_t i = 0; i < quotient.size(); ++i)
+            TrimZeros(quotient);
+            if (quotient.empty())
             {
-                if (i < quotient.size() && quotient[i] != 0)
-                {
-                    little_endian_quotient.clear();
-                    little_endian_quotient.insert(little_endian_quotient.end(), quotient.begin() + i, quotient.end());
-                    break;
-                }
+                quotient.push_back(0);
             }
-            if (little_endian_quotient.empty())
-            {
-                little_endian_quotient.push_back(0);
-            }
-
-            reverse(little_endian_quotient.begin(), little_endian_quotient.end());
-            TrimZeros(little_endian_quotient);
 
             TrimZeros(remainder);
 
-            return {little_endian_quotient, remainder};
+            return {quotient, remainder};
         }
     };
 }
