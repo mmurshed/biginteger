@@ -17,7 +17,7 @@ using namespace std;
 
 namespace BigMath
 {
-  pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, bool computerRemainder = true)
+  pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, bool computeRemainder = true)
   {
       // case of 0 divisor
       if (IsZero(b))
@@ -43,7 +43,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      return KnuthDivision::DivideAndRemainder(a, b, base, computerRemainder);
+      return KnuthDivision::DivideAndRemainder(a, b, base, computeRemainder);
   }
 
   vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
