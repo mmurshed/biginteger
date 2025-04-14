@@ -22,7 +22,7 @@ namespace BigMath
     class NewtonRaphsonDivision
     {
     public:
-        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
+        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT> &a, const vector<DataT> &b, BaseT base, bool computeRemainder = true)
         {
             if (IsZero(b))
             {
@@ -59,8 +59,7 @@ namespace BigMath
 
                 vector<DataT> delta = Multiply(X, temp, base);
 
-                auto delta_div = KnuthDivision::DivideAndRemainder(delta, ten_power_F, base);
-                X = delta_div.first;
+                auto X = KnuthDivision::Divide(delta, ten_power_F, base);
             }
 
             // Multiply dividend a by the refined reciprocal X.
@@ -84,20 +83,24 @@ namespace BigMath
                 if (Compare(diff, b) < 0)
                     break;
                 // Compute extra = floor(diff / b).
-                auto extra_div = KnuthDivision::DivideAndRemainder(diff, b, base);
-                vector<DataT> extra = extra_div.first;
+                auto extra = KnuthDivision::Divide(diff, b, base);
                 if (Compare(extra, one) < 0)
                     extra = one;
-                quotient = Add(quotient, extra, base);
+                AddTo(quotient, extra, base);
             }
 
-            // Final remainder = a - (quotient * b).
-            vector<DataT> final_product = Multiply(quotient, b, base);
-            vector<DataT> remainder = Subtract(a, final_product, base);
+            if (computeRemainder)
+            {
+                // Final remainder = a - (quotient * b).
+                vector<DataT> final_product = Multiply(quotient, b, base);
+                vector<DataT> remainder = Subtract(a, final_product, base);
+                TrimZeros(quotient);
+                TrimZeros(remainder);
+                return {quotient, remainder};
+            }
 
             TrimZeros(quotient);
-            TrimZeros(remainder);
-            return {quotient, remainder};
+            return {quotient, vector<DataT>()};
         }
     };
 }
