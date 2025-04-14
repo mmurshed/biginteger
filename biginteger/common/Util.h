@@ -14,6 +14,18 @@ using namespace std;
 
 namespace BigMath
 {
+  // compute the greatest common divisor (GCD)
+  DataT gcd(DataT a, DataT b)
+  {
+    while (b != 0)
+    {
+      DataT temp = b;
+      b = a % b;
+      a = temp;
+    }
+    return a;
+  }
+
   // Trims Leading Zeros
   // Runtime O(n), Space O(1)
   SizeT TrimZeros(vector<DataT> &a, Int sizeTo = 0)
