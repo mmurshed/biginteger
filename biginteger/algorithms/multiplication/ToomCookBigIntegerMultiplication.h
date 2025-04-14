@@ -12,10 +12,9 @@ using namespace std;
 
 #include "../../BigInteger.h"
 #include "../../common/Util.h"
-#include "../multiplication/ClassicMultiplication.h"
 #include "../../ops/Addition.h"
 #include "../../ops/Subtraction.h"
-#include "../../ops/Multiplication.h"
+#include "../../ops/ClassicMultiplication.h"
 #include "../../ops/Shift.h"
 #include "../../ops/ScalarDivision.h"
 
@@ -36,11 +35,19 @@ namespace BigMath
         vector<DataT> const &b,
         BaseT base)
     {
+      return Multiply(BigInteger(a, false), BigInteger(b, false)).GetInteger();
+    }
+
+  public:
+    static BigInteger Multiply(
+        BigInteger const &a,
+        BigInteger const &b)
+    {
       SizeT n = (SizeT)max(a.size(), b.size());
 
       if (n < BASE_CASE_THRESHOLD)
       {
-        return ClassicMultiplication::Multiply(a, b, base);
+        return MultiplyClassic(a, b);
       }
 
       // For a Toom–3 algorithm, we typically split the input into 3 parts.
@@ -58,15 +65,15 @@ namespace BigMath
       {
         // The multiplication result at each point requires room for 2*segmentSize elements.
         // For pointwise multiplication, you can call the naive multiplication routine.
-        tempProducts[i] = BigInteger(
-            Multiply(evalA[i].GetInteger(), evalB[i].GetInteger(), base),
-            evalA[i].IsNegative() ^ evalB[i].IsNegative());
+        tempProducts[i] = Multiply(evalA[i], evalB[i]);
       }
 
       // Step 3: Interpolate to combine the evaluated products back into the final result.
       BigInteger result = interpolate(tempProducts, partSize);
 
-      return result.GetInteger();
+      result.SetSign(a.IsNegative() != b.IsNegative()); // if signs are different, set sign to negative
+
+      return result;
     }
 
   private:
@@ -83,13 +90,13 @@ namespace BigMath
     //
     // The five evaluation results are stored in 'evalPoints', which is assumed
     // to have been preallocated with 5 vectors.
-    static vector<BigInteger> evaluatePoly(const vector<DataT> &poly, SizeT partSize)
+    static vector<BigInteger> evaluatePoly(const BigInteger &poly, SizeT partSize)
     {
       vector<BigInteger> evalPoints(NUM_POINTS);
       // a0
       BigInteger a0(vector<DataT>(
-                        poly.begin(),
-                        poly.begin() + min(partSize, (SizeT)poly.size())),
+                        poly.GetInteger().begin(),
+                        poly.GetInteger().begin() + min(partSize, (SizeT)poly.size())),
                     false);
 
       // a1
@@ -97,8 +104,8 @@ namespace BigMath
       if (poly.size() > partSize)
       {
         a1 = BigInteger(vector<DataT>(
-                            poly.begin() + partSize,
-                            poly.begin() + min(2 * partSize, (SizeT)poly.size())),
+                            poly.GetInteger().begin() + partSize,
+                            poly.GetInteger().begin() + min(2 * partSize, (SizeT)poly.size())),
                         false);
       }
 
@@ -107,8 +114,8 @@ namespace BigMath
       if (poly.size() > 2 * partSize)
       {
         a2 = BigInteger(vector<DataT>(
-                            poly.begin() + 2 * partSize,
-                            poly.end()),
+                            poly.GetInteger().begin() + 2 * partSize,
+                            poly.GetInteger().end()),
                         false);
       }
 
