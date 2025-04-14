@@ -97,6 +97,10 @@ int main(int argc, char *argv[])
     if (result != ans)
     {
       cerr << "Algorithm failed." << endl;
+      cerr << "a: " << a << endl;
+      cerr << "b: " << b << endl;
+      cerr << "result: " << result << endl;
+      cerr << "correct: " << ans << endl;
     }
 
     DATA++;
