@@ -83,21 +83,27 @@ int main(int argc, char *argv[])
     getline(ansFile, line);
     BigInteger ans = Parse(line.c_str());
 
-    clock_t start = clock();
+    clock_t start, end;
+    double timeTakenToomCook2 = 0., timeTakenFft = 0.;
+    int cmp;
+
+    /*
+    start = clock();
     vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
-    clock_t end = clock();
-    double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
+    end = clock();
+    timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
 
     // cout << BigInteger(rToom2) << endl;
 
-    int cmp = Compare(rToom2, ans.GetInteger());
+    cmp = Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook 2 algorithm failed." << endl;
     }
+      */
 
     start = clock();
     vector<DataT> fftm = FFTMultiplication::Multiply(
@@ -105,7 +111,7 @@ int main(int argc, char *argv[])
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmp = Compare(fftm, ans.GetInteger());
     if (cmp != 0)
@@ -114,8 +120,8 @@ int main(int argc, char *argv[])
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << rToom2.size() << "," << timeTakenToomCook2 << "," << timeTakenFft << endl;
-    fprintf(timeFile, "%lu,%f,%f\n", rToom2.size(), timeTakenToomCook2, timeTakenFft);
+    cerr << DATA << "," << ans.size() << "," << timeTakenToomCook2 << "," << timeTakenFft << endl;
+    fprintf(timeFile, "%lu,%f,%f\n", ans.size(), timeTakenToomCook2, timeTakenFft);
     fflush(timeFile);
 
     DATA++;

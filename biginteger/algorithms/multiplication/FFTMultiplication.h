@@ -23,7 +23,7 @@ namespace BigMath
             Int n = (Int)a.size();
             for (Int i = 1, j = 0; i < n; ++i)
             {
-                Int bit = n >> 1;
+                ULong bit = n >> 1;
                 while (j & bit)
                 {
                     j ^= bit;
@@ -66,16 +66,9 @@ namespace BigMath
             while (n < (Int)A.size() + (Int)B.size() - 1)
                 n <<= 1;
 
-            vector<complex<long double>> fa(n), fb(n);
-            for (SizeT i = 0; i < A.size(); i++)
-                fa[i] = A[i];
-            for (SizeT i = A.size(); i < (size_t)n; i++)
-                fa[i] = 0;
-            for (SizeT i = 0; i < B.size(); i++)
-                fb[i] = B[i];
-            for (SizeT i = B.size(); i < (size_t)n; i++)
-                fb[i] = 0;
-
+            vector<complex<long double>> fa(n, 0), fb(n, 0);
+            copy(A.begin(), A.end(), fa.begin());
+            copy(B.begin(), B.end(), fb.begin());
             fft(fa, false);
             fft(fb, false);
             for (Int i = 0; i < n; i++)
@@ -106,7 +99,7 @@ namespace BigMath
             if (a.size() == 1)
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
-                // Compute the convolution which gives the raw coefficient vector.
+            // Compute the convolution which gives the raw coefficient vector.
             vector<DataT> c = convolution(a, b);
             DataT carry = 0;
             for (SizeT i = 0; i < c.size(); i++)

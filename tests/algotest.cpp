@@ -34,6 +34,7 @@ using namespace std;
 #include "../biginteger/algorithms/division/KnuthDivision.h"
 #include "../biginteger/algorithms/division/NewtonRaphsonDivision.h"
 #include "../biginteger/algorithms/division/MontgomeryDivision.h"
+#include "../biginteger/algorithms/division/FFTDivision.h"
 
 using namespace BigMath;
 
@@ -85,7 +86,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    BigInteger result = ToomCookBigIntegerMultiplication::Multiply(a,b);
+    auto result = FFTDivision::DivideAndRemainder(a.GetInteger(),b.GetInteger(),BigInteger::Base()).first;
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 
@@ -94,7 +95,7 @@ int main(int argc, char *argv[])
     cerr.setf(ios::showpoint);
     cerr << DATA << "," << result.size() << "," << timeTaken << endl;
 
-    if (result != ans)
+    if (Compare(result, ans.GetInteger()) != 0)
     {
       cerr << "Algorithm failed." << endl;
       cerr << "a: " << a << endl;

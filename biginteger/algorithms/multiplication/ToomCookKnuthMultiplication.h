@@ -5,7 +5,7 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef TOOMCOOK_KUNTH_MULTIPLICATION
+#ifndef TOOMCOOK_KNUTH_MULTIPLICATION
 #define TOOMCOOK_KNUTH_MULTIPLICATION
 
 #include <vector>
