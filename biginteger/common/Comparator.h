@@ -12,6 +12,28 @@ using namespace std;
 
 namespace BigMath
 {
+  Int Compare(
+      vector<DataT> const &a,
+      DataT b)
+  {
+    // a has more digits than b
+    if(a.size() > 1)
+      return 1;
+
+      // Case with zero
+    bool aIsZero = IsZero(a);
+    bool bIsZero = (b == 0);
+    if (aIsZero && bIsZero)
+      return 0;
+    else if (!aIsZero && bIsZero)
+      return 1;
+    else if (aIsZero && !bIsZero)
+      return -1;
+
+    // Both have one digits
+    return (Int)(a[0] - b);
+  }
+
   // All operations are unsigned
   // Compares this with `with' irrespective of sign
   // Returns
