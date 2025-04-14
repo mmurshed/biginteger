@@ -50,6 +50,8 @@ namespace BigMath
 
   vector<DataT> Multiply(vector<DataT> const &a, DataT b, BaseT base)
   {
+    if (b == 0 || IsZero(a))
+      return vector<DataT>{0}; // 0 times anything is zero
     return ClassicMultiplication::Multiply(a, b, base);
   }
 }
