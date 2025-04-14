@@ -15,6 +15,7 @@ using namespace std;
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/KaratsubaMultiplication.h"
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
+#include "../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
 
 namespace BigMath
@@ -45,6 +46,11 @@ namespace BigMath
     }
 
     return FFTMultiplication::Multiply(a, b, base);
+  }
+
+  vector<DataT> Multiply(vector<DataT> const &a, DataT b, BaseT base)
+  {
+    return ClassicMultiplication::Multiply(a, b, base);
   }
 }
 

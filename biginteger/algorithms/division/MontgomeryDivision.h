@@ -8,11 +8,11 @@
 #include "../../common/Builder.h"
 #include "../../common/Util.h"
 #include "../../ops/IO.h"
-#include "../../algorithms/Multiplication.h"
+#include "../Multiplication.h"
 #include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
-#include "../division/KnuthDivision.h"
+#include "KnuthDivision.h"
 
 using namespace std;
 
@@ -59,8 +59,8 @@ namespace BigMath
             DataT d = base / (normB.back() + 1);
             if (d > 1)
             {
-                normA = Multiply(normA, vector<DataT>{d}, base);
-                normB = Multiply(normB, vector<DataT>{d}, base);
+                normA = Multiply(normA, d, base);
+                normB = Multiply(normB, d, base);
                 TrimZeros(normA);
                 TrimZeros(normB);
             }
@@ -92,7 +92,7 @@ namespace BigMath
                 DataT r0 = r.empty() ? 0 : r[0];
                 DataT q_digit = (r0 * mu) % base;
 
-                vector<DataT> qb = Multiply(normB, vector<DataT>{q_digit}, base);
+                vector<DataT> qb = Multiply(normB, q_digit, base);
                 vector<DataT> shifted_qb(i, 0);
                 shifted_qb.insert(shifted_qb.end(), qb.begin(), qb.end());
 

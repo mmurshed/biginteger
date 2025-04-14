@@ -9,11 +9,11 @@
 #include "../../common/Builder.h"
 #include "../../common/Util.h"
 #include "../../ops/IO.h"
-#include "../../algorithms/Multiplication.h"
+#include "../Multiplication.h"
 #include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
-#include "../division/KnuthDivision.h"
+#include "KnuthDivision.h"
 
 using namespace std;
 

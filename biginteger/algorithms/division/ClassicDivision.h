@@ -15,7 +15,7 @@ using namespace std;
 
 #include "../../BigInteger.h"
 #include "../../common/Util.h"
-#include "../../algorithms/Multiplication.h"
+#include "../Multiplication.h"
 #include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
@@ -66,8 +66,7 @@ namespace BigMath
                 while (q_low <= q_high)
                 {
                     DataT candidate = (q_low + q_high) / 2;
-                    vector<DataT> candidate_vec = {candidate};
-                    vector<DataT> product = Multiply(shifted_divisor, candidate_vec, base);
+                    vector<DataT> product = Multiply(shifted_divisor, candidate, base);
 
                     int cmp = Compare(product, remainder);
                     if (cmp <= 0)
@@ -86,8 +85,7 @@ namespace BigMath
                     continue;
                 }
 
-                vector<DataT> q_vec = {q};
-                vector<DataT> product = Multiply(shifted_divisor, q_vec, base);
+                vector<DataT> product = Multiply(shifted_divisor, q, base);
                 remainder = Subtract(remainder, product, base);
 
                 if (quotient.size() <= static_cast<size_t>(d))

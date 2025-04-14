@@ -9,11 +9,11 @@
 #include "../../common/Builder.h"
 #include "../../common/Util.h"
 #include "../../ops/IO.h"
-#include "../../algorithms/Multiplication.h"
+#include "../Multiplication.h"
 #include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
-#include "../division/KnuthDivision.h"
+#include "KnuthDivision.h"
 
 using namespace std;
 
@@ -49,8 +49,7 @@ namespace BigMath
             {
                 vector<DataT> product = Multiply(b, X, base);
 
-                vector<DataT> two = {2};
-                vector<DataT> two_times_ten_power = Multiply(ten_power_F, two, base);
+                vector<DataT> two_times_ten_power = Multiply(ten_power_F, 2, base);
 
                 if (Compare(two_times_ten_power, product) < 0)
                 {
