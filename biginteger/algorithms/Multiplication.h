@@ -20,10 +20,7 @@ using namespace std;
 
 namespace BigMath
 {
-  // Karatsuba performs better for over 128 digits for the result
-  const SizeT KARATSUBA_THRESHOLD = 128;
-  const SizeT TOOM_COOK_THRESHOLD = 512;
-  const SizeT FFT_THRESHOLD = 1024;
+  const SizeT FFT_THRESHOLD = 700;
 
   vector<DataT> Multiply(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
   {
@@ -39,15 +36,7 @@ namespace BigMath
 
     SizeT size = a.size() + b.size();
 
-    if (size <= KARATSUBA_THRESHOLD)
-    {
-      return ClassicMultiplication::Multiply(a, b, base);
-    }
-    else if (size <= TOOM_COOK_THRESHOLD)
-    {
-      return KaratsubaMultiplication::Multiply(a, b, base);
-    }
-    else if (size <= FFT_THRESHOLD)
+    if (size <= FFT_THRESHOLD)
     {
       return ToomCookMultiplication::Multiply(a, b, base);
     }
