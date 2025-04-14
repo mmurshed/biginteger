@@ -13,7 +13,7 @@ using namespace std;
 
 #include "../BigInteger.h"
 #include "division/ClassicDivision.h"
-#include "division/MontgomeryDivision.h"
+#include "division/KnuthDivision.h"
 
 namespace BigMath
 {
@@ -43,7 +43,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      auto result = MontgomeryDivision::DivideAndRemainder(a, b, base);
+      auto result = KnuthDivision::DivideAndRemainder(a, b, base);
 
       return result;
   }
