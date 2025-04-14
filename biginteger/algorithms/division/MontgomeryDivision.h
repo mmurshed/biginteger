@@ -132,10 +132,10 @@ namespace BigMath
             // ----- Compute Quotient -----
             // The quotient is computed via the identity: a = q * b + r, that is, q = (a - r) / b.
             vector<DataT> a_minus_r = Subtract(a, r, base);
-            auto qr = KnuthDivision::DivideAndRemainder(a_minus_r, b, base);
-            TrimZeros(qr.first);
+            auto q = KnuthDivision::Divide(a_minus_r, b, base);
+            TrimZeros(q);
 
-            return {qr.first, r};
+            return {q, r};
         }
     };
 }
