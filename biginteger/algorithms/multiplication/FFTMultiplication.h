@@ -66,9 +66,16 @@ namespace BigMath
             while (n < (Int)A.size() + (Int)B.size() - 1)
                 n <<= 1;
 
-            vector<complex<long double>> fa(n, 0), fb(n, 0);
-            copy(A.begin(), A.end(), fa.begin());
-            copy(B.begin(), B.end(), fb.begin());
+            vector<complex<long double>> fa(n), fb(n);
+            for (SizeT i = 0; i < A.size(); i++)
+                fa[i] = A[i];
+            for (SizeT i = A.size(); i < (size_t)n; i++)
+                fa[i] = 0;
+            for (SizeT i = 0; i < B.size(); i++)
+                fb[i] = B[i];
+            for (SizeT i = B.size(); i < (size_t)n; i++)
+                fb[i] = 0;
+
             fft(fa, false);
             fft(fb, false);
             for (Int i = 0; i < n; i++)
