@@ -12,6 +12,7 @@
 #include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
+#include "ClassicDivision.h"
 #include "KnuthDivision.h"
 
 using namespace std;
@@ -38,7 +39,7 @@ namespace BigMath
             if (gcd(b0, base) != 1)
             {
                 // Fall back to classic division if b0 and base are not coprime.
-                return KnuthDivision::DivideAndRemainder(a, b, base);
+                return ClassicDivision::DivideAndRemainder(a, b, base);
             }
 
             // The Montgomery reduction algorithm as implemented here is efficient only if the dividend
@@ -125,7 +126,7 @@ namespace BigMath
             // For small d (a single digit), we can recover the true remainder by performing a division by d.
             if (d > 1)
             {
-                auto denorm = KnuthDivision::DivideAndRemainder(r, d, base);
+                auto denorm = ClassicDivision::DivideAndRemainder(r, d, base);
                 r = denorm.second;
             }
 
