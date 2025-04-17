@@ -30,8 +30,6 @@ using namespace std;
 #include "../../biginteger/algorithms/division/NewtonRaphsonDivision.h"
 #include "../../biginteger/algorithms/division/MontgomeryDivision.h"
 #include "../../biginteger/algorithms/division/BarrettDivision.h"
-#include "../../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../../biginteger/algorithms/division/FFTDivision.h"
 
 using namespace BigMath;
 
@@ -73,10 +71,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett,BurnikelZieglerDivision,FFTDivision\n");
+  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett,BurnikelZieglerDivision,FFTDivision" << endl;
+  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett" << endl;
 
   while (true)
   {
@@ -95,7 +93,7 @@ int main(int argc, char *argv[])
 
     clock_t start, end;
     vector<DataT> q, r;
-    double timeTakenClassic = 0., timeTakenKnuth = 0., timeTakenNR = 0., timeTakenM = 0., timeTakenB = 0., timeTakenBZ = 0., timeTakenFFT = 0.;
+    double timeTakenClassic = 0., timeTakenKnuth = 0., timeTakenNR = 0., timeTakenM = 0., timeTakenB = 0.;
     int cmpq, cmpr;
 
     /*
@@ -154,14 +152,14 @@ int main(int argc, char *argv[])
       }
     }
 
-
+    /*
     start = clock();
     tie(q, r) = NewtonRaphsonDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    timeTakenNR = (double)(end - start) / CLOCKS_PER_SEC;
+    double timeTakenNR = (double)(end - start) / CLOCKS_PER_SEC;
 
     cmpq = Compare(q, ansq.GetInteger());
     cmpr = Compare(r, ansr.GetInteger());
@@ -181,6 +179,7 @@ int main(int argc, char *argv[])
         cerr << "correct r: " << ansr << endl;
       }
     }
+    */
 
     start = clock();
     tie(q, r) = MontgomeryDivision::DivideAndRemainder(
@@ -209,7 +208,6 @@ int main(int argc, char *argv[])
       }
     }
 
-    /*
     start = clock();
     tie(q, r) = BarrettDivision::DivideAndRemainder(
         a.GetInteger(),
@@ -236,67 +234,10 @@ int main(int argc, char *argv[])
         cerr << "correct r: " << ansr << endl;
       }
     }
-    */
-
-    start = clock();
-    tie(q, r) = BurnikelZieglerDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenBZ = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "BurnikelZieglerDivision algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-    
-    /*
-    start = clock();
-    tie(q, r) = FFTDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenFFT = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "FFTDivision algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-    */
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << ansq.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << "," << timeTakenB << "," << timeTakenBZ << "," << timeTakenFFT << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f,%f\n", a.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM, timeTakenB, timeTakenBZ, timeTakenFFT);
+    cerr << DATA << "," << ansq.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << "," << timeTakenB << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f\n", ansq.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM, timeTakenB);
     fflush(timeFile);
 
     DATA++;
