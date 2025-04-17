@@ -63,6 +63,8 @@ namespace BigMath
 
   // Implentation of addition by paper-pencil method
   // Runtime O(n), Space O(n)
+  // Adds two multi-precision numbers a and b in little-endian order.
+  // The result is stored in result, starting at rStart.
   void Add(
       vector<DataT> const &a, SizeT aStart, SizeT aEnd,
       vector<DataT> const &b, SizeT bStart, SizeT bEnd,
@@ -111,6 +113,20 @@ namespace BigMath
         a, 0, a.size() - 1,
         b, 0, b.size() - 1,
         a, 0,
+        base);
+  }
+
+  void AddToAt(
+      vector<DataT> &a,
+      vector<DataT> const &b,
+      SizeT aStart,
+      BaseT base)
+  {
+
+    Add(
+        a, aStart, a.size() - 1,
+        b, 0, b.size() - 1,
+        a, aStart,
         base);
   }
 
