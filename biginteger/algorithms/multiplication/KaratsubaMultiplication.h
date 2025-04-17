@@ -10,7 +10,6 @@
 #include <vector>
 using namespace std;
 
-#include "../../BigInteger.h"
 #include "../../common/Util.h"
 #include "../Addition.h"
 #include "../Subtraction.h"

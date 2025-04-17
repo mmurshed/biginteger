@@ -12,7 +12,6 @@
 #include <cassert>
 using namespace std;
 
-#include "../BigInteger.h"
 #include "Util.h"
 #include "../algorithms/BaseConversion.h"
 

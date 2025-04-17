@@ -77,7 +77,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      return KnuthDivision::DivideAndRemainder(a, b, base);
+      return ClassicDivision::DivideAndRemainder(a, b, base);
   }
 
   vector<DataT> Divide(vector<DataT> const &a, DataT b, BaseT base)
@@ -105,7 +105,7 @@ namespace BigMath
       }
 
       // Now: a > b
-      return KnuthDivision::Divide(a, b, base);
+      return ClassicDivision::Divide(a, b, base);
   }  
 }
 

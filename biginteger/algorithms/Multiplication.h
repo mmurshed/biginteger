@@ -11,11 +11,9 @@
 #include <vector>
 using namespace std;
 
-#include "../BigInteger.h"
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/KaratsubaMultiplication.h"
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../algorithms/multiplication/FFTMultiplication.h"
 
 namespace BigMath

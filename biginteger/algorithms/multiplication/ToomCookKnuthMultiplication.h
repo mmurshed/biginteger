@@ -79,7 +79,7 @@ namespace BigMath
           if (j > 1)
           {
             // vector<DataT> bigJ = Convert(j);
-            KnuthDivision::DivideTo(tcd.W[wPos], j, base);
+            ClassicDivision::DivideTo(tcd.W[wPos], j, base);
           }
         }
       }

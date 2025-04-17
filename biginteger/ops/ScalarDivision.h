@@ -12,7 +12,7 @@
 using namespace std;
 
 #include "../BigInteger.h"
-#include "../algorithms/division/KnuthDivision.h"
+#include "../algorithms/division/ClassicDivision.h"
 
 namespace BigMath
 {
@@ -24,7 +24,7 @@ namespace BigMath
     }
 
     // Assume a > b
-    vector<DataT> q = KnuthDivision::Divide(
+    vector<DataT> q = ClassicDivision::Divide(
         a.GetInteger(),
         b,
         BigInteger::Base());
@@ -47,7 +47,7 @@ namespace BigMath
     }
 
     // Assume a > b
-    pair<vector<DataT>, vector<DataT>> result = KnuthDivision::DivideAndRemainder(
+    pair<vector<DataT>, vector<DataT>> result = ClassicDivision::DivideAndRemainder(
         a.GetInteger(),
         b,
         BigInteger::Base());

@@ -62,7 +62,7 @@ namespace BigMath
           // W(t) /= j
           if (j > 1)
           {
-            KnuthDivision::DivideTo(
+            ClassicDivision::DivideTo(
                 tcd.W.data, wtr.first, wtr.second,
                 (DataT)j,
                 base);
