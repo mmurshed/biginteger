@@ -1,0 +1,28 @@
+name: Agent QA Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  agent-review:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run QA Agent
+        run: |
+          nanoclaw-task qa-agent "
+          Review this PR diff against origin/main.
+          Run tests, lint, type checks, and security checks.
+          Write qa-report.md.
+          Do not modify source code.
+          "
+
+      - name: Upload QA Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-report
+          path: qa-report.md
