@@ -42,6 +42,21 @@ namespace BigMath
     return size - i; // return how many zeros are removed
   }
 
+  // Canonical trim for values that cross algorithm/API boundaries: zero is {0}.
+  // Internal kernels may still use an empty vector as a temporary zero to avoid work.
+  inline SizeT TrimZerosToOne(vector<DataT> &a)
+  {
+    SizeT removed = TrimZeros(a);
+    if (a.empty())
+      a.push_back(0);
+    return removed;
+  }
+
+  inline vector<DataT> CanonicalZero()
+  {
+    return vector<DataT>{0};
+  }
+
   // Runtime O(n), Space O(1)
   SizeT FindNonZeroByte(vector<DataT> const &a, Int start = 0, Int end = -1)
   {

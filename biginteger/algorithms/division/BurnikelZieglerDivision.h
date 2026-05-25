@@ -28,9 +28,7 @@ namespace BigMath
 
     static vector<DataT> NormalizeZero(vector<DataT> v)
     {
-      TrimZeros(v);
-      if (v.empty())
-        v.push_back(0);
+      TrimZerosToOne(v);
       return v;
     }
 
@@ -75,9 +73,7 @@ namespace BigMath
         v[i] = (DataT)(base - 1);
         ++i;
       }
-      TrimZeros(v);
-      if (v.empty())
-        v.push_back(0);
+      TrimZerosToOne(v);
     }
 
     // out = (high << shift_limbs) + low. One allocation.
@@ -215,9 +211,7 @@ namespace BigMath
 
       PadTo(low.first, m);
       vector<DataT> q = CombineShifted(high.first, m, low.first, base);
-      TrimZeros(q);
-      if (q.empty())
-        q.push_back(0);
+      TrimZerosToOne(q);
 
       return {q, computeRemainder ? low.second : vector<DataT>()};
     }
@@ -254,9 +248,7 @@ namespace BigMath
         std::memcpy(quotient.data() + start, qBlock.data(), qBlock.size() * sizeof(DataT));
       }
 
-      TrimZeros(quotient);
-      if (quotient.empty())
-        quotient.push_back(0);
+      TrimZerosToOne(quotient);
 
       return {quotient, computeRemainder ? NormalizeZero(std::move(rem)) : vector<DataT>()};
     }

@@ -151,9 +151,7 @@ namespace BigMath
     vector<DataT> scale = Pow10(lowDigits);
     vector<DataT> scaledHigh = Multiply(high, scale, Base2_32);
     vector<DataT> result = Add(scaledHigh, low, Base2_32);
-    TrimZeros(result);
-    if (result.empty())
-      result.push_back(0);
+    TrimZerosToOne(result);
     return result;
   }
 

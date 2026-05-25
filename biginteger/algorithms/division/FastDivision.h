@@ -104,9 +104,7 @@ namespace BigMath
         out[a.size()] = (DataT)carry;
       }
 
-      TrimZeros(out);
-      if (out.empty())
-        out.push_back(0);
+      TrimZerosToOne(out);
       return out;
     }
 
@@ -142,9 +140,7 @@ namespace BigMath
           *remainder = (DataT)rem;
       }
 
-      TrimZeros(q);
-      if (q.empty())
-        q.push_back(0);
+      TrimZerosToOne(q);
       return q;
     }
 
@@ -217,20 +213,16 @@ namespace BigMath
         q[j] = (DataT)qhat;
       }
 
-      TrimZeros(q);
-      if (q.empty())
-        q.push_back(0);
+      TrimZerosToOne(q);
 
       vector<DataT> r;
       if (computeRemainder)
       {
         r.assign(u.begin(), u.begin() + n);
-        TrimZeros(r);
+        TrimZerosToOne(r);
         if (d > 1)
           r = DivideByScalar(span<const DataT>(r), d, base);
-        TrimZeros(r);
-        if (r.empty())
-          r.push_back(0);
+        TrimZerosToOne(r);
       }
 
       return {q, r};

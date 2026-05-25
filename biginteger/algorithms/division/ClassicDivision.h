@@ -181,12 +181,8 @@ namespace BigMath
                 v[0] = (DataT)r;
             }
 
-            TrimZeros(w);
-            TrimZeros(v);
-            if (w.empty())
-                w.push_back(0);
-            if (v.empty())
-                v.push_back(0);
+            TrimZerosToOne(w);
+            TrimZerosToOne(v);
 
             return {w, v};
         }
@@ -312,13 +308,9 @@ namespace BigMath
                 quotient[d] = q;
             }
 
-            TrimZeros(quotient);
-            if (quotient.empty())
-            {
-                quotient.push_back(0);
-            }
+            TrimZerosToOne(quotient);
 
-            TrimZeros(remainder);
+            TrimZerosToOne(remainder);
 
             return {quotient, remainder};
         }

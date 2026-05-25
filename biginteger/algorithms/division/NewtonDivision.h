@@ -40,9 +40,7 @@ namespace BigMath
         out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
         out[i + 1] |= (DataT)(cur >> 32);
       }
-      TrimZeros(out);
-      if (out.empty())
-        out.push_back(0);
+      TrimZerosToOne(out);
       return out;
     }
 
@@ -59,9 +57,7 @@ namespace BigMath
           cur |= ((ULong)v[i + 1]) << 32;
         out[i] = (DataT)((cur >> bits) & 0xFFFFFFFFULL);
       }
-      TrimZeros(out);
-      if (out.empty())
-        out.push_back(0);
+      TrimZerosToOne(out);
       return out;
     }
 
@@ -88,9 +84,7 @@ namespace BigMath
         result.push_back((DataT)((R >> 32) & 0xFFFFFFFFULL));
         if (R >> 64)
           result.push_back((DataT)(R >> 64));
-        TrimZeros(result);
-        if (result.empty())
-          result.push_back(0);
+        TrimZerosToOne(result);
         return result;
       }
 
@@ -158,9 +152,7 @@ namespace BigMath
         {
           R = vector<DataT>{0};
         }
-        TrimZeros(R);
-        if (R.empty())
-          R.push_back(0);
+        TrimZerosToOne(R);
 
         cur_n = new_n;
       }
@@ -192,9 +184,7 @@ namespace BigMath
         Q.assign(CR.begin() + 2 * n, CR.end());
       else
         Q = vector<DataT>{0};
-      TrimZeros(Q);
-      if (Q.empty())
-        Q.push_back(0);
+      TrimZerosToOne(Q);
 
       vector<DataT> QB = Multiply(Q, b_norm, Base2_32);
 
@@ -220,9 +210,7 @@ namespace BigMath
         Q = Add(Q, one, Base2_32);
       }
 
-      TrimZeros(Q);
-      if (Q.empty())
-        Q.push_back(0);
+      TrimZerosToOne(Q);
 
       return {Q, rem, true};
     }
@@ -255,9 +243,7 @@ namespace BigMath
         if (computeRemainder)
         {
           rem_final = (shift > 0) ? ShiftRightBits(res.rem, shift) : res.rem;
-          TrimZeros(rem_final);
-          if (rem_final.empty())
-            rem_final.push_back(0);
+          TrimZerosToOne(rem_final);
         }
         return {res.q, rem_final};
       }
@@ -319,17 +305,13 @@ namespace BigMath
       Q.reserve(total_q);
       for (auto it = q_pieces.rbegin(); it != q_pieces.rend(); ++it)
         Q.insert(Q.end(), it->begin(), it->end());
-      TrimZeros(Q);
-      if (Q.empty())
-        Q.push_back(0);
+      TrimZerosToOne(Q);
 
       vector<DataT> rem_final;
       if (computeRemainder)
       {
         rem_final = (shift > 0) ? ShiftRightBits(rem, shift) : rem;
-        TrimZeros(rem_final);
-        if (rem_final.empty())
-          rem_final.push_back(0);
+        TrimZerosToOne(rem_final);
       }
 
       return {Q, rem_final};

@@ -26,10 +26,15 @@ namespace BigMath
 
     // Constructor, desctructor, and assignment operator
   public:
-    BigInteger(SizeT size = 0, bool negative = false) : theInteger(size), isNegative(negative) {}
+    BigInteger(SizeT size = 0, bool negative = false) : theInteger(size == 0 ? 1 : size, 0), isNegative(negative)
+    {
+      if (isNegative && Zero())
+        isNegative = false;
+    }
 
     BigInteger(vector<DataT> const &aInt, bool negative) : theInteger(aInt), isNegative(negative)
     {
+      TrimZerosToOne(theInteger);
       if(negative && Zero())
       {
         isNegative = false;
@@ -40,6 +45,9 @@ namespace BigMath
     BigInteger(SizeT size, bool negative, DataT fill) : theInteger(size), isNegative(negative)
     {
       SetBit(theInteger, 0, size - 1, fill);
+      TrimZerosToOne(theInteger);
+      if (isNegative && Zero())
+        isNegative = false;
     }
 
     // Copy constructor
@@ -96,19 +104,20 @@ namespace BigMath
     // Trims Leading Zeros
     SizeT Trim()
     {
-      return TrimZeros(theInteger);
+      return TrimZerosToOne(theInteger);
     }
 
     BigInteger &SetSign(bool sign)
     {
-      this->isNegative = sign;
+      this->isNegative = sign && !Zero();
       return *this;
     }
 
     // Negation, returns -*this
     BigInteger &operator-()
     {
-      isNegative = !isNegative;
+      if (!Zero())
+        isNegative = !isNegative;
       return *this;
     }
 
