@@ -65,8 +65,15 @@ namespace BigMath
         return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
       }
 
-      // Skewed but b too small for Newton: BZ.
-      if (a.size() > 2048 && a.size() > 3 * b.size())
+      // Use BZ for large even-size divisors where its balanced 2n/n recursion applies.
+      // Keep the skewed path too, but avoid tiny divisors where BZ immediately falls back.
+      bool bz_eligible =
+          base == Base2_32 &&
+          b.size() > 512 &&
+          b.size() % 2 == 0 &&
+          ((b.size() >= 1024 && a.size() <= 3 * b.size()) ||
+           (a.size() > 2048 && a.size() > 3 * b.size()));
+      if (bz_eligible)
       {
         return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
       }
