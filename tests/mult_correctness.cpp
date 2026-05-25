@@ -10,6 +10,10 @@
 #include "../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 #include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "../biginteger/algorithms/multiplication/NTTMultiplication.h"
+#include "../biginteger/algorithms/multiplication/ClassicSquare.h"
+#include "../biginteger/algorithms/multiplication/KaratsubaSquare.h"
+#include "../biginteger/algorithms/multiplication/NTTSquare.h"
+#include "../biginteger/algorithms/Squaring.h"
 
 using namespace BigMath;
 using namespace std;
@@ -43,14 +47,29 @@ static bool CheckSize(int digits)
   bool okToom = Compare(classic, toom) == 0;
   bool okNtt = Compare(classic, ntt) == 0;
 
+  // Squaring vs Multiply(a,a) cross-check (uses `a` only).
+  vector<DataT> aa_mul = ClassicMultiplication::Multiply(av, av, BigInteger::Base());
+  vector<DataT> aa_csq = ClassicSquare::Square(av, BigInteger::Base());
+  vector<DataT> aa_ksq = KaratsubaSquare::Square(av, BigInteger::Base());
+  vector<DataT> aa_nsq = NTTSquare::Square(av, BigInteger::Base());
+  vector<DataT> aa_dsp = Square(av, BigInteger::Base());
+  bool okCsq = Compare(aa_mul, aa_csq) == 0;
+  bool okKsq = Compare(aa_mul, aa_ksq) == 0;
+  bool okNsq = Compare(aa_mul, aa_nsq) == 0;
+  bool okDsq = Compare(aa_mul, aa_dsp) == 0;
+
   cout << digits
        << " digits: kara=" << okKara
        << " toom=" << okToom
        << " ntt=" << okNtt
+       << " csq=" << okCsq
+       << " ksq=" << okKsq
+       << " nsq=" << okNsq
+       << " dsq=" << okDsq
        << " limbs=" << av.size()
        << endl;
 
-  return okKara && okToom && okNtt;
+  return okKara && okToom && okNtt && okCsq && okKsq && okNsq && okDsq;
 }
 
 static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const char *label)

@@ -55,6 +55,10 @@ namespace BigMath
     if (size < NTT_MULTIPLICATION_THRESHOLD)
       return KaratsubaMultiplication::Multiply(a, b, base);
 
+    // Toom-3 (`ToomCookMultiplication`) is implemented and correct, but does not
+    // win at any size on this codebase — NTT dominates above ~256 limbs and
+    // Karatsuba dominates below. Left out of dispatch by design; still callable
+    // directly from cross-check tests.
     return NTTMultiplication::Multiply(a, b, base);
   }
 

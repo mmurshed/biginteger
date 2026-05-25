@@ -15,6 +15,7 @@ using namespace std;
 #include "Util.h"
 #include "../algorithms/Addition.h"
 #include "../algorithms/Multiplication.h"
+#include "../algorithms/Squaring.h"
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/division/ClassicDivision.h"
 #include "../algorithms/division/NewtonDivision.h"
@@ -127,6 +128,13 @@ namespace BigMath
       for (SizeT i = 0; i < digits; ++i)
         p *= 10;
       value = Convert(p);
+    }
+    else if (digits % 2 == 0)
+    {
+      // Even split: Pow10(d) = Pow10(d/2)². One Square (single FFT in NTT path)
+      // instead of Multiply(p, p) (two FFTs).
+      vector<DataT> p = Pow10(digits / 2);
+      value = Square(p, Base2_32);
     }
     else
     {
