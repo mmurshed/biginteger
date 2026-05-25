@@ -25,23 +25,29 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 16384
+#define BIGMATH_NEWTON_MEDIUM_B 8192
 #endif
 
 #ifndef BIGMATH_BZ_DIVISOR_THRESHOLD
 #define BIGMATH_BZ_DIVISOR_THRESHOLD 512
 #endif
 
-  // Newton-Raphson is O(M(n)) vs Knuth's O(m*n). Blockwise mode in NewtonDivision lets it
-  // handle ANY ratio na/nb internally — the only thing the dispatcher gates is whether
-  // Newton's reciprocal-setup cost amortizes. Two bands:
-  //   (a) Divisor large enough that reciprocal multiplies hit NTT (b ≥ 24576 limbs) — Newton
-  //       wins even at near-square ratio 4/3.
-  //   (b) Smaller divisors (16384 ≤ b < 24576) — Newton only wins at ratio ≥ 2 because
-  //       the multiplies inside the reciprocal sit on the Karatsuba/NTT boundary.
+#ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 4
+#endif
+
+#ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
+#define BIGMATH_NEWTON_SKEW_DENOMINATOR 1
+#endif
+
+  // Newton-Raphson is O(M(n)) vs Knuth's O(m*n), but BZ is currently faster for
+  // near-balanced large division. Use Newton only once reciprocal setup amortizes
+  // over a strongly skewed dividend/divisor ratio.
   const SizeT NEWTON_LARGE_B = BIGMATH_NEWTON_LARGE_B;
   const SizeT NEWTON_MEDIUM_B = BIGMATH_NEWTON_MEDIUM_B;
   const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
+  const SizeT NEWTON_SKEW_NUMERATOR = BIGMATH_NEWTON_SKEW_NUMERATOR;
+  const SizeT NEWTON_SKEW_DENOMINATOR = BIGMATH_NEWTON_SKEW_DENOMINATOR;
 
   pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, bool computeRemainder = true)
   {
@@ -71,8 +77,8 @@ namespace BigMath
       // Now: a > b. Newton handles any ratio via blockwise; pick it whenever b is in either
       // of the win bands and the dividend isn't too close to square.
       bool newton_eligible =
-          (b.size() >= NEWTON_LARGE_B && 3 * a.size() >= 4 * b.size()) ||
-          (b.size() >= NEWTON_MEDIUM_B && a.size() >= 2 * b.size());
+          b.size() >= NEWTON_MEDIUM_B &&
+          NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
       if (newton_eligible)
       {
         return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);

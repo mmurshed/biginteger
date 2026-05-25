@@ -19,15 +19,20 @@ using namespace std;
 namespace BigMath
 {
 #ifndef BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD
-#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 32
+#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 0
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
 #define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 512
 #endif
 
+#ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
+#define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 0
+#endif
+
   const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
   const SizeT NTT_MULTIPLICATION_THRESHOLD = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
+  const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
 
   vector<DataT> Multiply(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
   {
@@ -44,7 +49,7 @@ namespace BigMath
     SizeT size = a.size() + b.size();
     SizeT minSize = min(a.size(), b.size());
 
-    if (size <= CLASSIC_MULTIPLICATION_THRESHOLD || minSize <= 32)
+    if (size <= CLASSIC_MULTIPLICATION_THRESHOLD || minSize <= CLASSIC_MIN_LIMB_THRESHOLD)
       return ClassicMultiplication::Multiply(a, b, base);
 
     if (size < NTT_MULTIPLICATION_THRESHOLD)

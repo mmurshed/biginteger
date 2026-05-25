@@ -83,7 +83,7 @@ namespace
     cout << "limbs_each,total_limbs,classic_ms,karatsuba_ms,ntt_ms,winner\n";
 
     vector<SizeT> sizes = {
-        16, 24, 32, 40, 48, 64, 96, 128, 192, 256,
+        8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384, 512,
         1024, 2048, 4096, 8192, 12000, 16000};
     if (full)
     {
@@ -153,6 +153,49 @@ namespace
          << " -DBIGMATH_NTT_MULTIPLICATION_THRESHOLD="
          << (suggestedNttTotal ? suggestedNttTotal : NTT_MULTIPLICATION_THRESHOLD)
          << '\n';
+
+    PrintHeader("Multiplication Min-Limb Gate");
+    cout << "small_limbs,large_limbs,classic_ms,karatsuba_ms,ntt_ms,winner\n";
+
+    vector<SizeT> smallSizes = {4, 8, 16, 24, 32, 40, 48, 64};
+    SizeT largeLimbs = full ? 4096 : 1024;
+    SizeT suggestedMinLimb = 0;
+
+    for (SizeT small : smallSizes)
+    {
+      vector<DataT> a = RandomNumber(largeLimbs, gen);
+      vector<DataT> b = RandomNumber(small, gen);
+      int reps = RepsForLimbs(small);
+
+      double classicMs = BestMs([&]() {
+        auto r = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+      double karaMs = BestMs([&]() {
+        auto r = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+      double nttMs = BestMs([&]() {
+        auto r = NTTMultiplication::Multiply(a, b, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+
+      string winner = Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"ntt", nttMs}});
+      if (winner == "classic")
+        suggestedMinLimb = small;
+
+      cout << small << ',' << largeLimbs << ','
+           << fixed << setprecision(4) << classicMs << ','
+           << karaMs << ',' << nttMs << ','
+           << winner << '\n';
+    }
+
+    cout << "suggested CLASSIC_MIN_LIMB_THRESHOLD ~= "
+         << suggestedMinLimb
+         << '\n';
+    cout << "compile override example: -DBIGMATH_CLASSIC_MIN_LIMB_THRESHOLD="
+         << suggestedMinLimb
+         << '\n';
   }
 
   void TuneDivision(bool full)
@@ -161,9 +204,12 @@ namespace
     cout << "dividend_limbs,divisor_limbs,ratio,fast_ms,bz_ms,newton_ms,winner\n";
 
     vector<pair<SizeT, double>> cases = {
-        {512, 2.0}, {1024, 2.0}, {2048, 2.0}, {2048, 3.0},
-        {4096, 2.0}, {4096, 4.0}, {8192, 2.0}, {8192, 4.0},
-        {16384, 2.0}, {24576, 1.5}};
+        {512, 2.0}, {768, 2.0}, {1024, 2.0},
+        {2048, 1.5}, {2048, 2.0}, {2048, 3.0},
+        {4096, 1.5}, {4096, 2.0}, {4096, 4.0},
+        {8192, 1.25}, {8192, 1.5}, {8192, 2.0}, {8192, 4.0},
+        {16384, 1.5}, {16384, 2.0},
+        {24576, 1.5}};
     if (full)
     {
       cases.push_back({16384, 1.5});
@@ -175,6 +221,8 @@ namespace
     SizeT suggestedBzDivisor = 0;
     SizeT suggestedNewtonMedium = 0;
     SizeT suggestedNewtonLarge = 0;
+    SizeT suggestedNewtonSkewNumerator = 0;
+    SizeT suggestedNewtonSkewDenominator = 1;
 
     for (auto const &[divisorLimbs, ratio] : cases)
     {
@@ -212,6 +260,18 @@ namespace
         suggestedNewtonMedium = divisorLimbs;
       if (suggestedNewtonLarge == 0 && divisorLimbs >= 8192 && ratio < 2.0 && newtonMs < min(fastMs, bzMs))
         suggestedNewtonLarge = divisorLimbs;
+      if (suggestedNewtonSkewNumerator == 0 && divisorLimbs >= 8192 && newtonMs < min(fastMs, bzMs))
+      {
+        suggestedNewtonSkewNumerator = (SizeT)(ratio * 4.0 + 0.5);
+        suggestedNewtonSkewDenominator = 4;
+        while (suggestedNewtonSkewDenominator > 1 &&
+               suggestedNewtonSkewNumerator % 2 == 0 &&
+               suggestedNewtonSkewDenominator % 2 == 0)
+        {
+          suggestedNewtonSkewNumerator /= 2;
+          suggestedNewtonSkewDenominator /= 2;
+        }
+      }
 
       cout << dividendLimbs << ',' << divisorLimbs << ','
            << fixed << setprecision(2) << ratio << ','
@@ -228,12 +288,21 @@ namespace
     cout << "suggested NEWTON_LARGE_B ~= "
          << (suggestedNewtonLarge ? suggestedNewtonLarge : NEWTON_LARGE_B)
          << '\n';
+    cout << "suggested NEWTON skew ratio ~= "
+         << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewNumerator : NEWTON_SKEW_NUMERATOR)
+         << '/'
+         << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewDenominator : NEWTON_SKEW_DENOMINATOR)
+         << '\n';
     cout << "compile override example: -DBIGMATH_BZ_DIVISOR_THRESHOLD="
          << (suggestedBzDivisor ? suggestedBzDivisor : BZ_DIVISOR_THRESHOLD)
          << " -DBIGMATH_NEWTON_MEDIUM_B="
          << (suggestedNewtonMedium ? suggestedNewtonMedium : NEWTON_MEDIUM_B)
          << " -DBIGMATH_NEWTON_LARGE_B="
          << (suggestedNewtonLarge ? suggestedNewtonLarge : NEWTON_LARGE_B)
+         << " -DBIGMATH_NEWTON_SKEW_NUMERATOR="
+         << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewNumerator : NEWTON_SKEW_NUMERATOR)
+         << " -DBIGMATH_NEWTON_SKEW_DENOMINATOR="
+         << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewDenominator : NEWTON_SKEW_DENOMINATOR)
          << '\n';
   }
 }
@@ -243,6 +312,7 @@ int main(int argc, char **argv)
   bool full = argc > 1 && string(argv[1]) == "--full";
 
   cout << "BigInteger dispatch tuner\n";
+  cout << unitbuf;
   cout << "mode=" << (full ? "full" : "quick") << '\n';
   cout << "base=" << BigInteger::Base() << '\n';
 
