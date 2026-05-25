@@ -10,6 +10,7 @@
 #include "../biginteger/algorithms/division/BurnikelZieglerDivision.h"
 #include "../biginteger/algorithms/division/ClassicDivision.h"
 #include "../biginteger/algorithms/division/FastDivision.h"
+#include "../biginteger/algorithms/division/NewtonDivision.h"
 #include "../biginteger/algorithms/division/ReciprocalDivision.h"
 
 using namespace BigMath;
@@ -36,14 +37,22 @@ static bool CheckDivision(vector<DataT> const &a, vector<DataT> const &b, const 
   bool remainderRange = Compare(qr.second, b) < 0;
   bool bzMatch = Compare(qr.first, bz.first) == 0 && Compare(qr.second, bz.second) == 0;
 
+  bool newtonMatch = true;
+  if (b.size() > 1)
+  {
+    auto nt = NewtonDivision::DivideAndRemainder(a, b, BigInteger::Base());
+    newtonMatch = Compare(qr.first, nt.first) == 0 && Compare(qr.second, nt.second) == 0;
+  }
+
   cout << label
        << ": identity=" << identity
        << " remainder=" << remainderRange
        << " bz=" << bzMatch
+       << " newton=" << newtonMatch
        << " limbs=" << a.size() << "x" << b.size()
        << endl;
 
-  return identity && remainderRange && bzMatch;
+  return identity && remainderRange && bzMatch && newtonMatch;
 }
 
 static bool CheckScalar(vector<DataT> const &a, DataT b, const char *label)
