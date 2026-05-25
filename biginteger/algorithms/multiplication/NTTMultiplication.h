@@ -17,12 +17,43 @@ namespace BigMath
     struct ModularField
     {
         static constexpr ULong P = 0xFFFFFFFF00000001ULL;
+        // EPSILON = 2^64 - P = 2^32 - 1. Used in fast reduction:
+        //   2^64 ≡  (2^32 - 1)  (mod P)
+        //   2^96 ≡ -1           (mod P)
+        static constexpr ULong EPSILON = 0xFFFFFFFFULL;
+
+        // Fast reduction of a 128-bit value modulo P, exploiting
+        //   x = x_lo + 2^64·x_hi_lo + 2^96·x_hi_hi
+        //     ≡ x_lo + (2^32 - 1)·x_hi_lo - x_hi_hi   (mod P)
+        // Eliminates the hardware divide hidden in `prod % P`.
+        static inline ULong Reduce(ULong128 x)
+        {
+            ULong x_lo = (ULong)x;
+            ULong x_hi = (ULong)(x >> 64);
+            UInt x_hi_lo = (UInt)x_hi;
+            UInt x_hi_hi = (UInt)(x_hi >> 32);
+
+            // t0 = x_lo - x_hi_hi (mod P)
+            ULong t0;
+            if (__builtin_sub_overflow(x_lo, (ULong)x_hi_hi, &t0))
+                t0 -= EPSILON;
+
+            // delta = x_hi_lo * (2^32 - 1)
+            ULong delta = ((ULong)x_hi_lo << 32) - (ULong)x_hi_lo;
+
+            ULong result;
+            if (__builtin_add_overflow(t0, delta, &result))
+                result += EPSILON;
+
+            if (result >= P)
+                result -= P;
+            return result;
+        }
 
         // Exact modular multiplication of two 64-bit limbs producing a 64-bit result modulo P
         static inline ULong Mul(ULong a, ULong b)
         {
-            ULong128 prod = (ULong128)a * b;
-            return (ULong)(prod % P);
+            return Reduce((ULong128)a * b);
         }
 
         // Modular addition modulo P
