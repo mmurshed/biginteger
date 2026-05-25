@@ -9,10 +9,12 @@
 
 #include <vector>
 #include <string>
+#include <unordered_map>
 using namespace std;
 
 #include "Util.h"
 #include "../algorithms/Addition.h"
+#include "../algorithms/Multiplication.h"
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/division/ClassicDivision.h"
 
@@ -22,6 +24,7 @@ namespace BigMath
   // 10^18 < 2^60 fits in uint64; products with a 32-bit limb need ULong128.
   static constexpr ULong Base10_18 = 1000000000000000000ULL;
   static constexpr SizeT Base10_18_Zeroes = 18;
+  static constexpr SizeT DecimalDcThreshold = 8192;
 
   inline Int FindRange(char const *num, Int &start, Int &end, bool &isNegative)
   {
@@ -51,10 +54,29 @@ namespace BigMath
     return char_processed;
   }
 
-  // Parse decimal digit range [start..end] into base-2^32 little-endian limbs.
-  // Reads 18 digits at a time into a uint64 chunk, then folds via
-  // ClassicMultiplication::MultiplyTo + AddTo on the running result.
-  inline vector<DataT> ParseUnsigned(char const *num, Int start, Int end)
+  inline ULong ParseChunk(char const *num, Int start, SizeT len)
+  {
+    ULong chunk = 0;
+    for (SizeT i = 0; i < len; ++i)
+      chunk = chunk * 10 + (ULong)(num[start + (Int)i] - '0');
+    return chunk;
+  }
+
+  // Direct conversion of a 64-bit value into base-2^32 limbs.
+  inline vector<DataT> Convert(ULong n)
+  {
+    if (n == 0)
+      return vector<DataT>{0};
+    vector<DataT> r;
+    while (n)
+    {
+      r.push_back((DataT)(n & 0xFFFFFFFFULL));
+      n >>= 32;
+    }
+    return r;
+  }
+
+  inline vector<DataT> ParseUnsignedLinear(char const *num, Int start, Int end)
   {
     vector<DataT> r;
     if (start > end)
@@ -69,22 +91,80 @@ namespace BigMath
 
     if (remainder > 0)
     {
-      ULong chunk = 0;
-      for (SizeT i = 0; i < remainder; ++i)
-        chunk = chunk * 10 + (ULong)(num[pos++] - '0');
+      ULong chunk = ParseChunk(num, pos, remainder);
+      pos += (Int)remainder;
       AddTo(r, chunk, Base2_32);
     }
 
     while (pos <= end)
     {
-      ULong chunk = 0;
-      for (SizeT i = 0; i < Base10_18_Zeroes; ++i)
-        chunk = chunk * 10 + (ULong)(num[pos++] - '0');
+      ULong chunk = ParseChunk(num, pos, Base10_18_Zeroes);
+      pos += (Int)Base10_18_Zeroes;
       ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);
       AddTo(r, chunk, Base2_32);
     }
 
     return r;
+  }
+
+  inline vector<DataT> Pow10(SizeT digits)
+  {
+    static thread_local unordered_map<SizeT, vector<DataT>> cache;
+
+    auto it = cache.find(digits);
+    if (it != cache.end())
+      return it->second;
+
+    vector<DataT> value;
+    if (digits == 0)
+    {
+      value = vector<DataT>{1};
+    }
+    else if (digits <= Base10_18_Zeroes)
+    {
+      ULong p = 1;
+      for (SizeT i = 0; i < digits; ++i)
+        p *= 10;
+      value = Convert(p);
+    }
+    else
+    {
+      SizeT lo = digits / 2;
+      SizeT hi = digits - lo;
+      value = Multiply(Pow10(hi), Pow10(lo), Base2_32);
+    }
+
+    return cache.emplace(digits, value).first->second;
+  }
+
+  inline vector<DataT> ParseUnsignedDivideConquer(char const *num, Int start, Int end)
+  {
+    SizeT len = (SizeT)(end - start + 1);
+    if (len <= DecimalDcThreshold)
+      return ParseUnsignedLinear(num, start, end);
+
+    SizeT lowDigits = len / 2;
+    Int split = end - (Int)lowDigits;
+
+    vector<DataT> high = ParseUnsignedDivideConquer(num, start, split);
+    vector<DataT> low = ParseUnsignedDivideConquer(num, split + 1, end);
+    vector<DataT> scale = Pow10(lowDigits);
+    vector<DataT> scaledHigh = Multiply(high, scale, Base2_32);
+    vector<DataT> result = Add(scaledHigh, low, Base2_32);
+    TrimZeros(result);
+    if (result.empty())
+      result.push_back(0);
+    return result;
+  }
+
+  // Parse decimal digit range [start..end] into base-2^32 little-endian limbs.
+  // Small ranges use a simple 10^18 fold; large ranges use divide-and-conquer
+  // so conversion benefits from Karatsuba/NTT multiplication.
+  inline vector<DataT> ParseUnsigned(char const *num, Int start, Int end)
+  {
+    if (start > end)
+      return vector<DataT>();
+    return ParseUnsignedDivideConquer(num, start, end);
   }
 
   inline BigInteger Parse(char const *num, Int start, Int *char_processed = 0)
@@ -109,20 +189,6 @@ namespace BigMath
   inline BigInteger Parse(char const *num, Int *char_processed = 0)
   {
     return Parse(num, 0, char_processed);
-  }
-
-  // Direct conversion of a 64-bit value into base-2^32 limbs.
-  inline vector<DataT> Convert(ULong n)
-  {
-    if (n == 0)
-      return vector<DataT>{0};
-    vector<DataT> r;
-    while (n)
-    {
-      r.push_back((DataT)(n & 0xFFFFFFFFULL));
-      n >>= 32;
-    }
-    return r;
   }
 
   inline string ToString(vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg = false)
