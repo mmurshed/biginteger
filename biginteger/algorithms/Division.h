@@ -7,13 +7,15 @@
 #ifndef DIVISION
 #define DIVISION
 
+#include <stdexcept>
 #include <utility>
 #include <vector>
 using namespace std;
 
 #include "../BigInteger.h"
+#include "division/BurnikelZieglerDivision.h"
 #include "division/ClassicDivision.h"
-#include "division/KnuthDivision.h"
+#include "division/FastDivision.h"
 
 namespace BigMath
 {
@@ -39,11 +41,16 @@ namespace BigMath
       }
       else if (cmp < 0)
       {
-        return {vector<DataT>{0}, b}; // case of a < b
+        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()}; // case of a < b
       }
 
       // Now: a > b
-      return KnuthDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      if (a.size() > 2048 && a.size() > 3 * b.size())
+      {
+        return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      }
+
+      return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
   }
 
   vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
@@ -73,7 +80,7 @@ namespace BigMath
       }
       else if (cmp < 0)
       {
-        return {vector<DataT>{0}, vector<DataT>{b}}; // case of a < b
+        return {vector<DataT>{0}, a}; // case of a < b
       }
 
       // Now: a > b

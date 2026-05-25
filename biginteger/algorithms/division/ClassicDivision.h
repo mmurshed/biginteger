@@ -14,7 +14,6 @@
 using namespace std;
 
 #include "../../common/Util.h"
-#include "../Shift.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
 #include "../multiplication/ClassicMultiplication.h"
@@ -47,6 +46,9 @@ namespace BigMath
             vector<DataT> w(n);
 
             Divide(u, 0, u.size() - 1, d, w, 0, w.size() - 1, base);
+
+            if (w.empty())
+                w.push_back(0);
 
             return w;
         }
@@ -102,14 +104,23 @@ namespace BigMath
             SizeT n = (SizeT)u.size();
             // Divide (u_n−1 . . . u_1 u_0)_b by d.
             vector<DataT> w(n);
-            vector<DataT> v(n);
+            vector<DataT> v(1, 0);
 
-            DivideAndRemainder(
-                u, 0, u.size() - 1,
-                d,
-                w, 0, w.size() - 1,
-                v, 0, v.size() - 1,
-                base);
+            ULong r = 0;
+            for (Int i = (Int)u.size() - 1; i >= 0; i--)
+            {
+                ULong val = r * base + u[i];
+                w[i] = (DataT)(val / d);
+                r = val % d;
+            }
+
+            v[0] = (DataT)r;
+            TrimZeros(w);
+            TrimZeros(v);
+            if (w.empty())
+                w.push_back(0);
+            if (v.empty())
+                v.push_back(0);
 
             return {w, v};
         }

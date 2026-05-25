@@ -14,7 +14,6 @@ using namespace std;
 #include "../common/Util.h"
 #include "Addition.h"
 #include "multiplication/ClassicMultiplication.h"
-#include "division/KnuthDivision.h"
 
 namespace BigMath
 {

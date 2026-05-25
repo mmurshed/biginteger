@@ -10,53 +10,23 @@
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
-#include <cctype>
-#include <cmath>
-#include <cstring>
 #include <ctime>
-#include <strstream>
 #include <string>
-#include <stdexcept>
 
 using namespace std;
 
 #include "../../biginteger/BigInteger.h"
 #include "../../biginteger/ops/IO.h"
-#include "../../biginteger/ops/Operations.h"
 #include "../../biginteger/common/Parser.h"
 #include "../../biginteger/common/Comparator.h"
-#include "../../biginteger/algorithms/division/ClassicDivision.h"
-#include "../../biginteger/algorithms/division/KnuthDivision.h"
-#include "../../biginteger/algorithms/division/NewtonRaphsonDivision.h"
-#include "../../biginteger/algorithms/division/MontgomeryDivision.h"
-#include "../../biginteger/algorithms/division/BarrettDivision.h"
 #include "../../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../../biginteger/algorithms/division/FFTDivision.h"
+#include "../../biginteger/algorithms/division/FastDivision.h"
+#include "../../biginteger/algorithms/division/KnuthDivision.h"
 
 using namespace BigMath;
 
 int main(int argc, char *argv[])
 {
-  /*
-  if(argc < 5)
-  {
-    cerr << "Usage: perftst [INPUT] [OUTPUT] [ANSWER] [CSVFILE]" << endl;
-    return 1;
-  }
-
-  if(!freopen(argv[1],"rt",stdin))
-    return 1;
-
-  if(!freopen(argv[2],"wt",stdout))
-    return 1;
-
-  ifstream ansFile(argv[3]);
-
-  FILE *timeFile = fopen(argv[4], "wt");
-  if(!timeFile)
-    return 1;
-*/
-
   if (!freopen("input.txt", "rt", stdin))
     return 1;
 
@@ -70,22 +40,19 @@ int main(int argc, char *argv[])
     return 1;
 
   long DATA = 1;
-
   char op;
 
-  fprintf(timeFile, "Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett,BurnikelZieglerDivision,FFTDivision\n");
+  fprintf(timeFile, "Results Digit,Knuth,Fast,BurnikelZiegler\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classic,Knuth,Newton-Raphson,Montgomery,Barrett,BurnikelZieglerDivision,FFTDivision" << endl;
+  cerr << "Data,Results Digit,Knuth,Fast,BurnikelZiegler" << endl;
 
-  while (true)
+  while (!cin.eof())
   {
+    BigInteger a, b;
+    cin >> a >> op >> b;
     if (cin.eof())
       break;
-
-    BigInteger a, b;
-
-    cin >> a >> op >> b;
 
     string line;
     getline(ansFile, line);
@@ -95,37 +62,9 @@ int main(int argc, char *argv[])
 
     clock_t start, end;
     vector<DataT> q, r;
-    double timeTakenClassic = 0., timeTakenKnuth = 0., timeTakenNR = 0., timeTakenM = 0., timeTakenB = 0., timeTakenBZ = 0., timeTakenFFT = 0.;
-    int cmpq, cmpr;
-
-    /*
-    start = clock();
-    tie(q, r) = ClassicDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenClassic = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "Classic algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-    */
+    double timeTakenKnuth = 0.;
+    double timeTakenFast = 0.;
+    double timeTakenBZ = 0.;
 
     start = clock();
     tie(q, r) = KnuthDivision::DivideAndRemainder(
@@ -135,107 +74,19 @@ int main(int argc, char *argv[])
     end = clock();
     timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
+    if (Compare(q, ansq.GetInteger()) != 0 || Compare(r, ansr.GetInteger()) != 0)
       cerr << "Knuth algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
 
     start = clock();
-    tie(q, r) = NewtonRaphsonDivision::DivideAndRemainder(
+    tie(q, r) = FastDivision::DivideAndRemainder(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    timeTakenNR = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenFast = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "Newton Raphson algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-
-    start = clock();
-    tie(q, r) = MontgomeryDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenM = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "Montgomery algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-
-    /*
-    start = clock();
-    tie(q, r) = BarrettDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenB = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "Barrett algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-    */
+    if (Compare(q, ansq.GetInteger()) != 0 || Compare(r, ansr.GetInteger()) != 0)
+      cerr << "Fast division algorithm failed." << endl;
 
     start = clock();
     tie(q, r) = BurnikelZieglerDivision::DivideAndRemainder(
@@ -245,57 +96,12 @@ int main(int argc, char *argv[])
     end = clock();
     timeTakenBZ = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "BurnikelZieglerDivision algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-
-    /*
-    start = clock();
-    tie(q, r) = FFTDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenFFT = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmpq = Compare(q, ansq.GetInteger());
-    cmpr = Compare(r, ansr.GetInteger());
-    if (cmpq != 0 || cmpr != 0)
-    {
-      cerr << "FFTDivision algorithm failed." << endl;
-      cerr << "a: " << a << endl;
-      cerr << "b: " << b << endl;
-      if (cmpq != 0)
-      {
-        cerr << "q: " << q << endl;
-        cerr << "correct q: " << ansq << endl;
-      }
-      if (cmpr != 0)
-      {
-        cerr << "r: " << r << endl;
-        cerr << "correct r: " << ansr << endl;
-      }
-    }
-    */
+    if (Compare(q, ansq.GetInteger()) != 0 || Compare(r, ansr.GetInteger()) != 0)
+      cerr << "Burnikel-Ziegler division algorithm failed." << endl;
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << ansq.size() << "," << timeTakenClassic << "," << timeTakenKnuth << "," << timeTakenNR << "," << timeTakenM << "," << timeTakenB << "," << timeTakenBZ << "," << timeTakenFFT << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f,%f\n", a.size(), timeTakenClassic, timeTakenKnuth, timeTakenNR, timeTakenM, timeTakenB, timeTakenBZ, timeTakenFFT);
+    cerr << DATA << "," << ansq.size() << "," << timeTakenKnuth << "," << timeTakenFast << "," << timeTakenBZ << endl;
+    fprintf(timeFile, "%u,%f,%f,%f\n", a.size(), timeTakenKnuth, timeTakenFast, timeTakenBZ);
     fflush(timeFile);
 
     DATA++;

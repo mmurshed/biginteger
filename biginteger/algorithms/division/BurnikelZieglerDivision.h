@@ -1,79 +1,87 @@
 #ifndef BURNIKELZIEGLER_DIVISION
 #define BURNIKELZIEGLER_DIVISION
 
-#include <iostream>
+#include <stdexcept>
+#include <utility>
 #include <vector>
-#include <cassert>
-#include <cmath>
+using namespace std;
 
-#include "../../common/Builder.h"
+#include "../../common/Comparator.h"
 #include "../../common/Util.h"
-#include "../../ops/IO.h"
+#include "../Addition.h"
 #include "../Multiplication.h"
 #include "../Shift.h"
-#include "../Addition.h"
-#include "../Subtraction.h"
-#include "KnuthDivision.h"
-
-using namespace std;
+#include "FastDivision.h"
 
 namespace BigMath
 {
-    class BurnikelZieglerDivision
-    {
-        static vector<DataT> MultiplyByBasePower(const vector<DataT>& num, SizeT power, BaseT base) {
-            vector<DataT> result = num;
-            result.insert(result.begin(), power, 0);
-            return result;
-        }
+  class BurnikelZieglerDivision
+  {
+  private:
+    static const SizeT BZ_THRESHOLD = 512;
 
-        public:
-        
-        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(const vector<DataT>& a, const vector<DataT>& b, BaseT base) {      
-            if (IsZero(b)) {
-                throw invalid_argument("Division by zero");
-            }
-        
-            int cmp = Compare(a, b);
-            if (cmp < 0) {
-                return {vector<DataT>(), a};
-            } else if (cmp == 0) {
-                return {vector<DataT>{1}, vector<DataT>()};
-            }
-        
-            SizeT m = b.size();
-            SizeT n = a.size();
-        
-            // Base case: use Knuth's algorithm for small divisors or when dividend is small
-            if (m == 1 || n <= 2 * m) {
-                return KnuthDivision::DivideAndRemainder(a, b, base);
-            }
-        
-            // Split the dividend into high and low parts
-            SizeT splitPos = 2 * m;
-            if (splitPos > n) splitPos = n;
-        
-            vector<DataT> high(a.end() - splitPos, a.end());
-            vector<DataT> low(a.begin(), a.end() - splitPos);
-        
-            // Recursively divide the high part by the divisor
-            auto [qHigh, rHigh] = DivideAndRemainder(high, b, base);
-        
-            // Combine remainder with low part and divide
-            vector<DataT> combined = MultiplyByBasePower(rHigh, low.size(), base);
-            combined = Add(combined, low, base);
-            auto [qLow, rLow] = DivideAndRemainder(combined, b, base);
-        
-            // Combine the quotients
-            vector<DataT> qHighShifted = MultiplyByBasePower(qHigh, low.size(), base);
-            vector<DataT> quotient = Add(qHighShifted, qLow, base);
-        
-            // Trim leading zeros (trailing in little-endian)
-            TrimZeros(quotient);
-            TrimZeros(rLow);
-        
-            return {quotient, rLow};
-        }        
-    };
+    static vector<DataT> ShiftBase(vector<DataT> const &value, SizeT limbs)
+    {
+      return ShiftLeft(value, limbs);
+    }
+
+    static pair<vector<DataT>, vector<DataT>> DivideRecursive(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool computeRemainder)
+    {
+      if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD || a.size() <= 2 * b.size())
+        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+      SizeT lowSize = 2 * (SizeT)b.size();
+      vector<DataT> low(a.begin(), a.begin() + lowSize);
+      vector<DataT> high(a.begin() + lowSize, a.end());
+      TrimZeros(low);
+      TrimZeros(high);
+
+      auto highQr = DivideRecursive(high, b, base, true);
+
+      vector<DataT> combined = Add(ShiftBase(highQr.second, lowSize), low, base);
+      TrimZeros(combined);
+
+      auto lowQr = FastDivision::DivideAndRemainder(combined, b, base, computeRemainder);
+
+      vector<DataT> quotient = Add(ShiftBase(highQr.first, lowSize), lowQr.first, base);
+      TrimZeros(quotient);
+      if (quotient.empty())
+        quotient.push_back(0);
+
+      return {quotient, computeRemainder ? lowQr.second : vector<DataT>()};
+    }
+
+  public:
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool computeRemainder = true)
+    {
+      if (IsZero(b))
+        throw invalid_argument("Division by zero");
+
+      if (IsZero(a))
+        return {vector<DataT>{0}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+      Int cmp = Compare(a, b);
+      if (cmp < 0)
+        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+      if (cmp == 0)
+        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+      return DivideRecursive(a, b, base, computeRemainder);
+    }
+
+    static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
+    {
+      return DivideAndRemainder(a, b, base, false).first;
+    }
+  };
 }
+
 #endif

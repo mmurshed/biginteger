@@ -7,6 +7,7 @@
 #ifndef BIGINTEGER_SCALAR_DIVISION
 #define BIGINTEGER_SCALAR_DIVISION
 
+#include <stdexcept>
 #include <utility>
 #include <vector>
 using namespace std;
@@ -18,7 +19,12 @@ namespace BigMath
 {
   BigInteger Divide(BigInteger const &a, DataT b)
   {
-    if (a.Zero() || b == 0)
+    if (b == 0)
+    {
+      throw invalid_argument("Division by zero");
+    }
+
+    if (a.Zero())
     {
       return BigInteger(); // case of 0
     }
@@ -31,7 +37,7 @@ namespace BigMath
 
     BigInteger result = BigInteger(q, false);
 
-    if (a.IsNegative() != b < 0)
+    if (a.IsNegative())
     {
       result.SetSign(true);
     }
@@ -41,7 +47,12 @@ namespace BigMath
 
   pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, DataT b)
   {
-    if (a.Zero() || b == 0)
+    if (b == 0)
+    {
+      throw invalid_argument("Division by zero");
+    }
+
+    if (a.Zero())
     {
       return {BigInteger(), BigInteger()}; // case of 0
     }
@@ -55,7 +66,7 @@ namespace BigMath
     BigInteger q = BigInteger(result.first, false);
     BigInteger r = BigInteger(result.second, false);
 
-    if (a.IsNegative() != b < 0)
+    if (a.IsNegative())
     {
       q.SetSign(true);
       r.SetSign(true);

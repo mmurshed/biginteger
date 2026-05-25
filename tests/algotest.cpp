@@ -32,9 +32,7 @@ using namespace std;
 #include "../biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 #include "../biginteger/algorithms/division/KnuthDivision.h"
-#include "../biginteger/algorithms/division/NewtonRaphsonDivision.h"
-#include "../biginteger/algorithms/division/MontgomeryDivision.h"
-#include "../biginteger/algorithms/division/FFTDivision.h"
+#include "../biginteger/algorithms/division/FastDivision.h"
 
 using namespace BigMath;
 
@@ -86,7 +84,7 @@ int main(int argc, char *argv[])
     cerr << "Reading time: " << timeTaken << endl;
 
     start = clock();
-    auto result = FFTDivision::DivideAndRemainder(a.GetInteger(),b.GetInteger(),BigInteger::Base()).first;
+    auto result = FastDivision::DivideAndRemainder(a.GetInteger(),b.GetInteger(),BigInteger::Base()).first;
     end = clock();
     timeTaken = (double)(end - start) / CLOCKS_PER_SEC;
 

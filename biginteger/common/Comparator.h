@@ -31,7 +31,9 @@ namespace BigMath
       return -1;
 
     // Both have one digits
-    return (Int)(a[0] - b);
+    if (a[0] == b)
+      return 0;
+    return a[0] > b ? 1 : -1;
   }
 
   // All operations are unsigned
@@ -66,10 +68,8 @@ namespace BigMath
     Int cmp = 0;
     for (Int i = (Int)a.size() - 1; i >= 0; i--)
     {
-      diff = a[i];
-      diff -= b[i];
-      if (diff != 0)
-        return (Int)diff;
+      if (a[i] != b[i])
+        return a[i] > b[i] ? 1 : -1;
     }
 
     return cmp;
