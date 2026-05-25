@@ -107,6 +107,11 @@ namespace BigMath
         }
 
         // Schoolbook multiplication for base cases: r = a * b.
+        // Base2_32 path packs pairs of 32-bit limbs into 64-bit values and runs the
+        // schoolbook in 64-bit limb space — 4× fewer multiplies, each is UMULL+UMULH
+        // on ARM64 (≈ 2× cost per multiply). Net ≈ 2× over scalar 32-bit schoolbook.
+        // Buffers up to 64 packed limbs (covers Karatsuba leaf threshold of 48) live
+        // on the stack to avoid heap allocation; larger inputs fall back to heap.
         static void MultiplyClassicPtr(
             const DataT* a, SizeT lenA,
             const DataT* b, SizeT lenB,
@@ -117,17 +122,67 @@ namespace BigMath
 
             if (base == Base2_32)
             {
-                for (SizeT i = 0; i < lenB; ++i)
+                SizeT na64 = (lenA + 1) >> 1;
+                SizeT nb64 = (lenB + 1) >> 1;
+                SizeT nr64 = na64 + nb64;
+
+                constexpr SizeT STACK_CAP = 64;
+                ULong a64_stack[STACK_CAP];
+                ULong b64_stack[STACK_CAP];
+                ULong r64_stack[2 * STACK_CAP];
+                std::unique_ptr<ULong[]> heap;
+                ULong* a64 = a64_stack;
+                ULong* b64 = b64_stack;
+                ULong* r64 = r64_stack;
+                if (na64 > STACK_CAP || nb64 > STACK_CAP)
                 {
-                    if (b[i] == 0) continue;
+                    heap.reset(new ULong[na64 + nb64 + nr64]);
+                    a64 = heap.get();
+                    b64 = a64 + na64;
+                    r64 = b64 + nb64;
+                }
+
+                // Pack a, b: a64[k] = a[2k] | (a[2k+1] << 32)
+                for (SizeT k = 0; k < na64; ++k)
+                {
+                    SizeT lo = 2 * k;
+                    ULong v = a[lo];
+                    if (lo + 1 < lenA) v |= (ULong)a[lo + 1] << 32;
+                    a64[k] = v;
+                }
+                for (SizeT k = 0; k < nb64; ++k)
+                {
+                    SizeT lo = 2 * k;
+                    ULong v = b[lo];
+                    if (lo + 1 < lenB) v |= (ULong)b[lo + 1] << 32;
+                    b64[k] = v;
+                }
+
+                std::memset(r64, 0, nr64 * sizeof(ULong));
+
+                // 64-bit schoolbook: prod is 128-bit, carry is 64-bit.
+                for (SizeT i = 0; i < nb64; ++i)
+                {
+                    ULong bi = b64[i];
+                    if (bi == 0) continue;
                     ULong carry = 0;
-                    for (SizeT j = 0; j < lenA; ++j)
+                    for (SizeT j = 0; j < na64; ++j)
                     {
-                        ULong prod = (ULong)a[j] * b[i] + r[i + j] + carry;
-                        r[i + j] = (DataT)(prod & 0xFFFFFFFFULL);
-                        carry = prod >> 32;
+                        ULong128 prod = (ULong128)a64[j] * bi + r64[i + j] + carry;
+                        r64[i + j] = (ULong)prod;
+                        carry = (ULong)(prod >> 64);
                     }
-                    r[i + lenA] = (DataT)carry;
+                    r64[i + na64] = carry;
+                }
+
+                // Unpack r64 → r. r has length lenA+lenB; r64 may carry one extra
+                // limb whose high 32 bits are always zero (since |product| ≤ B^(lenA+lenB)).
+                SizeT rLen = lenA + lenB;
+                for (SizeT k = 0; k < nr64; ++k)
+                {
+                    SizeT lo = 2 * k;
+                    if (lo < rLen) r[lo] = (DataT)(r64[k] & 0xFFFFFFFFULL);
+                    if (lo + 1 < rLen) r[lo + 1] = (DataT)(r64[k] >> 32);
                 }
             }
             else
