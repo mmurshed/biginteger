@@ -21,7 +21,10 @@ namespace BigMath
     class KaratsubaMultiplication
     {
     private:
-        static const SizeT KARATSUBA_THRESHOLD = 32;
+#ifndef BIGMATH_KARATSUBA_THRESHOLD
+#define BIGMATH_KARATSUBA_THRESHOLD 48
+#endif
+        static const SizeT KARATSUBA_THRESHOLD = BIGMATH_KARATSUBA_THRESHOLD;
 
         // Adds a[0..lenA-1] and b[0..lenB-1] and writes to r[0..lenR-1].
         static void AddPtr(
