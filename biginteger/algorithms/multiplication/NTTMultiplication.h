@@ -201,6 +201,42 @@ namespace BigMath
             return fa;
         }
 
+        // Base2_32 coefficients are represented as two base-2^16 digits per limb.
+        // Build the NTT buffers directly to avoid allocating and copying temporary
+        // a16/b16 vectors before the transform.
+        static vector<DataT> convolutionBase2_32(const vector<DataT> &A, const vector<DataT> &B)
+        {
+            ULong aCoeffSize = (ULong)A.size() * 2;
+            ULong bCoeffSize = (ULong)B.size() * 2;
+            ULong need = aCoeffSize + bCoeffSize - 1;
+            DataT n = (DataT)std::bit_ceil(need);
+
+            vector<ULong> fa(n, 0), fb(n, 0);
+            for (SizeT i = 0; i < A.size(); ++i)
+            {
+                SizeT j = i * 2;
+                fa[j] = A[i] & 0xFFFFULL;
+                fa[j + 1] = A[i] >> 16;
+            }
+            for (SizeT i = 0; i < B.size(); ++i)
+            {
+                SizeT j = i * 2;
+                fb[j] = B[i] & 0xFFFFULL;
+                fb[j + 1] = B[i] >> 16;
+            }
+
+            const vector<ULong> &fwdRoots = GetRoots(n, false);
+            const vector<ULong> &invRoots = GetRoots(n, true);
+
+            ntt(fa, fwdRoots, false);
+            ntt(fb, fwdRoots, false);
+            for (Int i = 0; i < n; i++)
+                fa[i] = ModularField::Mul(fa[i], fb[i]);
+            ntt(fa, invRoots, true);
+
+            return fa;
+        }
+
     public:
         // Multiply two vectors of digits using NTT-based convolution.
         static vector<DataT> Multiply(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
@@ -219,23 +255,8 @@ namespace BigMath
             // to avoid overflow in the 64-bit prime field.
             if (base == Base2_32)
             {
-                vector<DataT> a16, b16;
-                a16.reserve(a.size() * 2);
-                b16.reserve(b.size() * 2);
-                
-                for (SizeT i = 0; i < a.size(); ++i)
-                {
-                    a16.push_back(a[i] & 0xFFFFULL);
-                    a16.push_back(a[i] >> 16);
-                }
-                for (SizeT i = 0; i < b.size(); ++i)
-                {
-                    b16.push_back(b[i] & 0xFFFFULL);
-                    b16.push_back(b[i] >> 16);
-                }
-                
                 // Convolve in base 2^16
-                vector<DataT> c16 = convolution(a16, b16);
+                vector<DataT> c16 = convolutionBase2_32(a, b);
                 
                 // Carry propagation in base 2^16
                 ULong carry = 0;
