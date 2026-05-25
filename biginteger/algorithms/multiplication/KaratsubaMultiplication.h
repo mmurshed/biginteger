@@ -1,6 +1,6 @@
 /**
  * BigInteger Class
- * Version 9.0
+ * Version 10.0
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
@@ -8,11 +8,10 @@
 #define KARATSUBA_MULTIPLICATION
 
 #include <vector>
+#include <algorithm>
 using namespace std;
 
 #include "../../common/Util.h"
-#include "../Addition.h"
-#include "../Subtraction.h"
 #include "../multiplication/ClassicMultiplication.h"
 
 namespace BigMath
@@ -20,149 +19,198 @@ namespace BigMath
     class KaratsubaMultiplication
     {
     private:
-        // Cut off deterioriate over 32
         static const SizeT KARATSUBA_THRESHOLD = 32;
 
-        // Algorithm from paper
-        // "Storage Allocation for the Karatsuba Integer Multiplication Algorithm"
-        // by Roman E. Maeder
-        //
-        // Return the product of a and b to c.
-        // Assumption: la >= lb > [la/2].
-        // c must be la + lb + 1 in size
-        // The array w is used as work array (temporary storage)
-        // Karatsuba() adds the product of a and b to the old contents of c.
-        // The output array c is assumed cleared.
-        // Recursively this precondition is established in lines 16 and 21.
-        // This formulation of Karatsuba's algorithm avoids negative intermediate results.
-        // Such results can occur in the formulation in [3], where the sums
-        // ah - al and bl - bh are formed instead of ah + al and bl + bh.
-
-        // The final result has, of course, at most l(a) + l(b) digits.
-        // The intermediate result after line 18 could cause a carry into the next digit.
-        // Therefore we must allocate and clear one digit more. This is recursively done in lines 15 and 20.
-
-        static void MultiplyRecursive(
-            vector<DataT> const &a, SizeT aStart, SizeT aEnd,
-            vector<DataT> const &b, SizeT bStart, SizeT bEnd,
-            vector<DataT> &c, SizeT cStart,
-            vector<DataT> &w, SizeT wStart,
+        // Adds a[0..lenA-1] and b[0..lenB-1] and writes to r[0..lenR-1].
+        static void AddPtr(
+            const DataT* a, SizeT lenA,
+            const DataT* b, SizeT lenB,
+            DataT* r, SizeT lenR,
             BaseT base)
         {
-            Int la = Len(aStart, aEnd);
-            Int lb = Len(bStart, bEnd);
-
-            if (la <= KARATSUBA_THRESHOLD)
+            ULong carry = 0;
+            for (SizeT i = 0; i < lenR; ++i)
             {
-                // Use naive method
-                ClassicMultiplication::Multiply(
-                    a, aStart, aEnd,
-                    b, bStart, bEnd,
-                    c, cStart,
-                    base);
+                ULong sum = carry;
+                if (i < lenA) sum += a[i];
+                if (i < lenB) sum += b[i];
+                
+                if (base == Base2_32)
+                {
+                    r[i] = (DataT)(sum & 0xFFFFFFFFULL);
+                    carry = sum >> 32;
+                }
+                else
+                {
+                    r[i] = (DataT)(sum % base);
+                    carry = sum / base;
+                }
+            }
+        }
+
+        // dest[0..destLen-1] += src[0..srcLen-1]
+        static void AddToPtr(
+            DataT* dest, SizeT destLen,
+            const DataT* src, SizeT srcLen,
+            BaseT base)
+        {
+            ULong carry = 0;
+            for (SizeT i = 0; i < destLen; ++i)
+            {
+                ULong sum = dest[i] + carry;
+                if (i < srcLen) sum += src[i];
+                
+                if (base == Base2_32)
+                {
+                    dest[i] = (DataT)(sum & 0xFFFFFFFFULL);
+                    carry = sum >> 32;
+                }
+                else
+                {
+                    dest[i] = (DataT)(sum % base);
+                    carry = sum / base;
+                }
+                if (carry == 0 && i >= srcLen) break;
+            }
+        }
+
+        // dest[0..destLen-1] -= src[0..srcLen-1]
+        // Assumes dest >= src (non-negative result)
+        static void SubtractFromPtr(
+            DataT* dest, SizeT destLen,
+            const DataT* src, SizeT srcLen,
+            BaseT base)
+        {
+            Long borrow = 0;
+            for (SizeT i = 0; i < destLen; ++i)
+            {
+                Long diff = (Long)dest[i] - borrow;
+                if (i < srcLen) diff -= (Long)src[i];
+                
+                if (diff < 0)
+                {
+                    diff += base;
+                    borrow = 1;
+                }
+                else
+                {
+                    borrow = 0;
+                }
+                dest[i] = (DataT)diff;
+                if (borrow == 0 && i >= srcLen) break;
+            }
+        }
+
+        // Schoolbook multiplication for base cases: r = a * b.
+        static void MultiplyClassicPtr(
+            const DataT* a, SizeT lenA,
+            const DataT* b, SizeT lenB,
+            DataT* r,
+            BaseT base)
+        {
+            for (SizeT i = 0; i < lenA + lenB; ++i) r[i] = 0;
+
+            if (base == Base2_32)
+            {
+                for (SizeT i = 0; i < lenB; ++i)
+                {
+                    if (b[i] == 0) continue;
+                    ULong carry = 0;
+                    for (SizeT j = 0; j < lenA; ++j)
+                    {
+                        ULong prod = (ULong)a[j] * b[i] + r[i + j] + carry;
+                        r[i + j] = (DataT)(prod & 0xFFFFFFFFULL);
+                        carry = prod >> 32;
+                    }
+                    r[i + lenA] = (DataT)carry;
+                }
+            }
+            else
+            {
+                for (SizeT i = 0; i < lenB; ++i)
+                {
+                    if (b[i] == 0) continue;
+                    ULong carry = 0;
+                    for (SizeT j = 0; j < lenA; ++j)
+                    {
+                        ULong prod = (ULong)a[j] * b[i] + r[i + j] + carry;
+                        r[i + j] = (DataT)(prod % base);
+                        carry = prod / base;
+                    }
+                    r[i + lenA] = (DataT)carry;
+                }
+            }
+        }
+
+        static void MultiplyRecursive(
+            const DataT* a, SizeT lenA,
+            const DataT* b, SizeT lenB,
+            DataT* c, // Output buffer (size >= lenA + lenB)
+            DataT* w, // Workspace buffer
+            BaseT base)
+        {
+            SizeT la = lenA;
+            SizeT lb = lenB;
+
+            if (la <= KARATSUBA_THRESHOLD || lb <= KARATSUBA_THRESHOLD)
+            {
+                MultiplyClassicPtr(a, la, b, lb, c, base);
                 return;
             }
 
-            SizeT m = (la + 1) / 2;
+            SizeT m = (max(la, lb) + 1) / 2;
+            if (m >= la) m = la - 1;
+            if (m >= lb) m = lb - 1;
 
-            // c = al * bl + ( (al + ah)(bl + bh) - al * bl - ah * b_h) * B^m + ah * bh*B^2m
-            // c = al * bl + (al + ah)(bl + bh) * B^m - al * bl * B^m - ah * bh * B^m + ah * bh * B^2m
-            // c = (al + ah)(bl + bh) * B^m
-            // c += ah * bh * B^2m
-            // c -= ah * bh * B^m
-            // c += al * bl
-            // c -= al * bl * B^m
+            SizeT lenAl = m;
+            SizeT lenAh = la - m;
+            SizeT lenBl = m;
+            SizeT lenBh = lb - m;
 
-            // Clear carry digit
-            w.at(wStart + m) = 0;
+            SizeT lenWl = max(lenAl, lenAh) + 1;
+            SizeT lenWh = max(lenBl, lenBh) + 1;
+            
+            DataT* wl = w;
+            DataT* wh = w + lenWl;
+            DataT* nextW = wh + lenWh;
 
-            // Save al + ah into w_0,...,w_m
-            Add(
-                a, aStart, aStart + m - 1, // al
-                a, aStart + m, aEnd,       // ah
-                w, wStart,                 // wl = al + ah
-                base);
+            AddPtr(a, lenAl, a + m, lenAh, wl, lenWl, base);
+            AddPtr(b, lenBl, b + m, lenBh, wh, lenWh, base);
 
-            // Clear carry digit
-            w.at(wStart + m + m + 1) = 0;
+            // c = al*bl + B^m * ((al+ah)*(bl+bh) - al*bl - ah*bh) + B^2m * ah*bh
+            for (SizeT i = 0; i < la + lb; ++i) c[i] = 0;
 
-            // Save bl + bh into w_m+1, ... w_2m+1
-            Add(
-                b, bStart, bStart + m - 1, // bl
-                b, bStart + m, bEnd,       // bh
-                w, wStart + m + 1,         // wh = bl + bh
-                base);
+            // 1. T1 = al * bl -> c[0..2m-1]
+            MultiplyRecursive(a, lenAl, b, lenBl, c, nextW, base);
 
-            // Compute (al + ah)(bl + bh) into c_m, ..., c_3m+1
-            // Compute w_0,...,w_m times w_m+1,...,w_2m+1 into c_m, ..., c_3m+1
-            // c = (al + ah)(bl + bh) * B^m
-            MultiplyRecursive(
-                w, wStart, wStart + m,                 // wl
-                w, wStart + m + 1, wStart + m + m + 1, // wh
-                c, cStart + m,                         // c = wl * wh
-                w, wStart + 2 * (m + 1),               // work array
-                base);
+            // 2. T2 = ah * bh -> c[2m..la+lb-1]
+            MultiplyRecursive(a + m, lenAh, b + m, lenBh, c + 2 * m, nextW, base);
 
-            // Space needed for ah * bh
-            SizeT lt = (la - m) + (lb - m) + 1;
+            // 3. T3 = wl * wh -> computed in workspace after wl/wh
+            SizeT lenT1 = 2 * m;
+            SizeT lenT2 = lenAh + lenBh;
+            SizeT lenT3 = lenWl + lenWh;
 
-            // Clear result array
-            SetBit(w, wStart, wStart + lt - 1);
+            // Safe offset: place t3 at w + lenT1 + lenT2 to avoid any overlap with t1Copy/t2Copy
+            DataT* t3 = w + lenT1 + lenT2;
+            DataT* nextW2 = t3 + lenT3;
+            for (SizeT i = 0; i < lenT3; ++i) t3[i] = 0;
 
-            // Compute a_h * b_h into w_0, ... ,w_(la+lb-2m-1)
-            // w = ah * bh
-            MultiplyRecursive(
-                a, aStart + m, aEnd, // ah
-                b, bStart + m, bEnd, // bh
-                w, wStart,           // w = ah * bh
-                w, wStart + lt,      // work array
-                base);
+            MultiplyRecursive(wl, lenWl, wh, lenWh, t3, nextW2, base);
 
-            SizeT wEnd = wStart + (la - m) + (lb - m) - 1;
-            // Add ah * bh * B^2m
-            // c += ah * bh * B^2m
-            AddTo(
-                c, cStart + m + m, cStart + la + lb - 1, // c
-                w, wStart, wEnd,                         // ah * bh
-                base);
+            // Now safely copy T1 and T2 to t1Copy and t2Copy (which are at w and w + lenT1)
+            DataT* t1Copy = w;
+            DataT* t2Copy = w + lenT1;
+            for (SizeT i = 0; i < lenT1; ++i) t1Copy[i] = c[i];
+            for (SizeT i = 0; i < lenT2; ++i) t2Copy[i] = c[2 * m + i];
 
-            // Subtract ah * bh * B^m
-            // c -= ah * bh * B^m
-            SubtractFrom(
-                c, cStart + m, (SizeT)c.size() - 1, // c
-                w, wStart, wEnd,                    // w
-                base);
+            // Perform subtractions on t3 directly in the workspace.
+            // Since T3 >= T1 + T2 is mathematically guaranteed, t3 remains non-negative.
+            SubtractFromPtr(t3, lenT3, t1Copy, lenT1, base);
+            SubtractFromPtr(t3, lenT3, t2Copy, lenT2, base);
 
-            // Space needed for al * bl
-            lt = m + m + 1;
-
-            // Clear result array
-            SetBit(w, wStart, wStart + lt - 1);
-
-            // Compute al * bl into w_0, ..., w_2m-1
-            // w = al * bl
-            MultiplyRecursive(
-                a, aStart, aStart + m - 1, // al
-                b, bStart, bStart + m - 1, // bl
-                w, wStart,                 // w = al * bl
-                w, wStart + lt,            // work array
-                base);
-
-            wEnd = wStart + m + m - 1;
-
-            // Add al * bl
-            // c += al * bl
-            AddTo(
-                c, cStart, cStart + m + m - 1, // c
-                w, wStart, wEnd,               // w
-                base);
-
-            // Subtract al * bl * B^m
-            // c -= al * bl * B^m
-            SubtractFrom(
-                c, cStart + m, (SizeT)c.size() - 1, // c
-                w, wStart, wEnd,                    // w
-                base);
+            // c[m..la+lb-1] += (T3 - T1 - T2)
+            AddToPtr(c + m, la + lb - m, t3, lenT3, base);
         }
 
     public:
@@ -171,37 +219,28 @@ namespace BigMath
             vector<DataT> const &b,
             BaseT base)
         {
-            if (IsZero(a) || IsZero(b)) // 0 times
+            if (IsZero(a) || IsZero(b))
                 return vector<DataT>();
 
-            // If b is a single digit, use the scalar multiplication
             if (b.size() == 1)
                 return ClassicMultiplication::Multiply(a, b[0], base);
-            // If a is a single digit, use the scalar multiplication
             if (a.size() == 1)
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
             SizeT n = (SizeT)max(a.size(), b.size());
-            SizeT size = 3 * n;
-
-            vector<DataT> c(size, 0);
-            vector<DataT> w(size, 0);
-
-            vector<DataT> x(n, 0);
-            vector<DataT> y(n, 0);
-
-            Copy(a, x);
-            Copy(b, y);
+            vector<DataT> c(a.size() + b.size(), 0);
+            
+            // Allocation of workspace once: size 8 * n is safe
+            vector<DataT> w(8 * n, 0);
 
             MultiplyRecursive(
-                x, 0, (SizeT)x.size() - 1, // b
-                y, 0, (SizeT)y.size() - 1, // a
-                c, 0,                      // c = b * a
-                w, 0,                      // work array
+                a.data(), a.size(),
+                b.data(), b.size(),
+                c.data(),
+                w.data(),
                 base);
 
             TrimZeros(c);
-
             return c;
         }
     };

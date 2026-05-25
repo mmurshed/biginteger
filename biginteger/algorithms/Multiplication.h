@@ -14,11 +14,12 @@ using namespace std;
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/KaratsubaMultiplication.h"
 #include "../algorithms/multiplication/ToomCookMultiplication.h"
-#include "../algorithms/multiplication/FFTMultiplication.h"
+#include "../algorithms/multiplication/NTTMultiplication.h"
 
 namespace BigMath
 {
-  const SizeT FFT_THRESHOLD = 700;
+  const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = 96;
+  const SizeT NTT_MULTIPLICATION_THRESHOLD = 32768;
 
   vector<DataT> Multiply(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
   {
@@ -33,13 +34,15 @@ namespace BigMath
       return ClassicMultiplication::Multiply(b, a[0], base);
 
     SizeT size = a.size() + b.size();
+    SizeT minSize = min(a.size(), b.size());
 
-    if (size <= FFT_THRESHOLD)
-    {
-      return ToomCookMultiplication::Multiply(a, b, base);
-    }
+    if (size <= CLASSIC_MULTIPLICATION_THRESHOLD || minSize <= 32)
+      return ClassicMultiplication::Multiply(a, b, base);
 
-    return FFTMultiplication::Multiply(a, b, base);
+    if (size < NTT_MULTIPLICATION_THRESHOLD)
+      return KaratsubaMultiplication::Multiply(a, b, base);
+
+    return NTTMultiplication::Multiply(a, b, base);
   }
 
   vector<DataT> Multiply(vector<DataT> const &a, DataT b, BaseT base)

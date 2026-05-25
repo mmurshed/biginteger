@@ -79,7 +79,7 @@ namespace BigMath
 
     static BaseT Base()
     {
-      return Base100;
+      return Base2_32;
     }
 
     bool IsNegative() const

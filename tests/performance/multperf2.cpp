@@ -26,7 +26,7 @@ using namespace std;
 #include "../../biginteger/common/Parser.h"
 #include "../../biginteger/common/Comparator.h"
 #include "../../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../biginteger/algorithms/multiplication/FFTMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 using namespace BigMath;
 
@@ -68,10 +68,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Toom-Cook,FFT\n");
+  fprintf(timeFile, "Results Digit,Toom-Cook,NTT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Toom-Cook,FFT" << endl;
+  cerr << "Data,Results Digit,Toom-Cook,NTT" << endl;
 
   while (true)
   {
@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
     BigInteger ans = Parse(line.c_str());
 
     clock_t start, end;
-    double timeTakenToomCook2 = 0., timeTakenFft = 0.;
+    double timeTakenToomCook2 = 0., timeTakenNtt = 0.;
     int cmp;
 
     /*
@@ -106,22 +106,22 @@ int main(int argc, char *argv[])
       */
 
     start = clock();
-    vector<DataT> fftm = FFTMultiplication::Multiply(
+    vector<DataT> nttm = NTTMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
+    timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = Compare(fftm, ans.GetInteger());
+    cmp = Compare(nttm, ans.GetInteger());
     if (cmp != 0)
     {
-      cerr << "FFT algorithm failed." << endl;
+      cerr << "NTT algorithm failed." << endl;
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << ans.size() << "," << timeTakenToomCook2 << "," << timeTakenFft << endl;
-    fprintf(timeFile, "%lu,%f,%f\n", ans.size(), timeTakenToomCook2, timeTakenFft);
+    cerr << DATA << "," << ans.size() << "," << timeTakenToomCook2 << "," << timeTakenNtt << endl;
+    fprintf(timeFile, "%lu,%f,%f\n", ans.size(), timeTakenToomCook2, timeTakenNtt);
     fflush(timeFile);
 
     DATA++;

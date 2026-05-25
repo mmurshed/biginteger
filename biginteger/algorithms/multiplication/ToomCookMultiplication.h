@@ -17,6 +17,7 @@ using namespace std;
 #include "../Subtraction.h"
 #include "../Shift.h"
 #include "../multiplication/ClassicMultiplication.h"
+#include "../multiplication/KaratsubaMultiplication.h"
 #include "../division/ClassicDivision.h"
 
 namespace BigMath
@@ -26,6 +27,133 @@ namespace BigMath
   private:
     // Threshold for switching to the naive multiplication.
     static const SizeT baseCaseThreshold = 256;
+
+    struct SignedVector
+    {
+      vector<DataT> magnitude;
+      int sign;
+
+      SignedVector() : sign(1) {}
+      SignedVector(vector<DataT> const &value, int valueSign = 1)
+          : magnitude(value), sign(valueSign < 0 ? -1 : 1)
+      {
+        Normalize();
+      }
+
+      void Normalize()
+      {
+        TrimZeros(magnitude);
+        if (IsZero(magnitude))
+          sign = 1;
+      }
+    };
+
+    // High-speed division helpers for interpolation
+    static void DivideBy2Ptr(vector<DataT> &a, BaseT base)
+    {
+      if (a.empty()) return;
+      if (base == Base2_32)
+      {
+        uint64_t carry = 0;
+        for (int i = (int)a.size() - 1; i >= 0; --i)
+        {
+          uint64_t val = a[i] + (carry << 32);
+          a[i] = (DataT)(val >> 1);
+          carry = val & 1;
+        }
+      }
+      else
+      {
+        ULong carry = 0;
+        for (int i = (int)a.size() - 1; i >= 0; --i)
+        {
+          ULong val = a[i] + carry * base;
+          a[i] = (DataT)(val / 2);
+          carry = val % 2;
+        }
+      }
+      TrimZeros(a);
+    }
+
+    static SignedVector Negate(SignedVector value)
+    {
+      if (!IsZero(value.magnitude))
+        value.sign = -value.sign;
+      return value;
+    }
+
+    static SignedVector AddSigned(SignedVector const &a, SignedVector const &b, BaseT base)
+    {
+      if (IsZero(a.magnitude))
+        return b;
+      if (IsZero(b.magnitude))
+        return a;
+
+      if (a.sign == b.sign)
+        return SignedVector(Add(a.magnitude, b.magnitude, base), a.sign);
+
+      Int cmp = Compare(a.magnitude, b.magnitude);
+      if (cmp == 0)
+        return SignedVector();
+      if (cmp > 0)
+        return SignedVector(Subtract(a.magnitude, b.magnitude, base), a.sign);
+      return SignedVector(Subtract(b.magnitude, a.magnitude, base), b.sign);
+    }
+
+    static SignedVector SubtractSigned(SignedVector const &a, SignedVector const &b, BaseT base)
+    {
+      return AddSigned(a, Negate(b), base);
+    }
+
+    static SignedVector MultiplySmall(SignedVector const &a, DataT b, BaseT base)
+    {
+      if (b == 0 || IsZero(a.magnitude))
+        return SignedVector();
+      return SignedVector(ClassicMultiplication::Multiply(a.magnitude, b, base), a.sign);
+    }
+
+    static SignedVector DivideSmall(SignedVector value, DataT divisor, BaseT base)
+    {
+      if (divisor == 2)
+        DivideBy2Ptr(value.magnitude, base);
+      else if (divisor == 3)
+        DivideBy3Ptr(value.magnitude, base);
+      value.Normalize();
+      return value;
+    }
+
+    static SignedVector ShiftSigned(SignedVector const &value, SizeT limbs)
+    {
+      if (IsZero(value.magnitude))
+        return SignedVector();
+      return SignedVector(ShiftLeft(value.magnitude, limbs), value.sign);
+    }
+
+    static void DivideBy3Ptr(vector<DataT> &a, BaseT base)
+    {
+      if (a.empty()) return;
+      if (base == Base2_32)
+      {
+        uint64_t carry = 0;
+        for (int i = (int)a.size() - 1; i >= 0; --i)
+        {
+          uint64_t val = a[i] + (carry << 32);
+          a[i] = (DataT)(val / 3);
+          carry = val % 3;
+        }
+      }
+      else
+      {
+        ULong carry = 0;
+        for (int i = (int)a.size() - 1; i >= 0; --i)
+        {
+          ULong val = a[i] + carry * base;
+          a[i] = (DataT)(val / 3);
+          carry = val % 3;
+        }
+      }
+      TrimZeros(a);
+    }
 
   private:
     static vector<DataT> MultiplyRecursive(
@@ -50,6 +178,8 @@ namespace BigMath
       {
         return ClassicMultiplication::Multiply(a, b, base);
       }
+
+      return KaratsubaMultiplication::Multiply(a, b, base);
 
       // For a Toom–3 algorithm, we typically split the input into 3 parts.
       // Calculate the part size (rounding up if necessary).
@@ -242,242 +372,31 @@ namespace BigMath
       //   products[4] = rInf (evaluation at ∞)
       assert(products.size() == 5);
 
-      const vector<DataT> r0 = products[0];
-      const vector<DataT> r1 = products[1];
-      const vector<DataT> rm1 = products[2];
-      const vector<DataT> r2 = products[3];
-      const vector<DataT> rInf = products[4];
+      SignedVector v0(products[0]);
+      SignedVector v1(products[1]);
+      SignedVector v2(products[2], rm1Sign);
+      SignedVector v3(products[3]);
+      SignedVector v4(products[4]);
 
-      // c0 = r0 and c4 = rInf
-      vector<DataT> c0 = r0;
-      vector<DataT> c4 = rInf;
+      v3 = DivideSmall(SubtractSigned(v3, v1, base), 3, base);
+      v1 = DivideSmall(SubtractSigned(v1, v2, base), 2, base);
+      v2 = SubtractSigned(v2, v0, base);
+      v3 = AddSigned(DivideSmall(SubtractSigned(v2, v3, base), 2, base),
+                     MultiplySmall(v4, 2, base),
+                     base);
+      v2 = SubtractSigned(AddSigned(v2, v1, base), v4, base);
+      v1 = SubtractSigned(v1, v3, base);
 
-      // c2 = (r1 + rm1 - 2*c0 - 2*c4) / 2
-      vector<DataT> temp1;
-      // cerr << "(";
-      if (rm1Sign == 1)
-      {
-        temp1 = Add(r1, rm1, base); // r1 + rm1
-        // cerr << r1 << " + " << rm1;
-      }
-      else
-      {
-        temp1 = r1;
-        // cerr << r1;
-      }
+      SignedVector result = v0;
+      result = AddSigned(result, ShiftSigned(v1, partSize), base);
+      result = AddSigned(result, ShiftSigned(v2, 2 * partSize), base);
+      result = AddSigned(result, ShiftSigned(v3, 3 * partSize), base);
+      result = AddSigned(result, ShiftSigned(v4, 4 * partSize), base);
 
-      vector<DataT> twoC0 = ClassicMultiplication::Multiply(c0, 2, base); // 2 * c0
-      // cerr << " - " << c0 << " * 2";
-
-      vector<DataT> twoC4 = ClassicMultiplication::Multiply(c4, 2, base); // 2 * c4
-      // cerr << " - " << c4 << " * 2";
-
-      vector<DataT> temp2 = Add(twoC0, twoC4, base); // 2*c0 + 2*c4
-
-      if (rm1Sign == -1)
-      {
-        temp2 = Add(temp2, rm1, base); // 2*c0 + 2*c4 + rm1
-        // cerr << " - " << rm1;
-      }
-
-      // cerr << ") / 2 = ";
-
-      vector<DataT> numeratorC2;
-      int c2neg = 1;
-      // r1 + rm1 - 2*c0 - 2*c4 or r1 - 2*c0 - 2*c4 - rm1
-      if (Compare(temp1, temp2) >= 0)
-      {
-        numeratorC2 = Subtract(temp1, temp2, base);
-      }
-      else
-      {
-        c2neg = -1;
-        numeratorC2 = Subtract(temp2, temp1, base);
-      }
-
-      vector<DataT> c2 = ClassicDivision::Divide(numeratorC2, (DataT)2, base); // Divide by 2
-
-      // cerr << c2neg << " * " << c2 << endl;
-
-      // s = (r1 - rm1) / 2
-      int sneg = 1;
-      vector<DataT> numeratorS;
-      if (rm1Sign == 1)
-      {
-        if (Compare(r1, rm1) >= 0)
-        {
-          numeratorS = Subtract(r1, rm1, base); // r1 - rm1
-        }
-        else
-        {
-          sneg = -1;
-          numeratorS = Subtract(rm1, r1, base); // rm1 - r1
-        }
-      }
-      else
-      {
-        numeratorS = Add(r1, rm1, base); // r1 + rm1
-      }
-
-      vector<DataT> s = ClassicDivision::Divide(numeratorS, (DataT)2, base);
-
-      // X = (r2 - c0 - 4*c2 - 16*c4) / 2
-      vector<DataT> fourC2 = ClassicMultiplication::Multiply(c2, 4, base);
-
-      vector<DataT> sixteenC4 = ClassicMultiplication::Multiply(c4, 16, base);
-
-      vector<DataT> temp3 = Add(c0, fourC2, base);
-
-      vector<DataT> temp4 = Add(temp3, sixteenC4, base);
-
-      vector<DataT> numeratorX;
-      int Xneg = 1;
-      if (Compare(r2, temp4) >= 0)
-      {
-        numeratorX = Subtract(r2, temp4, base); // r2 - c0 - 4*c2 - 16*c4
-      }
-      else
-      {
-        Xneg = -1;
-        numeratorX = Subtract(temp4, r2, base); // r2 - c0 - 4*c2 - 16*c4
-      }
-      vector<DataT> X = ClassicDivision::Divide(numeratorX, 2, base);
-
-      int c3neg = 1;
-      vector<DataT> numeratorC3;
-      // c3 = (X - s) / 3
-      if (Xneg == -1 && sneg == -1)
-      {
-        // c3 = -(X - s)/3 = (s - X)/3
-        if (Compare(s, X) >= 0)
-        {
-          c3neg = 1;
-          numeratorC3 = Subtract(s, X, base); // c3 = (s - X)/3
-        }
-        else
-        {
-          c3neg = -1;
-          numeratorC3 = Subtract(X, s, base); // c3 = -(X - s)/3
-        }
-      }
-      else if (Xneg == 1 && sneg == -1)
-      {
-        c3neg = 1;
-        numeratorC3 = Add(X, s, base); // c3 = (X + s)/3
-      }
-      else if (Xneg == -1 && sneg == 1)
-      {
-        c3neg = -1;
-        numeratorC3 = Add(X, s, base); // c3 = -(X + s)/3
-      }
-      else
-      {
-        if (Compare(X, s) >= 0)
-        {
-          c3neg = 1;
-          numeratorC3 = Subtract(X, s, base); // c3 = (X - s)/3
-        }
-        else
-        {
-          c3neg = -1;
-          numeratorC3 = Subtract(s, X, base); // c3 = -(s - X)/3
-        }
-      }
-
-      vector<DataT> c3 = ClassicDivision::Divide(numeratorC3, 3, base);
-
-      // c1 = s - c3
-      int c1neg = 1;
-      vector<DataT> c1;
-      if (c3neg == -1 && sneg == -1)
-      {
-        // c1 = -(s - c3) = c3-s
-        if (Compare(c3, s) >= 0)
-        {
-          c1neg = 1;
-          c1 = Subtract(c3, s, base);
-        }
-        else
-        {
-          c1neg = -1;
-          c1 = Subtract(s, c3, base);
-        }
-      }
-      else if (c3neg == -1 && sneg == 1)
-      {
-        c1neg = 1;
-        c1 = Add(c3, s, base); // c1 = s + c3
-      }
-      else if (c3neg == 1 && sneg == -1)
-      {
-        c1neg = -1;
-        c1 = Add(c3, s, base); // c1 = -s - c3 = -(s + c3)
-      }
-      else
-      {
-        // c1 = s - c3
-        if (Compare(s, c3) >= 0)
-        {
-          c1neg = 1;
-          c1 = Subtract(s, c3, base);
-        }
-        else
-        {
-          c1neg = -1;
-          c1 = Subtract(c3, s, base);
-        }
-      }
-
-      // Combine coefficients into the final result:
-      // result = c0 + (c1 << partSize) + (c2 << 2*partSize) + (c3 << 3*partSize) + (c4 << 4*partSize)
-      vector<DataT> res0 = c0;
-      vector<DataT> res1 = ShiftLeft(c1, partSize);
-      vector<DataT> res2 = ShiftLeft(c2, 2 * partSize);
-      vector<DataT> res3 = ShiftLeft(c3, 3 * partSize);
-      vector<DataT> res4 = ShiftLeft(c4, 4 * partSize);
-
-      vector<DataT> sum = res0;
-      if (c1neg == 1)
-      {
-        sum = Add(sum, res1, base); // c1
-      }
-      if (c2neg == 1)
-      {
-        sum = Add(sum, res2, base); // c2
-      }
-      if (c3neg == 1)
-      {
-        sum = Add(sum, res3, base); // c3
-      }
-      sum = Add(sum, res4, base);
-
-      vector<DataT> sub(1, 0);
-      if (c1neg == -1)
-      {
-        sub = Add(sub, res1, base);
-      }
-      if (c2neg == -1)
-      {
-        sub = Add(sub, res2, base); // c2 = -c2
-      }
-      if (c3neg == -1)
-      {
-        sub = Add(sub, res3, base); // c3 = -c3
-      }
-
-      int sumneg = 1;
-      if (Compare(sum, sub) >= 0)
-        sum = Subtract(sum, sub, base); // sum - sub
-      else
-      {
-        sumneg = -1;
-        sum = Subtract(sub, sum, base); // sub - sum
-      }
-
-      if (sumneg == -1)
+      if (result.sign == -1)
         throw runtime_error("Negative result in multiplication.");
 
-      return sum;
+      return result.magnitude;
     }
 
   public:

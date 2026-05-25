@@ -26,6 +26,10 @@ using namespace std;
 #include "../biginteger/common/Parser.h"
 #include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 
+#include "../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
+
+#include "../biginteger/algorithms/multiplication/NTTMultiplication.h"
+
 using namespace BigMath;
 
 int main(int argc, char *argv[])
@@ -36,6 +40,23 @@ int main(int argc, char *argv[])
   vector<DataT> mult = ToomCookMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
   string str = ToString(mult);
   bool cmp = (str == "28902999296");
+  cout << "Toom-Cook result: " << str << " Cmp: " << cmp << endl;
 
+  vector<DataT> kara = KaratsubaMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  string str_kara = ToString(kara);
+  bool cmp_kara = (str_kara == "28902999296");
+  cout << "Karatsuba result: " << str_kara << " Cmp: " << cmp_kara << endl;
+
+  vector<DataT> ntt_res = NTTMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  string str_ntt = ToString(ntt_res);
+  bool cmp_ntt = (str_ntt == "28902999296");
+  cout << "NTT result: " << str_ntt << " Cmp: " << cmp_ntt << endl;
+
+  if (str != "28902999296" || str_kara != "28902999296" || str_ntt != "28902999296") {
+    cerr << "Verification FAILED!" << endl;
+    return 1;
+  }
+
+  cout << "Verification succeeded!" << endl;
   return 0;
 }

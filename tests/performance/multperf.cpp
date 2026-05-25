@@ -28,7 +28,7 @@ using namespace std;
 #include "../../biginteger/algorithms/multiplication/ToomCookKnuthMultiplication.h"
 #include "../../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "../../biginteger/algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
-#include "../../biginteger/algorithms/multiplication/FFTMultiplication.h"
+#include "../../biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 using namespace BigMath;
 
@@ -70,10 +70,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,FFT\n");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,NTT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,FFT" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,NTT" << endl;
 
   while (true)
   {
@@ -160,22 +160,22 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    vector<DataT> fftm = FFTMultiplication::Multiply(
+    vector<DataT> nttm = NTTMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
         BigInteger::Base());
     end = clock();
-    double timeTakenFft = (double)(end - start) / CLOCKS_PER_SEC;
+    double timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = Compare(fftm, ans.GetInteger());
+    cmp = Compare(nttm, ans.GetInteger());
     if (cmp != 0)
     {
-      cerr << "FFT algorithm failed." << endl;
+      cerr << "NTT algorithm failed." << endl;
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << timeTakenFft << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, timeTakenFft);
+    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << timeTakenNtt << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, timeTakenNtt);
     fflush(timeFile);
 
     DATA++;

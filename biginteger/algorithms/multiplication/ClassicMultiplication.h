@@ -18,6 +18,25 @@ namespace BigMath
   // All operations are unsigned
   class ClassicMultiplication
   {
+  private:
+    static DataT LowDigit(ULong value, BaseT base)
+    {
+      return base == Base2_32 ? (DataT)(value & 0xFFFFFFFFULL) : (DataT)(value % base);
+    }
+
+    static ULong NextCarry(ULong value, BaseT base)
+    {
+      return base == Base2_32 ? value >> 32 : value / base;
+    }
+
+    static void SetOrPush(vector<DataT> &a, SizeT pos, DataT value)
+    {
+      if (pos < a.size())
+        a.at(pos) = value;
+      else
+        a.push_back(value);
+    }
+
   public:
     static void MultiplyTo(
         vector<DataT> &a,
@@ -50,31 +69,15 @@ namespace BigMath
         multiply *= b;
         multiply += carry;
 
-        if (j < a.size())
-        {
-          a.at(j) = (DataT)(multiply % base);
-        }
-        else
-        {
-          a.push_back((DataT)(multiply % base));
-        }
-
-        carry = multiply / base;
+        SetOrPush(a, j, LowDigit(multiply, base));
+        carry = NextCarry(multiply, base);
       }
 
       Int j = aEnd + 1;
       while (carry > 0)
       {
-        if (j < a.size())
-        {
-          a.at(j) = (DataT)(carry % base);
-        }
-        else
-        {
-          a.push_back((DataT)(carry % base));
-        }
-
-        carry = carry / base;
+        SetOrPush(a, j, LowDigit(carry, base));
+        carry = NextCarry(carry, base);
         j++;
       }
 
@@ -113,6 +116,7 @@ namespace BigMath
       SizeT wPos = wStart;
 
       ULong carry = 0;
+
       for (Int j = 0; j < len; j++)
       {
         ULong multiply = 0;
@@ -123,31 +127,15 @@ namespace BigMath
         multiply += carry;
 
         wPos = wStart + j;
-        if (wPos < w.size())
-        {
-          w.at(wPos) = (DataT)(multiply % base);
-        }
-        else
-        {
-          w.push_back((DataT)(multiply % base));
-        }
-
-        carry = multiply / base;
+        SetOrPush(w, wPos, LowDigit(multiply, base));
+        carry = NextCarry(multiply, base);
       }
 
       wPos = wStart + len;
       while (carry > 0)
       {
-        if (wPos < w.size())
-        {
-          w.at(wPos) = (DataT)(carry % base);
-        }
-        else
-        {
-          w.push_back((DataT)(carry % base));
-        }
-
-        carry = carry / base;
+        SetOrPush(w, wPos, LowDigit(carry, base));
+        carry = NextCarry(carry, base);
         wPos++;
       }
 
@@ -214,8 +202,8 @@ namespace BigMath
           multiply += result.at(k);
           multiply += carry;
 
-          result.at(k) = (DataT)(multiply % base);
-          carry = multiply / base;
+          result.at(k) = LowDigit(multiply, base);
+          carry = NextCarry(multiply, base);
         }
         k = jStart + lenA;
         result.at(k) = (DataT)carry;
