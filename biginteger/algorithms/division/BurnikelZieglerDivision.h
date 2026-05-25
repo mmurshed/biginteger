@@ -17,10 +17,14 @@ using namespace std;
 
 namespace BigMath
 {
+#ifndef BIGMATH_BZ_RECURSION_THRESHOLD
+#define BIGMATH_BZ_RECURSION_THRESHOLD 512
+#endif
+
   class BurnikelZieglerDivision
   {
   private:
-    static const SizeT BZ_THRESHOLD = 512;
+    static const SizeT BZ_THRESHOLD = BIGMATH_BZ_RECURSION_THRESHOLD;
 
     static vector<DataT> NormalizeZero(vector<DataT> v)
     {

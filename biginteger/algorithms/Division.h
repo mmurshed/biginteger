@@ -20,6 +20,18 @@ using namespace std;
 
 namespace BigMath
 {
+#ifndef BIGMATH_NEWTON_LARGE_B
+#define BIGMATH_NEWTON_LARGE_B 24576
+#endif
+
+#ifndef BIGMATH_NEWTON_MEDIUM_B
+#define BIGMATH_NEWTON_MEDIUM_B 16384
+#endif
+
+#ifndef BIGMATH_BZ_DIVISOR_THRESHOLD
+#define BIGMATH_BZ_DIVISOR_THRESHOLD 512
+#endif
+
   // Newton-Raphson is O(M(n)) vs Knuth's O(m*n). Blockwise mode in NewtonDivision lets it
   // handle ANY ratio na/nb internally — the only thing the dispatcher gates is whether
   // Newton's reciprocal-setup cost amortizes. Two bands:
@@ -27,8 +39,9 @@ namespace BigMath
   //       wins even at near-square ratio 4/3.
   //   (b) Smaller divisors (16384 ≤ b < 24576) — Newton only wins at ratio ≥ 2 because
   //       the multiplies inside the reciprocal sit on the Karatsuba/NTT boundary.
-  const SizeT NEWTON_LARGE_B = 24576;
-  const SizeT NEWTON_MEDIUM_B = 16384;
+  const SizeT NEWTON_LARGE_B = BIGMATH_NEWTON_LARGE_B;
+  const SizeT NEWTON_MEDIUM_B = BIGMATH_NEWTON_MEDIUM_B;
+  const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
 
   pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, bool computeRemainder = true)
   {
@@ -69,7 +82,7 @@ namespace BigMath
       // Keep the skewed path too, but avoid tiny divisors where BZ immediately falls back.
       bool bz_eligible =
           base == Base2_32 &&
-          b.size() > 512 &&
+          b.size() > BZ_DIVISOR_THRESHOLD &&
           b.size() % 2 == 0 &&
           ((b.size() >= 1024 && a.size() <= 3 * b.size()) ||
            (a.size() > 2048 && a.size() > 3 * b.size()));
