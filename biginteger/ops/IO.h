@@ -52,59 +52,78 @@ namespace BigMath
     return stream;
   }
 
-  // Extracter
+  // Extracter — fused extract + parse. Reads digits directly from the streambuf
+  // and folds 18 at a time into a base-2^32 limb vector. Avoids materializing
+  // the full digit string and the second scan that Parse would do.
   istream &operator>>(istream &stream, BigInteger &in)
   {
-    SizeT SIZE = 10000;
-    char *data = new char[SIZE];
-
     bool isNegative = false;
 
     stream >> ws;
 
-    int input = stream.get();
-
-    if (input == '-')
-      isNegative = true;
-    else if (input == '+')
-      isNegative = false;
-    else
-      stream.putback(input);
-
-    SizeT len = 0;
-
-    while (!stream.eof())
+    auto *buf = stream.rdbuf();
+    int c = buf->sgetc();
+    if (c == '-')
     {
-      input = stream.get();
-      if (stream.eof())
-        break;
+      isNegative = true;
+      buf->sbumpc();
+      c = buf->sgetc();
+    }
+    else if (c == '+')
+    {
+      buf->sbumpc();
+      c = buf->sgetc();
+    }
 
-      if (isdigit(input))
-        data[len++] = input;
-      else
-      {
-        stream.putback(input);
-        break;
-      }
+    // Skip leading zeros.
+    while (c == '0')
+    {
+      buf->sbumpc();
+      c = buf->sgetc();
+    }
 
-      // Resize the input buffer
-      if (len >= SIZE)
+    vector<DataT> r;
+    r.reserve(64);
+    r.push_back(0);
+
+    ULong chunk = 0;
+    ULong chunkMul = 1;
+    bool anyDigit = false;
+
+    while (c >= '0' && c <= '9')
+    {
+      chunk = chunk * 10 + (ULong)(c - '0');
+      chunkMul *= 10;
+      anyDigit = true;
+      buf->sbumpc();
+      c = buf->sgetc();
+
+      if (chunkMul == Base10_18)
       {
-        SIZE += SIZE;
-        char *p = new char[SIZE];
-        strncpy(p, data, SIZE);
-        delete[] data;
-        data = p;
+        ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);
+        AddTo(r, chunk, Base2_32);
+        chunk = 0;
+        chunkMul = 1;
       }
     }
-    data[len] = 0;
 
-    in = Parse(data);
+    if (chunkMul > 1)
+    {
+      ClassicMultiplication::MultiplyTo(r, chunkMul, Base2_32);
+      AddTo(r, chunk, Base2_32);
+    }
 
-    if (!in.Zero() && isNegative)
-      in.SetSign(isNegative);
+    if (c == EOF)
+      stream.setstate(ios::eofbit);
 
-    delete[] data;
+    if (!anyDigit)
+    {
+      in = BigInteger();
+    }
+    else
+    {
+      in = BigInteger(r, isNegative);
+    }
 
     return stream;
   }
