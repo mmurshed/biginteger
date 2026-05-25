@@ -17,6 +17,7 @@ using namespace std;
 #include "../algorithms/Multiplication.h"
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/division/ClassicDivision.h"
+#include "../algorithms/division/NewtonDivision.h"
 
 namespace BigMath
 {
@@ -189,6 +190,130 @@ namespace BigMath
     return Parse(num, 0, char_processed);
   }
 
+  // Linear divmod-10^18 formatter. Appends to `out`. If padTo > 0, pads to exactly
+  // padTo decimal digits with leading zeros (used by the D&C lower halves).
+  inline void ToStringLinearAppend(vector<DataT> r, SizeT padTo, string &out)
+  {
+    if (IsZero(r))
+    {
+      if (padTo == 0)
+        out.push_back('0');
+      else
+        out.append(padTo, '0');
+      return;
+    }
+
+    while (r.size() > 1 && r.back() == 0)
+      r.pop_back();
+
+    vector<ULong> chunks;
+    chunks.reserve(r.size() + 1);
+    while (!(r.size() == 1 && r[0] == 0))
+      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, Base2_32));
+
+    // Natural digit count: full 18 per chunk except the top one.
+    int topDigits = 0;
+    {
+      ULong v = chunks.back();
+      do { ++topDigits; v /= 10; } while (v);
+    }
+    SizeT natural = (chunks.size() - 1) * Base10_18_Zeroes + (SizeT)topDigits;
+
+    if (padTo > natural)
+      out.append(padTo - natural, '0');
+
+    char buf[20];
+    char *bufEnd = buf + 20;
+
+    auto it = chunks.rbegin();
+    {
+      ULong v = *it++;
+      char *p = bufEnd;
+      do { *--p = (char)('0' + (v % 10)); v /= 10; } while (v);
+      out.append(p, bufEnd - p);
+    }
+    for (; it != chunks.rend(); ++it)
+    {
+      ULong v = *it;
+      for (Int i = (Int)Base10_18_Zeroes - 1; i >= 0; --i)
+      {
+        buf[i] = (char)('0' + (v % 10));
+        v /= 10;
+      }
+      out.append(buf, Base10_18_Zeroes);
+    }
+  }
+
+  // Threshold (in decimal digits) below which the linear formatter wins.
+  // D&C pays a Newton-reciprocal setup per level; only amortizes for big inputs.
+#ifndef BIGMATH_TOSTR_DC_THRESHOLD
+#define BIGMATH_TOSTR_DC_THRESHOLD 2048
+#endif
+  static constexpr SizeT ToStringDcThreshold = BIGMATH_TOSTR_DC_THRESHOLD;
+
+  // Chain entry: 10^digits + its precomputed Newton-reciprocal divider.
+  // Built top-down so each level splits its parent in half — balanced T(N)=2T(N/2)+M(N).
+  struct DecimalDcEntry
+  {
+    SizeT digits;
+    vector<DataT> value;
+    std::shared_ptr<NewtonDivision::Divider> divider;
+  };
+
+  // Chain[0] = N/2-digit divisor (top split). Chain[1] = N/4. ... down until level is
+  // small enough to hand off to the linear base-case formatter.
+  inline vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits)
+  {
+    vector<DecimalDcEntry> chain;
+    for (SizeT d = topDigits; d >= ToStringDcThreshold / 2; d /= 2)
+    {
+      DecimalDcEntry e;
+      e.digits = d;
+      e.value = Pow10(d);
+      e.divider = std::make_shared<NewtonDivision::Divider>(e.value, Base2_32);
+      chain.push_back(std::move(e));
+    }
+    return chain;
+  }
+
+  // Recursive splitter. Writes `n` as decimals into `out`. padTo > 0 → pad with leading
+  // zeros so the join is well-defined. Top-level call uses padTo = 0.
+  inline void ToStringDivConquer(
+      vector<DataT> n,
+      vector<DecimalDcEntry> const &chain,
+      SizeT level,
+      SizeT padTo,
+      string &out)
+  {
+    if (IsZero(n))
+    {
+      if (padTo == 0)
+        out.push_back('0');
+      else
+        out.append(padTo, '0');
+      return;
+    }
+
+    if (level >= chain.size())
+    {
+      ToStringLinearAppend(std::move(n), padTo, out);
+      return;
+    }
+
+    // n smaller than this level's divisor → top half empty; skip down.
+    if (Compare(n, chain[level].value) < 0)
+    {
+      ToStringDivConquer(std::move(n), chain, level + 1, padTo, out);
+      return;
+    }
+
+    auto qr = chain[level].divider->DivideAndRemainder(n);
+    SizeT half = chain[level].digits;
+    SizeT topPad = (padTo > half) ? padTo - half : 0;
+    ToStringDivConquer(std::move(qr.first), chain, level + 1, topPad, out);
+    ToStringDivConquer(std::move(qr.second), chain, level + 1, half, out);
+  }
+
   inline string ToString(vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg = false)
   {
     if (IsZero(bigInt, start, end))
@@ -198,44 +323,23 @@ namespace BigMath
     while (r.size() > 1 && r.back() == 0)
       r.pop_back();
 
-    vector<ULong> chunks;
-    chunks.reserve(r.size() + 1);
-    while (!(r.size() == 1 && r[0] == 0))
-      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, Base2_32));
+    // Approximate decimal-digit count: each limb (32 bits) ≈ 9.633 digits.
+    // Overestimate is fine — used only to pre-reserve and pick D&C level.
+    SizeT approxDigits = (SizeT)((double)r.size() * 9.633) + 1;
 
     string s;
-    s.reserve(chunks.size() * Base10_18_Zeroes + 2);
+    s.reserve(approxDigits + (isNeg ? 2 : 1));
     if (isNeg)
       s.push_back('-');
 
-    char buf[20];
-    char *bufEnd = buf + 20;
-
-    // Most-significant chunk: no zero padding.
-    auto it = chunks.rbegin();
+    if (approxDigits < ToStringDcThreshold)
     {
-      ULong v = *it++;
-      char *p = bufEnd;
-      do
-      {
-        *--p = (char)('0' + (v % 10));
-        v /= 10;
-      } while (v);
-      s.append(p, bufEnd - p);
+      ToStringLinearAppend(std::move(r), 0, s);
+      return s;
     }
 
-    // Remaining chunks: zero-pad to 18 digits.
-    for (; it != chunks.rend(); ++it)
-    {
-      ULong v = *it;
-      for (Int i = (Int)Base10_18_Zeroes - 1; i >= 0; --i)
-      {
-        buf[i] = (char)('0' + (v % 10));
-        v /= 10;
-      }
-      s.append(buf, Base10_18_Zeroes);
-    }
-
+    auto chain = BuildDecimalDcChain(approxDigits / 2);
+    ToStringDivConquer(std::move(r), chain, 0, 0, s);
     return s;
   }
 
