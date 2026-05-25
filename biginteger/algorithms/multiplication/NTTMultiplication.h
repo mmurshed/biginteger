@@ -98,9 +98,25 @@ namespace BigMath
     class NTTMultiplication
     {
     private:
-        // In-place iterative Cooley-Tukey NTT.
-        // If invert is true, computes the inverse NTT.
-        static void ntt(vector<ULong> &a, bool invert)
+        // Build twiddle table roots[k] = (primitive n-th root of unity)^k for k in [0, n/2).
+        // For a Cooley-Tukey butterfly at level `len`, the inner twiddle index j maps
+        // to roots[j * (n / len)] — fixed stride access, no per-butterfly multiplication.
+        static vector<ULong> BuildRoots(Int n, bool invert)
+        {
+            ULong root = ModularField::Power(7, (ModularField::P - 1) / n);
+            if (invert)
+                root = ModularField::Inv(root);
+
+            vector<ULong> roots(n / 2);
+            roots[0] = 1;
+            for (Int k = 1; k < n / 2; ++k)
+                roots[k] = ModularField::Mul(roots[k - 1], root);
+            return roots;
+        }
+
+        // In-place iterative Cooley-Tukey NTT using a precomputed twiddle table.
+        // Removes the serial `w = Mul(w, wlen)` dependency chain from the inner butterfly.
+        static void ntt(vector<ULong> &a, const vector<ULong> &roots, bool invert)
         {
             Int n = (Int)a.size();
             for (Int i = 1, j = 0; i < n; ++i)
@@ -118,23 +134,16 @@ namespace BigMath
 
             for (Int len = 2; len <= n; len <<= 1)
             {
-                // Compute the primitive len-th root of unity (7 is a generator of the field Z_P^*)
-                ULong wlen = ModularField::Power(7, (ModularField::P - 1) / len);
-                if (invert)
-                {
-                    wlen = ModularField::Inv(wlen);
-                }
-
+                Int halflen = len >> 1;
+                Int stride = n / len;
                 for (Int i = 0; i < n; i += len)
                 {
-                    ULong w = 1;
-                    for (int j = 0; j < len / 2; j++)
+                    for (Int j = 0; j < halflen; ++j)
                     {
                         ULong u = a[i + j];
-                        ULong v = ModularField::Mul(a[i + j + len / 2], w);
+                        ULong v = ModularField::Mul(a[i + j + halflen], roots[j * stride]);
                         a[i + j] = ModularField::Add(u, v);
-                        a[i + j + len / 2] = ModularField::Sub(u, v);
-                        w = ModularField::Mul(w, wlen);
+                        a[i + j + halflen] = ModularField::Sub(u, v);
                     }
                 }
             }
@@ -157,18 +166,17 @@ namespace BigMath
             vector<ULong> fa(n, 0), fb(n, 0);
             for (SizeT i = 0; i < A.size(); i++)
                 fa[i] = A[i];
-            for (SizeT i = A.size(); i < (size_t)n; i++)
-                fa[i] = 0;
             for (SizeT i = 0; i < B.size(); i++)
                 fb[i] = B[i];
-            for (SizeT i = B.size(); i < (size_t)n; i++)
-                fb[i] = 0;
 
-            ntt(fa, false);
-            ntt(fb, false);
+            vector<ULong> fwdRoots = BuildRoots(n, false);
+            vector<ULong> invRoots = BuildRoots(n, true);
+
+            ntt(fa, fwdRoots, false);
+            ntt(fb, fwdRoots, false);
             for (Int i = 0; i < n; i++)
                 fa[i] = ModularField::Mul(fa[i], fb[i]);
-            ntt(fa, true);
+            ntt(fa, invRoots, true);
 
             return fa;
         }
