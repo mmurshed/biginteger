@@ -227,42 +227,16 @@ namespace BigMath
       return {Q, rem, true};
     }
 
-  public:
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+    static pair<vector<DataT>, vector<DataT>> DivideNormalizedWithReciprocal(
         vector<DataT> const &a,
         vector<DataT> const &b,
         BaseT base,
+        Int shift,
+        vector<DataT> const &a_norm,
+        vector<DataT> const &b_norm,
+        vector<DataT> const &R,
         bool computeRemainder = true)
     {
-      if (IsZero(b))
-        throw invalid_argument("Division by zero");
-      if (IsZero(a))
-        return {vector<DataT>{0}, vector<DataT>{0}};
-
-      Int cmp = Compare(a, b);
-      if (cmp < 0)
-        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
-      if (cmp == 0)
-        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
-
-      // Restricted to Base2_32 multi-limb divisor.
-      if (base != Base2_32 || b.size() <= 1)
-        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
-
-      // Normalize: shift so top bit of b's top limb is set.
-      DataT b_top = b.back();
-      Int shift = 0;
-      while ((b_top & 0x80000000U) == 0)
-      {
-        b_top <<= 1;
-        ++shift;
-      }
-
-      vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift) : a;
-      vector<DataT> b_norm = (shift > 0) ? ShiftLeftBits(b, shift) : b;
-      TrimZeros(a_norm);
-      TrimZeros(b_norm);
-
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
 
@@ -270,14 +244,6 @@ namespace BigMath
       //   Single-block (na ≤ 2n+1): one reciprocal-divide on the whole a.
       //   Blockwise (na > 2n+1): top chunk ∈ [n+1, 2n] limbs, then slide.
       bool blockwise = (na > 2 * n + 1);
-
-      // High-precision reciprocal needed whenever the divide will pit R against a chunk of
-      // size ≥ 2n. For single-block ratio-2 (na ≥ 2n), standard Newton precision (~half-bits
-      // accurate at large n due to integer rounding) makes Q_est off by O(n) — fixup loop
-      // can't catch up. The extra refinement iter at full precision drops Q error to ≤ 1.
-      bool need_high_precision = (na >= 2 * n);
-
-      vector<DataT> R = ApproxReciprocal(b_norm, need_high_precision);
 
       if (!blockwise)
       {
@@ -367,6 +333,133 @@ namespace BigMath
       }
 
       return {Q, rem_final};
+    }
+
+  public:
+    class Divider
+    {
+    private:
+      vector<DataT> divisor;
+      vector<DataT> b_norm;
+      vector<DataT> reciprocal;
+      BaseT base;
+      Int shift;
+      bool can_use_newton;
+
+    public:
+      Divider(vector<DataT> const &b, BaseT radix) : divisor(b), base(radix), shift(0), can_use_newton(false)
+      {
+        TrimZeros(divisor);
+        if (IsZero(divisor))
+          throw invalid_argument("Division by zero");
+
+        if (base != Base2_32 || divisor.size() <= 1)
+          return;
+
+        DataT b_top = divisor.back();
+        while ((b_top & 0x80000000U) == 0)
+        {
+          b_top <<= 1;
+          ++shift;
+        }
+
+        b_norm = (shift > 0) ? ShiftLeftBits(divisor, shift) : divisor;
+        TrimZeros(b_norm);
+
+        // Precompute the high-precision reciprocal once. It is valid for both single-block
+        // and blockwise division and avoids recomputing the expensive Newton setup for
+        // repeated divisions by the same divisor.
+        reciprocal = ApproxReciprocal(b_norm, true);
+        can_use_newton = true;
+      }
+
+      pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+          vector<DataT> const &a,
+          bool computeRemainder = true) const
+      {
+        if (IsZero(a))
+          return {vector<DataT>{0}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+        Int cmp = Compare(a, divisor);
+        if (cmp < 0)
+          return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+        if (cmp == 0)
+          return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+        if (!can_use_newton)
+          return FastDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
+
+        vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift) : a;
+        TrimZeros(a_norm);
+
+        return DivideNormalizedWithReciprocal(
+            a,
+            divisor,
+            base,
+            shift,
+            a_norm,
+            b_norm,
+            reciprocal,
+            computeRemainder);
+      }
+
+      vector<DataT> Divide(vector<DataT> const &a) const
+      {
+        return DivideAndRemainder(a, false).first;
+      }
+
+      vector<DataT> const &Divisor() const
+      {
+        return divisor;
+      }
+    };
+
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool computeRemainder = true)
+    {
+      if (IsZero(b))
+        throw invalid_argument("Division by zero");
+      if (IsZero(a))
+        return {vector<DataT>{0}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+      Int cmp = Compare(a, b);
+      if (cmp < 0)
+        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+      if (cmp == 0)
+        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+
+      // Restricted to Base2_32 multi-limb divisor.
+      if (base != Base2_32 || b.size() <= 1)
+        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+      // Normalize: shift so top bit of b's top limb is set.
+      DataT b_top = b.back();
+      Int shift = 0;
+      while ((b_top & 0x80000000U) == 0)
+      {
+        b_top <<= 1;
+        ++shift;
+      }
+
+      vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift) : a;
+      vector<DataT> b_norm = (shift > 0) ? ShiftLeftBits(b, shift) : b;
+      TrimZeros(a_norm);
+      TrimZeros(b_norm);
+
+      SizeT n = (SizeT)b_norm.size();
+      SizeT na = (SizeT)a_norm.size();
+
+      // High-precision reciprocal needed whenever the divide will pit R against a chunk of
+      // size ≥ 2n. For single-block ratio-2 (na ≥ 2n), standard Newton precision (~half-bits
+      // accurate at large n due to integer rounding) makes Q_est off by O(n) — fixup loop
+      // can't catch up. The extra refinement iter at full precision drops Q error to ≤ 1.
+      bool need_high_precision = (na >= 2 * n);
+
+      vector<DataT> R = ApproxReciprocal(b_norm, need_high_precision);
+      return DivideNormalizedWithReciprocal(a, b, base, shift, a_norm, b_norm, R, computeRemainder);
     }
 
     static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)

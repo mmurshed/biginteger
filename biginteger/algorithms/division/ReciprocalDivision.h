@@ -6,11 +6,7 @@
 #include <vector>
 using namespace std;
 
-#include "../../common/Comparator.h"
-#include "../../common/Util.h"
-#include "BurnikelZieglerDivision.h"
-#include "ClassicDivision.h"
-#include "FastDivision.h"
+#include "NewtonDivision.h"
 
 namespace BigMath
 {
@@ -20,47 +16,26 @@ namespace BigMath
     class Divider
     {
     private:
-      vector<DataT> divisor;
-      BaseT base;
+      NewtonDivision::Divider divider;
 
     public:
-      Divider(vector<DataT> const &b, BaseT radix) : divisor(b), base(radix)
-      {
-        TrimZeros(divisor);
-        if (IsZero(divisor))
-          throw invalid_argument("Division by zero");
-      }
+      Divider(vector<DataT> const &b, BaseT radix) : divider(b, radix) {}
 
       pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
           vector<DataT> const &a,
           bool computeRemainder = true) const
       {
-        if (IsZero(a))
-          return {vector<DataT>{0}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
-
-        Int cmp = Compare(a, divisor);
-        if (cmp < 0)
-          return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
-        if (cmp == 0)
-          return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
-
-        if (divisor.size() == 1)
-          return ClassicDivision::DivideAndRemainder(a, divisor[0], base);
-
-        if (a.size() > 2048 && a.size() > 3 * divisor.size())
-          return BurnikelZieglerDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
-
-        return FastDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
+        return divider.DivideAndRemainder(a, computeRemainder);
       }
 
       vector<DataT> Divide(vector<DataT> const &a) const
       {
-        return DivideAndRemainder(a, false).first;
+        return divider.Divide(a);
       }
 
       vector<DataT> const &Divisor() const
       {
-        return divisor;
+        return divider.Divisor();
       }
     };
 
