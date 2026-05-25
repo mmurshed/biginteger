@@ -175,6 +175,29 @@ namespace BigMath
       ULong b,
       BaseT base)
   {
+    // Guard empty `a` — a.size()-1 underflows SizeT.
+    if (a.empty())
+    {
+      if (b == 0)
+        return;
+      if (base == Base2_32)
+      {
+        while (b > 0)
+        {
+          a.push_back((DataT)(b & 0xFFFFFFFFULL));
+          b >>= 32;
+        }
+      }
+      else
+      {
+        while (b > 0)
+        {
+          a.push_back((DataT)(b % base));
+          b /= base;
+        }
+      }
+      return;
+    }
     AddTo(a, 0, a.size() - 1, b, base);
   }
 

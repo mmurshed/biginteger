@@ -183,6 +183,28 @@ namespace BigMath
     return result;
   }
 
+  // Target-buffer overload: caller owns `result`. Reuses existing storage when large enough,
+  // grows it when not, so callers with a persistent scratch vector avoid per-call malloc.
+  inline void Subtract(
+      vector<DataT> &result,
+      vector<DataT> const &a,
+      vector<DataT> const &b,
+      BaseT base)
+  {
+    SizeT need = (SizeT)max(a.size(), b.size()) + 1;
+    if (result.size() < need)
+      result.assign(need, 0);
+    else
+      std::fill(result.begin(), result.end(), (DataT)0);
+
+    Subtract(
+        a, 0, (SizeT)a.size() - 1,
+        b, 0, (SizeT)b.size() - 1,
+        result, 0, base);
+
+    TrimZeros(result);
+  }
+
 }
 
 #endif

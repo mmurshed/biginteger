@@ -189,9 +189,10 @@ namespace BigMath
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
 
-      // Single-reciprocal Newton handles na ≤ 2n only.
-      // For larger na fall back to FastDivision (which the dispatcher would have picked anyway
-      // for non-skewed cases) — keeps the algorithm self-contained at this stage.
+      // Single-reciprocal Newton handles na ≤ 2n only — R has n limbs of precision so Q
+      // estimate is only accurate up to na - n ≤ n limbs. For na > 2n the precision deficit
+      // can blow up the fixup loop. Defer to FastDivision (the dispatcher would have picked
+      // it for non-skewed cases anyway).
       if (na > 2 * n)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 

@@ -63,37 +63,27 @@ namespace BigMath
   // 0 if equal
   // +value if this > with
   // -value if this < with
-  // Runtime O(n), Space O(1)
+  // Runtime O(n), Space O(1).
+  // Trims leading zeros logically (no IsZero pre-walk), then compares by size,
+  // then walks down for tie-break.
   Int Compare(
       vector<DataT> const &a,
       vector<DataT> const &b)
   {
-    // Case with zero
-    bool aIsZero = IsZero(a);
-    bool bIsZero = IsZero(b);
+    SizeT aLen = (SizeT)a.size();
+    while (aLen > 0 && a[aLen - 1] == 0)
+      --aLen;
+    SizeT bLen = (SizeT)b.size();
+    while (bLen > 0 && b[bLen - 1] == 0)
+      --bLen;
 
-    if (aIsZero && bIsZero)
-      return 0;
-    else if (!aIsZero && bIsZero)
-      return 1;
-    else if (aIsZero && !bIsZero)
-      return -1;
+    if (aLen != bLen)
+      return aLen > bLen ? 1 : -1;
 
-    // Different in size
-    Long diff = a.size();
-    diff -= b.size();
-    if (diff != 0)
-      return (Int)diff;
-
-    // Both ints have same number of digits
-    Int cmp = 0;
-    for (Int i = (Int)a.size() - 1; i >= 0; i--)
-    {
+    for (Int i = (Int)aLen - 1; i >= 0; --i)
       if (a[i] != b[i])
         return a[i] > b[i] ? 1 : -1;
-    }
-
-    return cmp;
+    return 0;
   }
 }
 

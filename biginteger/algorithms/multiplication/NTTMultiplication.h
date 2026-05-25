@@ -3,7 +3,9 @@
 
 #include <vector>
 #include <algorithm>
+#include <bit>
 #include <cstdint>
+#include <unordered_map>
 
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
@@ -114,6 +116,20 @@ namespace BigMath
             return roots;
         }
 
+        // Thread-local cache of twiddle tables keyed by NTT size. Subsequent transforms
+        // of the same size skip the O(n) BuildRoots cost — meaningful when callers
+        // multiply repeatedly at the same precision (Newton iterations, Karatsuba leaves).
+        static const vector<ULong> &GetRoots(Int n, bool invert)
+        {
+            static thread_local unordered_map<Int, vector<ULong>> fwdCache;
+            static thread_local unordered_map<Int, vector<ULong>> invCache;
+            auto &cache = invert ? invCache : fwdCache;
+            auto it = cache.find(n);
+            if (it != cache.end())
+                return it->second;
+            return cache.emplace(n, BuildRoots(n, invert)).first->second;
+        }
+
         // In-place iterative Cooley-Tukey NTT using a precomputed twiddle table.
         // Removes the serial `w = Mul(w, wlen)` dependency chain from the inner butterfly.
         static void ntt(vector<ULong> &a, const vector<ULong> &roots, bool invert)
@@ -159,9 +175,8 @@ namespace BigMath
         // Returns a vector C such that C[k] = sum_{i+j=k} A[i]*B[j] exactly.
         static vector<DataT> convolution(const vector<DataT> &A, const vector<DataT> &B)
         {
-            // Round up to next power of two via __builtin_clzll.
             ULong need = (ULong)(A.size() + B.size() - 1);
-            DataT n = (need <= 1) ? 1 : (DataT)(1ULL << (64 - __builtin_clzll(need - 1)));
+            DataT n = (DataT)std::bit_ceil(need);
 
             vector<ULong> fa(n, 0), fb(n, 0);
             for (SizeT i = 0; i < A.size(); i++)
@@ -169,8 +184,9 @@ namespace BigMath
             for (SizeT i = 0; i < B.size(); i++)
                 fb[i] = B[i];
 
-            vector<ULong> fwdRoots = BuildRoots(n, false);
-            vector<ULong> invRoots = BuildRoots(n, true);
+            // Cached twiddle tables — second multiply at same size pays only a hashmap lookup.
+            const vector<ULong> &fwdRoots = GetRoots(n, false);
+            const vector<ULong> &invRoots = GetRoots(n, true);
 
             ntt(fa, fwdRoots, false);
             ntt(fb, fwdRoots, false);
