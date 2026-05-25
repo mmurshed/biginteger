@@ -27,7 +27,10 @@ namespace BigMath
         // Fast reduction of a 128-bit value modulo P, exploiting
         //   x = x_lo + 2^64·x_hi_lo + 2^96·x_hi_hi
         //     ≡ x_lo + (2^32 - 1)·x_hi_lo - x_hi_hi   (mod P)
-        // Eliminates the hardware divide hidden in `prod % P`.
+        // Branchless variant: overflow flags from __builtin_*_overflow become bitmasks
+        // (-overflow yields all-ones), so each conditional sub/add compiles to a CSEL on
+        // ARM (and a CMOV on x86) — avoiding the ~50%-mispredicted branches in the NTT
+        // butterfly hot loop, which is otherwise the dominant pipeline stall.
         static inline ULong Reduce(ULong128 x)
         {
             ULong x_lo = (ULong)x;
@@ -35,20 +38,18 @@ namespace BigMath
             UInt x_hi_lo = (UInt)x_hi;
             UInt x_hi_hi = (UInt)(x_hi >> 32);
 
-            // t0 = x_lo - x_hi_hi (mod P)
             ULong t0;
-            if (__builtin_sub_overflow(x_lo, (ULong)x_hi_hi, &t0))
-                t0 -= EPSILON;
+            ULong borrow = (ULong)__builtin_sub_overflow(x_lo, (ULong)x_hi_hi, &t0);
+            t0 -= EPSILON & -borrow;
 
-            // delta = x_hi_lo * (2^32 - 1)
             ULong delta = ((ULong)x_hi_lo << 32) - (ULong)x_hi_lo;
 
             ULong result;
-            if (__builtin_add_overflow(t0, delta, &result))
-                result += EPSILON;
+            ULong carry = (ULong)__builtin_add_overflow(t0, delta, &result);
+            result += EPSILON & -carry;
 
-            if (result >= P)
-                result -= P;
+            ULong over = (ULong)(result >= P);
+            result -= P & -over;
             return result;
         }
 
@@ -58,22 +59,25 @@ namespace BigMath
             return Reduce((ULong128)a * b);
         }
 
-        // Modular addition modulo P
+        // Modular addition modulo P — branchless.
         static inline ULong Add(ULong a, ULong b)
         {
-            ULong sum = a + b;
-            if (sum >= P || sum < a)
-            {
-                sum -= P;
-            }
+            ULong sum;
+            ULong overflow = (ULong)__builtin_add_overflow(a, b, &sum);
+            ULong over_p = (ULong)(sum >= P);
+            // Either overflowed 64-bit (true sum ≥ 2^64 > P) or sum ≥ P — subtract P.
+            ULong mask = -(overflow | over_p);
+            sum -= P & mask;
             return sum;
         }
 
-        // Modular subtraction modulo P
+        // Modular subtraction modulo P — branchless.
         static inline ULong Sub(ULong a, ULong b)
         {
-            if (a >= b) return a - b;
-            return a + P - b;
+            ULong diff;
+            ULong borrow = (ULong)__builtin_sub_overflow(a, b, &diff);
+            diff += P & -borrow;
+            return diff;
         }
 
         // Fast modular exponentiation: base^exp modulo P
