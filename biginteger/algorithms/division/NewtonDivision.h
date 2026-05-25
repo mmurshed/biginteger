@@ -20,11 +20,11 @@ namespace BigMath
 {
   // Newton-Raphson division.
   // Precomputes an n-limb approximate reciprocal R of the normalized divisor D
-  // such that R * D ≈ B^(2n). Then quotient Q ≈ (A * R) >> 2n with a small ±k
-  // fixup loop. Asymptotic cost O(M(n)), one log factor better than Burnikel-Ziegler.
-  //
-  // Current scope: handles na ≤ 2n (square-ish divisions). For na > 2n falls back
-  // to FastDivision so the dispatcher in algorithms/Division.h doesn't need extra logic.
+  // such that R*D ≈ B^(2n). For na ≤ 2n+1: one Q = (a*R) >> 2n + small fixup.
+  // For na > 2n+1: blockwise — process top first_chunk ∈ [n+1, 2n] limbs, then slide down
+  // by n, threading the remainder as the high part of each next chunk. Cost stays O(M(n))
+  // per block, so blockwise total = (na/n) · M(n) ≈ O(M(na)) — beats Knuth's O(na·n) and
+  // BZ's O(M(na)·log) at sizes where M(n) is NTT-dominated.
   class NewtonDivision
   {
   private:
@@ -168,6 +168,65 @@ namespace BigMath
       return R;
     }
 
+    // Sentinel for "fixup loop blew the cap" — caller should fall back to FastDivision.
+    struct DivideResult
+    {
+      vector<DataT> q;
+      vector<DataT> rem; // unshifted (still in normalized space)
+      bool ok;
+    };
+
+    // Reciprocal-based divide of a single chunk by b_norm. Used by both single-block and
+    // blockwise paths. Returns {q, rem, true} on success, {{}, {}, false} on fixup overflow.
+    static DivideResult DivideChunk(
+        vector<DataT> const &chunk,
+        vector<DataT> const &b_norm,
+        vector<DataT> const &R)
+    {
+      SizeT n = (SizeT)b_norm.size();
+
+      // Q ≈ (chunk * R) >> (2n limbs)
+      vector<DataT> CR = Multiply(chunk, R, Base2_32);
+      vector<DataT> Q;
+      if (CR.size() > 2 * n)
+        Q.assign(CR.begin() + 2 * n, CR.end());
+      else
+        Q = vector<DataT>{0};
+      TrimZeros(Q);
+      if (Q.empty())
+        Q.push_back(0);
+
+      vector<DataT> QB = Multiply(Q, b_norm, Base2_32);
+
+      const int FIXUP_LIMIT = 8;
+      vector<DataT> one{1};
+
+      int iters = 0;
+      while (Compare(QB, chunk) > 0)
+      {
+        if (++iters > FIXUP_LIMIT)
+          return {{}, {}, false};
+        Q = Subtract(Q, one, Base2_32);
+        QB = Subtract(QB, b_norm, Base2_32);
+      }
+      vector<DataT> rem = Subtract(chunk, QB, Base2_32);
+
+      iters = 0;
+      while (Compare(rem, b_norm) >= 0)
+      {
+        if (++iters > FIXUP_LIMIT)
+          return {{}, {}, false};
+        rem = Subtract(rem, b_norm, Base2_32);
+        Q = Add(Q, one, Base2_32);
+      }
+
+      TrimZeros(Q);
+      if (Q.empty())
+        Q.push_back(0);
+
+      return {Q, rem, true};
+    }
+
   public:
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
         vector<DataT> const &a,
@@ -207,57 +266,93 @@ namespace BigMath
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
 
-      // Single-reciprocal Newton is safe for na ≤ 2n. We also allow na = 2n + 1, which is the
-      // common +1-limb bump from the normalize bit-shift on inputs at exact ratio 2.0. In
-      // that band the top limb of a_norm is just the shift carry (small) and Newton's Q
-      // estimate stays accurate to within a few; the bounded fixup loops below catch any
-      // residual divergence and bail to FastDivision instead of hanging.
-      if (na > 2 * n + 1)
-        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      // Two paths:
+      //   Single-block (na ≤ 2n+1): one reciprocal-divide on the whole a.
+      //   Blockwise (na > 2n+1): top chunk ∈ [n+1, 2n] limbs, then slide.
+      bool blockwise = (na > 2 * n + 1);
 
-      // Approximate reciprocal of normalized divisor. Request the extra precision iter
-      // only when a_norm bumped past 2n (so R needs the +1-limb accuracy boost).
-      vector<DataT> R = ApproxReciprocal(b_norm, /*high_precision=*/ na > 2 * n);
+      // High-precision reciprocal needed whenever the divide will pit R against a chunk of
+      // size ≥ 2n. For single-block ratio-2 (na ≥ 2n), standard Newton precision (~half-bits
+      // accurate at large n due to integer rounding) makes Q_est off by O(n) — fixup loop
+      // can't catch up. The extra refinement iter at full precision drops Q error to ≤ 1.
+      bool need_high_precision = (na >= 2 * n);
 
-      // Q ≈ (a_norm * R) >> (2n limbs) — top (na - n + 1)-ish limbs of the product.
-      vector<DataT> AR = Multiply(a_norm, R, Base2_32);
+      vector<DataT> R = ApproxReciprocal(b_norm, need_high_precision);
+
+      if (!blockwise)
+      {
+        DivideResult res = DivideChunk(a_norm, b_norm, R);
+        if (!res.ok)
+          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+        vector<DataT> rem_final;
+        if (computeRemainder)
+        {
+          rem_final = (shift > 0) ? ShiftRightBits(res.rem, shift) : res.rem;
+          TrimZeros(rem_final);
+          if (rem_final.empty())
+            rem_final.push_back(0);
+        }
+        return {res.q, rem_final};
+      }
+
+      // ----- Blockwise path -----
+      // first_chunk_size in [n+1, 2n], chosen so remaining (na - first_chunk_size) is divisible by n.
+      // Formula: ((na - 1) mod n) + 1 + n.  Verified for na in {2n+2, 3n, 3n+1, 4n, …}.
+      SizeT first_chunk_size = (SizeT)(((na - 1) % n) + 1 + n);
+      SizeT pos_low = na - first_chunk_size;
+      vector<DataT> chunk(a_norm.begin() + pos_low, a_norm.end());
+
+      // Collect Q pieces top-down; reverse-concat at end.
+      vector<vector<DataT>> q_pieces;
+      vector<DataT> rem;
+      bool is_first = true;
+
+      while (true)
+      {
+        DivideResult res = DivideChunk(chunk, b_norm, R);
+        if (!res.ok)
+          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+        vector<DataT> Q_block = std::move(res.q);
+        rem = std::move(res.rem);
+
+        // Non-first blocks must contribute exactly n limbs to Q (the n limbs of A consumed).
+        // The rem-strict invariant (rem < b_norm) guarantees Q_block.size() ≤ n there.
+        if (!is_first)
+        {
+          while (Q_block.size() < n)
+            Q_block.push_back(0);
+          if (Q_block.size() > n)
+          {
+            // Should be unreachable given the invariant — bail defensively.
+            return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+          }
+        }
+        q_pieces.push_back(std::move(Q_block));
+        is_first = false;
+
+        if (pos_low == 0)
+          break;
+
+        // Build next chunk: high = rem (≤ n limbs), low = a_norm[pos_low - n .. pos_low - 1].
+        SizeT block_n = n; // by construction, remaining is a multiple of n.
+        SizeT next_chunk_size = block_n + (SizeT)rem.size();
+        vector<DataT> next_chunk(next_chunk_size, 0);
+        std::memcpy(next_chunk.data(), a_norm.data() + pos_low - block_n, block_n * sizeof(DataT));
+        std::memcpy(next_chunk.data() + block_n, rem.data(), rem.size() * sizeof(DataT));
+        chunk = std::move(next_chunk);
+        pos_low -= block_n;
+      }
+
+      // Concat q_pieces — first piece (top) goes to high end of final Q.
+      SizeT total_q = 0;
+      for (auto &p : q_pieces)
+        total_q += (SizeT)p.size();
       vector<DataT> Q;
-      if (AR.size() > 2 * n)
-        Q.assign(AR.begin() + 2 * n, AR.end());
-      else
-        Q = vector<DataT>{0};
-      TrimZeros(Q);
-      if (Q.empty())
-        Q.push_back(0);
-
-      // QB = Q * b_norm. Then rem = a_norm - QB with ±k fixup.
-      vector<DataT> QB = Multiply(Q, b_norm, Base2_32);
-
-      // Bounded fixup loops — Newton's Q is off by O(1) when R is at full precision, but in
-      // the relaxed na = 2n + 1 band the precision deficit can push the correction higher.
-      // Cap iterations at FIXUP_LIMIT and bail to FastDivision rather than risk a runaway loop.
-      const int FIXUP_LIMIT = 8;
-      vector<DataT> one{1};
-
-      int iters = 0;
-      while (Compare(QB, a_norm) > 0)
-      {
-        if (++iters > FIXUP_LIMIT)
-          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
-        Q = Subtract(Q, one, Base2_32);
-        QB = Subtract(QB, b_norm, Base2_32);
-      }
-      vector<DataT> rem = Subtract(a_norm, QB, Base2_32);
-
-      iters = 0;
-      while (Compare(rem, b_norm) >= 0)
-      {
-        if (++iters > FIXUP_LIMIT)
-          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
-        rem = Subtract(rem, b_norm, Base2_32);
-        Q = Add(Q, one, Base2_32);
-      }
-
+      Q.reserve(total_q);
+      for (auto it = q_pieces.rbegin(); it != q_pieces.rend(); ++it)
+        Q.insert(Q.end(), it->begin(), it->end());
       TrimZeros(Q);
       if (Q.empty())
         Q.push_back(0);

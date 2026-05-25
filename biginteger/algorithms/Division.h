@@ -20,11 +20,15 @@ using namespace std;
 
 namespace BigMath
 {
-  // Newton-Raphson is O(M(n)) vs Knuth's O(m*n). Wins when the total work product na*nb
-  // is large enough that Newton's reciprocal-setup constant (a handful of large multiplies)
-  // amortizes, AND the ratio na/nb sits in a band where neither end-case dominates:
-  // square (Newton wastes a full reciprocal on a 1-2 limb quotient) or skewed (BZ already wins).
-  const ULong NEWTON_DIVISION_WORK_THRESHOLD = (ULong)16384 * 32768;
+  // Newton-Raphson is O(M(n)) vs Knuth's O(m*n). Blockwise mode in NewtonDivision lets it
+  // handle ANY ratio na/nb internally — the only thing the dispatcher gates is whether
+  // Newton's reciprocal-setup cost amortizes. Two bands:
+  //   (a) Divisor large enough that reciprocal multiplies hit NTT (b ≥ 24576 limbs) — Newton
+  //       wins even at near-square ratio 4/3.
+  //   (b) Smaller divisors (16384 ≤ b < 24576) — Newton only wins at ratio ≥ 2 because
+  //       the multiplies inside the reciprocal sit on the Karatsuba/NTT boundary.
+  const SizeT NEWTON_LARGE_B = 24576;
+  const SizeT NEWTON_MEDIUM_B = 16384;
 
   pair<vector<DataT>, vector<DataT>> DivideAndRemainder(vector<DataT> const &a, vector<DataT> const &b, BaseT base, bool computeRemainder = true)
   {
@@ -51,18 +55,20 @@ namespace BigMath
         return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()}; // case of a < b
       }
 
-      // Now: a > b
+      // Now: a > b. Newton handles any ratio via blockwise; pick it whenever b is in either
+      // of the win bands and the dividend isn't too close to square.
+      bool newton_eligible =
+          (b.size() >= NEWTON_LARGE_B && 3 * a.size() >= 4 * b.size()) ||
+          (b.size() >= NEWTON_MEDIUM_B && a.size() >= 2 * b.size());
+      if (newton_eligible)
+      {
+        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      }
+
+      // Skewed but b too small for Newton: BZ.
       if (a.size() > 2048 && a.size() > 3 * b.size())
       {
         return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
-      }
-
-      // Newton sweet spot: ratio na/nb in [4/3, 5/2] and work above threshold.
-      if ((ULong)a.size() * b.size() >= NEWTON_DIVISION_WORK_THRESHOLD &&
-          3 * a.size() >= 4 * b.size() &&
-          2 * a.size() <= 5 * b.size())
-      {
-        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
       }
 
       return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
