@@ -7,11 +7,32 @@
 #ifndef BIGINTEGER_COMPARATOR
 #define BIGINTEGER_COMPARATOR
 
+#include <span>
 #include <vector>
 using namespace std;
 
 namespace BigMath
 {
+  // Span overload — used by div paths that pass subviews of larger vectors.
+  inline Int Compare(span<const DataT> a, span<const DataT> b)
+  {
+    // Trim leading zeros logically by walking down.
+    SizeT aLen = (SizeT)a.size();
+    while (aLen > 0 && a[aLen - 1] == 0)
+      --aLen;
+    SizeT bLen = (SizeT)b.size();
+    while (bLen > 0 && b[bLen - 1] == 0)
+      --bLen;
+
+    if (aLen != bLen)
+      return aLen > bLen ? 1 : (aLen < bLen ? -1 : 0);
+
+    for (Int i = (Int)aLen - 1; i >= 0; --i)
+      if (a[i] != b[i])
+        return a[i] > b[i] ? 1 : -1;
+    return 0;
+  }
+
   Int Compare(
       vector<DataT> const &a,
       DataT b)

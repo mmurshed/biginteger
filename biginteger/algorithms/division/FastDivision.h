@@ -2,6 +2,7 @@
 #define FAST_DIVISION
 
 #include <algorithm>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -75,9 +76,10 @@ namespace BigMath
     }
 
   public:
+    // Span-based primary entry. Zero-copy for read-only inputs; internal u/v/q/r vectors hold mutable state.
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+        span<const DataT> a,
+        span<const DataT> b,
         BaseT base,
         bool computeRemainder = true)
     {
@@ -89,24 +91,31 @@ namespace BigMath
 
       Int cmp = Compare(a, b);
       if (cmp < 0)
-        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+        return {vector<DataT>{0}, computeRemainder ? vector<DataT>(a.begin(), a.end()) : vector<DataT>()};
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
       if (b.size() == 1)
-        return ClassicDivision::DivideAndRemainder(a, b[0], base);
+      {
+        // ClassicDivision wants vector; materialize.
+        vector<DataT> aVec(a.begin(), a.end());
+        return ClassicDivision::DivideAndRemainder(aVec, b[0], base);
+      }
 
-      SizeT n = (SizeT)b.size();
-      SizeT m = (SizeT)(a.size() - n);
-      DataT d = (DataT)(base / (b.back() + 1));
+      DataT d = (DataT)(base / (b[b.size() - 1] + 1));
 
-      vector<DataT> u = d > 1 ? ClassicMultiplication::Multiply(a, d, base) : a;
-      vector<DataT> v = d > 1 ? ClassicMultiplication::Multiply(b, d, base) : b;
+      // Normalize: allocate-and-multiply in one pass via span overload (no extra copy).
+      vector<DataT> u = d > 1
+                            ? ClassicMultiplication::Multiply(a, d, base)
+                            : vector<DataT>(a.begin(), a.end());
+      vector<DataT> v = d > 1
+                            ? ClassicMultiplication::Multiply(b, d, base)
+                            : vector<DataT>(b.begin(), b.end());
 
       TrimZeros(u);
       TrimZeros(v);
-      n = (SizeT)v.size();
-      m = (SizeT)(u.size() - n);
+      SizeT n = (SizeT)v.size();
+      SizeT m = (SizeT)(u.size() - n);
       u.push_back(0);
 
       vector<DataT> q(m + 1, 0);
@@ -127,10 +136,10 @@ namespace BigMath
             break;
         }
 
-        if (SubtractMul(u, v, qhat, j, base))
+        if (SubtractMul(u, v, qhat, (SizeT)j, base))
         {
           --qhat;
-          AddBack(u, v, j, base);
+          AddBack(u, v, (SizeT)j, base);
         }
 
         q[j] = (DataT)qhat;
@@ -153,6 +162,21 @@ namespace BigMath
       }
 
       return {q, r};
+    }
+
+    static vector<DataT> Divide(span<const DataT> a, span<const DataT> b, BaseT base)
+    {
+      return DivideAndRemainder(a, b, base, false).first;
+    }
+
+    // Vector overloads — thin wrappers for backward compatibility.
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool computeRemainder = true)
+    {
+      return DivideAndRemainder(span<const DataT>(a), span<const DataT>(b), base, computeRemainder);
     }
 
     static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)

@@ -2,6 +2,7 @@
 #define BURNIKELZIEGLER_DIVISION
 
 #include <cstring>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -21,8 +22,7 @@ namespace BigMath
   private:
     static const SizeT BZ_THRESHOLD = 512;
 
-    // out = (high << shift_limbs) + low.
-    // Fuses ShiftLeft + Add into a single allocation (was 3 allocs).
+    // out = (high << shift_limbs) + low. One allocation.
     static vector<DataT> AddShifted(
         vector<DataT> const &high, SizeT shift,
         const DataT *lowData, SizeT lowSize,
@@ -70,9 +70,11 @@ namespace BigMath
       return out;
     }
 
+    // Span-based recursion. `a` and `b` are read-only views — the `high` slice
+    // is passed as a subspan (zero allocation) instead of copied.
     static pair<vector<DataT>, vector<DataT>> DivideRecursive(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+        span<const DataT> a,
+        span<const DataT> b,
         BaseT base,
         bool computeRemainder)
     {
@@ -80,12 +82,12 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       SizeT lowSize = 2 * (SizeT)b.size();
-      vector<DataT> high(a.begin() + lowSize, a.end());
-      TrimZeros(high);
+      // high = a[lowSize..end), low = a[0..lowSize). No allocation for either.
+      span<const DataT> high = a.subspan(lowSize);
 
       auto highQr = DivideRecursive(high, b, base, true);
 
-      // combined = (highQr.second << lowSize) + a[0..lowSize-1]   (no separate `low` vector)
+      // combined = (highQr.second << lowSize) + a[0..lowSize-1]
       vector<DataT> combined = AddShifted(highQr.second, lowSize, a.data(), lowSize, base);
       TrimZeros(combined);
 
@@ -103,8 +105,8 @@ namespace BigMath
 
   public:
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+        span<const DataT> a,
+        span<const DataT> b,
         BaseT base,
         bool computeRemainder = true)
     {
@@ -116,11 +118,26 @@ namespace BigMath
 
       Int cmp = Compare(a, b);
       if (cmp < 0)
-        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+        return {vector<DataT>{0}, computeRemainder ? vector<DataT>(a.begin(), a.end()) : vector<DataT>()};
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
       return DivideRecursive(a, b, base, computeRemainder);
+    }
+
+    static vector<DataT> Divide(span<const DataT> a, span<const DataT> b, BaseT base)
+    {
+      return DivideAndRemainder(a, b, base, false).first;
+    }
+
+    // Vector overloads — backward compat.
+    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
+        vector<DataT> const &a,
+        vector<DataT> const &b,
+        BaseT base,
+        bool computeRemainder = true)
+    {
+      return DivideAndRemainder(span<const DataT>(a), span<const DataT>(b), base, computeRemainder);
     }
 
     static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)

@@ -8,6 +8,7 @@
 #define BIGINTEGER_UTIL
 
 #include <cstring>
+#include <span>
 #include <vector>
 using namespace std;
 
@@ -55,6 +56,17 @@ namespace BigMath
   {
     bool zero = a.size() == 0 || (a.size() == 1 && a[0] == 0);
     return zero ? zero : FindNonZeroByte(a, start, end) == start;
+  }
+
+  // Span overload — used by div paths that pass subviews without materializing vectors.
+  inline bool IsZero(span<const DataT> a)
+  {
+    if (a.empty())
+      return true;
+    for (DataT x : a)
+      if (x)
+        return false;
+    return true;
   }
 
   // Sets some elements of the array to zero.

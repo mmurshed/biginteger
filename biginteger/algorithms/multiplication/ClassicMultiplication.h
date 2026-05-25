@@ -8,6 +8,7 @@
 #define CLASSIC_MULTIPLICATION
 
 #include <vector>
+#include <span>
 #include <string>
 using namespace std;
 
@@ -116,6 +117,36 @@ namespace BigMath
           b,
           w, 0, w.size() - 1,
           base);
+      TrimZeros(w);
+      return w;
+    }
+
+    // Span overload: multiply a span by scalar b into a fresh vector.
+    // Mirrors the vector-input fast path (ULong accumulator).
+    // Caller responsible for ensuring b is small enough to avoid uint64 overflow
+    // in a[i] * b + carry (true for normalization scalars in FastDivision).
+    static vector<DataT> Multiply(
+        span<const DataT> a,
+        DataT b,
+        BaseT base)
+    {
+      if (b == 0 || a.empty())
+        return vector<DataT>();
+      vector<DataT> w(a.size());
+      ULong carry = 0;
+      for (SizeT j = 0; j < a.size(); ++j)
+      {
+        ULong multiply = a[j];
+        multiply *= b;
+        multiply += carry;
+        w[j] = LowDigit(multiply, base);
+        carry = NextCarry(multiply, base);
+      }
+      while (carry > 0)
+      {
+        w.push_back(LowDigit(carry, base));
+        carry = NextCarry(carry, base);
+      }
       TrimZeros(w);
       return w;
     }
