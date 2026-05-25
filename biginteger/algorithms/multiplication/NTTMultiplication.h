@@ -159,9 +159,9 @@ namespace BigMath
         // Returns a vector C such that C[k] = sum_{i+j=k} A[i]*B[j] exactly.
         static vector<DataT> convolution(const vector<DataT> &A, const vector<DataT> &B)
         {
-            DataT n = 1;
-            while (n < (Int)A.size() + (Int)B.size() - 1)
-                n <<= 1;
+            // Round up to next power of two via __builtin_clzll.
+            ULong need = (ULong)(A.size() + B.size() - 1);
+            DataT n = (need <= 1) ? 1 : (DataT)(1ULL << (64 - __builtin_clzll(need - 1)));
 
             vector<ULong> fa(n, 0), fb(n, 0);
             for (SizeT i = 0; i < A.size(); i++)

@@ -120,13 +120,13 @@ namespace BigMath
 
       Int aPos = aStart + i;
       if (aPos <= aEnd && aPos < a.size())
-        digitOps = a.at(aPos);
+        digitOps = a[aPos];
 
       digitOps -= carry;
 
       Int bPos = bStart + i;
       if (bPos <= bEnd && bPos < b.size())
-        digitOps -= b.at(bPos);
+        digitOps -= b[bPos];
 
       carry = 0;
       if (digitOps < 0)
@@ -137,7 +137,7 @@ namespace BigMath
 
       Int rPos = rStart + i;
       if (rPos < result.size())
-        result.at(rPos) = (DataT)digitOps;
+        result[rPos] = (DataT)digitOps;
     }
   }
 

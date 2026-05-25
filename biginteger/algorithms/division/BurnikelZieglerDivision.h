@@ -1,6 +1,7 @@
 #ifndef BURNIKELZIEGLER_DIVISION
 #define BURNIKELZIEGLER_DIVISION
 
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -20,9 +21,53 @@ namespace BigMath
   private:
     static const SizeT BZ_THRESHOLD = 512;
 
-    static vector<DataT> ShiftBase(vector<DataT> const &value, SizeT limbs)
+    // out = (high << shift_limbs) + low.
+    // Fuses ShiftLeft + Add into a single allocation (was 3 allocs).
+    static vector<DataT> AddShifted(
+        vector<DataT> const &high, SizeT shift,
+        const DataT *lowData, SizeT lowSize,
+        BaseT base)
     {
-      return ShiftLeft(value, limbs);
+      SizeT outSize = max(high.size() + shift, (size_t)lowSize) + 1;
+      vector<DataT> out(outSize, 0);
+
+      std::memcpy(out.data(), lowData, lowSize * sizeof(DataT));
+
+      ULong carry = 0;
+      SizeT i = 0;
+      for (; i < high.size(); ++i)
+      {
+        ULong sum = (ULong)out[shift + i] + high[i] + carry;
+        if (base == Base2_32)
+        {
+          out[shift + i] = (DataT)(sum & 0xFFFFFFFFULL);
+          carry = sum >> 32;
+        }
+        else
+        {
+          out[shift + i] = (DataT)(sum % base);
+          carry = sum / base;
+        }
+      }
+      SizeT idx = shift + i;
+      while (carry)
+      {
+        if (idx >= out.size())
+          out.push_back(0);
+        ULong sum = (ULong)out[idx] + carry;
+        if (base == Base2_32)
+        {
+          out[idx] = (DataT)(sum & 0xFFFFFFFFULL);
+          carry = sum >> 32;
+        }
+        else
+        {
+          out[idx] = (DataT)(sum % base);
+          carry = sum / base;
+        }
+        ++idx;
+      }
+      return out;
     }
 
     static pair<vector<DataT>, vector<DataT>> DivideRecursive(
@@ -35,19 +80,20 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       SizeT lowSize = 2 * (SizeT)b.size();
-      vector<DataT> low(a.begin(), a.begin() + lowSize);
       vector<DataT> high(a.begin() + lowSize, a.end());
-      TrimZeros(low);
       TrimZeros(high);
 
       auto highQr = DivideRecursive(high, b, base, true);
 
-      vector<DataT> combined = Add(ShiftBase(highQr.second, lowSize), low, base);
+      // combined = (highQr.second << lowSize) + a[0..lowSize-1]   (no separate `low` vector)
+      vector<DataT> combined = AddShifted(highQr.second, lowSize, a.data(), lowSize, base);
       TrimZeros(combined);
 
       auto lowQr = FastDivision::DivideAndRemainder(combined, b, base, computeRemainder);
 
-      vector<DataT> quotient = Add(ShiftBase(highQr.first, lowSize), lowQr.first, base);
+      // quotient = (highQr.first << lowSize) + lowQr.first
+      vector<DataT> quotient = AddShifted(highQr.first, lowSize,
+                                          lowQr.first.data(), (SizeT)lowQr.first.size(), base);
       TrimZeros(quotient);
       if (quotient.empty())
         quotient.push_back(0);

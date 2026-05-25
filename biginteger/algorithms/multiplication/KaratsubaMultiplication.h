@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <cstring>
 using namespace std;
 
 #include "../../common/Util.h"
@@ -108,7 +109,7 @@ namespace BigMath
             DataT* r,
             BaseT base)
         {
-            for (SizeT i = 0; i < lenA + lenB; ++i) r[i] = 0;
+            std::memset(r, 0, (lenA + lenB) * sizeof(DataT));
 
             if (base == Base2_32)
             {
@@ -178,7 +179,7 @@ namespace BigMath
             AddPtr(b, lenBl, b + m, lenBh, wh, lenWh, base);
 
             // c = al*bl + B^m * ((al+ah)*(bl+bh) - al*bl - ah*bh) + B^2m * ah*bh
-            for (SizeT i = 0; i < la + lb; ++i) c[i] = 0;
+            std::memset(c, 0, (la + lb) * sizeof(DataT));
 
             // 1. T1 = al * bl -> c[0..2m-1]
             MultiplyRecursive(a, lenAl, b, lenBl, c, nextW, base);
@@ -194,15 +195,15 @@ namespace BigMath
             // Safe offset: place t3 at w + lenT1 + lenT2 to avoid any overlap with t1Copy/t2Copy
             DataT* t3 = w + lenT1 + lenT2;
             DataT* nextW2 = t3 + lenT3;
-            for (SizeT i = 0; i < lenT3; ++i) t3[i] = 0;
+            std::memset(t3, 0, lenT3 * sizeof(DataT));
 
             MultiplyRecursive(wl, lenWl, wh, lenWh, t3, nextW2, base);
 
             // Now safely copy T1 and T2 to t1Copy and t2Copy (which are at w and w + lenT1)
             DataT* t1Copy = w;
             DataT* t2Copy = w + lenT1;
-            for (SizeT i = 0; i < lenT1; ++i) t1Copy[i] = c[i];
-            for (SizeT i = 0; i < lenT2; ++i) t2Copy[i] = c[2 * m + i];
+            std::memcpy(t1Copy, c, lenT1 * sizeof(DataT));
+            std::memcpy(t2Copy, c + 2 * m, lenT2 * sizeof(DataT));
 
             // Perform subtractions on t3 directly in the workspace.
             // Since T3 >= T1 + T2 is mathematically guaranteed, t3 remains non-negative.

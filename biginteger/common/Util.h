@@ -7,6 +7,7 @@
 #ifndef BIGINTEGER_UTIL
 #define BIGINTEGER_UTIL
 
+#include <cstring>
 #include <vector>
 using namespace std;
 
@@ -63,7 +64,7 @@ namespace BigMath
       return;
     rEnd = min(rEnd, (SizeT)(r.size() - 1));
     for (SizeT i = rStart; i <= rEnd; i++)
-      r.at(i) = bit;
+      r[i] = bit;
   }
 
   // Copy
@@ -71,8 +72,8 @@ namespace BigMath
   {
     if (p.size() == 0)
       return;
-    for (SizeT i = pStart, j = qStart; i <= pEnd && j <= qEnd; i++, j++)
-      q.at(j) = p.at(i);
+    SizeT count = min(pEnd - pStart + 1, qEnd - qStart + 1);
+    std::memcpy(q.data() + qStart, p.data() + pStart, count * sizeof(DataT));
   }
 
   void Copy(vector<DataT> const &p, vector<DataT> &q)

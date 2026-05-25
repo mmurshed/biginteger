@@ -105,22 +105,22 @@ namespace BigMath
 
       Int aPos = i + aStart;
       if (aPos <= aEnd && aPos < a.size())
-        digitOps = a.at(aPos);
+        digitOps = a[aPos];
 
       digitOps += carry;
 
       Int bPos = i + bStart;
       if (bPos <= bEnd && bPos < b.size())
-        digitOps += b.at(bPos);
+        digitOps += b[bPos];
 
       Int rPos = rStart + i;
       if (rPos < result.size())
-        result.at(rPos) = (DataT)(digitOps % base);
+        result[rPos] = (DataT)(digitOps % base);
       carry = digitOps / base;
     }
     Int rPos = rStart + size;
     if (carry > 0 && rPos < result.size())
-      result.at(rPos) += carry;
+      result[rPos] += carry;
   }
 
   void AddTo(

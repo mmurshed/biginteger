@@ -32,7 +32,7 @@ namespace BigMath
     static void SetOrPush(vector<DataT> &a, SizeT pos, DataT value)
     {
       if (pos < a.size())
-        a.at(pos) = value;
+        a[pos] = value;
       else
         a.push_back(value);
     }
@@ -68,7 +68,7 @@ namespace BigMath
         ULong128 carry = 0;
         for (SizeT j = aStart; j <= aEnd; ++j)
         {
-          ULong128 p = (ULong128)a.at(j) * b + carry;
+          ULong128 p = (ULong128)a[j] * b + carry;
           SetOrPush(a, j, (DataT)(p & 0xFFFFFFFFULL));
           carry = p >> 32;
         }
@@ -86,7 +86,7 @@ namespace BigMath
 
       for (Int j = aStart; j <= aEnd; j++)
       {
-        ULong multiply = a.at(j);
+        ULong multiply = a[j];
         multiply *= b;
         multiply += carry;
 
@@ -143,7 +143,7 @@ namespace BigMath
         ULong multiply = 0;
         SizeT aPos = aStart + j;
         if (aPos <= aEnd)
-          multiply = a.at(aPos);
+          multiply = a[aPos];
         multiply *= b;
         multiply += carry;
 
@@ -218,16 +218,16 @@ namespace BigMath
         for (SizeT j = aStart; j <= aEnd; j++)
         {
           SizeT k = jStart + (j - aStart);
-          ULong multiply = a.at(j);
-          multiply *= b.at(i);
-          multiply += result.at(k);
+          ULong multiply = a[j];
+          multiply *= b[i];
+          multiply += result[k];
           multiply += carry;
 
-          result.at(k) = LowDigit(multiply, base);
+          result[k] = LowDigit(multiply, base);
           carry = NextCarry(multiply, base);
         }
         k = jStart + lenA;
-        result.at(k) = (DataT)carry;
+        result[k] = (DataT)carry;
       }
       return k;
     }
