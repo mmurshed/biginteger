@@ -25,9 +25,7 @@ using namespace std;
 #include "../../biginteger/ops/Operations.h"
 #include "../../biginteger/common/Parser.h"
 #include "../../biginteger/common/Comparator.h"
-#include "../../biginteger/algorithms/multiplication/ToomCookKnuthMultiplication.h"
 #include "../../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
-#include "../../biginteger/algorithms/multiplication/ToomCookBigIntegerMultiplication.h"
 #include "../../biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 using namespace BigMath;
@@ -70,10 +68,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,NTT\n");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,NTT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook-Knuth,Toom-Cook,Toom-Cook-BigInt,NTT" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,NTT" << endl;
 
   while (true)
   {
@@ -116,20 +114,6 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    vector<DataT> rToom = ToomCookKnuthMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    double timeTakenToomCook = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmp = Compare(rToom, ans.GetInteger());
-    if (cmp != 0)
-    {
-      cerr << "Toom-Cook-Knuth algorithm failed." << endl;
-    }
-
-    start = clock();
     vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
         a.GetInteger(),
         b.GetInteger(),
@@ -137,26 +121,10 @@ int main(int argc, char *argv[])
     end = clock();
     double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
 
-    // cout << BigInteger(rToom2) << endl;
-
     cmp = Compare(rToom2, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "Toom-Cook algorithm failed." << endl;
-    }
-
-    start = clock();
-    vector<DataT> rToom2a = ToomCookBigIntegerMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
-        BigInteger::Base());
-    end = clock();
-    double timeTakenToomCook2a = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmp = Compare(rToom2a, ans.GetInteger());
-    if (cmp != 0)
-    {
-      cerr << "ToomCookBigIntegerMultiplication algorithm failed." << endl;
     }
 
     start = clock();
@@ -174,8 +142,8 @@ int main(int argc, char *argv[])
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook << "," << timeTakenToomCook2 << "," << timeTakenToomCook2a << "," << timeTakenNtt << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook, timeTakenToomCook2, timeTakenToomCook2a, timeTakenNtt);
+    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook2 << "," << timeTakenNtt << endl;
+    fprintf(timeFile, "%lu,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook2, timeTakenNtt);
     fflush(timeFile);
 
     DATA++;
