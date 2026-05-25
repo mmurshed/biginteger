@@ -75,6 +75,79 @@ namespace BigMath
       u[j + n] = Digit((ULong)u[j + n] + carry, base);
     }
 
+    static vector<DataT> MultiplyByScalar(span<const DataT> a, DataT d, BaseT base)
+    {
+      if (d == 0 || IsZero(a))
+        return vector<DataT>{0};
+
+      vector<DataT> out(a.size() + 1, 0);
+      if (base == Base2_32)
+      {
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < a.size(); ++i)
+        {
+          ULong128 product = (ULong128)a[i] * d + carry;
+          out[i] = (DataT)(product & 0xFFFFFFFFULL);
+          carry = product >> 32;
+        }
+        out[a.size()] = (DataT)carry;
+      }
+      else
+      {
+        ULong carry = 0;
+        for (SizeT i = 0; i < a.size(); ++i)
+        {
+          ULong product = (ULong)a[i] * d + carry;
+          out[i] = (DataT)(product % base);
+          carry = product / base;
+        }
+        out[a.size()] = (DataT)carry;
+      }
+
+      TrimZeros(out);
+      if (out.empty())
+        out.push_back(0);
+      return out;
+    }
+
+    static vector<DataT> DivideByScalar(span<const DataT> a, DataT d, BaseT base, DataT *remainder = nullptr)
+    {
+      if (d == 0)
+        throw invalid_argument("Division by zero");
+
+      vector<DataT> q(a.size(), 0);
+
+      if (base == Base2_32)
+      {
+        ULong rem = 0;
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong128 cur = ((ULong128)rem << 32) | a[i];
+          q[i] = (DataT)(cur / d);
+          rem = (ULong)(cur % d);
+        }
+        if (remainder)
+          *remainder = (DataT)rem;
+      }
+      else
+      {
+        ULong rem = 0;
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong cur = rem * (ULong)base + a[i];
+          q[i] = (DataT)(cur / d);
+          rem = cur % d;
+        }
+        if (remainder)
+          *remainder = (DataT)rem;
+      }
+
+      TrimZeros(q);
+      if (q.empty())
+        q.push_back(0);
+      return q;
+    }
+
   public:
     // Span-based primary entry. Zero-copy for read-only inputs; internal u/v/q/r vectors hold mutable state.
     static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
@@ -97,19 +170,18 @@ namespace BigMath
 
       if (b.size() == 1)
       {
-        // ClassicDivision wants vector; materialize.
-        vector<DataT> aVec(a.begin(), a.end());
-        return ClassicDivision::DivideAndRemainder(aVec, b[0], base);
+        DataT rem = 0;
+        vector<DataT> q = DivideByScalar(a, b[0], base, computeRemainder ? &rem : nullptr);
+        return {q, computeRemainder ? vector<DataT>{rem} : vector<DataT>()};
       }
 
       DataT d = (DataT)(base / (b[b.size() - 1] + 1));
 
-      // Normalize: allocate-and-multiply in one pass via span overload (no extra copy).
       vector<DataT> u = d > 1
-                            ? ClassicMultiplication::Multiply(a, d, base)
+                            ? MultiplyByScalar(a, d, base)
                             : vector<DataT>(a.begin(), a.end());
       vector<DataT> v = d > 1
-                            ? ClassicMultiplication::Multiply(b, d, base)
+                            ? MultiplyByScalar(b, d, base)
                             : vector<DataT>(b.begin(), b.end());
 
       TrimZeros(u);
@@ -155,7 +227,7 @@ namespace BigMath
         r.assign(u.begin(), u.begin() + n);
         TrimZeros(r);
         if (d > 1)
-          r = ClassicDivision::Divide(r, d, base);
+          r = DivideByScalar(span<const DataT>(r), d, base);
         TrimZeros(r);
         if (r.empty())
           r.push_back(0);
