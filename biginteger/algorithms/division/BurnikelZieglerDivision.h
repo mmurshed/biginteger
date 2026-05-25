@@ -236,10 +236,8 @@ namespace BigMath
       SizeT n = (SizeT)b.size();
       SizeT blocks = (a.size() + n - 1) / n;
       vector<DataT> rem{0};
-      vector<vector<DataT>> qBlocks;
-      qBlocks.reserve(blocks);
+      vector<DataT> quotient(blocks * n, 0);
 
-      bool seenQuotient = false;
       for (SizeT block = blocks; block > 0; --block)
       {
         SizeT start = (block - 1) * n;
@@ -250,30 +248,15 @@ namespace BigMath
         vector<DataT> qBlock = std::move(qr.first);
         rem = std::move(qr.second);
 
-        if (!seenQuotient && IsZero(qBlock))
-          continue;
+        if (qBlock.size() > n)
+          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
-        seenQuotient = true;
-        if (block > 1)
-          PadTo(qBlock, n);
-        qBlocks.push_back(std::move(qBlock));
+        std::memcpy(quotient.data() + start, qBlock.data(), qBlock.size() * sizeof(DataT));
       }
 
-      vector<DataT> quotient;
-      if (qBlocks.empty())
+      TrimZeros(quotient);
+      if (quotient.empty())
         quotient.push_back(0);
-      else
-      {
-        SizeT total = 0;
-        for (auto const &qBlock : qBlocks)
-          total += (SizeT)qBlock.size();
-        quotient.reserve(total);
-        for (auto it = qBlocks.rbegin(); it != qBlocks.rend(); ++it)
-          quotient.insert(quotient.end(), it->begin(), it->end());
-        TrimZeros(quotient);
-        if (quotient.empty())
-          quotient.push_back(0);
-      }
 
       return {quotient, computeRemainder ? NormalizeZero(std::move(rem)) : vector<DataT>()};
     }
