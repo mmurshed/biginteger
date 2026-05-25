@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <memory>
 using namespace std;
 
 #include "../../common/Util.h"
@@ -231,14 +232,15 @@ namespace BigMath
             SizeT n = (SizeT)max(a.size(), b.size());
             vector<DataT> c(a.size() + b.size(), 0);
             
-            // Allocation of workspace once: size 8 * n is safe
-            vector<DataT> w(8 * n, 0);
+            // Workspace is overwritten before use at every recursive level; avoid
+            // zero-initializing up to 8*n limbs on every Karatsuba call.
+            unique_ptr<DataT[]> w(new DataT[8 * n]);
 
             MultiplyRecursive(
                 a.data(), a.size(),
                 b.data(), b.size(),
                 c.data(),
-                w.data(),
+                w.get(),
                 base);
 
             TrimZeros(c);
