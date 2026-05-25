@@ -27,28 +27,60 @@ namespace BigMath
         static const SizeT KARATSUBA_THRESHOLD = BIGMATH_KARATSUBA_THRESHOLD;
 
         // Adds a[0..lenA-1] and b[0..lenB-1] and writes to r[0..lenR-1].
+        // Base check hoisted out of loop; per-position branches replaced by phase split:
+        //   phase 1: both a and b contribute
+        //   phase 2: only the longer one contributes
+        //   phase 3: just propagate carry to remaining lenR slots.
         static void AddPtr(
             const DataT* a, SizeT lenA,
             const DataT* b, SizeT lenB,
             DataT* r, SizeT lenR,
             BaseT base)
         {
-            ULong carry = 0;
-            for (SizeT i = 0; i < lenR; ++i)
+            SizeT minLen = std::min(lenA, lenB);
+            SizeT maxLen = std::max(lenA, lenB);
+            const DataT* longer = (lenA >= lenB) ? a : b;
+
+            if (base == Base2_32)
             {
-                ULong sum = carry;
-                if (i < lenA) sum += a[i];
-                if (i < lenB) sum += b[i];
-                
-                if (base == Base2_32)
+                ULong carry = 0;
+                for (SizeT i = 0; i < minLen; ++i)
                 {
+                    ULong sum = (ULong)a[i] + b[i] + carry;
                     r[i] = (DataT)(sum & 0xFFFFFFFFULL);
                     carry = sum >> 32;
                 }
-                else
+                for (SizeT i = minLen; i < maxLen; ++i)
                 {
+                    ULong sum = (ULong)longer[i] + carry;
+                    r[i] = (DataT)(sum & 0xFFFFFFFFULL);
+                    carry = sum >> 32;
+                }
+                for (SizeT i = maxLen; i < lenR; ++i)
+                {
+                    r[i] = (DataT)carry;
+                    carry = 0;
+                }
+            }
+            else
+            {
+                ULong carry = 0;
+                for (SizeT i = 0; i < minLen; ++i)
+                {
+                    ULong sum = (ULong)a[i] + b[i] + carry;
                     r[i] = (DataT)(sum % base);
                     carry = sum / base;
+                }
+                for (SizeT i = minLen; i < maxLen; ++i)
+                {
+                    ULong sum = (ULong)longer[i] + carry;
+                    r[i] = (DataT)(sum % base);
+                    carry = sum / base;
+                }
+                for (SizeT i = maxLen; i < lenR; ++i)
+                {
+                    r[i] = (DataT)(carry % base);
+                    carry /= base;
                 }
             }
         }
@@ -59,50 +91,89 @@ namespace BigMath
             const DataT* src, SizeT srcLen,
             BaseT base)
         {
-            ULong carry = 0;
-            for (SizeT i = 0; i < destLen; ++i)
+            SizeT shared = std::min(srcLen, destLen);
+
+            if (base == Base2_32)
             {
-                ULong sum = dest[i] + carry;
-                if (i < srcLen) sum += src[i];
-                
-                if (base == Base2_32)
+                ULong carry = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
                 {
+                    ULong sum = (ULong)dest[i] + src[i] + carry;
                     dest[i] = (DataT)(sum & 0xFFFFFFFFULL);
                     carry = sum >> 32;
                 }
-                else
+                for (; i < destLen && carry; ++i)
                 {
+                    ULong sum = (ULong)dest[i] + carry;
+                    dest[i] = (DataT)(sum & 0xFFFFFFFFULL);
+                    carry = sum >> 32;
+                }
+            }
+            else
+            {
+                ULong carry = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
+                {
+                    ULong sum = (ULong)dest[i] + src[i] + carry;
                     dest[i] = (DataT)(sum % base);
                     carry = sum / base;
                 }
-                if (carry == 0 && i >= srcLen) break;
+                for (; i < destLen && carry; ++i)
+                {
+                    ULong sum = (ULong)dest[i] + carry;
+                    dest[i] = (DataT)(sum % base);
+                    carry = sum / base;
+                }
             }
         }
 
-        // dest[0..destLen-1] -= src[0..srcLen-1]
-        // Assumes dest >= src (non-negative result)
+        // dest[0..destLen-1] -= src[0..srcLen-1]   (assumes dest >= src)
         static void SubtractFromPtr(
             DataT* dest, SizeT destLen,
             const DataT* src, SizeT srcLen,
             BaseT base)
         {
-            Long borrow = 0;
-            for (SizeT i = 0; i < destLen; ++i)
+            SizeT shared = std::min(srcLen, destLen);
+
+            if (base == Base2_32)
             {
-                Long diff = (Long)dest[i] - borrow;
-                if (i < srcLen) diff -= (Long)src[i];
-                
-                if (diff < 0)
+                Long borrow = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
                 {
-                    diff += base;
-                    borrow = 1;
+                    Long diff = (Long)dest[i] - (Long)src[i] - borrow;
+                    if (diff < 0) { diff += (Long)1 << 32; borrow = 1; }
+                    else borrow = 0;
+                    dest[i] = (DataT)diff;
                 }
-                else
+                for (; i < destLen && borrow; ++i)
                 {
-                    borrow = 0;
+                    Long diff = (Long)dest[i] - borrow;
+                    if (diff < 0) { diff += (Long)1 << 32; borrow = 1; }
+                    else borrow = 0;
+                    dest[i] = (DataT)diff;
                 }
-                dest[i] = (DataT)diff;
-                if (borrow == 0 && i >= srcLen) break;
+            }
+            else
+            {
+                Long borrow = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
+                {
+                    Long diff = (Long)dest[i] - (Long)src[i] - borrow;
+                    if (diff < 0) { diff += base; borrow = 1; }
+                    else borrow = 0;
+                    dest[i] = (DataT)diff;
+                }
+                for (; i < destLen && borrow; ++i)
+                {
+                    Long diff = (Long)dest[i] - borrow;
+                    if (diff < 0) { diff += base; borrow = 1; }
+                    else borrow = 0;
+                    dest[i] = (DataT)diff;
+                }
             }
         }
 
@@ -238,7 +309,11 @@ namespace BigMath
             AddPtr(b, lenBl, b + m, lenBh, wh, lenWh, base);
 
             // c = al*bl + B^m * ((al+ah)*(bl+bh) - al*bl - ah*bh) + B^2m * ah*bh
-            std::memset(c, 0, (la + lb) * sizeof(DataT));
+            //
+            // No memset(c) here — recursive calls fully overwrite c[0..la+lb-1]:
+            //   call 1 writes c[0..2m-1] (= T1)
+            //   call 2 writes c[2m..la+lb-1] (= T2)
+            // At leaf, MultiplyClassicPtr memsets its own output region.
 
             // 1. T1 = al * bl -> c[0..2m-1]
             MultiplyRecursive(a, lenAl, b, lenBl, c, nextW, base);
@@ -254,7 +329,7 @@ namespace BigMath
             // Safe offset: place t3 at w + lenT1 + lenT2 to avoid any overlap with t1Copy/t2Copy
             DataT* t3 = w + lenT1 + lenT2;
             DataT* nextW2 = t3 + lenT3;
-            std::memset(t3, 0, lenT3 * sizeof(DataT));
+            // No memset(t3) — recursive call fully overwrites t3[0..lenT3-1].
 
             MultiplyRecursive(wl, lenWl, wh, lenWh, t3, nextW2, base);
 
