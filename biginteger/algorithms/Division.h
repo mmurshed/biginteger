@@ -25,7 +25,7 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 8192
+#define BIGMATH_NEWTON_MEDIUM_B 1024
 #endif
 
 #ifndef BIGMATH_BZ_DIVISOR_THRESHOLD
@@ -33,7 +33,7 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
-#define BIGMATH_NEWTON_SKEW_NUMERATOR 4
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 3
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
@@ -89,7 +89,6 @@ namespace BigMath
       bool bz_eligible =
           base == Base2_32 &&
           b.size() > BZ_DIVISOR_THRESHOLD &&
-          b.size() % 2 == 0 &&
           ((b.size() >= 1024 && a.size() <= 3 * b.size()) ||
            (a.size() > 2048 && a.size() > 3 * b.size()));
       if (bz_eligible)

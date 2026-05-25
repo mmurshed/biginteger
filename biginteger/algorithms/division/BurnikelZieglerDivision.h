@@ -60,6 +60,48 @@ namespace BigMath
         v.push_back(0);
     }
 
+    // Bit-shift left by [1..32] bits. Caller ensures shift ∈ [0,32].
+    static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int shift)
+    {
+      if (shift == 0 || IsZero(v))
+        return v;
+      vector<DataT> out(v.size() + 1, 0);
+      for (SizeT i = 0; i < v.size(); ++i)
+      {
+        ULong cur = (ULong)v[i] << shift;
+        out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
+        out[i + 1] |= (DataT)(cur >> 32);
+      }
+      TrimZerosToOne(out);
+      return out;
+    }
+
+    // Bit-shift right by [0..32] bits. Caller ensures shift ∈ [0,32].
+    static vector<DataT> ShiftRightBits(vector<DataT> const &v, Int shift)
+    {
+      if (shift == 0 || IsZero(v))
+        return v;
+      vector<DataT> out(v.size(), 0);
+      for (Int i = 0; i < (Int)v.size(); ++i)
+      {
+        ULong cur = v[i];
+        if (i + 1 < (Int)v.size())
+          cur |= ((ULong)v[i + 1]) << 32;
+        out[i] = (DataT)((cur >> shift) & 0xFFFFFFFFULL);
+      }
+      TrimZerosToOne(out);
+      return out;
+    }
+
+    // Number of bits to shift left so that b's limb count becomes b.size()+1.
+    // Pushes b's MSB into a new high limb. Returns shift ∈ [1,32].
+    static Int BitsToBumpLimbCount(vector<DataT> const &b)
+    {
+      DataT top = b.back();
+      Int bits_top = 32 - __builtin_clz((unsigned int)top);
+      return 33 - bits_top; // 1..32
+    }
+
     static void Decrement(vector<DataT> &v, BaseT base)
     {
       SizeT i = 0;
@@ -272,8 +314,24 @@ namespace BigMath
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
-      if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD || b.size() % 2 != 0)
+      if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+      // BZ recursion needs an even-sized divisor at the top level so the 2n-by-n
+      // split is balanced. For odd nb, bit-shift both a and b left so b's MSB is
+      // pushed into a new high limb (nb → nb+1, even). Quotient is shift-invariant;
+      // remainder is shifted right by the same amount to undo.
+      if (b.size() % 2 != 0)
+      {
+        vector<DataT> bv(b.begin(), b.end());
+        Int shift = BitsToBumpLimbCount(bv);
+        vector<DataT> aShifted = ShiftLeftBits(vector<DataT>(a.begin(), a.end()), shift);
+        vector<DataT> bShifted = ShiftLeftBits(bv, shift);
+        auto qr = DivideRecursive(aShifted, bShifted, base, computeRemainder);
+        if (computeRemainder)
+          qr.second = ShiftRightBits(qr.second, shift);
+        return qr;
+      }
 
       return DivideRecursive(FromSpan(a), FromSpan(b), base, computeRemainder);
     }
