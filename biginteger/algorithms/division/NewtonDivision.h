@@ -69,7 +69,12 @@ namespace BigMath
     // returns R such that R*D ≈ B^(2n), off by at most a small constant.
     // R has up to n+1 limbs. Implementation: 2-limb hardware seed, then
     // precision-doubling Newton iteration R_new = R * (2S - D*R) / S.
-    static vector<DataT> ApproxReciprocal(vector<DataT> const &D)
+    //
+    // `high_precision`: when true, run one extra Newton iter at full precision after main
+    // convergence. Doubles the correct-bit count (Newton is quadratic) — needed only when
+    // the caller will use R against an `a` of size 2n+1 (the +1-limb bump band from the
+    // normalize shift). Skipped otherwise to avoid a ~20% cost on the common case.
+    static vector<DataT> ApproxReciprocal(vector<DataT> const &D, bool high_precision = false)
     {
       SizeT n = (SizeT)D.size();
 
@@ -100,12 +105,25 @@ namespace BigMath
         R.push_back((DataT)(R_seed >> 64));
 
       SizeT cur_n = 2;
-      while (cur_n < n)
+      SizeT extra_iters_done = 0;
+      const SizeT EXTRA_REFINE_ITERS = high_precision ? 1 : 0;
+      while (cur_n < n || extra_iters_done < EXTRA_REFINE_ITERS)
       {
-        SizeT new_n = std::min((SizeT)(2 * cur_n), n);
+        SizeT new_n;
+        SizeT extend;
+        if (cur_n < n)
+        {
+          new_n = std::min((SizeT)(2 * cur_n), n);
+          extend = new_n - cur_n;
+        }
+        else
+        {
+          new_n = n;
+          extend = 0;
+          ++extra_iters_done;
+        }
 
         // Pad R as seed at new_n precision: shift up by (new_n - cur_n) limbs.
-        SizeT extend = new_n - cur_n;
         vector<DataT> R_pad(R.size() + extend, 0);
         std::memcpy(R_pad.data() + extend, R.data(), R.size() * sizeof(DataT));
 
@@ -189,15 +207,17 @@ namespace BigMath
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
 
-      // Single-reciprocal Newton handles na ≤ 2n only — R has n limbs of precision so Q
-      // estimate is only accurate up to na - n ≤ n limbs. For na > 2n the precision deficit
-      // can blow up the fixup loop. Defer to FastDivision (the dispatcher would have picked
-      // it for non-skewed cases anyway).
-      if (na > 2 * n)
+      // Single-reciprocal Newton is safe for na ≤ 2n. We also allow na = 2n + 1, which is the
+      // common +1-limb bump from the normalize bit-shift on inputs at exact ratio 2.0. In
+      // that band the top limb of a_norm is just the shift carry (small) and Newton's Q
+      // estimate stays accurate to within a few; the bounded fixup loops below catch any
+      // residual divergence and bail to FastDivision instead of hanging.
+      if (na > 2 * n + 1)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
-      // Approximate reciprocal of normalized divisor.
-      vector<DataT> R = ApproxReciprocal(b_norm);
+      // Approximate reciprocal of normalized divisor. Request the extra precision iter
+      // only when a_norm bumped past 2n (so R needs the +1-limb accuracy boost).
+      vector<DataT> R = ApproxReciprocal(b_norm, /*high_precision=*/ na > 2 * n);
 
       // Q ≈ (a_norm * R) >> (2n limbs) — top (na - n + 1)-ish limbs of the product.
       vector<DataT> AR = Multiply(a_norm, R, Base2_32);
@@ -213,18 +233,27 @@ namespace BigMath
       // QB = Q * b_norm. Then rem = a_norm - QB with ±k fixup.
       vector<DataT> QB = Multiply(Q, b_norm, Base2_32);
 
-      // Decrement Q while QB > a_norm. Typically 0-1 iters (Newton precision gives off-by-≤2).
+      // Bounded fixup loops — Newton's Q is off by O(1) when R is at full precision, but in
+      // the relaxed na = 2n + 1 band the precision deficit can push the correction higher.
+      // Cap iterations at FIXUP_LIMIT and bail to FastDivision rather than risk a runaway loop.
+      const int FIXUP_LIMIT = 8;
       vector<DataT> one{1};
+
+      int iters = 0;
       while (Compare(QB, a_norm) > 0)
       {
+        if (++iters > FIXUP_LIMIT)
+          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
         Q = Subtract(Q, one, Base2_32);
         QB = Subtract(QB, b_norm, Base2_32);
       }
       vector<DataT> rem = Subtract(a_norm, QB, Base2_32);
 
-      // Increment Q while rem >= b_norm. Typically 0-2 iters.
+      iters = 0;
       while (Compare(rem, b_norm) >= 0)
       {
+        if (++iters > FIXUP_LIMIT)
+          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
         rem = Subtract(rem, b_norm, Base2_32);
         Q = Add(Q, one, Base2_32);
       }
