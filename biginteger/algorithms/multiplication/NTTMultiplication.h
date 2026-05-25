@@ -134,24 +134,32 @@ namespace BigMath
             return cache.emplace(n, BuildRoots(n, invert)).first->second;
         }
 
-        // In-place iterative Cooley-Tukey NTT using a precomputed twiddle table.
-        // Removes the serial `w = Mul(w, wlen)` dependency chain from the inner butterfly.
-        static void ntt(vector<ULong> &a, const vector<ULong> &roots, bool invert)
+        // Forward DIF and inverse DIT pair. The forward transform leaves data in
+        // bit-reversed order; because both operands have the same ordering, pointwise
+        // multiplication is valid and the inverse DIT returns natural-order coefficients.
+        static void nttForward(vector<ULong> &a, const vector<ULong> &roots)
         {
             Int n = (Int)a.size();
-            for (Int i = 1, j = 0; i < n; ++i)
+            for (Int len = n; len > 1; len >>= 1)
             {
-                ULong bit = n >> 1;
-                while (j & bit)
+                Int halflen = len >> 1;
+                Int stride = n / len;
+                for (Int i = 0; i < n; i += len)
                 {
-                    j ^= bit;
-                    bit >>= 1;
+                    for (Int j = 0; j < halflen; ++j)
+                    {
+                        ULong u = a[i + j];
+                        ULong v = a[i + j + halflen];
+                        a[i + j] = ModularField::Add(u, v);
+                        a[i + j + halflen] = ModularField::Mul(ModularField::Sub(u, v), roots[j * stride]);
+                    }
                 }
-                j ^= bit;
-                if (i < j)
-                    swap(a[i], a[j]);
             }
+        }
 
+        static void nttInverse(vector<ULong> &a, const vector<ULong> &roots)
+        {
+            Int n = (Int)a.size();
             for (Int len = 2; len <= n; len <<= 1)
             {
                 Int halflen = len >> 1;
@@ -167,12 +175,10 @@ namespace BigMath
                     }
                 }
             }
-            if (invert)
-            {
-                ULong n_inv = ModularField::Inv(n);
-                for (Int i = 0; i < n; i++)
-                    a[i] = ModularField::Mul(a[i], n_inv);
-            }
+
+            ULong n_inv = ModularField::Inv(n);
+            for (Int i = 0; i < n; i++)
+                a[i] = ModularField::Mul(a[i], n_inv);
         }
 
         // Computes convolution of two coefficient vectors A and B.
@@ -192,11 +198,11 @@ namespace BigMath
             const vector<ULong> &fwdRoots = GetRoots(n, false);
             const vector<ULong> &invRoots = GetRoots(n, true);
 
-            ntt(fa, fwdRoots, false);
-            ntt(fb, fwdRoots, false);
+            nttForward(fa, fwdRoots);
+            nttForward(fb, fwdRoots);
             for (Int i = 0; i < n; i++)
                 fa[i] = ModularField::Mul(fa[i], fb[i]);
-            ntt(fa, invRoots, true);
+            nttInverse(fa, invRoots);
 
             return fa;
         }
@@ -228,11 +234,11 @@ namespace BigMath
             const vector<ULong> &fwdRoots = GetRoots(n, false);
             const vector<ULong> &invRoots = GetRoots(n, true);
 
-            ntt(fa, fwdRoots, false);
-            ntt(fb, fwdRoots, false);
+            nttForward(fa, fwdRoots);
+            nttForward(fb, fwdRoots);
             for (Int i = 0; i < n; i++)
                 fa[i] = ModularField::Mul(fa[i], fb[i]);
-            ntt(fa, invRoots, true);
+            nttInverse(fa, invRoots);
 
             return fa;
         }
