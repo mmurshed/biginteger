@@ -16,19 +16,19 @@ namespace BigMath
     // Operating over the Fermat-like prime field modulo P = 2^64 - 2^32 + 1
     struct ModularField
     {
-        static constexpr uint64_t P = 0xFFFFFFFF00000001ULL;
+        static constexpr ULong P = 0xFFFFFFFF00000001ULL;
 
         // Exact modular multiplication of two 64-bit limbs producing a 64-bit result modulo P
-        static inline uint64_t Mul(uint64_t a, uint64_t b)
+        static inline ULong Mul(ULong a, ULong b)
         {
-            unsigned __int128 prod = (unsigned __int128)a * b;
-            return (uint64_t)(prod % P);
+            ULong128 prod = (ULong128)a * b;
+            return (ULong)(prod % P);
         }
 
         // Modular addition modulo P
-        static inline uint64_t Add(uint64_t a, uint64_t b)
+        static inline ULong Add(ULong a, ULong b)
         {
-            uint64_t sum = a + b;
+            ULong sum = a + b;
             if (sum >= P || sum < a)
             {
                 sum -= P;
@@ -37,16 +37,16 @@ namespace BigMath
         }
 
         // Modular subtraction modulo P
-        static inline uint64_t Sub(uint64_t a, uint64_t b)
+        static inline ULong Sub(ULong a, ULong b)
         {
             if (a >= b) return a - b;
             return a + P - b;
         }
 
         // Fast modular exponentiation: base^exp modulo P
-        static uint64_t Power(uint64_t base, uint64_t exp)
+        static ULong Power(ULong base, ULong exp)
         {
-            uint64_t res = 1;
+            ULong res = 1;
             base %= P;
             while (exp > 0)
             {
@@ -58,7 +58,7 @@ namespace BigMath
         }
 
         // Fermat's Little Theorem modular inverse: a^(P-2) modulo P
-        static uint64_t Inv(uint64_t a)
+        static ULong Inv(ULong a)
         {
             return Power(a, P - 2);
         }
@@ -69,7 +69,7 @@ namespace BigMath
     private:
         // In-place iterative Cooley-Tukey NTT.
         // If invert is true, computes the inverse NTT.
-        static void ntt(vector<uint64_t> &a, bool invert)
+        static void ntt(vector<ULong> &a, bool invert)
         {
             Int n = (Int)a.size();
             for (Int i = 1, j = 0; i < n; ++i)
@@ -88,7 +88,7 @@ namespace BigMath
             for (Int len = 2; len <= n; len <<= 1)
             {
                 // Compute the primitive len-th root of unity (7 is a generator of the field Z_P^*)
-                uint64_t wlen = ModularField::Power(7, (ModularField::P - 1) / len);
+                ULong wlen = ModularField::Power(7, (ModularField::P - 1) / len);
                 if (invert)
                 {
                     wlen = ModularField::Inv(wlen);
@@ -96,11 +96,11 @@ namespace BigMath
 
                 for (Int i = 0; i < n; i += len)
                 {
-                    uint64_t w = 1;
+                    ULong w = 1;
                     for (int j = 0; j < len / 2; j++)
                     {
-                        uint64_t u = a[i + j];
-                        uint64_t v = ModularField::Mul(a[i + j + len / 2], w);
+                        ULong u = a[i + j];
+                        ULong v = ModularField::Mul(a[i + j + len / 2], w);
                         a[i + j] = ModularField::Add(u, v);
                         a[i + j + len / 2] = ModularField::Sub(u, v);
                         w = ModularField::Mul(w, wlen);
@@ -109,7 +109,7 @@ namespace BigMath
             }
             if (invert)
             {
-                uint64_t n_inv = ModularField::Inv(n);
+                ULong n_inv = ModularField::Inv(n);
                 for (Int i = 0; i < n; i++)
                     a[i] = ModularField::Mul(a[i], n_inv);
             }
@@ -123,7 +123,7 @@ namespace BigMath
             while (n < (Int)A.size() + (Int)B.size() - 1)
                 n <<= 1;
 
-            vector<uint64_t> fa(n, 0), fb(n, 0);
+            vector<ULong> fa(n, 0), fb(n, 0);
             for (SizeT i = 0; i < A.size(); i++)
                 fa[i] = A[i];
             for (SizeT i = A.size(); i < (size_t)n; i++)
@@ -197,8 +197,8 @@ namespace BigMath
                 c32.reserve(c16.size() / 2 + 1);
                 for (SizeT i = 0; i < c16.size(); i += 2)
                 {
-                    uint64_t low = c16[i];
-                    uint64_t high = (i + 1 < c16.size()) ? c16[i + 1] : 0;
+                    ULong low = c16[i];
+                    ULong high = (i + 1 < c16.size()) ? c16[i + 1] : 0;
                     c32.push_back((DataT)(low | (high << 16)));
                 }
                 

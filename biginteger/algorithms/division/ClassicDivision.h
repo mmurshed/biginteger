@@ -73,13 +73,13 @@ namespace BigMath
             if (w.size() < neededSize)
                 w.resize(neededSize, 0);
 
-            // Base-2^32 fast path: __int128 keeps r*base from overflowing when d > 2^32.
+            // Base-2^32 fast path: ULong128 keeps r*base from overflowing when d > 2^32.
             if (base == Base2_32)
             {
-                unsigned __int128 r = 0;
+                ULong128 r = 0;
                 for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
                 {
-                    r = (r << 32) | (unsigned __int128)u[i];
+                    r = (r << 32) | (ULong128)u[i];
                     DataT q = (DataT)(r / d);
                     r %= d;
                     SizeT wPos = wStart + (i - uStart);
@@ -124,10 +124,10 @@ namespace BigMath
 
             if (base == Base2_32)
             {
-                unsigned __int128 r = 0;
+                ULong128 r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; --i)
                 {
-                    r = (r << 32) | (unsigned __int128)u[i];
+                    r = (r << 32) | (ULong128)u[i];
                     u[i] = (DataT)(r / d);
                     r %= d;
                 }
@@ -160,10 +160,10 @@ namespace BigMath
 
             if (base == Base2_32)
             {
-                unsigned __int128 r = 0;
+                ULong128 r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; i--)
                 {
-                    r = (r << 32) | (unsigned __int128)u[i];
+                    r = (r << 32) | (ULong128)u[i];
                     w[i] = (DataT)(r / d);
                     r %= d;
                 }

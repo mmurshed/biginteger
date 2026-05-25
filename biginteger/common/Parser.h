@@ -19,7 +19,7 @@ using namespace std;
 namespace BigMath
 {
   // Base 10^18 grouping for fast decimal <-> base-2^32 conversion.
-  // 10^18 < 2^60 fits in uint64; products with a 32-bit limb need __int128.
+  // 10^18 < 2^60 fits in uint64; products with a 32-bit limb need ULong128.
   static constexpr ULong Base10_18 = 1000000000000000000ULL;
   static constexpr SizeT Base10_18_Zeroes = 18;
 

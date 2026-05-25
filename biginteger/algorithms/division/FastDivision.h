@@ -17,12 +17,12 @@ namespace BigMath
   class FastDivision
   {
   private:
-    static DataT Digit(unsigned __int128 value, BaseT base)
+    static DataT Digit(ULong128 value, BaseT base)
     {
       return base == Base2_32 ? (DataT)(value & 0xFFFFFFFFULL) : (DataT)(value % base);
     }
 
-    static ULong Carry(unsigned __int128 value, BaseT base)
+    static ULong Carry(ULong128 value, BaseT base)
     {
       return base == Base2_32 ? (ULong)(value >> 32) : (ULong)(value / base);
     }
@@ -34,7 +34,7 @@ namespace BigMath
 
       for (SizeT i = 0; i < n; ++i)
       {
-        unsigned __int128 product = (unsigned __int128)v[i] * qhat + borrow;
+        ULong128 product = (ULong128)v[i] * qhat + borrow;
         DataT low = Digit(product, base);
         borrow = Carry(product, base);
 
@@ -113,13 +113,13 @@ namespace BigMath
 
       for (Int j = (Int)m; j >= 0; --j)
       {
-        unsigned __int128 numerator = (unsigned __int128)u[j + n] * (ULong)base + u[j + n - 1];
+        ULong128 numerator = (ULong128)u[j + n] * (ULong)base + u[j + n - 1];
         ULong qhat = (ULong)(numerator / v[n - 1]);
         ULong rhat = (ULong)(numerator % v[n - 1]);
 
         while (qhat == (ULong)base ||
-               (n > 1 && (unsigned __int128)qhat * v[n - 2] >
-                             (unsigned __int128)rhat * (ULong)base + u[j + n - 2]))
+               (n > 1 && (ULong128)qhat * v[n - 2] >
+                             (ULong128)rhat * (ULong)base + u[j + n - 2]))
         {
           --qhat;
           rhat += v[n - 1];

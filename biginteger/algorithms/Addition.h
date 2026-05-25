@@ -21,10 +21,10 @@ namespace BigMath
       ULong b,
       BaseT base)
   {
-    // Base-2^32 fast path: __int128 accumulator + shift/mask.
+    // Base-2^32 fast path: ULong128 accumulator + shift/mask.
     if (base == Base2_32)
     {
-      unsigned __int128 acc = b;
+      ULong128 acc = b;
       SizeT i = aStart;
       while (acc)
       {

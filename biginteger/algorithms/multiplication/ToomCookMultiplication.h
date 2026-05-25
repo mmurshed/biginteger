@@ -54,10 +54,10 @@ namespace BigMath
       if (a.empty()) return;
       if (base == Base2_32)
       {
-        uint64_t carry = 0;
+        ULong carry = 0;
         for (int i = (int)a.size() - 1; i >= 0; --i)
         {
-          uint64_t val = a[i] + (carry << 32);
+          ULong val = a[i] + (carry << 32);
           a[i] = (DataT)(val >> 1);
           carry = val & 1;
         }
@@ -134,10 +134,10 @@ namespace BigMath
       if (a.empty()) return;
       if (base == Base2_32)
       {
-        uint64_t carry = 0;
+        ULong carry = 0;
         for (int i = (int)a.size() - 1; i >= 0; --i)
         {
-          uint64_t val = a[i] + (carry << 32);
+          ULong val = a[i] + (carry << 32);
           a[i] = (DataT)(val / 3);
           carry = val % 3;
         }

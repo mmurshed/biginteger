@@ -15,6 +15,9 @@ namespace BigMath
   typedef int32_t Int;
   typedef uint32_t UInt;
 
+  typedef __int128 Long128;
+  typedef unsigned __int128 ULong128;
+
   typedef uint64_t DataT;
   typedef uint32_t SizeT;
   typedef int64_t BaseT;

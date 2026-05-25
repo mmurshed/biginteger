@@ -61,14 +61,14 @@ namespace BigMath
         return 0;
       }
 
-      // Base-2^32 fast path: __int128 carry handles full 64-bit b without overflow,
+      // Base-2^32 fast path: ULong128 carry handles full 64-bit b without overflow,
       // shift/mask replaces runtime mod/div.
       if (base == Base2_32)
       {
-        unsigned __int128 carry = 0;
+        ULong128 carry = 0;
         for (SizeT j = aStart; j <= aEnd; ++j)
         {
-          unsigned __int128 p = (unsigned __int128)a.at(j) * b + carry;
+          ULong128 p = (ULong128)a.at(j) * b + carry;
           SetOrPush(a, j, (DataT)(p & 0xFFFFFFFFULL));
           carry = p >> 32;
         }
