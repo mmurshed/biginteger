@@ -73,6 +73,25 @@ namespace BigMath
             if (w.size() < neededSize)
                 w.resize(neededSize, 0);
 
+            // Base-2^32 fast path: __int128 keeps r*base from overflowing when d > 2^32.
+            if (base == Base2_32)
+            {
+                unsigned __int128 r = 0;
+                for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
+                {
+                    r = (r << 32) | (unsigned __int128)u[i];
+                    DataT q = (DataT)(r / d);
+                    r %= d;
+                    SizeT wPos = wStart + (i - uStart);
+                    if (wPos <= wEnd)
+                        w[wPos] = q;
+                    else
+                        w.push_back(q);
+                }
+                TrimZeros(w);
+                return;
+            }
+
             // 'r' is the running remainder.
             ULong r = 0;
 
@@ -96,6 +115,39 @@ namespace BigMath
             TrimZeros(w);
         }
 
+        // In-place divmod by single-limb d. Returns remainder.
+        // Quotient overwrites u; trailing zero limbs trimmed.
+        static DataT DivModTo(vector<DataT> &u, DataT d, BaseT base)
+        {
+            if (u.empty())
+                return 0;
+
+            if (base == Base2_32)
+            {
+                unsigned __int128 r = 0;
+                for (Int i = (Int)u.size() - 1; i >= 0; --i)
+                {
+                    r = (r << 32) | (unsigned __int128)u[i];
+                    u[i] = (DataT)(r / d);
+                    r %= d;
+                }
+                while (u.size() > 1 && u.back() == 0)
+                    u.pop_back();
+                return (DataT)r;
+            }
+
+            ULong r = 0;
+            for (Int i = (Int)u.size() - 1; i >= 0; --i)
+            {
+                ULong val = r * base + u[i];
+                u[i] = (DataT)(val / d);
+                r = val % d;
+            }
+            while (u.size() > 1 && u.back() == 0)
+                u.pop_back();
+            return (DataT)r;
+        }
+
         static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
             vector<DataT> const &u,
             DataT d,
@@ -106,15 +158,29 @@ namespace BigMath
             vector<DataT> w(n);
             vector<DataT> v(1, 0);
 
-            ULong r = 0;
-            for (Int i = (Int)u.size() - 1; i >= 0; i--)
+            if (base == Base2_32)
             {
-                ULong val = r * base + u[i];
-                w[i] = (DataT)(val / d);
-                r = val % d;
+                unsigned __int128 r = 0;
+                for (Int i = (Int)u.size() - 1; i >= 0; i--)
+                {
+                    r = (r << 32) | (unsigned __int128)u[i];
+                    w[i] = (DataT)(r / d);
+                    r %= d;
+                }
+                v[0] = (DataT)r;
+            }
+            else
+            {
+                ULong r = 0;
+                for (Int i = (Int)u.size() - 1; i >= 0; i--)
+                {
+                    ULong val = r * base + u[i];
+                    w[i] = (DataT)(val / d);
+                    r = val % d;
+                }
+                v[0] = (DataT)r;
             }
 
-            v[0] = (DataT)r;
             TrimZeros(w);
             TrimZeros(v);
             if (w.empty())

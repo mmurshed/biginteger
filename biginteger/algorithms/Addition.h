@@ -21,6 +21,28 @@ namespace BigMath
       ULong b,
       BaseT base)
   {
+    // Base-2^32 fast path: __int128 accumulator + shift/mask.
+    if (base == Base2_32)
+    {
+      unsigned __int128 acc = b;
+      SizeT i = aStart;
+      while (acc)
+      {
+        if (i <= aEnd && i < a.size())
+        {
+          acc += a[i];
+          a[i] = (DataT)(acc & 0xFFFFFFFFULL);
+        }
+        else
+        {
+          a.push_back((DataT)(acc & 0xFFFFFFFFULL));
+        }
+        acc >>= 32;
+        ++i;
+      }
+      return;
+    }
+
     ULong sum = b;
     ULong carry = 0;
     if (aEnd >= aStart)

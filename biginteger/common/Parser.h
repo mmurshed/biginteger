@@ -9,20 +9,25 @@
 
 #include <vector>
 #include <string>
-#include <cassert>
 using namespace std;
 
 #include "Util.h"
-#include "../algorithms/BaseConversion.h"
+#include "../algorithms/Addition.h"
+#include "../algorithms/multiplication/ClassicMultiplication.h"
+#include "../algorithms/division/ClassicDivision.h"
 
 namespace BigMath
 {
-  Int FindRange(char const *num, Int &start, Int &end, bool &isNegative)
+  // Base 10^18 grouping for fast decimal <-> base-2^32 conversion.
+  // 10^18 < 2^60 fits in uint64; products with a 32-bit limb need __int128.
+  static constexpr ULong Base10_18 = 1000000000000000000ULL;
+  static constexpr SizeT Base10_18_Zeroes = 18;
+
+  inline Int FindRange(char const *num, Int &start, Int &end, bool &isNegative)
   {
     Int char_processed = start;
     isNegative = false;
 
-    // Take care of the sign
     if (num[start] == '-')
     {
       isNegative = true;
@@ -33,119 +38,56 @@ namespace BigMath
       start++;
     }
 
-    // Trim leading zeros
     while (num[start] == '0')
-    {
       start++;
-    }
 
-    // Find the end of the string
     end = start;
-    while (num[end] >= '0' && num[end] <= '9' && num[end] != 0)
-    {
+    while (num[end] >= '0' && num[end] <= '9')
       end++;
-    }
+
     char_processed = end - char_processed;
     end--;
 
     return char_processed;
   }
 
-  /*
-  “little‐endian” means:
-•	bigInt[0] = coefficient of B^0  (least significant digit),
-•	bigInt[1] = coefficient of B^1,
-•	…
-•	bigInt[n - 1] = coefficient of B^{n-1} (most significant digit).å
-  */
-  // Group by n, meaning 10^n base
-  vector<DataT> ParseUnsignedBase10n(const char *num, Int start, Int end, SizeT digits)
+  // Parse decimal digit range [start..end] into base-2^32 little-endian limbs.
+  // Reads 18 digits at a time into a uint64 chunk, then folds via
+  // ClassicMultiplication::MultiplyTo + AddTo on the running result.
+  inline vector<DataT> ParseUnsigned(char const *num, Int start, Int end)
   {
-    // Calculate the total number of digits (assumes num is a null-terminated string)
-    SizeT len = end - start + 1;
-    SizeT numBlocks = len / digits;
-    SizeT remainder = len % digits;
+    vector<DataT> r;
+    if (start > end)
+      return r;
 
-    // Reserve space for full blocks plus one block for the remainder if any.
-    vector<DataT> bigInt(numBlocks + (remainder ? 1 : 0));
+    SizeT len = (SizeT)(end - start + 1);
+    r.reserve(len / 9 + 2);
+    r.push_back(0);
 
-    // Precompute powers of 10 for a block of the given digit length.
-    // For instance, for digits == 8, power[0] = 1, power[1] = 10, ... power[7] = 10^7.
-    DataT power[20]; // Ensure the array is large enough.
-    power[0] = 1;
-    for (SizeT i = 1; i < digits; i++)
-    {
-      power[i] = power[i - 1] * 10;
-    }
+    SizeT remainder = len % Base10_18_Zeroes;
+    Int pos = start;
 
-    SizeT j = 0;
-    bool error = false;
-
-    // Process the remainder (if the number of digits isn't a multiple of `digits`)
     if (remainder > 0)
     {
-      DataT digit = 0;
-      // The remainder block is the most-significant digits.
-      // They reside at positions: start to start + remainder - 1.
-      for (SizeT i = 0; i < remainder; i++)
-      {
-        int d = num[start + i] - '0';
-        assert(d >= 0 && d <= 9); // For performance, you might remove these in production.
-        digit = digit * 10 + d;
-      }
-      // Place this block at the end of the vector (most significant block in little-endian)
-      bigInt[numBlocks + (remainder ? 1 : 0) - 1] = digit;
+      ULong chunk = 0;
+      for (SizeT i = 0; i < remainder; ++i)
+        chunk = chunk * 10 + (ULong)(num[pos++] - '0');
+      AddTo(r, chunk, Base2_32);
     }
 
-    // Process full blocks.
-    // Each full block has exactly `digits` digits.
-    // We process from the least-significant block upward.
-    // The least-significant digit is at the end of the string.
-    for (SizeT block = 0; block < numBlocks; block++)
+    while (pos <= end)
     {
-      DataT digit = 0;
-      // Compute the block value by reading the last `digits` digits.
-      // Compute the starting index for this block.
-      SizeT blockEnd = end - block * digits;    // index of last digit in the block
-      SizeT blockStart = blockEnd - digits + 1; // index of first digit in the block
-      // Process the block in little-endian order:
-      // i.e. the least-significant digit of the block comes first.
-      for (SizeT i = 0; i < digits; i++)
-      {
-        int d = num[blockEnd - i] - '0';
-        assert(d >= 0 && d <= 9);
-        digit += d * power[i]; // Use precomputed multiplier for position i.
-      }
-      bigInt[block] = digit;
+      ULong chunk = 0;
+      for (SizeT i = 0; i < Base10_18_Zeroes; ++i)
+        chunk = chunk * 10 + (ULong)(num[pos++] - '0');
+      ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);
+      AddTo(r, chunk, Base2_32);
     }
 
-    // The bigInt vector is built as little-endian:
-    //   block 0 holds the least-significant digits.
-    //   The remainder block (if exists) is the most-significant block.
-
-    TrimZeros(bigInt);
-    return bigInt;
+    return r;
   }
 
-  vector<DataT> ParseUnsigned(char const *num, Int start, Int end)
-  {
-    vector<DataT> bigIntB1 = ParseUnsignedBase10n(
-        num,
-        start,
-        end,
-        Base100_Zeroes);
-
-    if (Base100 == BigInteger::Base())
-      return bigIntB1;
-
-    vector<DataT> bigIntB2 = ConvertBase(
-        bigIntB1,
-        Base100,
-        BigInteger::Base());
-    return bigIntB2;
-  }
-
-  BigInteger Parse(char const *num, Int start, Int *char_processed = 0)
+  inline BigInteger Parse(char const *num, Int start, Int *char_processed = 0)
   {
     if (num == NULL || start < 0)
       return BigInteger();
@@ -156,7 +98,6 @@ namespace BigMath
     if (char_processed != 0)
       *char_processed = processed;
 
-    // If the resulting string is empty return 0
     if (start > end)
       return BigInteger();
 
@@ -165,95 +106,81 @@ namespace BigMath
     return BigInteger(bigInt, isNegative);
   }
 
-  BigInteger Parse(char const *num, Int *char_processed = 0)
+  inline BigInteger Parse(char const *num, Int *char_processed = 0)
   {
     return Parse(num, 0, char_processed);
   }
 
-  // Convert unsigned integer to base 10^n string
-  Int UnsignedBase10nToString(vector<DataT> const &a, SizeT start, SizeT end, SizeT baseDigit, char *num, SizeT len)
+  // Direct conversion of a 64-bit value into base-2^32 limbs.
+  inline vector<DataT> Convert(ULong n)
   {
-    Int j = len - 1;
-
-    num[j--] = 0;
-
-    // Trim zeros
-    while (end >= start && a[end] == 0)
-      end--;
-
-    if (end < start)
+    if (n == 0)
+      return vector<DataT>{0};
+    vector<DataT> r;
+    while (n)
     {
-      // Means entire number is zero
-      // so produce "0" in the string
-      if (len > 1)
-      {
-        num[0] = '0';
-        num[1] = '\0';
-        return 0; // string starts at num[0]
-      }
-      return -1; // or handle the error if len=0
+      r.push_back((DataT)(n & 0xFFFFFFFFULL));
+      n >>= 32;
     }
-
-    for (Int i = start; i <= end; i++)
-    {
-      DataT n = a[i];
-      SizeT l = 0;
-      while (l++ < baseDigit)
-      {
-        num[j--] = (n % 10) + '0';
-        n /= 10;
-      }
-    }
-
-    // Trim zeros
-    while (num[j + 1] == '0')
-      j++;
-    return j;
+    return r;
   }
 
-  vector<DataT> Convert(ULong n)
-  {
-    string num = to_string(n);
-    return Parse(num.c_str()).GetInteger();
-  }
-
-  string ToString(vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg = false)
+  inline string ToString(vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg = false)
   {
     if (IsZero(bigInt, start, end))
-    {
       return string("0");
+
+    vector<DataT> r(bigInt.begin() + start, bigInt.begin() + end + 1);
+    while (r.size() > 1 && r.back() == 0)
+      r.pop_back();
+
+    vector<ULong> chunks;
+    chunks.reserve(r.size() + 1);
+    while (!(r.size() == 1 && r[0] == 0))
+      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, Base2_32));
+
+    string s;
+    s.reserve(chunks.size() * Base10_18_Zeroes + 2);
+    if (isNeg)
+      s.push_back('-');
+
+    char buf[20];
+    char *bufEnd = buf + 20;
+
+    // Most-significant chunk: no zero padding.
+    auto it = chunks.rbegin();
+    {
+      ULong v = *it++;
+      char *p = bufEnd;
+      do
+      {
+        *--p = (char)('0' + (v % 10));
+        v /= 10;
+      } while (v);
+      s.append(p, bufEnd - p);
     }
 
-    vector<DataT> bigIntB2 = ConvertBase(
-        bigInt, start, end,
-        BigInteger::Base(),
-        Base100);
+    // Remaining chunks: zero-pad to 18 digits.
+    for (; it != chunks.rend(); ++it)
+    {
+      ULong v = *it;
+      for (Int i = (Int)Base10_18_Zeroes - 1; i >= 0; --i)
+      {
+        buf[i] = (char)('0' + (v % 10));
+        v /= 10;
+      }
+      s.append(buf, Base10_18_Zeroes);
+    }
 
-    Int len = (Int)bigIntB2.size() * Base100_Zeroes + 2;
-    char *num = new char[len];
-
-    Int j = UnsignedBase10nToString(
-        bigIntB2, 0, bigIntB2.size() - 1,
-        Base100_Zeroes,
-        num, len);
-
-    if (isNeg)
-      num[j--] = '-';
-
-    string converted(num + j + 1);
-
-    delete[] num;
-
-    return converted;
+    return s;
   }
 
-  string ToString(vector<DataT> const &bigInt, bool isNeg = false)
+  inline string ToString(vector<DataT> const &bigInt, bool isNeg = false)
   {
     return ToString(bigInt, 0, bigInt.size() - 1, isNeg);
   }
 
-  // Converts the integer to a string representation
-  string ToString(BigInteger const &bigInt)
+  inline string ToString(BigInteger const &bigInt)
   {
     return ToString(bigInt.GetInteger(), bigInt.IsNegative());
   }
