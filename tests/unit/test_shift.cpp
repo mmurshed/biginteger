@@ -31,6 +31,30 @@ REGISTER_TEST(Shift, ZeroShiftedIsZero)
   ASSERT_TRUE((z >> 5).Zero());
 }
 
+#if BIGMATH_LIMB_64
+REGISTER_TEST(Shift, LeftOneLimbEquals2Pow64)
+{
+  BigInteger one = BigIntegerBuilder::From("1");
+  BigInteger r = one << 1;          // 1 * 2^64
+  ASSERT_EQ(ToString(r), "18446744073709551616");
+}
+
+REGISTER_TEST(Shift, LeftTwoLimbsEquals2Pow128)
+{
+  BigInteger one = BigIntegerBuilder::From("1");
+  BigInteger r = one << 2;          // 1 * 2^128
+  ASSERT_EQ(ToString(r), "340282366920938463463374607431768211456");
+}
+
+REGISTER_TEST(Shift, LeftMatchesMultiplyByPowOfTwo64)
+{
+  // a << 3  ==  a * (2^64)^3 = a * 2^192
+  BigInteger a = BigIntegerBuilder::From("123456789012345");
+  BigInteger pow = BigIntegerBuilder::From(
+      "6277101735386680763835789423207666416102355444464034512896");  // 2^192
+  ASSERT_EQ(a << 3, a * pow);
+}
+#else
 REGISTER_TEST(Shift, LeftOneLimbEquals2Pow32)
 {
   BigInteger one = BigIntegerBuilder::From("1");
@@ -53,6 +77,7 @@ REGISTER_TEST(Shift, LeftMatchesMultiplyByPowOfTwo32)
       "6277101735386680763835789423207666416102355444464034512896");  // 2^192
   ASSERT_EQ(a << 6, a * pow);
 }
+#endif
 
 REGISTER_TEST(Shift, RightInvertsLeftWhenMultipleOfLimb)
 {

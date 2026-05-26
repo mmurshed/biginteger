@@ -87,7 +87,8 @@ namespace BigMath
 
     static BaseT Base()
     {
-      return Base2_32;
+      // Resolves to Base2_32 by default, Base2_64 under -DBIGMATH_LIMB_64=1.
+      return CurrentBase;
     }
 
     bool IsNegative() const

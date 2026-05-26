@@ -61,6 +61,10 @@ namespace BigMath
   {
     if (n == 0)
       return std::vector<DataT>{0};
+#if BIGMATH_LIMB_64
+    // 64-bit limbs fit any ULong in one limb.
+    return std::vector<DataT>{(DataT)n};
+#else
     std::vector<DataT> r;
     while (n)
     {
@@ -68,6 +72,7 @@ namespace BigMath
       n >>= 32;
     }
     return r;
+#endif
   }
 
   std::vector<DataT> ParseUnsignedLinear(char const *num, Int start, Int end)
@@ -87,15 +92,15 @@ namespace BigMath
     {
       ULong chunk = ParseChunk(num, pos, remainder);
       pos += (Int)remainder;
-      AddTo(r, chunk, Base2_32);
+      AddTo(r, chunk, CurrentBase);
     }
 
     while (pos <= end)
     {
       ULong chunk = ParseChunk(num, pos, Base10_18_Zeroes);
       pos += (Int)Base10_18_Zeroes;
-      ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);
-      AddTo(r, chunk, Base2_32);
+      ClassicMultiplication::MultiplyTo(r, Base10_18, CurrentBase);
+      AddTo(r, chunk, CurrentBase);
     }
 
     return r;
@@ -129,13 +134,13 @@ namespace BigMath
       // Pow10(d) = Pow10(d/2)². One Square (single FFT in NTT) instead of
       // Multiply(p, p) (two FFTs).
       std::vector<DataT> p = Pow10(digits / 2);
-      value = Square(p, Base2_32);
+      value = Square(p, CurrentBase);
     }
     else
     {
       SizeT lo = digits / 2;
       SizeT hi = digits - lo;
-      value = Multiply(Pow10(hi), Pow10(lo), Base2_32);
+      value = Multiply(Pow10(hi), Pow10(lo), CurrentBase);
     }
 
     return cache.emplace(digits, value).first->second;
@@ -153,8 +158,8 @@ namespace BigMath
     std::vector<DataT> high = ParseUnsignedDivideConquer(num, start, split);
     std::vector<DataT> low = ParseUnsignedDivideConquer(num, split + 1, end);
     std::vector<DataT> scale = Pow10(lowDigits);
-    std::vector<DataT> scaledHigh = Multiply(high, scale, Base2_32);
-    std::vector<DataT> result = Add(scaledHigh, low, Base2_32);
+    std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
+    std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
     TrimZerosToOne(result);
     return result;
   }
@@ -209,7 +214,7 @@ namespace BigMath
     std::vector<ULong> chunks;
     chunks.reserve(r.size() + 1);
     while (!(r.size() == 1 && r[0] == 0))
-      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, Base2_32));
+      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, CurrentBase));
 
     int topDigits = 0;
     {
@@ -262,7 +267,7 @@ namespace BigMath
         DecimalDcEntry e;
         e.digits = d;
         e.value = Pow10(d);
-        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, Base2_32);
+        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
       }
       return chain;
