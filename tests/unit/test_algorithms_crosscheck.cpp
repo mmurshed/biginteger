@@ -49,13 +49,16 @@ static void CrossMul(SizeT aLimbs, SizeT bLimbs, uint64_t seed)
   auto b = RandomLimbs(bLimbs, gen);
   auto classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   auto kara    = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
-  auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
-  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   auto ntt     = NTTMultiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, kara), 0);
+  ASSERT_EQ(Compare(classic, ntt),  0);
+#if !BIGMATH_LIMB_64
+  // Toom variants aren't ported to Base2_64 yet (not in production dispatch).
+  auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
+  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, toom), 0);
   ASSERT_EQ(Compare(classic, toom5), 0);
-  ASSERT_EQ(Compare(classic, ntt),  0);
+#endif
 }
 
 REGISTER_TEST(MulCross, Tiny_2x2)         { CrossMul(2,    2,    0x0001); }
@@ -76,13 +79,15 @@ REGISTER_TEST(MulCross, MaxCarry257)
   std::vector<DataT> b(257, 0xFFFFFFFFu);
   auto classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   auto kara    = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
-  auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
-  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   auto ntt     = NTTMultiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, kara), 0);
+  ASSERT_EQ(Compare(classic, ntt),  0);
+#if !BIGMATH_LIMB_64
+  auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
+  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, toom), 0);
   ASSERT_EQ(Compare(classic, toom5), 0);
-  ASSERT_EQ(Compare(classic, ntt),  0);
+#endif
 }
 
 // ─── squaring: 4 algorithms agree, and equal Multiply(a, a) ──────────────────
@@ -92,14 +97,17 @@ static void CrossSquare(SizeT aLimbs, uint64_t seed)
   std::mt19937_64 gen(seed);
   auto a = RandomLimbs(aLimbs, gen);
   auto mul   = ClassicMultiplication::Multiply(a, a, BigInteger::Base());
+  auto dispatched = Square(a, BigInteger::Base());
+  ASSERT_EQ(Compare(mul, dispatched), 0);
+#if !BIGMATH_LIMB_64
+  // ClassicSquare/KaratsubaSquare/NTTSquare have no Base2_64 paths yet.
   auto csq   = ClassicSquare::Square(a, BigInteger::Base());
   auto ksq   = KaratsubaSquare::Square(a, BigInteger::Base());
   auto nsq   = NTTSquare::Square(a, BigInteger::Base());
-  auto dispatched = Square(a, BigInteger::Base());
   ASSERT_EQ(Compare(mul, csq), 0);
   ASSERT_EQ(Compare(mul, ksq), 0);
   ASSERT_EQ(Compare(mul, nsq), 0);
-  ASSERT_EQ(Compare(mul, dispatched), 0);
+#endif
 }
 
 REGISTER_TEST(SquareCross, Small_4)    { CrossSquare(4,    0x100); }

@@ -56,7 +56,12 @@ namespace BigMath
         value = -value;
       }
 
-      const long double base = static_cast<long double>(BigInteger::Base());
+      // For Base2_64 the BaseT sentinel is 0 (since 2^64 doesn't fit in BaseT);
+      // use ldexpl to recover the numeric value. For other bases the BaseT
+      // value is the numeric base.
+      const long double base = (BigInteger::Base() == Base2_64)
+                                   ? ldexpl(1.0L, 64)
+                                   : static_cast<long double>(BigInteger::Base());
 
       while (value > 0.0L)
       {

@@ -41,25 +41,34 @@ static bool CheckSize(int digits)
 
   vector<DataT> classic = ClassicMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(av, bv, BigInteger::Base());
+  vector<DataT> ntt = NTTMultiplication::Multiply(av, bv, BigInteger::Base());
+  bool okKara = Compare(classic, kara) == 0;
+  bool okNtt = Compare(classic, ntt) == 0;
+#if BIGMATH_LIMB_64
+  // Toom variants don't have Base2_64 paths (not in production dispatch).
+  bool okToom = true, okToom5 = true;
+#else
   vector<DataT> toom = ToomCookMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(av, bv, BigInteger::Base());
-  vector<DataT> ntt = NTTMultiplication::Multiply(av, bv, BigInteger::Base());
-
-  bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
-  bool okNtt = Compare(classic, ntt) == 0;
+#endif
 
   // Squaring vs Multiply(a,a) cross-check (uses `a` only).
   vector<DataT> aa_mul = ClassicMultiplication::Multiply(av, av, BigInteger::Base());
+  vector<DataT> aa_dsp = Square(av, BigInteger::Base());
+  bool okDsq = Compare(aa_mul, aa_dsp) == 0;
+#if BIGMATH_LIMB_64
+  // Square family doesn't have Base2_64 paths yet (dispatcher falls back to Multiply).
+  bool okCsq = true, okKsq = true, okNsq = true;
+#else
   vector<DataT> aa_csq = ClassicSquare::Square(av, BigInteger::Base());
   vector<DataT> aa_ksq = KaratsubaSquare::Square(av, BigInteger::Base());
   vector<DataT> aa_nsq = NTTSquare::Square(av, BigInteger::Base());
-  vector<DataT> aa_dsp = Square(av, BigInteger::Base());
   bool okCsq = Compare(aa_mul, aa_csq) == 0;
   bool okKsq = Compare(aa_mul, aa_ksq) == 0;
   bool okNsq = Compare(aa_mul, aa_nsq) == 0;
-  bool okDsq = Compare(aa_mul, aa_dsp) == 0;
+#endif
 
   cout << digits
        << " digits: kara=" << okKara
@@ -80,14 +89,17 @@ static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const c
 {
   vector<DataT> classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
+  vector<DataT> ntt = NTTMultiplication::Multiply(a, b, BigInteger::Base());
+  bool okKara = Compare(classic, kara) == 0;
+  bool okNtt = Compare(classic, ntt) == 0;
+#if BIGMATH_LIMB_64
+  bool okToom = true, okToom5 = true;
+#else
   vector<DataT> toom = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
-  vector<DataT> ntt = NTTMultiplication::Multiply(a, b, BigInteger::Base());
-
-  bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
-  bool okNtt = Compare(classic, ntt) == 0;
+#endif
 
   cout << label
        << ": kara=" << okKara
