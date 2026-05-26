@@ -5,7 +5,6 @@
  */
 
 #include "biginteger/algorithms/Squaring.h"
-#include "biginteger/algorithms/Multiplication.h"
 
 namespace BigMath
 {
@@ -15,12 +14,6 @@ namespace BigMath
   {
     if (IsZero(a))
       return std::vector<DataT>{0};
-
-    // Squaring fast paths are Base2_32-only. For other bases (incl. Base2_64
-    // under LIMB_64=1) fall back to general multiplication. The squaring
-    // family can be ported per-algo later if profile demands.
-    if (base != Base2_32)
-      return Multiply(a, a, base);
 
     if (a.size() == 1)
       return ClassicSquare::Square(a, base);

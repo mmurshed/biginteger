@@ -97,17 +97,14 @@ static void CrossSquare(SizeT aLimbs, uint64_t seed)
   std::mt19937_64 gen(seed);
   auto a = RandomLimbs(aLimbs, gen);
   auto mul   = ClassicMultiplication::Multiply(a, a, BigInteger::Base());
-  auto dispatched = Square(a, BigInteger::Base());
-  ASSERT_EQ(Compare(mul, dispatched), 0);
-#if !BIGMATH_LIMB_64
-  // ClassicSquare/KaratsubaSquare/NTTSquare have no Base2_64 paths yet.
   auto csq   = ClassicSquare::Square(a, BigInteger::Base());
   auto ksq   = KaratsubaSquare::Square(a, BigInteger::Base());
   auto nsq   = NTTSquare::Square(a, BigInteger::Base());
+  auto dispatched = Square(a, BigInteger::Base());
   ASSERT_EQ(Compare(mul, csq), 0);
   ASSERT_EQ(Compare(mul, ksq), 0);
   ASSERT_EQ(Compare(mul, nsq), 0);
-#endif
+  ASSERT_EQ(Compare(mul, dispatched), 0);
 }
 
 REGISTER_TEST(SquareCross, Small_4)    { CrossSquare(4,    0x100); }
