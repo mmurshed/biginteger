@@ -54,14 +54,16 @@ Each instance owns its `std::vector<DataT>` storage. Standard C++ rules apply: c
 - **Concurrent calls to `Divider` constructor on the same memory location.** Construction does heavy precompute work; finish construction before sharing.
 - **Concurrent calls to `BigInteger::Base()` that race with a hypothetical future setter.** Currently `Base()` is a static `constexpr` and immutable; this caveat is forward-looking.
 
-## Future: opt-in internal parallelism
+## Internal parallelism (`BIGMATH_USE_THREADS`, default on since 2026-05)
 
-A `BIGMATH_USE_THREADS` build flag is reserved for adding internal thread-pool-driven parallelism inside individual operations (e.g. parallel NTT butterflies, parallel `Forward(fa)`+`Forward(fb)`). When this lands:
+A small thread pool is linked in when `BIGMATH_USE_THREADS=1` (the default). Used by the CRT NTT path to dispatch 6 forward transforms + 3 inverse transforms as batched work units.
 
-- The flag will default to **off**. Single-threaded users see zero overhead.
-- A small `BigMath::ThreadPool` will be linked in via `src/`. Public headers stay free of `<thread>` to avoid pulling pthread linkage into every consumer.
-- Pool size defaults to `min(hardware_concurrency(), 8)` — beyond 8 cores on shared-L2 architectures (M1 Max etc.), NTT working-set L2 pressure dominates over compute parallelism.
-- The thread_local caches above remain per-pool-worker. Pool warm-up at startup is recommended (issue one large mult per worker).
-- The user-facing thread safety guarantees above do not change. Internal parallelism is an implementation detail of single operation calls, not a change in the concurrency model.
+- **Pool size**: `min(hardware_concurrency(), BIGMATH_MAX_THREADS=8)` — on shared-L2 architectures (M1 Max etc.), going beyond 8 cores hits L2 cache pressure on NTT working sets (~512 KB at 32k-coeff transforms).
+- **Linkage**: pool implementation lives in `src/common/Parallel.cpp`. Public headers stay free of `<thread>` so consumers don't pick up pthread unconditionally.
+- **First-touch cost**: the `static thread_local` caches above remain per-thread. Each pool worker fills its own NTT plan / Pow10 caches on first use. For latency-sensitive workloads, warm the pool with one large `Multiply` from each worker at startup.
+- **Caller participation**: the calling thread runs the first work chunk itself, so effective parallelism = pool size (not pool size + 1).
+- **The user-facing thread safety guarantees above are unchanged.** Internal parallelism is an implementation detail of single operation calls, not a change in the concurrency model.
 
-See [`DIVISION.md` §Improving skewed division beyond the current floor](DIVISION.md#improving-skewed-division-beyond-the-current-floor) for the design rationale and expected wins.
+Opt-out: `-DBIGMATH_USE_THREADS=0` reverts to fully serial code paths and drops the pthread linkage. Useful for embedded targets or strict-header-only consumers.
+
+See [`DIVISION.md` §Multithreaded NTT](DIVISION.md#multithreaded-ntt-2026-05-prs-32-38-default-since-39) for the design rationale and measured speedups.

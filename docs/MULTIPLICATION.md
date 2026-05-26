@@ -383,35 +383,37 @@ c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
     tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
 ```
 
-Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported numbers are `min` over a small iteration count to suppress scheduling jitter. Inputs are random decimal digits parsed into both libraries.
+Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported numbers are `min` over 5 runs to suppress scheduling jitter. Build config: full defaults (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool).
 
 | operation | size | BigMath ms | GMP ms | BM / GMP |
 |---|---|---:|---:|---:|
-| `mul` | 1 000 × 1 000 digits | 0.003 | 0.001 | **3.5 ×** |
-| `mul` | 5 000 × 5 000 | 0.043 | 0.012 | **3.5 ×** |
-| `mul` | 10 000 × 10 000 | 0.36 | 0.03 | 12 × |
-| `mul` | 50 000 × 50 000 | 2.12 | 0.36 | 5.9 × |
-| `mul` | 100 000 × 100 000 | 3.55 | 0.61 | 5.9 × |
-| `mul` | 500 000 × 500 000 | 17.5 | 4.2 | 4.2 × |
-| `mul` | 1 000 000 × 1 000 000 | 37.5 | 8.9 | 4.2 × |
-| `mul` (skewed) | 100 000 × 10 000 | 1.62 | 0.30 | 5.4 × |
-| `mul` (skewed) | 500 000 × 50 000 | 7.4 | 2.1 | 3.6 × |
-| `mul` (skewed) | 1 000 000 × 100 000 | 16.1 | 4.6 | 3.5 × |
+| `mul` | 1 000 × 1 000 digits | 0.002 | 0.001 | **2.00 ×** |
+| `mul` | 5 000 × 5 000 | 0.030 | 0.011 | 2.73 × |
+| `mul` | 10 000 × 10 000 | 0.093 | 0.028 | 3.32 × |
+| `mul` | 50 000 × 50 000 | 0.531 | 0.273 | **1.95 ×** |
+| `mul` | 100 000 × 100 000 | 1.06 | 0.61 | **1.74 ×** |
+| `mul` | 500 000 × 500 000 | 6.06 | 4.22 | **1.44 ×** |
+| `mul` | 1 000 000 × 1 000 000 | 12.52 | 8.90 | **1.41 ×** |
+| `mul` (skewed) | 100 000 × 10 000 | 0.52 | 0.30 | 1.73 × |
+| `mul` (skewed) | 500 000 × 50 000 | 2.17 | 2.09 | **1.04 ×** |
+| `mul` (skewed) | 1 000 000 × 100 000 | 4.62 | 4.52 | **1.02 ×** |
 
 (Division, parse, and ToString benchmarks are in the same harness but covered in other documents.)
 
-**Reading these numbers.** Small operands (≤5 000 digits, ~520 limbs) live entirely inside the Karatsuba+leaf path that benefits from the 64-bit hybrid basecase; this is where the library is closest to GMP. Large operands (≥50 000 digits) spend 97% of their time inside the NTT butterfly loop, where the structural gap (32-bit limbs forcing 16-bit NTT input split; pure C++ versus GMP's hand-tuned ARM64 assembly) puts the floor at ~4–6×. The 10 000-limb point is a noisy crossover band where small absolute GMP timings dominate the ratio.
+**Reading these numbers.** Large skewed multiplications (500k/50k and 1M/100k) **match GMP within 2-4%** — the threaded CRT NTT path with 8 workers parallelizes the 3 forwards + 3 inverses across the pool, closing nearly all of the previous 3-5× gap. Balanced mults still trail GMP by 1.4-3.3× because they hit balanced-NTT cost without the asymmetric work overlap that the skewed cases enjoy.
 
-A historical view of the same benchmark (early 2026 vs current):
+A historical view of the same benchmark (early 2026 vs current default stack):
 
-| op | early 2026 | current | improvement |
-|---|---|---|---|
-| mul 1 000 × 1 000 | 10.5 × | 3.5 × | **3.0 ×** |
-| mul 5 000 × 5 000 | 14.4 × | 3.5 × | **4.1 ×** |
-| mul 100 000 × 100 000 | 6.2 × | 5.9 × | ~ |
-| mul 1 000 000 × 1 000 000 | 4.2 × | 4.2 × | — |
+| op | early 2026 | mid-session | now (CRT + threads default) | improvement |
+|---|---|---|---|---|
+| mul 1 000 × 1 000 | 10.5 × | 3.5 × | **2.0 ×** | **5.3 ×** |
+| mul 5 000 × 5 000 | 14.4 × | 3.5 × | **2.7 ×** | **5.3 ×** |
+| mul 100 000 × 100 000 | 6.2 × | 5.9 × | **1.74 ×** | **3.6 ×** |
+| mul 500 000 × 500 000 | 5.0 × | 4.2 × | **1.44 ×** | **3.5 ×** |
+| mul 1 000 000 × 1 000 000 | 4.2 × | 4.2 × | **1.41 ×** | **3.0 ×** |
+| mul (skewed) 1M / 100k | 3.5 × | 3.5 × | **1.02 ×** | **3.4 ×** |
 
-The small-mult band moved several × in the recent optimization pass; the large-mult band is at its structural floor and barely moves.
+The 2026-05 optimization stack — 64-bit limb refactor (PRs #18-#30), multi-prime CRT NTT (PRs #34-#37), and cross-prime threading (PR #38-#39) — closed the GMP gap by **3-5× across every band**. Skewed multiplications now run at parity with GMP.
 
 ---
 
