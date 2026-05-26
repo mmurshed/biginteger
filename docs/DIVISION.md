@@ -311,12 +311,18 @@ Numbers below are with the full default stack: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT
 
 | sizes (digits) | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| `a=40 000, b=10 000` | 1.04 | 0.22 | **4.77 ×** |
-| `a=100 000, b=10 000` | 3.12 | 0.45 | **6.91 ×** |
-| `a=200 000, b=50 000` | 8.91 | 1.71 | **5.21 ×** |
-| `a=500 000, b=100 000` | 18.64 | 4.56 | **4.09 ×** |
+| `a=40 000, b=10 000` | 1.07 | 0.23 | **4.76 ×** |
+| `a=100 000, b=10 000` | 3.21 | 0.46 | **6.95 ×** |
+| `a=200 000, b=50 000` | 9.07 | 1.68 | **5.41 ×** |
+| `a=500 000, b=100 000` | 18.95 | 4.65 | **4.07 ×** |
+| `a=1 000 000, b=200 000` | 36.00 | 9.86 | **3.65 ×** |
+| `a=2 000 000, b=500 000` | 89.39 | 23.81 | **3.75 ×** |
+| `a=5 000 000, b=1 000 000` | 219.75 | 66.75 | **3.29 ×** |
+| `a=10 000 000, b=2 000 000` | 457.46 | 149.55 | **3.06 ×** |
 
-All four cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT.
+All cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT.
+
+**Trend at large sizes.** As operands grow into the multi-million-digit range, the ratio to GMP slowly closes — from 4-6× at the 100k-divisor band down to ~3× at 10M/2M. This is because BigMath's NTT-based mult begins to overtake GMP's Karatsuba/Toom around 5M (see [MULTIPLICATION.md §Benchmark](MULTIPLICATION.md#benchmark-results-vs-gmp)), and Newton's internal mults inherit that win. The residual ~3× gap at the largest sizes is the structural overhead of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` — a single recursive divide rather than reciprocal-then-chunk.
 
 **Historical view** of the same skewed sizes:
 

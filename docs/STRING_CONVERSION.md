@@ -408,18 +408,27 @@ Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BI
 | 50 000 digits | 1.34 | 0.39 | 3.47 × |
 | 100 000 digits | 3.24 | 1.04 | **3.10 ×** |
 | 500 000 digits | 21.4 | 8.88 | **2.41 ×** |
-| 1 000 000 digits | 48.0 | 20.6 | **2.33 ×** |
+| 1 000 000 digits | 47.9 | 20.5 | **2.33 ×** |
+| 2 000 000 digits | 105.5 | 46.9 | **2.25 ×** |
+| 5 000 000 digits | 274.0 | 148.1 | **1.85 ×** |
+| 10 000 000 digits | 596.9 | 344.5 | **1.73 ×** |
+
+Parse's BM/GMP ratio narrows monotonically with size — at 10M digits the gap is 1.73× vs 3.1× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which itself crosses GMP around 5M digits (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). At extreme sizes Parse should approach parity.
 
 ### ToString
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.017 | 0.003 | 5.67 × |
-| 10 000 digits | 0.863 | 0.077 | 11.2 × |
-| 50 000 digits | 10.1 | 0.85 | 12.0 × |
-| 100 000 digits | 22.5 | 2.35 | **9.57 ×** |
+| 1 000 digits | 0.008 | 0.004 | 2.34 × |
+| 10 000 digits | 0.724 | 0.083 | 8.78 × |
+| 50 000 digits | 9.07 | 0.876 | 10.4 × |
+| 100 000 digits | 20.85 | 2.42 | **8.62 ×** |
+| 200 000 digits | 43.3 | 6.20 | 6.99 × |
+| 500 000 digits | 118.6 | 20.81 | 5.70 × |
+| 1 000 000 digits | 243.5 | 49.5 | **4.92 ×** |
+| 2 000 000 digits | 527.1 | 118.0 | **4.47 ×** |
 
-(GMP doesn't have a directly comparable 500k+ ToString benchmark in this harness; `mpz_get_str` is O(n²) by default in mainline GMP, similar to BigMath's linear formatter — both libraries would need D&C ToString to scale.)
+ToString's BM/GMP ratio narrows from 8.6× at 100k to 4.5× at 2M. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` is `O(n²)` by default, so the asymptotic line crosses around 100k where ratios start dropping; (2) at the larger sizes BigMath's NTT-based mult inside Newton's reciprocal chain begins to overtake GMP's basecase. Expect continued convergence at 5M+ digits.
 
 **Historical view** showing the cumulative wins across the 2026-05 optimization pass:
 
