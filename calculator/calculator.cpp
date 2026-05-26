@@ -37,7 +37,7 @@ using namespace BigMath;
 
 namespace
 {
-  constexpr char const *kVersion = "11.0";
+  constexpr char const *kVersion = "12.0";
 
   struct Settings
   {
