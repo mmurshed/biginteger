@@ -143,6 +143,73 @@ namespace BigMath
       return (DataT)((ULong)(num / d) - ((ULong)1 << 32));
     }
 
+    // Möller-Granlund 3-by-2 reciprocal for B = 2^64. Uses Algorithm 6 of
+    // M-G 2010 to derive the 3/2 reciprocal from a 2/1 reciprocal of d1 —
+    // avoiding the otherwise-needed 192/128 software division.
+    // Precondition: d1's top bit set (divisor already normalized).
+    static inline ULong Reciprocal3by2_Base64(ULong d1, ULong d0)
+    {
+      // 2-by-1 reciprocal of d1: v = floor((2^128 - 1) / d1) - 2^64.
+      ULong v = (ULong)((~(ULong128)0) / d1);
+
+      // Algorithm 6 (M-G 2010): refine v to 3-by-2 reciprocal of (d1, d0).
+      ULong p = d1 * v + d0;
+      if (p < d0)
+      {
+        --v;
+        if (p >= d1)
+        {
+          --v;
+          p -= d1;
+        }
+        p -= d1;
+      }
+      ULong128 t = (ULong128)v * d0;
+      ULong t1 = (ULong)(t >> 64);
+      ULong t0 = (ULong)t;
+      p += t1;
+      if (p < t1)
+      {
+        --v;
+        if (p > d1 || (p == d1 && t0 >= d0))
+          --v;
+      }
+      return v;
+    }
+
+    // M-G Algorithm 4 (3/2 division) for B = 2^64. Mirrors the Base32 path
+    // at 128-bit widths via ULong128.
+    static inline ULong MGQhat_Base64(ULong u2, ULong u1, ULong u0,
+                                       ULong d1, ULong d0, ULong v)
+    {
+      // (q1, q0) = v * u2 + (u2, u1), discarding any 129th-bit carry-out.
+      ULong128 q = (ULong128)v * u2 + (((ULong128)u2 << 64) | u1);
+      ULong q1 = (ULong)(q >> 64);
+      ULong q0 = (ULong)q;
+
+      // 2-word remainder via 128-bit modular subtraction:
+      //   r = (u1:u0) - q1*(d1:d0) - (d1:d0) mod 2^128.
+      ULong r1_tmp = u1 - q1 * d1;
+      ULong128 r = ((ULong128)r1_tmp << 64) | u0;
+      ULong128 d_pair = ((ULong128)d1 << 64) | d0;
+      r -= d_pair;
+      r -= (ULong128)q1 * d0;
+      ++q1;
+
+      // First correction: if r-high >= saved q0, q1 was over-bumped; undo.
+      if ((ULong)(r >> 64) >= q0)
+      {
+        --q1;
+        r += d_pair; // 128-bit add; discard carry-out
+      }
+
+      // Second correction: residual r >= d.
+      if (r >= d_pair)
+        ++q1;
+
+      return q1;
+    }
+
     // M-G Algorithm 4 (3/2 division) for B = 2^32.
     // Returns qhat = quotient digit, exact or +1 vs true digit. The caller's
     // SubtractMul+AddBack handles the +1 case unchanged.
@@ -326,24 +393,40 @@ namespace BigMath
 
       vector<DataT> q(m + 1, 0);
 
-      bool useMG = false;
-      DataT mg_v = 0;
+      bool useMG32 = false;
+      bool useMG64 = false;
+      DataT mg_v32 = 0;
+      ULong mg_v64 = 0;
 #if BIGMATH_FASTDIV_USE_MG_QHAT
-      if (base == Base2_32 && n >= 2)
+      if (n >= 2)
       {
-        useMG = true;
-        mg_v = Reciprocal3by2_Base32((DataT)v[n - 1], (DataT)v[n - 2]);
+        if (base == Base2_32)
+        {
+          useMG32 = true;
+          mg_v32 = Reciprocal3by2_Base32((DataT)v[n - 1], (DataT)v[n - 2]);
+        }
+        else if (base == Base2_64)
+        {
+          useMG64 = true;
+          mg_v64 = Reciprocal3by2_Base64((ULong)v[n - 1], (ULong)v[n - 2]);
+        }
       }
 #endif
 
       for (Int j = (Int)m; j >= 0; --j)
       {
         ULong qhat;
-        if (useMG)
+        if (useMG32)
         {
           qhat = (ULong)MGQhat_Base32(
               (DataT)u[j + n], (DataT)u[j + n - 1], (DataT)u[j + n - 2],
-              (DataT)v[n - 1], (DataT)v[n - 2], mg_v);
+              (DataT)v[n - 1], (DataT)v[n - 2], mg_v32);
+        }
+        else if (useMG64)
+        {
+          qhat = MGQhat_Base64(
+              (ULong)u[j + n], (ULong)u[j + n - 1], (ULong)u[j + n - 2],
+              (ULong)v[n - 1], (ULong)v[n - 2], mg_v64);
         }
         else if (base == Base2_64)
         {
