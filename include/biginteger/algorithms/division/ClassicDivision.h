@@ -25,6 +25,46 @@ namespace BigMath
     class ClassicDivision
     {
     public:
+        // Möller-Granlund "div2by1" reciprocal for an invariant single-limb divisor.
+        // Replaces compiler __udivmodti4 (128/64 → 64) with UMULH + adds + 1-2 fixups.
+        // Reference: Möller, Granlund 2010, "Improved Division by Invariant Integers", Algorithm 4.
+        struct GranlundMollerDivider
+        {
+            ULong d;     // original divisor
+            ULong dn;    // d << shift (normalized, top bit set)
+            ULong v;     // floor((2^128 - 1) / dn) - 2^64
+            int shift;   // clz(d)
+
+            explicit GranlundMollerDivider(ULong divisor)
+                : d(divisor), shift(__builtin_clzll(divisor))
+            {
+                dn = divisor << shift;
+                ULong128 num = ~(ULong128)0; // 2^128 - 1
+                ULong128 q = num / dn;       // q ∈ [2^64, 2^65)
+                v = (ULong)q;                // low 64 bits = q - 2^64
+            }
+
+            // Divide (h*2^64 + l) by d. Quotient returned; remainder via rem.
+            // Precondition: h < d (so shifted h_n < dn).
+            inline ULong DivMod(ULong h, ULong l, ULong &rem) const
+            {
+                ULong128 combined = ((ULong128)h << 64) | l;
+                ULong128 shifted = combined << shift;
+                ULong u1 = (ULong)(shifted >> 64);
+                ULong u0 = (ULong)shifted;
+
+                ULong128 q = (ULong128)v * u1;
+                q += ((ULong128)u1 << 64) | u0;
+                ULong q1 = (ULong)(q >> 64) + 1;
+                ULong q0 = (ULong)q;
+                ULong r = u0 - q1 * dn;
+                if (r > q0) { q1--; r += dn; }
+                if (r >= dn) { q1++; r -= dn; }
+                rem = r >> shift;
+                return q1;
+            }
+        };
+
         static void DivideTo(vector<DataT> &u, DataT d, BaseT base)
         {
             Divide(u, 0, u.size() - 1, d, u, 0, u.size() - 1, base);
@@ -75,15 +115,18 @@ namespace BigMath
             if (w.size() < neededSize)
                 w.resize(neededSize, 0);
 
-            // Base-2^32 fast path: ULong128 keeps r*base from overflowing when d > 2^32.
+            // Base-2^32 fast path. Möller-Granlund invariant-divisor reciprocal:
+            // precompute once, then each limb step is UMULH + adds (no UDIV).
             if (base == Base2_32)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
                 {
-                    r = (r << 32) | (ULong128)u[i];
-                    DataT q = (DataT)(r / d);
-                    r %= d;
+                    ULong128 acc = ((ULong128)r << 32) | u[i];
+                    ULong h = (ULong)(acc >> 64);
+                    ULong l = (ULong)acc;
+                    DataT q = (DataT)gm.DivMod(h, l, r);
                     SizeT wPos = wStart + (i - uStart);
                     if (wPos <= wEnd)
                         w[wPos] = q;
@@ -94,16 +137,14 @@ namespace BigMath
                 return;
             }
 
-            // Base-2^64 fast path: shift-by-64 instead of -32. Compiler lowers
-            // the ULong128 / ULong64 divide via a libcall on ARM64.
+            // Base-2^64 fast path. Same GM trick: dividend = (r * 2^64 + u[i]).
             if (base == Base2_64)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
                 {
-                    r = (r << 64) | (ULong128)u[i];
-                    DataT q = (DataT)(r / d);
-                    r %= d;
+                    DataT q = (DataT)gm.DivMod(r, u[i], r);
                     SizeT wPos = wStart + (i - uStart);
                     if (wPos <= wEnd)
                         w[wPos] = q;
@@ -146,12 +187,14 @@ namespace BigMath
 
             if (base == Base2_32)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; --i)
                 {
-                    r = (r << 32) | (ULong128)u[i];
-                    u[i] = (DataT)(r / d);
-                    r %= d;
+                    ULong128 acc = ((ULong128)r << 32) | u[i];
+                    ULong h = (ULong)(acc >> 64);
+                    ULong l = (ULong)acc;
+                    u[i] = (DataT)gm.DivMod(h, l, r);
                 }
                 while (u.size() > 1 && u.back() == 0)
                     u.pop_back();
@@ -160,12 +203,11 @@ namespace BigMath
 
             if (base == Base2_64)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; --i)
                 {
-                    r = (r << 64) | (ULong128)u[i];
-                    u[i] = (DataT)(r / d);
-                    r %= d;
+                    u[i] = (DataT)gm.DivMod(r, u[i], r);
                 }
                 while (u.size() > 1 && u.back() == 0)
                     u.pop_back();
@@ -196,23 +238,24 @@ namespace BigMath
 
             if (base == Base2_32)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; i--)
                 {
-                    r = (r << 32) | (ULong128)u[i];
-                    w[i] = (DataT)(r / d);
-                    r %= d;
+                    ULong128 acc = ((ULong128)r << 32) | u[i];
+                    ULong h = (ULong)(acc >> 64);
+                    ULong l = (ULong)acc;
+                    w[i] = (DataT)gm.DivMod(h, l, r);
                 }
                 v[0] = (DataT)r;
             }
             else if (base == Base2_64)
             {
-                ULong128 r = 0;
+                GranlundMollerDivider gm(d);
+                ULong r = 0;
                 for (Int i = (Int)u.size() - 1; i >= 0; i--)
                 {
-                    r = (r << 64) | (ULong128)u[i];
-                    w[i] = (DataT)(r / d);
-                    r %= d;
+                    w[i] = (DataT)gm.DivMod(r, u[i], r);
                 }
                 v[0] = (DataT)r;
             }

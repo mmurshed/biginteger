@@ -365,7 +365,7 @@ while (pos <= end) {
 
 `ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32)` multiplies each 32-bit limb by `10¹⁸` (a 60-bit constant). The result of one partial product is `(2³² − 1) · 10¹⁸ ≈ 2⁹² + small`, which fits in `ULong128`. The `Base2_32` parameter governs the storage base for `r`: low 32 bits become new limb, high bits become carry into the next position.
 
-Decimal output is the inverse: `ClassicDivision::DivModTo(r, Base10_18, Base2_32)` divides `r` by `10¹⁸` in place and returns the remainder (the next 18 decimal digits to format). This uses `ULong128 / ULong` per limb step (one ARM64 `UDIV` instruction sequence).
+Decimal output is the inverse: `ClassicDivision::DivModTo(r, Base10_18, Base2_32)` divides `r` by `10¹⁸` in place and returns the remainder (the next 18 decimal digits to format). The per-limb step uses a Möller-Granlund "div2by1" reciprocal divide (`UMULH` + 128-bit add + ≤2 fixups), with the reciprocal precomputed once per call from the invariant `10¹⁸` divisor.
 
 Both directions exploit the fact that `10¹⁸` fits in a 64-bit register while leaving the 32-bit limb storage representation untouched. The base 2³² storage and the base 10¹⁸ I/O chunking are independent design choices that happen to compose cleanly.
 

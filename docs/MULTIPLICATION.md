@@ -515,14 +515,6 @@ Opt-out: `-DBIGMATH_LIMB_64=0` reverts to 32-bit limbs.
 
 Ranked by expected ROI per unit of effort.
 
-### Granlund–Möller magic-number division by 10¹⁸ (cheap, marginal)
-
-`ToStringLinearAppend` calls `ClassicDivision::DivModTo(r, Base10_18, base)` in a tight loop, each invocation ultimately routing through the compiler-provided `__udivmodti4` (a 128/64 long division). For a fixed divisor (`10¹⁸`), [Granlund–Möller "Improved division by invariant integers"](https://gmplib.org/~tege/divcnst-pldi94.pdf) reduces this to a multiply-by-reciprocal-high plus a small correction — one or two `UMULH`s replacing a `UDIV`-loop.
-
-Under `BIGMATH_LIMB_64=0` (legacy 32-bit limbs): profile shows `__udivmodti4` at 1.5–2.2% of `ToString 100k`, so the upper bound on the win is small (~1–2% on ToString).
-
-Under `BIGMATH_LIMB_64=1` (default since 2026-05): `__udivmodti4` rose to 5–10% of `ToString 100k` after the limb refactor (twice as many libcalls per leaf at half the limb count, with leaf chunks now correctly sized after the `digitsPerLimb` fix in PR #29). Estimated win: 3–6% on ToString. ~80 lines, low risk.
-
 ### Multithreaded NTT (architectural, 1.5–3× on large NTT-bound ops)
 
 Detailed in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). Applies symmetrically to multiplication — `Multiply` at ≥ 100k digits is NTT-bound and would benefit identically. The architectural lift is the same (header-only library + thread pool design), so the cost amortizes across both subsystems.

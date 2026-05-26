@@ -118,7 +118,7 @@ The ordering matters: Newton wins on **skewed** problems (large dividend over me
    remainder = acc
 ```
 
-For `Base2_32`, the inner `(acc << 32 | a[i])` fits in a `ULong128`, and `__uint128_t / uint64_t` is one instruction on x86 (`DIV`) and a hardware-supported sequence on ARM64 (`UDIV` + multiply-subtract).
+For `Base2_32`, the inner `(acc << 32 | a[i])` fits in a `ULong128`. As of 2026-05-26 the per-limb divide is a Möller-Granlund "div2by1" reciprocal step (`ClassicDivision::GranlundMollerDivider`, paper Algorithm 4), not a hardware `UDIV`/`DIV` — the reciprocal is precomputed once per call from the invariant divisor, then each limb costs `UMULH` + 128-bit add + 1–2 fixup branches. Base2_64 takes the same path. See [STRING_CONVERSION.md §Granlund–Möller](STRING_CONVERSION.md#granlundmöller-magic-number-divmod-in-classicdivision) for measurement.
 
 The `DivModTo` variant performs the division **in place** on the dividend vector (overwriting it with the quotient) and returns the remainder. This is the hot operation inside `ToStringLinearAppend`, where the dividend is repeatedly divided by `10¹⁸` to peel off 18 decimal digits at a time.
 
