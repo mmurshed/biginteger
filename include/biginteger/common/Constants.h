@@ -22,6 +22,20 @@
 #define BIGMATH_LIMB_64 1
 #endif
 
+// Opt-in internal parallelism for NTT-bound operations. When 0 (default),
+// the library is single-threaded — zero overhead. When 1, NTT Forward,
+// Inverse, and pointwise multiply use a small thread pool. See
+// docs/THREAD_SAFETY.md for the full thread-safety model.
+//
+// Pool size auto-detected at runtime, capped at BIGMATH_MAX_THREADS.
+#ifndef BIGMATH_USE_THREADS
+#define BIGMATH_USE_THREADS 0
+#endif
+
+#ifndef BIGMATH_MAX_THREADS
+#define BIGMATH_MAX_THREADS 8
+#endif
+
 namespace BigMath
 {
   typedef int64_t Long;
