@@ -5,7 +5,8 @@
  * operand size. Mirrors Multiplication.h thresholds but uses operand size
  * directly (not the sum), since for a · a both sides are equal.
  *
- * NTT_SQUARE_THRESHOLD defaults to NTT_MULTIPLICATION_THRESHOLD / 2 = 750 limbs.
+ * NTT_SQUARE_THRESHOLD defaults to 512 limbs based on the square-specific
+ * KaratsubaSquare vs NTTSquare crossover.
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
@@ -23,7 +24,7 @@
 namespace BigMath
 {
 #ifndef BIGMATH_NTT_SQUARE_THRESHOLD
-#define BIGMATH_NTT_SQUARE_THRESHOLD (BIGMATH_NTT_MULTIPLICATION_THRESHOLD / 2)
+#define BIGMATH_NTT_SQUARE_THRESHOLD 512
 #endif
 
   extern const SizeT NTT_SQUARE_THRESHOLD;

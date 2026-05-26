@@ -5,242 +5,67 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
-#include <unordered_map>
 
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
+#include "NTTCore.h"
 
 using namespace std;
 
 namespace BigMath
 {
-    // High-performance Number Theoretic Transform (NTT) Framework
-    // Operating over the Fermat-like prime field modulo P = 2^64 - 2^32 + 1
-    struct ModularField
-    {
-        static constexpr ULong P = 0xFFFFFFFF00000001ULL;
-        // EPSILON = 2^64 - P = 2^32 - 1. Used in fast reduction:
-        //   2^64 ≡  (2^32 - 1)  (mod P)
-        //   2^96 ≡ -1           (mod P)
-        static constexpr ULong EPSILON = 0xFFFFFFFFULL;
-
-        // Fast reduction of a 128-bit value modulo P, exploiting
-        //   x = x_lo + 2^64·x_hi_lo + 2^96·x_hi_hi
-        //     ≡ x_lo + (2^32 - 1)·x_hi_lo - x_hi_hi   (mod P)
-        // Branchless variant: overflow flags from __builtin_*_overflow become bitmasks
-        // (-overflow yields all-ones), so each conditional sub/add compiles to a CSEL on
-        // ARM (and a CMOV on x86) — avoiding the ~50%-mispredicted branches in the NTT
-        // butterfly hot loop, which is otherwise the dominant pipeline stall.
-        static inline ULong Reduce(ULong128 x)
-        {
-            ULong x_lo = (ULong)x;
-            ULong x_hi = (ULong)(x >> 64);
-            UInt x_hi_lo = (UInt)x_hi;
-            UInt x_hi_hi = (UInt)(x_hi >> 32);
-
-            ULong t0;
-            ULong borrow = (ULong)__builtin_sub_overflow(x_lo, (ULong)x_hi_hi, &t0);
-            t0 -= EPSILON & -borrow;
-
-            ULong delta = ((ULong)x_hi_lo << 32) - (ULong)x_hi_lo;
-
-            ULong result;
-            ULong carry = (ULong)__builtin_add_overflow(t0, delta, &result);
-            result += EPSILON & -carry;
-
-            ULong over = (ULong)(result >= P);
-            result -= P & -over;
-            return result;
-        }
-
-        // Exact modular multiplication of two 64-bit limbs producing a 64-bit result modulo P
-        static inline ULong Mul(ULong a, ULong b)
-        {
-            return Reduce((ULong128)a * b);
-        }
-
-        // Modular addition modulo P — branchless.
-        static inline ULong Add(ULong a, ULong b)
-        {
-            ULong sum;
-            ULong overflow = (ULong)__builtin_add_overflow(a, b, &sum);
-            ULong over_p = (ULong)(sum >= P);
-            // Either overflowed 64-bit (true sum ≥ 2^64 > P) or sum ≥ P — subtract P.
-            ULong mask = -(overflow | over_p);
-            sum -= P & mask;
-            return sum;
-        }
-
-        // Modular subtraction modulo P — branchless.
-        static inline ULong Sub(ULong a, ULong b)
-        {
-            ULong diff;
-            ULong borrow = (ULong)__builtin_sub_overflow(a, b, &diff);
-            diff += P & -borrow;
-            return diff;
-        }
-
-        // Fast modular exponentiation: base^exp modulo P
-        static ULong Power(ULong base, ULong exp)
-        {
-            ULong res = 1;
-            base %= P;
-            while (exp > 0)
-            {
-                if (exp & 1) res = Mul(res, base);
-                base = Mul(base, base);
-                exp >>= 1;
-            }
-            return res;
-        }
-
-        // Fermat's Little Theorem modular inverse: a^(P-2) modulo P
-        static ULong Inv(ULong a)
-        {
-            return Power(a, P - 2);
-        }
-    };
-
     class NTTMultiplication
     {
     private:
-        // Build twiddle table roots[k] = (primitive n-th root of unity)^k for k in [0, n/2).
-        // For a Cooley-Tukey butterfly at level `len`, the inner twiddle index j maps
-        // to roots[j * (n / len)] — fixed stride access, no per-butterfly multiplication.
-        static vector<ULong> BuildRoots(Int n, bool invert)
+        static vector<DataT> FinalizeBase2_32(const vector<ULong> &coeffs, SizeT coeffCount)
         {
-            ULong root = ModularField::Power(7, (ModularField::P - 1) / n);
-            if (invert)
-                root = ModularField::Inv(root);
+            vector<DataT> result;
+            result.reserve(coeffCount / 2 + 2);
 
-            vector<ULong> roots(n / 2);
-            roots[0] = 1;
-            for (Int k = 1; k < n / 2; ++k)
-                roots[k] = ModularField::Mul(roots[k - 1], root);
-            return roots;
-        }
+            ULong carry = 0;
+            ULong low = 0;
+            bool hasLow = false;
 
-        // Thread-local cache of twiddle tables keyed by NTT size. Subsequent transforms
-        // of the same size skip the O(n) BuildRoots cost — meaningful when callers
-        // multiply repeatedly at the same precision (Newton iterations, Karatsuba leaves).
-        static const vector<ULong> &GetRoots(Int n, bool invert)
-        {
-            static thread_local unordered_map<Int, vector<ULong>> fwdCache;
-            static thread_local unordered_map<Int, vector<ULong>> invCache;
-            auto &cache = invert ? invCache : fwdCache;
-            auto it = cache.find(n);
-            if (it != cache.end())
-                return it->second;
-            return cache.emplace(n, BuildRoots(n, invert)).first->second;
-        }
-
-        // Forward DIF and inverse DIT pair. The forward transform leaves data in
-        // bit-reversed order; because both operands have the same ordering, pointwise
-        // multiplication is valid and the inverse DIT returns natural-order coefficients.
-        static void nttForward(vector<ULong> &a, const vector<ULong> &roots)
-        {
-            Int n = (Int)a.size();
-            for (Int len = n; len > 1; len >>= 1)
+            for (SizeT i = 0; i < coeffCount; ++i)
             {
-                Int halflen = len >> 1;
-                Int stride = n / len;
-                for (Int i = 0; i < n; i += len)
+                ULong total = coeffs[i] + carry;
+                ULong digit = total & 0xFFFFULL;
+                carry = total >> 16;
+
+                if (hasLow)
                 {
-                    for (Int j = 0; j < halflen; ++j)
-                    {
-                        ULong u = a[i + j];
-                        ULong v = a[i + j + halflen];
-                        a[i + j] = ModularField::Add(u, v);
-                        a[i + j + halflen] = ModularField::Mul(ModularField::Sub(u, v), roots[j * stride]);
-                    }
+                    result.push_back((DataT)(low | (digit << 16)));
+                    hasLow = false;
                 }
-            }
-        }
-
-        static void nttInverse(vector<ULong> &a, const vector<ULong> &roots)
-        {
-            Int n = (Int)a.size();
-            for (Int len = 2; len <= n; len <<= 1)
-            {
-                Int halflen = len >> 1;
-                Int stride = n / len;
-                for (Int i = 0; i < n; i += len)
+                else
                 {
-                    for (Int j = 0; j < halflen; ++j)
-                    {
-                        ULong u = a[i + j];
-                        ULong v = ModularField::Mul(a[i + j + halflen], roots[j * stride]);
-                        a[i + j] = ModularField::Add(u, v);
-                        a[i + j + halflen] = ModularField::Sub(u, v);
-                    }
+                    low = digit;
+                    hasLow = true;
                 }
             }
 
-            ULong n_inv = ModularField::Inv(n);
-            for (Int i = 0; i < n; i++)
-                a[i] = ModularField::Mul(a[i], n_inv);
-        }
-
-        // Computes convolution of two coefficient vectors A and B.
-        // Returns a vector C such that C[k] = sum_{i+j=k} A[i]*B[j] exactly.
-        static vector<DataT> convolution(const vector<DataT> &A, const vector<DataT> &B)
-        {
-            ULong need = (ULong)(A.size() + B.size() - 1);
-            DataT n = (DataT)std::bit_ceil(need);
-
-            vector<ULong> fa(n, 0), fb(n, 0);
-            for (SizeT i = 0; i < A.size(); i++)
-                fa[i] = A[i];
-            for (SizeT i = 0; i < B.size(); i++)
-                fb[i] = B[i];
-
-            // Cached twiddle tables — second multiply at same size pays only a hashmap lookup.
-            const vector<ULong> &fwdRoots = GetRoots(n, false);
-            const vector<ULong> &invRoots = GetRoots(n, true);
-
-            nttForward(fa, fwdRoots);
-            nttForward(fb, fwdRoots);
-            for (Int i = 0; i < n; i++)
-                fa[i] = ModularField::Mul(fa[i], fb[i]);
-            nttInverse(fa, invRoots);
-
-            return fa;
-        }
-
-        // Base2_32 coefficients are represented as two base-2^16 digits per limb.
-        // Build the NTT buffers directly to avoid allocating and copying temporary
-        // a16/b16 vectors before the transform.
-        static vector<DataT> convolutionBase2_32(const vector<DataT> &A, const vector<DataT> &B)
-        {
-            ULong aCoeffSize = (ULong)A.size() * 2;
-            ULong bCoeffSize = (ULong)B.size() * 2;
-            ULong need = aCoeffSize + bCoeffSize - 1;
-            DataT n = (DataT)std::bit_ceil(need);
-
-            vector<ULong> fa(n, 0), fb(n, 0);
-            for (SizeT i = 0; i < A.size(); ++i)
+            while (carry > 0)
             {
-                SizeT j = i * 2;
-                fa[j] = A[i] & 0xFFFFULL;
-                fa[j + 1] = A[i] >> 16;
-            }
-            for (SizeT i = 0; i < B.size(); ++i)
-            {
-                SizeT j = i * 2;
-                fb[j] = B[i] & 0xFFFFULL;
-                fb[j + 1] = B[i] >> 16;
+                ULong digit = carry & 0xFFFFULL;
+                carry >>= 16;
+
+                if (hasLow)
+                {
+                    result.push_back((DataT)(low | (digit << 16)));
+                    hasLow = false;
+                }
+                else
+                {
+                    low = digit;
+                    hasLow = true;
+                }
             }
 
-            const vector<ULong> &fwdRoots = GetRoots(n, false);
-            const vector<ULong> &invRoots = GetRoots(n, true);
+            if (hasLow)
+                result.push_back((DataT)low);
 
-            nttForward(fa, fwdRoots);
-            nttForward(fb, fwdRoots);
-            for (Int i = 0; i < n; i++)
-                fa[i] = ModularField::Mul(fa[i], fb[i]);
-            nttInverse(fa, invRoots);
-
-            return fa;
+            TrimZeros(result);
+            return result;
         }
 
     public:
@@ -261,45 +86,67 @@ namespace BigMath
             // to avoid overflow in the 64-bit prime field.
             if (base == Base2_32)
             {
-                // Convolve in base 2^16
-                vector<DataT> c16 = convolutionBase2_32(a, b);
-                
-                // Carry propagation in base 2^16
-                ULong carry = 0;
-                for (SizeT i = 0; i < c16.size(); i++)
+                ULong aCoeffSize = (ULong)a.size() * 2;
+                ULong bCoeffSize = (ULong)b.size() * 2;
+                ULong coeffCount = aCoeffSize + bCoeffSize - 1;
+                DataT n = (DataT)std::bit_ceil(coeffCount);
+
+                static thread_local vector<ULong> fa;
+                static thread_local vector<ULong> fb;
+                fa.assign(n, 0);
+                fb.assign(n, 0);
+
+                for (SizeT i = 0; i < a.size(); ++i)
                 {
-                    ULong total = c16[i] + carry;
-                    c16[i] = (DataT)(total & 0xFFFFULL);
-                    carry = total >> 16;
+                    SizeT j = i * 2;
+                    fa[j] = a[i] & 0xFFFFULL;
+                    fa[j + 1] = a[i] >> 16;
                 }
-                while (carry > 0)
+                for (SizeT i = 0; i < b.size(); ++i)
                 {
-                    c16.push_back((DataT)(carry & 0xFFFFULL));
-                    carry >>= 16;
+                    SizeT j = i * 2;
+                    fb[j] = b[i] & 0xFFFFULL;
+                    fb[j + 1] = b[i] >> 16;
                 }
-                
-                // Reassemble 16-bit halves back to 32-bit limbs
-                vector<DataT> c32;
-                c32.reserve(c16.size() / 2 + 1);
-                for (SizeT i = 0; i < c16.size(); i += 2)
-                {
-                    ULong low = c16[i];
-                    ULong high = (i + 1 < c16.size()) ? c16[i + 1] : 0;
-                    c32.push_back((DataT)(low | (high << 16)));
-                }
-                
-                TrimZeros(c32);
-                return c32;
+
+                const NTTPlan &plan = NTTCore::GetPlan((Int)n);
+                NTTCore::Forward(fa, plan);
+                NTTCore::Forward(fb, plan);
+                for (Int i = 0; i < (Int)n; i++)
+                    fa[i] = ModularField::Mul(fa[i], fb[i]);
+                NTTCore::Inverse(fa, plan);
+
+                return FinalizeBase2_32(fa, (SizeT)coeffCount);
             }
             else
             {
-                // Fallback for smaller bases (like Base100) where coefficients can't overflow P
-                vector<DataT> c = convolution(a, b);
+                ULong coeffCount = (ULong)(a.size() + b.size() - 1);
+                DataT n = (DataT)std::bit_ceil(coeffCount);
+
+                static thread_local vector<ULong> fa;
+                static thread_local vector<ULong> fb;
+                fa.assign(n, 0);
+                fb.assign(n, 0);
+
+                for (SizeT i = 0; i < a.size(); i++)
+                    fa[i] = a[i];
+                for (SizeT i = 0; i < b.size(); i++)
+                    fb[i] = b[i];
+
+                const NTTPlan &plan = NTTCore::GetPlan((Int)n);
+                NTTCore::Forward(fa, plan);
+                NTTCore::Forward(fb, plan);
+                for (Int i = 0; i < (Int)n; i++)
+                    fa[i] = ModularField::Mul(fa[i], fb[i]);
+                NTTCore::Inverse(fa, plan);
+
+                vector<DataT> c;
+                c.reserve((SizeT)coeffCount + 1);
                 ULong carry = 0;
-                for (SizeT i = 0; i < c.size(); i++)
+                for (SizeT i = 0; i < (SizeT)coeffCount; i++)
                 {
-                    ULong total = c[i] + carry;
-                    c[i] = (DataT)(total % base);
+                    ULong total = fa[i] + carry;
+                    c.push_back((DataT)(total % base));
                     carry = total / base;
                 }
                 while (carry > 0)

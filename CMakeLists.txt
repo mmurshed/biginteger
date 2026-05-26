@@ -84,6 +84,9 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(multperf_simple tests/multperf_simple.cpp)
     target_link_libraries(multperf_simple PRIVATE bigmath::bigmath)
 
+    add_executable(dispatch_tuner tests/performance/dispatch_tuner.cpp)
+    target_link_libraries(dispatch_tuner PRIVATE bigmath::bigmath)
+
     # Interactive calculator REPL (not registered as a ctest target).
     add_executable(calculator calculator/calculator.cpp)
     target_link_libraries(calculator PRIVATE bigmath::bigmath)
