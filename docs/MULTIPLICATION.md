@@ -86,7 +86,7 @@ Default thresholds (overridable via `-D...`):
 |---|---|---|---|
 | `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `0` | sum of limbs | Classic only for 1-limb operand |
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Same, secondary guard |
-| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `1500` | sum of limbs | Karatsuba below, NTT above |
+| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `4096` | sum of limbs | Karatsuba below, NTT above |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `48` | max of operands | Inside Karatsuba: base-case cutoff |
 
 `Toom-Cook 3` is implemented and correctness-tested but **not in the default dispatch** — see [its section](#toom-cook-3) for why.
@@ -104,7 +104,7 @@ flowchart TD
     D -- no --> N[NTTSquare]
 ```
 
-`NTT_SQUARE_THRESHOLD` defaults to `NTT_MULTIPLICATION_THRESHOLD / 2 = 750` limbs (the threshold uses operand size directly, not the sum).
+`NTT_SQUARE_THRESHOLD` defaults to `512` limbs, tuned separately from multiplication because NTT squaring needs only one forward transform (the threshold uses operand size directly, not the sum).
 
 ---
 
@@ -222,7 +222,7 @@ These eliminate per-iteration branches that the compiler was not consistently ho
        a·b = c₀ + c₁·B^k + c₂·B^(2k) + c₃·B^(3k) + c₄·B^(4k)
 ```
 
-**Why it isn't in dispatch.** Benchmarks across 128–8192 limbs showed Toom-3's best case is ~6% over Karatsuba at 4096 limbs, but at the same operand size **NTT is 4× faster than either**. Goldilocks NTT crosses Karatsuba at ~256 limbs in this codebase, leaving no operand-size band where Toom-3 wins. Adding it to dispatch regressed `mul 5k×5k` from 3.13× to 10.43× vs GMP in initial trials.
+**Why it isn't in dispatch.** Toom-3's best historical case was only a small win over Karatsuba, while the NTT path dominates once operands are large enough for Toom's lower exponent to matter. Current dispatcher sweeps keep Karatsuba until roughly 2048×2048 limbs and switch to NTT from total size ~4096. There is still no measured operand-size band where Toom-3 is the production winner.
 
 Toom-3 is kept callable for cross-checking in `tests/mult_correctness.cpp` and as a reference implementation. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
 
@@ -230,7 +230,7 @@ Toom-3 is kept callable for cross-checking in `tests/mult_correctness.cpp` and a
 
 **Location:** `algorithms/multiplication/NTTMultiplication.h`.
 
-**Complexity:** O(n log n) limb multiplies. Constant factor is large (three FFT-sized transforms plus pointwise multiply), so it loses to Karatsuba below ~750 packed input limbs.
+**Complexity:** O(n log n) limb multiplies. Constant factor is large (three FFT-sized transforms plus pointwise multiply), so the dispatcher keeps Karatsuba until the equal-size product reaches roughly 4096 total limbs.
 
 **Setup.** Multiplication via NTT computes a cyclic convolution of the digit sequences in a finite field, then propagates carries. The choice of field is critical: it must support a root of unity of sufficient order, fast reduction, and a coefficient capacity large enough that the unreduced convolution sum cannot overflow the field.
 
@@ -331,8 +331,8 @@ References for further reading: [Cooley-Tukey FFT algorithm (Wikipedia)](https:/
 | size | algorithm | speedup vs `Multiply(a, a)` |
 |---|---|---|
 | ≤ 48 limbs | `ClassicSquare` | ~1.5× |
-| 48 – 750 limbs | `KaratsubaSquare` (pointer-based) | 1.38–1.59× |
-| ≥ 750 limbs | `NTTSquare` (single forward FFT) | 1.4–1.45× |
+| 48 – 512 limbs | `KaratsubaSquare` (pointer-based) | 1.38–1.59× |
+| ≥ 512 limbs | `NTTSquare` (single forward FFT) | 1.4–1.45× |
 
 **Classic schoolbook square.** Half the partial products of full multiplication:
 
@@ -534,7 +534,7 @@ NEON on M1 lacks a 64×64→128 multiply primitive. The Goldilocks `Mul` is exac
 
 ### 6-step Cooley-Tukey decomposition
 
-[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. On M1: L1 is 192 KB, L2 is 8 MB. The NTT working set fits L1 at all practical input sizes the dispatcher routes to NTT (~750 limbs minimum). Six-step would only help once working set exceeds L2, which corresponds to operand sizes well beyond what this library targets.
+[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. On M1: L1 is 192 KB, L2 is 8 MB. The NTT working set fits L1 at all practical input sizes near the dispatcher crossover. Six-step would only help once working set exceeds L2, which corresponds to operand sizes well beyond what this library targets.
 
 ### Cached bit-reversal permutation
 
@@ -546,22 +546,22 @@ Building the bit-reversed index map once and reusing it. Implemented during expl
 
 ### Toom-Cook 3 in dispatch (rewritten, then declined)
 
-The 2026-05 rewrite verified Toom-3 is correct. Sweeping multiplication algorithms across 128–8192 limbs directly:
+The 2026-05 rewrite verified Toom-3 is correct. The current portable C++ dispatch sweep across the Karatsuba/NTT boundary is:
 
-| limbs | Karatsuba ms | Toom-3 ms | NTT ms | winner |
-|---|---:|---:|---:|---|
-| 128 | 0.012 | 0.012 | 0.016 | K (≈ tie with T) |
-| 256 | 0.056 | 0.063 | 0.047 | N |
-| 512 | 0.118 | 0.118 | 0.076 | N |
-| 1 024 | 0.345 | 0.431 | 0.163 | N |
-| 4 096 | 3.08 | 2.90 | 0.76 | N |
-| 8 192 | 9.44 | 9.54 | 1.64 | N |
+| limbs | Karatsuba ms | NTT ms | winner |
+|---|---:|---:|---|
+| 128 | 0.0039 | 0.0161 | K |
+| 256 | 0.0133 | 0.0351 | K |
+| 512 | 0.0418 | 0.0762 | K |
+| 1 024 | 0.1258 | 0.1933 | K |
+| 2 048 | 0.4596 | 0.4174 | N |
+| 4 096 | 1.3077 | 0.8010 | N |
 
-NTT dominates from ~256 limbs upward. Below that, Karatsuba ties or beats Toom-3. Toom-3 has no operand-size band where it wins. Adding it to dispatch caused a 3.3× regression on `mul 5k × 5k`. Kept as a cross-check reference, not as a production path.
+Toom-3 has no operand-size band where it has proven useful in production dispatch. Adding it to dispatch caused a 3.3× regression on `mul 5k × 5k` in earlier trials. Kept as a cross-check reference, not as a production path.
 
-### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 1500
+### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 4096
 
-Direct algorithm microbenchmarks suggest NTT beats Karatsuba from 256 limbs. End-to-end benchmarks (via `BigInteger::operator*` in `bench_vs_gmp`) tell a different story: NTT-via-dispatcher at sum ~1040 (mul 5k×5k) is *slower* than Karatsuba-via-dispatcher at the same size, because the path has setup overhead (coefficient packing, twiddle cache lookup, allocation) that algorithm-direct benchmarks don't capture. Sweeping `NTT_THRESHOLD ∈ {384, 512, 768, 1024, 1500}` confirmed 1500 (sum-of-limbs) is the operational optimum. Lesson: don't tune dispatch from microbenchmarks alone.
+Direct algorithm microbenchmarks can make NTT look attractive too early. End-to-end dispatcher sweeps tell a different story: NTT-via-dispatcher below total size ~4096 is slower than Karatsuba-via-dispatcher because the path has setup overhead (coefficient packing, twiddle cache lookup, and buffer preparation) that algorithm-direct benchmarks do not fully capture. The 2026-05 portable C++ NTT plan/cache/finalization pass retuned `NTT_THRESHOLD` to 4096 total limbs. Lesson: don't tune dispatch from microbenchmarks alone.
 
 ### PGO (Profile-Guided Optimization)
 

@@ -11,12 +11,16 @@
 #include "biginteger/BigInteger.h"
 #include "biginteger/algorithms/Division.h"
 #include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/Squaring.h"
 #include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
 #include "biginteger/algorithms/division/FastDivision.h"
 #include "biginteger/algorithms/division/NewtonDivision.h"
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/algorithms/multiplication/ClassicSquare.h"
 #include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
+#include "biginteger/algorithms/multiplication/KaratsubaSquare.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
+#include "biginteger/algorithms/multiplication/NTTSquare.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Util.h"
 
@@ -160,6 +164,7 @@ namespace
     vector<SizeT> smallSizes = {4, 8, 16, 24, 32, 40, 48, 64};
     SizeT largeLimbs = full ? 4096 : 1024;
     SizeT suggestedMinLimb = 0;
+    bool classicWinsPrefix = true;
 
     for (SizeT small : smallSizes)
     {
@@ -181,8 +186,10 @@ namespace
       }, reps);
 
       string winner = Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"ntt", nttMs}});
-      if (winner == "classic")
+      if (classicWinsPrefix && classicMs * 1.05 < min(karaMs, nttMs))
         suggestedMinLimb = small;
+      else
+        classicWinsPrefix = false;
 
       cout << small << ',' << largeLimbs << ','
            << fixed << setprecision(4) << classicMs << ','
@@ -195,6 +202,80 @@ namespace
          << '\n';
     cout << "compile override example: -DBIGMATH_CLASSIC_MIN_LIMB_THRESHOLD="
          << suggestedMinLimb
+         << '\n';
+  }
+
+  void TuneSquaring(bool full)
+  {
+    PrintHeader("Square Dispatch");
+    cout << "limbs,classic_ms,karatsuba_ms,ntt_ms,winner\n";
+
+    vector<SizeT> sizes = {
+        8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384, 512,
+        768, 1024, 1536, 2048, 4096, 8192};
+    if (full)
+    {
+      sizes.push_back(12000);
+      sizes.push_back(16000);
+      sizes.push_back(24576);
+    }
+
+    mt19937_64 gen(0x5A9E5A9E);
+    SizeT suggestedNttSquare = 0;
+    SizeT firstNttWin = 0;
+
+    for (SizeT limbs : sizes)
+    {
+      vector<DataT> a = RandomNumber(limbs, gen);
+      int reps = RepsForLimbs(limbs);
+
+      double classicMs = numeric_limits<double>::quiet_NaN();
+      if (limbs <= 256)
+      {
+        classicMs = BestMs([&]() {
+          auto r = ClassicSquare::Square(a, BigInteger::Base());
+          return (SizeT)r.size();
+        }, reps);
+      }
+
+      double karaMs = BestMs([&]() {
+        auto r = KaratsubaSquare::Square(a, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+
+      double nttMs = BestMs([&]() {
+        auto r = NTTSquare::Square(a, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+
+      string winner = limbs <= 256
+                          ? Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"ntt", nttMs}})
+                          : Winner({{"karatsuba", karaMs}, {"ntt", nttMs}});
+
+      bool nttWinsByMargin = nttMs * 1.05 < karaMs;
+      if (nttWinsByMargin)
+      {
+        if (firstNttWin == 0)
+          firstNttWin = limbs;
+        else if (suggestedNttSquare == 0)
+          suggestedNttSquare = firstNttWin;
+      }
+      else
+      {
+        firstNttWin = 0;
+      }
+
+      cout << limbs << ','
+           << fixed << setprecision(4) << classicMs << ','
+           << karaMs << ',' << nttMs << ','
+           << winner << '\n';
+    }
+
+    cout << "suggested NTT_SQUARE_THRESHOLD ~= "
+         << (suggestedNttSquare ? suggestedNttSquare : NTT_SQUARE_THRESHOLD)
+         << '\n';
+    cout << "compile override example: -DBIGMATH_NTT_SQUARE_THRESHOLD="
+         << (suggestedNttSquare ? suggestedNttSquare : NTT_SQUARE_THRESHOLD)
          << '\n';
   }
 
@@ -317,6 +398,7 @@ int main(int argc, char **argv)
   cout << "base=" << BigInteger::Base() << '\n';
 
   TuneMultiplication(full);
+  TuneSquaring(full);
   TuneDivision(full);
 
   cerr << "checksum=" << sink << '\n';
