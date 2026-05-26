@@ -30,6 +30,18 @@ namespace BigMath
       return base == Base2_32 ? value >> 32 : value / base;
     }
 
+    // Base2_64 paths use ULong128 accumulators directly (a 64-bit * 64-bit
+    // product overflows ULong), so they don't go through LowDigit/NextCarry.
+    static DataT LowDigit128(ULong128 value)
+    {
+      return (DataT)(value & 0xFFFFFFFFFFFFFFFFULL);
+    }
+
+    static ULong NextCarry128(ULong128 value)
+    {
+      return (ULong)(value >> 64);
+    }
+
     static void SetOrPush(vector<DataT> &a, SizeT pos, DataT value)
     {
       if (pos < a.size())
@@ -78,6 +90,27 @@ namespace BigMath
         {
           SetOrPush(a, j, (DataT)(carry & 0xFFFFFFFFULL));
           carry >>= 32;
+          ++j;
+        }
+        return j;
+      }
+
+      // Base-2^64 fast path: 64-bit * 64-bit gives a 128-bit product. Carry is
+      // at most 2^64-1 (the high half of the previous product), so a single
+      // push suffices after the main loop.
+      if (base == Base2_64)
+      {
+        ULong carry = 0;
+        for (SizeT j = aStart; j <= aEnd; ++j)
+        {
+          ULong128 p = (ULong128)a[j] * b + carry;
+          SetOrPush(a, j, LowDigit128(p));
+          carry = NextCarry128(p);
+        }
+        SizeT j = aEnd + 1;
+        if (carry)
+        {
+          SetOrPush(a, j, (DataT)carry);
           ++j;
         }
         return j;
@@ -133,6 +166,22 @@ namespace BigMath
       if (b == 0 || a.empty())
         return vector<DataT>();
       vector<DataT> w(a.size());
+
+      if (base == Base2_64)
+      {
+        ULong carry = 0;
+        for (SizeT j = 0; j < a.size(); ++j)
+        {
+          ULong128 p = (ULong128)a[j] * b + carry;
+          w[j] = LowDigit128(p);
+          carry = NextCarry128(p);
+        }
+        if (carry)
+          w.push_back((DataT)carry);
+        TrimZeros(w);
+        return w;
+      }
+
       ULong carry = 0;
       for (SizeT j = 0; j < a.size(); ++j)
       {
@@ -166,6 +215,29 @@ namespace BigMath
 
       SizeT len = Len(aStart, aEnd);
       SizeT wPos = wStart;
+
+      if (base == Base2_64)
+      {
+        ULong carry = 0;
+        for (SizeT j = 0; j < len; ++j)
+        {
+          ULong128 av = 0;
+          SizeT aPos = aStart + j;
+          if (aPos <= aEnd)
+            av = a[aPos];
+          ULong128 p = av * b + carry;
+          wPos = wStart + j;
+          SetOrPush(w, wPos, LowDigit128(p));
+          carry = NextCarry128(p);
+        }
+        wPos = wStart + len;
+        if (carry)
+        {
+          SetOrPush(w, wPos, (DataT)carry);
+          ++wPos;
+        }
+        return wPos;
+      }
 
       ULong carry = 0;
 
@@ -241,6 +313,28 @@ namespace BigMath
 
       SizeT k = rStart;
       SizeT lenA = aEnd - aStart + 1;
+
+      if (base == Base2_64)
+      {
+        // 64×64→128 product plus 64-bit accumulator (existing result limb) plus
+        // 64-bit carry: max sum ≤ (2^64-1)² + (2^64-1) + (2^64-1) = 2^128 - 1.
+        // Fits ULong128.
+        for (SizeT i = bStart; i <= bEnd; i++)
+        {
+          ULong carry = 0;
+          SizeT jStart = rStart + (i - bStart);
+          for (SizeT j = aStart; j <= aEnd; j++)
+          {
+            SizeT kk = jStart + (j - aStart);
+            ULong128 p = (ULong128)a[j] * b[i] + result[kk] + carry;
+            result[kk] = LowDigit128(p);
+            carry = NextCarry128(p);
+          }
+          k = jStart + lenA;
+          result[k] = (DataT)carry;
+        }
+        return k;
+      }
 
       for (SizeT i = bStart; i <= bEnd; i++)
       {
