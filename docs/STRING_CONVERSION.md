@@ -555,9 +555,9 @@ Ranked by expected ROI per unit of effort.
 
 The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — lowering it makes the D&C overhead (chain construction, more recursion levels) exceed the linear formatter's quadratic cost at small sizes; raising it leaves small-N wins on the table for the linear formatter. Don't tune without re-measuring.
 
-### Parallel D&C recursion (architectural)
+### Direct in-place D&C formatting (avoid `std::move` chain)
 
-The two halves at each `ToStringDivConquer` level are independent. A thread pool could compute them in parallel, giving up to 2× per level. With 6 levels at 100k digits, the theoretical max is much higher, but cache pressure and synchronization overhead limit the realized gain. Header-only library constraint makes thread pool management awkward. Estimated practical gain: 1.5–2× on ToString for large inputs.
+`ToStringDivConquer` repeatedly moves `n` into recursive calls. Profile shows ~7.5% of ToString time in orchestration (Compare, std::move, recursive dispatch). Restructuring to operate on a pre-allocated buffer with index ranges (rather than constructing fresh `vector<DataT>` per level) could eliminate most of this. Estimated win: 3–5%. Effort: substantial restructure of `ToStringDivConquer`, moderate risk.
 
 ### Full 64-bit limb refactor (large effort, moderate gain)
 
@@ -588,13 +588,15 @@ Documented in [project_rejected_algorithms.md](.../memory/) as historical contex
 
 The 2026-05 D&C ToString worked specifically because `Divider` made per-divide cost O(M(n)) — the same divmod that had been quadratic before became O(M(n) log n) across the chain, finally beating the linear formatter's O(L²).
 
-### 64-bit hybrid in `ClassicMultiplication::MultiplyTo` (obsoleted by LIMB_64 default)
+### Parallel D&C recursion (deadlock on current pool)
 
-Previously listed as a cheap, marginal future opportunity. The plan was to pack pairs of 32-bit limbs from the parser's accumulator `r` into 64-bit values so the `r ← r · 10¹⁸` scalar multiply ran one mul per 64 bits instead of one mul per 32 bits — same trick the [Karatsuba leaf](MULTIPLICATION.md#64-bit-hybrid-karatsuba-leaf-2026-05-biggest-single-win) got in 2026-05.
+Attempted 2026-05-26. Wrapped `ToStringDivConquer` in a return-style variant that dispatched the two halves via `ParallelDo(2)` with a depth-cap derived from `ParallelNumThreads()`. ToString at 100k digits: 20.85 ms → 16.83 ms (1.24×). ToString at 200k digits: **deadlock**.
 
-Obsoleted by `BIGMATH_LIMB_64=1` becoming default (PR #30). Under LIMB_64, `Parser.cpp::ParseUnsignedLinear` calls `MultiplyTo(r, Base10_18, CurrentBase)` with `CurrentBase = Base2_64`, which routes to MultiplyTo's `Base2_64` fast path — already one 64×64→128 mul per limb, the optimum. Further packing would require 256-bit primitives. The hybrid trick has no remaining target.
+Root cause: nested `ParallelDo` on the shared thread pool. Outer `ParallelDo(2)` workers ran Newton, which calls NTT-CRT, which calls `ParallelDo(3)` internally for the per-prime forwards/inverses. The pool (`src/common/Parallel.cpp`) has a single `(curBody, curCtx, generation)` slot — second dispatch overwrites the first, `remaining` counter races, outer wait condition never satisfied. At 100k the per-Newton-call NTT stayed below the CRT threshold so no inner dispatch occurred; at 200k+ the inner CRT fired and deadlocked.
 
-The Base2_32 path of `MultiplyTo` is still reachable when a consumer builds with `-DBIGMATH_LIMB_64=0`. Implementing the hybrid would benefit only those legacy builds (1–3% on parse). Not worth carrying ~30 lines of additional code for a niche build mode.
+A reentrancy guard (thread-local "skip inner" flag making inner `ParallelDo` run inline when called from a pool worker) would avoid deadlock but loses: outer split 2× × inner serial 1× = 2× total, vs original outer serial 1× × inner CRT-threaded ~2.5× = 2.5×. Outer parallelism on top of inner CRT parallelism requires a reentrancy-aware pool (per-call work queue + generation→counter map), which is a separate piece of work.
+
+Reverted. Prerequisite for re-attempting: rearchitect the pool to support concurrent dispatchers from multiple external threads (or implement nested-call work redirection).
 
 ### Direct in-place D&C formatting (measured flat at orchestration layer)
 
