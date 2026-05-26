@@ -1,225 +1,319 @@
 /**
- * Version 9.0
+ * BigMath expression evaluator.
+ *
+ * Recursive-descent parser over an arithmetic grammar:
+ *
+ *   summands := factors  ( ( '+' | '-' ) factors )*
+ *   factors  := power    ( ( '*' | '/' | '%' ) power )*
+ *   power    := unary    ( '^' power )?          // right-associative
+ *   unary    := ( '+' | '-' ) unary | atom
+ *   atom     := number | identifier | '(' summands ')'
+ *
+ * Variables: lookup function passed in via constructor. Unknown identifiers
+ * raise EvalError with the source position.
+ *
+ * Operators: +, -, *, /, %, ^   (^ is integer exponent; non-negative).
+ * Whitespace skipped between tokens. '#' to end of line is a comment.
+ *
  * S. M. Mahbub Murshed (murshed@gmail.com)
- */
-
-/*
- * From https://www.strchr.com/expression_evaluator
- *
- * Recursive descent parsing
- *
- * A popular approach (called recursive descent parsing) views
- * an expression as a hierarchical structure. On the top level,
- * an expression consists of several summands:
- *
- *  1.5  +  2  +  3.4 * (25 – 4) / 2  –  8
- *
- * [1.5] + [2] + [3.4 * (25 – 4) / 2] – [8]
- *
- * Summands are 1.5, 2, 3.4 * (25 – 4) / 2, and 8
- *
- * Summands are separated by "+" and "–" signs. They include
- * single numbers (1.5, 2, 8) and more complex expressions
- * [3.4 * (25 – 4) / 2].
- *
- * (Strictly speaking, 8 is not a summand here, but a subtrahend.
- * For the purposes of this article, we will refer to the parts
- * of expression separated by "–" as summands, though a
- * mathematician would say it's a misnomer.)
- *
- * Each summand, in turn, consist of several factors (we will
- * call "factors" the things separated by "*" and "/"):
- *
- *  3.4  *  (25 – 4)  /  2
- *
- * [3.4] * [(25 – 4)] / [2]
- *
- * Factors are 3.4, (25 – 4), and 2. In '1.5', there is one factor, 1.5
- *
- * The summand "1.5" can be viewed as a degenerated case: it constists
- * of one factor, 1.5. The summand "3.4 * (25 – 4) / 2" consists of
- * three factors.
- *
- * There are 2 types of factors: atoms and subexpressions in
- * parenthesis. In our simple expression evaluator, an atom is
- * just a number (in more complex translators, atoms can also
- * include variable names). Subexpressions can be parsed in the
- *  same way as the whole expression (you again found the summands
- *  inside the brackets, then factors, and then atoms).
- *
- * The hierarchy of summands and factors
- *
- * [1.5] + [2] + [3.4  * ( 25  –  4)  /  2] – [8]
- *   ↓      ↓      ↓           ↓         ↓     ↓
- * [1.5] + [2] + [3.4] * [(25  –  4)] / [2] – [8]
- *                             ↓
- *                       ([25  –  4])
- *                         ↓      ↓
- *                        [25] – [4]
- * So, we have an hierarchy, where atoms constitute the lowest
- * level, then they are combined into factors, and the factors
- * are combined into summands. A natural way to parse such
- * hierarchical expression is to use recursion.
  */
 
 #ifndef EXPRESSION_EVALUATOR
 #define EXPRESSION_EVALUATOR
 
+#include <cctype>
+#include <functional>
+#include <stdexcept>
+#include <string>
+
 #include "biginteger/BigInteger.h"
+#include "biginteger/common/Builder.h"
 #include "biginteger/common/Parser.h"
 #include "biginteger/ops/Operations.h"
 
-using namespace BigMath;
-
-class ExpressionEvaluator
+namespace BigMath
 {
-private:
-	int parenthesis;
+  // Exception with the source-relative byte offset of the offending token.
+  class EvalError : public std::runtime_error
+  {
+  public:
+    EvalError(std::string const &msg, int position)
+        : std::runtime_error(msg), pos(position) {}
+    int Position() const { return pos; }
 
-	// Parse a number or an expression in parenthesis
-	BigInteger ParseAtom(const char *&expr)
-	{
-		// Skip spaces
-		while (*expr == ' ')
-			expr++;
+  private:
+    int pos;
+  };
 
-		// Sign before parenthesis or number
-		bool negative = false;
+  class ExpressionEvaluator
+  {
+  public:
+    using Lookup = std::function<bool(std::string const &, BigInteger &)>;
 
-		if (*expr == '-')
-		{
-			negative = true;
-			expr++;
-		}
+    ExpressionEvaluator() = default;
+    explicit ExpressionEvaluator(Lookup lookup) : lookup_(std::move(lookup)) {}
 
-		if (*expr == '+')
-		{
-			expr++;
-		}
+    BigInteger Eval(char const *expr)
+    {
+      origin_ = expr;
+      cur_ = expr;
+      BigInteger res = ParseSummands();
+      SkipSpaces();
+      if (*cur_ == ')')
+        Fail("Unmatched closing parenthesis");
+      if (*cur_ != '\0')
+        Fail("Unexpected trailing input");
+      return res;
+    }
 
-		// Parenthesis
-		if (*expr == '(')
-		{
-			expr++;
-			parenthesis++;
+    BigInteger Eval(std::string const &expr) { return Eval(expr.c_str()); }
 
-			BigInteger res = ParseSummands(expr);
-			res.SetSign(negative);
+  private:
+    char const *origin_ = nullptr;
+    char const *cur_ = nullptr;
+    Lookup lookup_;
 
-			if (*expr != ')')
-			{
-				throw "Unmatched opening parenthesis";
-			}
+    [[noreturn]] void Fail(std::string const &msg) const
+    {
+      throw EvalError(msg, (int)(cur_ - origin_));
+    }
 
-			expr++;
-			parenthesis--;
+    void SkipSpaces()
+    {
+      while (*cur_ == ' ' || *cur_ == '\t')
+        ++cur_;
+      // '#' to end of line is a comment.
+      if (*cur_ == '#')
+      {
+        while (*cur_ != '\0' && *cur_ != '\n')
+          ++cur_;
+      }
+    }
 
-			return res;
-		}
+    // ── grammar ───────────────────────────────────────────────────────────────
 
-		// It should be a number
-		if (*expr < '0' || *expr > '9')
-		{
-			throw "Invalid character";
-		}
+    BigInteger ParseSummands()
+    {
+      BigInteger a = ParseFactors();
+      while (true)
+      {
+        SkipSpaces();
+        char op = *cur_;
+        if (op != '+' && op != '-')
+          return a;
+        ++cur_;
+        BigInteger b = ParseFactors();
+        a = (op == '+') ? (a + b) : (a - b);
+      }
+    }
 
-		int count = 0;
-		BigInteger res = Parse(expr, &count);
-		res.SetSign(negative);
+    BigInteger ParseFactors()
+    {
+      BigInteger a = ParsePower();
+      while (true)
+      {
+        SkipSpaces();
+        char op = *cur_;
+        if (op != '*' && op != '/' && op != '%')
+          return a;
+        ++cur_;
+        BigInteger b = ParsePower();
+        if (op == '*')
+        {
+          a = a * b;
+        }
+        else
+        {
+          if (b.Zero())
+            Fail(op == '/' ? "Division by zero" : "Modulo by zero");
+          if (op == '/')
+            a = a / b;
+          else
+            a = a % b;
+        }
+      }
+    }
 
-		// Advance the pointer and return the result
-		expr += count;
+    BigInteger ParsePower()
+    {
+      BigInteger base = ParseUnary();
+      SkipSpaces();
+      if (*cur_ != '^')
+        return base;
+      ++cur_;
+      // Right-associative: 2^3^2 == 2^(3^2).
+      BigInteger exp = ParsePower();
+      return Pow(base, exp);
+    }
 
-		return res;
-	}
+    BigInteger ParseUnary()
+    {
+      SkipSpaces();
+      if (*cur_ == '+')
+      {
+        ++cur_;
+        return ParseUnary();
+      }
+      if (*cur_ == '-')
+      {
+        ++cur_;
+        BigInteger x = ParseUnary();
+        if (!x.Zero())
+          -x;  // in-place negate
+        return x;
+      }
+      return ParseAtom();
+    }
 
-	// Parse multiplication and division
-	BigInteger ParseFactors(const char *&expr)
-	{
+    BigInteger ParseAtom()
+    {
+      SkipSpaces();
 
-		BigInteger a = ParseAtom(expr);
+      if (*cur_ == '(')
+      {
+        ++cur_;
+        BigInteger res = ParseSummands();
+        SkipSpaces();
+        if (*cur_ != ')')
+          Fail("Expected ')'");
+        ++cur_;
+        return res;
+      }
 
-		while (true)
-		{
-			// Skip spaces
-			while (*expr == ' ')
-				expr++;
+      if (*cur_ >= '0' && *cur_ <= '9')
+      {
+        // Hex (0x...) and binary (0b...) literals: parsed via repeated
+        // multiply-and-add since the library only natively parses decimal.
+        if (*cur_ == '0' && (cur_[1] == 'x' || cur_[1] == 'X'))
+        {
+          cur_ += 2;
+          return ParseRadixLiteral(16);
+        }
+        if (*cur_ == '0' && (cur_[1] == 'b' || cur_[1] == 'B'))
+        {
+          cur_ += 2;
+          return ParseRadixLiteral(2);
+        }
 
-			// Save the operation and position
-			char op = *expr;
-			const char *pos = expr;
+        // Decimal: skip underscore separators if present.
+        char const *start = cur_;
+        char const *probe = cur_;
+        bool hasUnderscore = false;
+        while ((*probe >= '0' && *probe <= '9') || *probe == '_')
+        {
+          if (*probe == '_') hasUnderscore = true;
+          ++probe;
+        }
+        if (hasUnderscore)
+        {
+          std::string clean;
+          clean.reserve((size_t)(probe - start));
+          for (char const *p = start; p < probe; ++p)
+            if (*p != '_') clean.push_back(*p);
+          cur_ = probe;
+          return Parse(clean.c_str());
+        }
+        Int consumed = 0;
+        BigInteger res = Parse(cur_, &consumed);
+        cur_ += consumed;
+        return res;
+      }
 
-			if (op != '/' && op != '*')
-				return a;
+      if (IsIdentifierStart(*cur_))
+      {
+        char const *start = cur_;
+        while (IsIdentifierCont(*cur_))
+          ++cur_;
+        std::string name(start, cur_);
+        BigInteger out;
+        if (!lookup_ || !lookup_(name, out))
+        {
+          // Roll back to the start of the identifier so error position points
+          // at the name, not past it.
+          cur_ = start;
+          Fail("Unknown identifier: " + name);
+        }
+        return out;
+      }
 
-			expr++;
+      if (*cur_ == '\0')
+        Fail("Unexpected end of input");
+      Fail(std::string("Invalid character: '") + *cur_ + "'");
+    }
 
-			BigInteger b = ParseAtom(expr);
+    // ── radix literal parser (hex / binary) ───────────────────────────────────
+    BigInteger ParseRadixLiteral(int radix)
+    {
+      char const *start = cur_;
+      BigInteger result = BigIntegerBuilder::From("0");
+      BigInteger base = BigIntegerBuilder::From(std::to_string(radix));
+      int digits = 0;
+      while (true)
+      {
+        char c = *cur_;
+        int d;
+        if (c == '_') { ++cur_; continue; }
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = 10 + (c - 'a');
+        else if (c >= 'A' && c <= 'F') d = 10 + (c - 'A');
+        else break;
+        if (d >= radix)
+        {
+          Fail(std::string("digit '") + c + "' out of range for base " + std::to_string(radix));
+        }
+        result = result * base + BigIntegerBuilder::From(std::to_string(d));
+        ++cur_;
+        ++digits;
+      }
+      if (digits == 0)
+      {
+        cur_ = start;
+        Fail(std::string("expected ") + (radix == 16 ? "hex" : "binary") + " digits");
+      }
+      return result;
+    }
 
-			// Perform the saved operation
-			if (op == '/')
-			{
-				// Division by zero
-				if (b.Zero())
-				{
-					throw "Division by zero";
-				}
-				a = a / b;
-			}
-			else
-				a = a * b;
-		}
+    static bool IsIdentifierStart(char c)
+    {
+      return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    }
+    static bool IsIdentifierCont(char c)
+    {
+      return IsIdentifierStart(c) || (c >= '0' && c <= '9');
+    }
 
-		return a;
-	}
+    // ── integer power: square-and-multiply, exponent must be non-negative ────
+    BigInteger Pow(BigInteger base, BigInteger exp)
+    {
+      if (exp.IsNegative())
+        Fail("Negative exponent not supported for integer power");
+      if (exp.Zero())
+      {
+        // 0^0 conventionally = 1.
+        return BigIntegerBuilder::From("1");
+      }
+      if (base.Zero())
+        return BigIntegerBuilder::From("0");
 
-	// Parse addition and subtraction
-	BigInteger ParseSummands(const char *&expr)
-	{
-		BigInteger a = ParseFactors(expr);
+      // Reject absurd exponents that would never fit in memory (>= 2^32 bits
+      // would already be terabytes-scale).
+      if (exp.size() > 1 || exp[0] > (DataT)20000000)
+        Fail("Exponent too large for integer power");
 
-		while (true)
-		{
-			// Skip spaces
-			while (*expr == ' ')
-				expr++;
-
-			char op = *expr;
-
-			if (op != '-' && op != '+')
-				return a;
-
-			expr++;
-
-			BigInteger b = ParseFactors(expr);
-
-			if (op == '-')
-				a = a - b;
-			else
-				a = a + b;
-		}
-
-		return a;
-	}
-
-public:
-	BigInteger Eval(const char *expr)
-	{
-		parenthesis = 0;
-		BigInteger res = ParseSummands(expr);
-		// Expression should end, and parenthesis should be zero
-
-		if (parenthesis != 0 || *expr == ')')
-		{
-			throw "Parenthesis mismatch";
-		}
-
-		if (*expr != '\0')
-		{
-			throw "Invalid expression";
-		}
-		return res;
-	};
-};
+      uint32_t e = (uint32_t)exp[0];
+      BigInteger result = BigIntegerBuilder::From("1");
+      BigInteger b = base;
+      while (e > 0)
+      {
+        if (e & 1u)
+          result = result * b;
+        e >>= 1;
+        if (e > 0)
+          b = b * b;
+      }
+      return result;
+    }
+  };
+}
 
 #endif
