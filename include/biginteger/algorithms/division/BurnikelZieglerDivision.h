@@ -314,6 +314,11 @@ namespace BigMath
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
+      // Base2_64: defer to FastDivision until BZ's internal shift/AddShifted/
+      // MaxBlock helpers are ported to 64-bit limbs. Correctness-only fallback.
+      if (base == Base2_64)
+        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
       if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
