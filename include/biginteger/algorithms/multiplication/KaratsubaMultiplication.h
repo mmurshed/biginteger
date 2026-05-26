@@ -364,10 +364,21 @@ namespace BigMath
 
             SizeT n = (SizeT)max(a.size(), b.size());
             vector<DataT> c(a.size() + b.size(), 0);
-            
-            // Workspace is overwritten before use at every recursive level; avoid
-            // zero-initializing up to 8*n limbs on every Karatsuba call.
-            unique_ptr<DataT[]> w(new DataT[8 * n]);
+
+            // Workspace usage per recursion level: lenWl + lenWh (~n+2) for the
+            // sum operands, then lenT1 + lenT2 + lenT3 (~3n) for the three sub-
+            // products plus T3 = (wl*wh) which is sized 2*(n/2+1). Sub-recursion
+            // is dispatched with `nextW` pointing past these.
+            //
+            // The geometric sum across log₂(n) levels works out to ~10n in the
+            // worst case (highly unbalanced split — one half ~all of n, the
+            // other ~1 — produces wl/wh sizes near n, pushing the per-level
+            // usage above the balanced-case 5n).
+            //
+            // 16n is a comfortable upper bound that keeps the workspace within
+            // a single allocation and never triggers a heap-buffer-overflow
+            // even on adversarially-skewed inputs (e.g. 1200×1024).
+            unique_ptr<DataT[]> w(new DataT[16 * n]);
 
             MultiplyRecursive(
                 a.data(), a.size(),

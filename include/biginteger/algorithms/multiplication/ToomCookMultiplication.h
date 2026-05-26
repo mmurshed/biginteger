@@ -1,6 +1,6 @@
 /**
  * BigInteger Class
- * Version 11.0
+ * Version 12.0
  * Toom-3 multiplication: 5 evaluation points {0, 1, -1, 2, ∞}.
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)

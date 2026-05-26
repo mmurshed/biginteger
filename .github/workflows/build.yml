@@ -1,0 +1,61 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.cc }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            cmake_flags: "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -march=x86-64-v3 -DNDEBUG"
+          - os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            cmake_flags: "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -march=x86-64-v3 -DNDEBUG"
+          - os: macos-latest
+            cc: clang
+            cxx: clang++
+            cmake_flags: "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -mcpu=apple-m1 -DNDEBUG"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GMP (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Install GMP (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gmp
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            "${{ matrix.cmake_flags }}"
+
+      - name: Build
+        run: cmake --build build -j --config Release
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure --timeout 600
+
+      - name: Smoke-test calculator
+        run: |
+          echo '2^256 - 1' | ./build/calculator
