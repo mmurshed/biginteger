@@ -412,7 +412,25 @@ Measured win on `FastDivision` band (Base2_32, M1 Max, `divperf_simple`):
 | 8192×512 | 9.64 ms | 7.78 ms | −19% |
 | 16384×512 | 15.92 ms | 14.15 ms | −11% |
 
-The M-G qhat is currently gated on `base == Base2_32 && n >= 2` in the j-loop. Under `BIGMATH_LIMB_64=1` it's skipped (the 3-by-2 reciprocal precompute would need a 192/128 software division), and Knuth qhat with a 128/64 hardware divide is used instead. Re-enabling M-G for Base2_64 is a [future opportunity](#future-opportunities).
+### Möller–Granlund 3/2 reciprocal in `FastDivision` qhat, Base2_64 path (2026-05-26)
+
+Extended M-G to the `Base2_64` path. The 192/128 reciprocal precompute is avoided by using paper Algorithm 6 (`Reciprocal3by2_Base64`): derive the 3-by-2 reciprocal from a 2-by-1 reciprocal of the divisor's top word — only one `ULong128 / ULong` operation, no 192-bit software division. The 3/2 division itself (`MGQhat_Base64`) mirrors `MGQhat_Base32` with `ULong128` intermediates.
+
+Measured win on M1 Max, `Base2_64` default, FastDivision called directly (skewed sizes where qhat dominates):
+
+| m × n (limbs) | Knuth qhat | M-G qhat | speedup |
+|---|---:|---:|---:|
+| 256 × 16    | 9.41 μs    | 7.42 μs    | **1.27×** |
+| 1024 × 32   | 61.3 μs    | 50.2 μs    | **1.22×** |
+| 4096 × 64   | 414 μs     | 369 μs     | **1.12×** |
+| 16384 × 128 | 3089 μs    | 2860 μs    | 1.08×    |
+| 65536 × 256 | 23046 μs   | 22152 μs   | 1.04×    |
+| 1024 × 512  | 349 μs     | 345 μs     | flat     |
+| 4096 × 2048 | 5464 μs    | 5494 μs    | flat     |
+
+Strong wins are concentrated at high skew with small `n`. As `n` grows the per-iteration `SubtractMul` (n `ULong128` mul-adds) eclipses the qhat cost and the proportional win shrinks. Newton/BZ dispatch bands cover the larger-`n` cases anyway, so the band where M-G actually matters is exactly `b.size() ∈ (1, ~256)` 64-bit limbs.
+
+Gated by the same `BIGMATH_FASTDIV_USE_MG_QHAT` flag (default on); now activates for both `Base2_32` and `Base2_64` when `n >= 2`.
 
 ### 64-bit limb refactor (2026-05, PRs #18–#30)
 
@@ -530,11 +548,7 @@ The CRT + threading combination compounds: 4-5× cumulative win on the floor cas
 
 Ranked by expected ROI per unit of effort.
 
-### Möller–Granlund 3/2 reciprocal for `FastDivision` under Base2_64 (medium, ~10% on FastDivision band)
-
-PR #17 landed M-G for Base2_32 with strong wins. Base2_64 currently uses Knuth qhat because the M-G 3-by-2 reciprocal precompute requires `floor((2^192 - 1) / d)` where `d` is a 128-bit divisor — a 192/128 software division that doesn't exist in the standard library. Implementing it (~40–80 lines of long division, runs once per `FastDivision::DivideAndRemainder` call) would unlock the same proportional wins seen for Base2_32 in the dispatcher band `b.size() ∈ (1, NEWTON_MEDIUM_B / 2)` ≈ `(1, 512)` for 64-bit limbs.
-
-Effort: ~150 lines. Risk: low (M-G algorithm already validated at Base2_32; the new piece is just the 192/128 divide).
+_(M-G 3/2 for Base2_64 FastDivision was landed 2026-05-26 — see [Optimizations already implemented §Möller–Granlund 3/2 reciprocal in `FastDivision` qhat, Base2_64 path](#möllergranlund-32-reciprocal-in-fastdivision-qhat-base2_64-path-2026-05-26).)_
 
 ---
 
