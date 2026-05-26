@@ -57,6 +57,23 @@ namespace BigMath
   // the per-dispatch overhead (~5µs * N threads).
   SizeT ParallelMinSize();
 
+  // ParallelDo: dispatch numTasks chunks unconditionally (bypass MinSize).
+  // For coarse-grained parallelism where each task is large enough that
+  // dispatch overhead is irrelevant — e.g. running 3 independent NTTs in
+  // parallel, one per prime.
+  void ParallelDo(Int numTasks, void (*body)(Int start, Int end, void *ctx), void *ctx);
+
+  template <typename F>
+  inline void ParallelDo(Int numTasks, F &&body)
+  {
+    struct Ctx { F f; };
+    Ctx ctx{std::forward<F>(body)};
+    auto tramp = +[](Int s, Int e, void *p) {
+      static_cast<Ctx *>(p)->f(s, e);
+    };
+    ParallelDo(numTasks, tramp, &ctx);
+  }
+
 #else
 
   // Stubs for the single-threaded build. Always returns 1 / runs serially.
@@ -68,6 +85,13 @@ namespace BigMath
   {
     if (total > 0)
       body(Int{0}, total);
+  }
+
+  template <typename F>
+  inline void ParallelDo(Int numTasks, F &&body)
+  {
+    if (numTasks > 0)
+      body(Int{0}, numTasks);
   }
 
 #endif

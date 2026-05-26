@@ -158,8 +158,18 @@ namespace BigMath
 
   SizeT ParallelMinSize()
   {
-    // Below ~4 KiB of work, dispatch overhead exceeds the parallel win.
-    return 4096;
+    // Tuned from sample(1) profile of div 200k/50k under threads (was 4096):
+    // psynch_cvwait dominated at 42K samples vs ~5K for actual NTT work.
+    // Root cause: NTT has log2(n) layers per transform; each layer does one
+    // ParallelFor dispatch costing ~30µs. CRT does 6 transforms × ~13 layers
+    // ≈ 78 dispatches per Multiply, totalling ~2.3ms overhead — exceeds the
+    // 1.5ms actual work at small NTT sizes.
+    //
+    // Raising to 65536 limits layer-parallelism to very large NTTs where the
+    // per-layer work amortizes the dispatch overhead. Preserves large-mul
+    // wins (1M×1M had layers ≥ 262144 ops) while eliminating regression on
+    // small-to-mid NTTs.
+    return 65536;
   }
 
   void ParallelFor(Int total, void (*body)(Int start, Int end, void *ctx), void *ctx)
@@ -172,6 +182,20 @@ namespace BigMath
       return;
     }
     Pool().RunChunks((Int)n, total, body, ctx);
+  }
+
+  void ParallelDo(Int numTasks, void (*body)(Int start, Int end, void *ctx), void *ctx)
+  {
+    if (numTasks <= 0) return;
+    SizeT n = Pool().NumThreads();
+    if (n <= 1)
+    {
+      body(0, numTasks, ctx);
+      return;
+    }
+    // Use min(numTasks, pool size) chunks so each thread gets ~1 task.
+    Int chunks = (Int)std::min((SizeT)numTasks, n);
+    Pool().RunChunks(chunks, numTasks, body, ctx);
   }
 }
 
