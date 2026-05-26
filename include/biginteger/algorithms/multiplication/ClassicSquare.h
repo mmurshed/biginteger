@@ -63,6 +63,46 @@ namespace BigMath
           carry = hi >> 32;
         }
       }
+      else if (base == Base2_64)
+      {
+        // 1. Upper triangle: r[i+j] += a[i]*a[j]  for j > i.
+        // 64×64 → 128 product + 64-bit accumulator + 64-bit carry fits ULong128.
+        for (SizeT i = 0; i < n; ++i)
+        {
+          if (a[i] == 0) continue;
+          ULong ai = a[i];
+          ULong carry = 0;
+          for (SizeT j = i + 1; j < n; ++j)
+          {
+            ULong128 prod = (ULong128)ai * a[j] + r[i + j] + carry;
+            r[i + j] = (DataT)(prod & 0xFFFFFFFFFFFFFFFFULL);
+            carry = (ULong)(prod >> 64);
+          }
+          r[i + n] = (DataT)carry;
+        }
+
+        // 2. Multiply by 2 (left shift by 1 bit) — ULong128 captures the carry-out.
+        ULong128 c = 0;
+        for (SizeT i = 0; i < 2 * n; ++i)
+        {
+          ULong128 v = ((ULong128)r[i] << 1) | c;
+          r[i] = (DataT)(v & 0xFFFFFFFFFFFFFFFFULL);
+          c = v >> 64;
+        }
+
+        // 3. Add diagonal a[i]^2 at position 2i. The square is 128 bits;
+        // add into r[2i] (64-bit) + r[2i+1] (64-bit) with carry-out tracking.
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < n; ++i)
+        {
+          ULong128 sq = (ULong128)a[i] * a[i];
+          ULong128 lo = (ULong128)r[2 * i] + (sq & 0xFFFFFFFFFFFFFFFFULL) + carry;
+          r[2 * i] = (DataT)(lo & 0xFFFFFFFFFFFFFFFFULL);
+          ULong128 hi = (ULong128)r[2 * i + 1] + (ULong)(sq >> 64) + (ULong)(lo >> 64);
+          r[2 * i + 1] = (DataT)(hi & 0xFFFFFFFFFFFFFFFFULL);
+          carry = hi >> 64;
+        }
+      }
       else
       {
         for (SizeT i = 0; i < n; ++i)

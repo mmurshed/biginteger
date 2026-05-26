@@ -123,10 +123,15 @@ namespace
         return (SizeT)r.size();
       }, reps);
 
+#if BIGMATH_LIMB_64
+      // Toom-5 not ported to Base2_64 (not in production dispatch).
+      double toom5Ms = std::numeric_limits<double>::quiet_NaN();
+#else
       double toom5Ms = BestMs([&]() {
         auto r = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
         return (SizeT)r.size();
       }, reps);
+#endif
 
       double nttMs = BestMs([&]() {
         auto r = NTTMultiplication::Multiply(a, b, BigInteger::Base());

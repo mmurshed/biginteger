@@ -183,6 +183,9 @@ REGISTER_TEST(Builder, FromLongDoubleNegative)
   ASSERT_EQ(ToString(x), "-1000000");
 }
 
+#if !BIGMATH_LIMB_64
+// Pins the Base2_32 limb encoding of 2^32. Under LIMB_64=1 the same value
+// fits in one 64-bit limb (v = {2^32}); skip rather than assert wrong layout.
 REGISTER_TEST(Builder, VectorFromULong)
 {
   std::vector<DataT> v = BigIntegerBuilder::VectorFrom((ULong)Base2_32);  // 2^32
@@ -191,3 +194,4 @@ REGISTER_TEST(Builder, VectorFromULong)
   ASSERT_EQ(v[0], 0u);
   ASSERT_EQ(v[1], 1u);
 }
+#endif

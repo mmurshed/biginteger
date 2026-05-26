@@ -16,6 +16,11 @@ namespace BigMath
     if (b == 0)
       return;
 
+    // For Base2_64, the limb max is 2^64-1 (= LimbMask). The original code
+    // uses `(base - b) % base` and `base - 1`, which underflows when base == 0
+    // (the Base2_64 sentinel). Use limb-mask arithmetic instead.
+    const ULong limbMax = (base == Base2_64) ? 0xFFFFFFFFFFFFFFFFULL : (ULong)(base - 1);
+
     if (aEnd >= aStart)
     {
       if (a[aStart] >= b)
@@ -26,7 +31,11 @@ namespace BigMath
       else
       {
         b -= a[aStart];
-        a[aStart] = static_cast<DataT>((base - b) % base);
+        // (base - b) for non-Base2_64; for Base2_64 it's (2^64 - b) which
+        // equals (~b + 1), i.e. the two's-complement negation as ULong.
+        a[aStart] = (base == Base2_64)
+                        ? static_cast<DataT>((ULong)(0) - b)
+                        : static_cast<DataT>((base - b) % base);
         b = 1;
       }
     }
@@ -37,7 +46,9 @@ namespace BigMath
 
       if (b > 0)
       {
-        a[aStart] = static_cast<DataT>((base - b) % base);
+        a[aStart] = (base == Base2_64)
+                        ? static_cast<DataT>((ULong)(0) - b)
+                        : static_cast<DataT>((base - b) % base);
         b = 1;
       }
     }
@@ -54,13 +65,13 @@ namespace BigMath
         }
         else
         {
-          a[aPos] = static_cast<DataT>(base - 1);
+          a[aPos] = static_cast<DataT>(limbMax);
           b = 1;
         }
       }
       else
       {
-        a.push_back(static_cast<DataT>(base - 1));
+        a.push_back(static_cast<DataT>(limbMax));
         b = 1;
       }
       aPos++;
@@ -85,8 +96,40 @@ namespace BigMath
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
 
     Int size = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
-    Long carry = 0;
 
+    if (base == Base2_64)
+    {
+      // 64-bit limb subtraction with explicit borrow tracking. Signed `Long`
+      // can't hold a 64-bit limb, so do unsigned arithmetic and detect borrow
+      // via comparison.
+      ULong borrow = 0;
+      for (Int i = 0; i < size; i++)
+      {
+        ULong ai = 0;
+        Int aPos = aStart + i;
+        if (aPos <= aEnd && aPos < (Int)a.size())
+          ai = a[aPos];
+
+        ULong bi = 0;
+        Int bPos = bStart + i;
+        if (bPos <= bEnd && bPos < (Int)b.size())
+          bi = b[bPos];
+
+        // Compute ai - bi - borrow with two-step borrow detection.
+        ULong t1 = ai - borrow;
+        ULong borrow1 = (ai < borrow) ? 1 : 0;
+        ULong diff = t1 - bi;
+        ULong borrow2 = (t1 < bi) ? 1 : 0;
+        borrow = borrow1 + borrow2;
+
+        Int rPos = rStart + i;
+        if (rPos < (Int)result.size())
+          result[rPos] = (DataT)diff;
+      }
+      return;
+    }
+
+    Long carry = 0;
     for (Int i = 0; i < size; i++)
     {
       Long digitOps = 0;

@@ -27,18 +27,55 @@ namespace BigMath
   private:
     static DataT Digit(ULong128 value, BaseT base)
     {
-      return base == Base2_32 ? (DataT)(value & 0xFFFFFFFFULL) : (DataT)(value % base);
+      if (base == Base2_32) return (DataT)(value & 0xFFFFFFFFULL);
+      if (base == Base2_64) return (DataT)(value & 0xFFFFFFFFFFFFFFFFULL);
+      return (DataT)(value % base);
     }
 
     static ULong Carry(ULong128 value, BaseT base)
     {
-      return base == Base2_32 ? (ULong)(value >> 32) : (ULong)(value / base);
+      if (base == Base2_32) return (ULong)(value >> 32);
+      if (base == Base2_64) return (ULong)(value >> 64);
+      return (ULong)(value / base);
     }
 
     static bool SubtractMul(vector<DataT> &u, vector<DataT> const &v, ULong qhat, SizeT j, BaseT base)
     {
       ULong borrow = 0;
       SizeT n = (SizeT)v.size();
+
+      if (base == Base2_64)
+      {
+        // Base2_64: the (ULong)base = 0 sentinel makes the historical
+        // `u[j+i] + base - low` underflow-correction unusable. Unsigned
+        // modular subtraction wraps correctly without it: when u[j+i] < low,
+        // `(ULong)u[j+i] - low` = u[j+i] + 2^64 - low (mod 2^64), which is
+        // exactly what the +base correction does for power-of-two B.
+        for (SizeT i = 0; i < n; ++i)
+        {
+          ULong128 product = (ULong128)v[i] * qhat + borrow;
+          DataT low = (DataT)(product & 0xFFFFFFFFFFFFFFFFULL);
+          borrow = (ULong)(product >> 64);
+
+          if (u[j + i] < low)
+          {
+            u[j + i] = (DataT)((ULong)u[j + i] - low); // wraps mod 2^64
+            ++borrow;
+          }
+          else
+          {
+            u[j + i] = (DataT)(u[j + i] - low);
+          }
+        }
+
+        if (u[j + n] < borrow)
+        {
+          u[j + n] = (DataT)((ULong)u[j + n] - borrow); // wraps mod 2^64
+          return true;
+        }
+        u[j + n] = (DataT)(u[j + n] - borrow);
+        return false;
+      }
 
       for (SizeT i = 0; i < n; ++i)
       {
@@ -69,9 +106,23 @@ namespace BigMath
 
     static void AddBack(vector<DataT> &u, vector<DataT> const &v, SizeT j, BaseT base)
     {
-      ULong carry = 0;
       SizeT n = (SizeT)v.size();
 
+      if (base == Base2_64)
+      {
+        // ULong128 sum to capture the carry on full 64-bit limbs.
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < n; ++i)
+        {
+          ULong128 sum = (ULong128)u[j + i] + v[i] + carry;
+          u[j + i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+          carry = sum >> 64;
+        }
+        u[j + n] = (DataT)(((ULong128)u[j + n] + carry) & 0xFFFFFFFFFFFFFFFFULL);
+        return;
+      }
+
+      ULong carry = 0;
       for (SizeT i = 0; i < n; ++i)
       {
         ULong sum = (ULong)u[j + i] + v[i] + carry;
@@ -142,6 +193,17 @@ namespace BigMath
         }
         out[a.size()] = (DataT)carry;
       }
+      else if (base == Base2_64)
+      {
+        ULong carry = 0;
+        for (SizeT i = 0; i < a.size(); ++i)
+        {
+          ULong128 product = (ULong128)a[i] * d + carry;
+          out[i] = (DataT)(product & 0xFFFFFFFFFFFFFFFFULL);
+          carry = (ULong)(product >> 64);
+        }
+        out[a.size()] = (DataT)carry;
+      }
       else
       {
         ULong carry = 0;
@@ -171,6 +233,18 @@ namespace BigMath
         for (Int i = (Int)a.size() - 1; i >= 0; --i)
         {
           ULong128 cur = ((ULong128)rem << 32) | a[i];
+          q[i] = (DataT)(cur / d);
+          rem = (ULong)(cur % d);
+        }
+        if (remainder)
+          *remainder = (DataT)rem;
+      }
+      else if (base == Base2_64)
+      {
+        ULong rem = 0;
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong128 cur = ((ULong128)rem << 64) | a[i];
           q[i] = (DataT)(cur / d);
           rem = (ULong)(cur % d);
         }
@@ -221,7 +295,21 @@ namespace BigMath
         return {q, computeRemainder ? vector<DataT>{rem} : vector<DataT>()};
       }
 
-      DataT d = (DataT)(base / (b[b.size() - 1] + 1));
+      DataT d;
+      if (base == Base2_64)
+      {
+        // For Base2_64: d = floor(2^64 / (b_top + 1)). Special-case b_top == max
+        // (b is already normalized; d = 1).
+        DataT btop = b[b.size() - 1];
+        if (btop == 0xFFFFFFFFFFFFFFFFULL)
+          d = 1;
+        else
+          d = (DataT)(((ULong128)1 << 64) / ((ULong128)btop + 1));
+      }
+      else
+      {
+        d = (DataT)(base / (b[b.size() - 1] + 1));
+      }
 
       vector<DataT> u = d > 1
                             ? MultiplyByScalar(a, d, base)
@@ -256,6 +344,32 @@ namespace BigMath
           qhat = (ULong)MGQhat_Base32(
               (DataT)u[j + n], (DataT)u[j + n - 1], (DataT)u[j + n - 2],
               (DataT)v[n - 1], (DataT)v[n - 2], mg_v);
+        }
+        else if (base == Base2_64)
+        {
+          // Knuth qhat for 64-bit limbs. The (u_hi:u_lo) / v_top divide is a
+          // 128/64 division; rhat overflow is detected via __builtin_add_overflow
+          // since B = 2^64 doesn't fit in ULong.
+          ULong128 numerator = ((ULong128)u[j + n] << 64) | u[j + n - 1];
+          qhat = (ULong)(numerator / v[n - 1]);
+          ULong rhat = (ULong)(numerator % v[n - 1]);
+
+          // Cap qhat at 2^64-1: if numerator / v[n-1] would equal B = 2^64, the
+          // quotient digit cannot represent it; clamp and rely on the fixup loop.
+          // This corresponds to the `qhat == (ULong)base` check in the Base2_32
+          // path. Since `qhat` is held in ULong, the only way for it to equal B
+          // is overflow into a higher value; we approximate by checking the
+          // divide's high-bits-clear precondition (u[j+n] < v[n-1] post-normalize).
+
+          while (n > 1 &&
+                 (ULong128)qhat * v[n - 2] > (((ULong128)rhat << 64) | u[j + n - 2]))
+          {
+            --qhat;
+            ULong new_rhat;
+            if (__builtin_add_overflow(rhat, v[n - 1], &new_rhat))
+              break; // rhat overflowed past B; further qhat decrements are unnecessary
+            rhat = new_rhat;
+          }
         }
         else
         {

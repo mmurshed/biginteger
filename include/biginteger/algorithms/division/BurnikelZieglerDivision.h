@@ -49,7 +49,10 @@ namespace BigMath
     {
       if (limbs == 0)
         return vector<DataT>{0};
-      return vector<DataT>(limbs, (DataT)(base - 1));
+      // base - 1 underflows when base == Base2_64 sentinel (0); use LimbMask.
+      const DataT limbMax = (base == Base2_64) ? (DataT)0xFFFFFFFFFFFFFFFFULL
+                                                : (DataT)(base - 1);
+      return vector<DataT>(limbs, limbMax);
     }
 
     static void PadTo(vector<DataT> &v, SizeT limbs)
@@ -60,7 +63,7 @@ namespace BigMath
         v.push_back(0);
     }
 
-    // Bit-shift left by [1..32] bits. Caller ensures shift ∈ [0,32].
+    // Bit-shift left by [1..LimbBits] bits. Caller ensures shift ∈ [0,LimbBits].
     static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int shift)
     {
       if (shift == 0 || IsZero(v))
@@ -68,15 +71,21 @@ namespace BigMath
       vector<DataT> out(v.size() + 1, 0);
       for (SizeT i = 0; i < v.size(); ++i)
       {
+#if BIGMATH_LIMB_64
+        ULong128 cur = (ULong128)v[i] << shift;
+        out[i] |= (DataT)(cur & 0xFFFFFFFFFFFFFFFFULL);
+        out[i + 1] |= (DataT)(cur >> 64);
+#else
         ULong cur = (ULong)v[i] << shift;
         out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
         out[i + 1] |= (DataT)(cur >> 32);
+#endif
       }
       TrimZerosToOne(out);
       return out;
     }
 
-    // Bit-shift right by [0..32] bits. Caller ensures shift ∈ [0,32].
+    // Bit-shift right by [0..LimbBits] bits.
     static vector<DataT> ShiftRightBits(vector<DataT> const &v, Int shift)
     {
       if (shift == 0 || IsZero(v))
@@ -84,26 +93,42 @@ namespace BigMath
       vector<DataT> out(v.size(), 0);
       for (Int i = 0; i < (Int)v.size(); ++i)
       {
+#if BIGMATH_LIMB_64
+        ULong128 cur = (ULong128)v[i];
+        if (i + 1 < (Int)v.size())
+          cur |= ((ULong128)v[i + 1]) << 64;
+        out[i] = (DataT)((cur >> shift) & 0xFFFFFFFFFFFFFFFFULL);
+#else
         ULong cur = v[i];
         if (i + 1 < (Int)v.size())
           cur |= ((ULong)v[i + 1]) << 32;
         out[i] = (DataT)((cur >> shift) & 0xFFFFFFFFULL);
+#endif
       }
       TrimZerosToOne(out);
       return out;
     }
 
     // Number of bits to shift left so that b's limb count becomes b.size()+1.
-    // Pushes b's MSB into a new high limb. Returns shift ∈ [1,32].
+    // Pushes b's MSB into a new high limb. Returns shift ∈ [1,LimbBits].
     static Int BitsToBumpLimbCount(vector<DataT> const &b)
     {
       DataT top = b.back();
+#if BIGMATH_LIMB_64
+      Int bits_top = 64 - __builtin_clzll((unsigned long long)top);
+      return 65 - bits_top; // 1..64
+#else
       Int bits_top = 32 - __builtin_clz((unsigned int)top);
       return 33 - bits_top; // 1..32
+#endif
     }
 
     static void Decrement(vector<DataT> &v, BaseT base)
     {
+      // limbMax is base-1 for power-of-two bases. The BaseT sentinel for
+      // Base2_64 is 0, so (base - 1) would underflow — use LimbMask.
+      const DataT limbMax = (base == Base2_64) ? (DataT)0xFFFFFFFFFFFFFFFFULL
+                                                : (DataT)(base - 1);
       SizeT i = 0;
       while (i < v.size())
       {
@@ -112,7 +137,7 @@ namespace BigMath
           --v[i];
           break;
         }
-        v[i] = (DataT)(base - 1);
+        v[i] = limbMax;
         ++i;
       }
       TrimZerosToOne(v);
@@ -128,6 +153,29 @@ namespace BigMath
       vector<DataT> out(outSize, 0);
 
       std::memcpy(out.data(), lowData, lowSize * sizeof(DataT));
+
+      if (base == Base2_64)
+      {
+        ULong128 carry = 0;
+        SizeT i = 0;
+        for (; i < high.size(); ++i)
+        {
+          ULong128 sum = (ULong128)out[shift + i] + high[i] + carry;
+          out[shift + i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+          carry = sum >> 64;
+        }
+        SizeT idx = shift + i;
+        while (carry)
+        {
+          if (idx >= out.size())
+            out.push_back(0);
+          ULong128 sum = (ULong128)out[idx] + carry;
+          out[idx] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+          carry = sum >> 64;
+          ++idx;
+        }
+        return out;
+      }
 
       ULong carry = 0;
       SizeT i = 0;
