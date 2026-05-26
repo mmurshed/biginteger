@@ -9,6 +9,7 @@
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
 #include "NTTCore.h"
+#include "NTTMultiplicationCrt.h"
 
 using namespace std;
 
@@ -130,6 +131,13 @@ namespace BigMath
             // If a is a single digit, use the scalar multiplication
             if (a.size() == 1)
                 return ClassicMultiplication::Multiply(b, a[0], base);
+
+#if BIGMATH_NTT_CRT
+            // Multi-prime CRT NTT (three 30-bit primes, 32-bit coefficient split).
+            // Halves coefficient count vs Goldilocks at the cost of 3 parallel
+            // transforms + CRT reconstruction. See NTTMultiplicationCrt.h.
+            return NttCrt::Multiply(a, b, base);
+#endif
 
             // If the base is Base2_32, we split each 32-bit limb into two 16-bit halves
             // to avoid overflow in the 64-bit prime field.
