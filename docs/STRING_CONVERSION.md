@@ -397,59 +397,64 @@ c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
     tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
 ```
 
-Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). `min` over a small iteration count.
+Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Min over 5 runs.
 
 ### Parse
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.005 | 0.002 | 3.1 × |
-| 10 000 digits | 0.24 | 0.038 | 6.2 × |
-| 50 000 digits | 2.9 | 0.41 | 7.2 × |
-| 100 000 digits | 7.4 | 1.1 | 7.1 × |
-| 500 000 digits | 54 | 8.9 | 6.0 × |
-| 1 000 000 digits | 124 | 20.5 | 6.0 × |
+| 1 000 digits | 0.002 | 0.002 | **1.00 ×** |
+| 10 000 digits | 0.112 | 0.038 | 2.95 × |
+| 50 000 digits | 1.34 | 0.39 | 3.47 × |
+| 100 000 digits | 3.24 | 1.04 | **3.10 ×** |
+| 500 000 digits | 21.4 | 8.88 | **2.41 ×** |
+| 1 000 000 digits | 48.0 | 20.6 | **2.33 ×** |
 
 ### ToString
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.037 | 0.003 | 11 × |
-| 10 000 digits | 1.7 | 0.077 | 22 × |
-| 50 000 digits | 17 | 0.86 | 20 × |
-| 100 000 digits | 41 | 2.3 | 18 × |
+| 1 000 digits | 0.017 | 0.003 | 5.67 × |
+| 10 000 digits | 0.863 | 0.077 | 11.2 × |
+| 50 000 digits | 10.1 | 0.85 | 12.0 × |
+| 100 000 digits | 22.5 | 2.35 | **9.57 ×** |
 
-(GMP doesn't have a directly comparable 500k+ ToString benchmark in this harness; `mpz_get_str` is O(n²) by default in mainline GMP, similar to BigMath's linear formatter — both libraries would need D&C ToString to scale, and the relative ratio at very large sizes depends on which D&C path each uses.)
+(GMP doesn't have a directly comparable 500k+ ToString benchmark in this harness; `mpz_get_str` is O(n²) by default in mainline GMP, similar to BigMath's linear formatter — both libraries would need D&C ToString to scale.)
 
-**Historical view** of ToString showing the impact of the 2026-05 optimization pass:
+**Historical view** showing the cumulative wins across the 2026-05 optimization pass:
 
-| size | early 2026 | current | improvement |
-|---|---|---|---|
-| ToString 10 000 digits | 47 × | 22 × | **2.1 ×** |
-| ToString 50 000 digits | 113 × | 20 × | **5.7 ×** |
-| ToString 100 000 digits | **160 ×** | **18 ×** | **9 ×** |
+| size | early 2026 | mid-session | now (CRT + threads default) | improvement |
+|---|---|---|---|---|
+| Parse 100 000 | 7.1 × | 7.1 × | **3.10 ×** | **2.3 ×** |
+| Parse 1 000 000 | 6.0 × | 6.0 × | **2.33 ×** | **2.6 ×** |
+| ToString 10 000 | 47 × | 22 × | **11.2 ×** | **4.2 ×** |
+| ToString 50 000 | 113 × | 20 × | **12.0 ×** | **9.4 ×** |
+| ToString 100 000 | **160 ×** | 18 × | **9.57 ×** | **16.7 ×** |
 
-The 100k case went from 160× to 18× over the session. The cumulative wins came from:
+The 100k ToString case went from 160× to 9.6× over the session — **16.7× cumulative improvement**. Wins came from:
 
 1. D&C ToString with Newton-Divider chain (8.4× at 100k).
 2. 64-bit hybrid Karatsuba leaf (improved every `Multiply` and `Divide` call in the chain).
 3. Squaring specialization in `Pow10` cache build.
 4. Reduced Karatsuba recursive overhead.
+5. **64-bit limb refactor** halved Newton's internal limb counts (PRs #18-#30).
+6. **`digitsPerLimb` fix** correctly sized D&C leaf chunks under LIMB_64 (PR #29 — caught a 2× regression that the limb refactor had introduced).
+7. **Multi-prime CRT NTT** dropped per-coefficient modular cost (PRs #34-#37).
+8. **Multithreaded NTT** parallelizes the 3 CRT primes' transforms across the pool (PRs #32, #38-#39).
 
 ### Where the ToString time goes (post-optimization)
 
-Profile of `ToString 100 000 digits`:
+Profile of `ToString 100 000 digits` under default stack (sample(1), M1 Max):
 
-| function | % of ToString time |
+| function group | % of ToString time |
 |---|---:|
-| `KaratsubaMultiplication::MultiplyRecursive` dispatch (in `BuildDecimalDcChain` and Newton inner mults) | ~11% |
-| `ToStringDivConquer` orchestration (std::move, Compare, recurse) | ~7.5% |
-| `NewtonDivision::*` chain (divmod operations) | ~5.2% |
-| `KaratsubaMultiplication::MultiplyClassicPtr` (the leaf, after the 64-bit hybrid) | ~2.7% |
-| `ToStringLinearAppend` (linear leaf, divmod-10¹⁸ loop) | ~2.5% |
-| `__udivmodti4` (128/64 divmod inside linear leaf) | ~2.2% |
+| `NewtonDivision::Divider::DivideAndRemainder` (D&C chain divmod calls) | ~55% |
+| `NttCrt::Multiply` (internal mults inside Newton's `ApproxReciprocal` + `DivideChunk`) | ~25% |
+| `ToStringLinearAppend` (linear leaf, divmod-10¹⁸ loop) + `__udivmodti4` | ~10% |
+| `ToStringDivConquer` orchestration + Compare/Shift/TrimZeros | ~7% |
+| Allocation + misc | ~3% |
 
-**The distribution is flat** post-optimization. The first big rounds of optimization concentrated 39% of time at the schoolbook leaf, which was crushed by the 64-bit hybrid. What remains is spread across multiplication dispatch, divmod orchestration, and Newton iteration internals — no single dominant target.
+The distribution is now dominated by Newton's divmod chain calling NTT mults. The earlier hot spots (39% in `MultiplyClassicPtr` schoolbook leaf, 5-10% in `__udivmodti4`) were eliminated by the 64-bit hybrid leaf + `digitsPerLimb` fix. Remaining headroom would come from Mulders' short-mult inside Newton — see [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor).
 
 ### Parse: where the time goes
 
