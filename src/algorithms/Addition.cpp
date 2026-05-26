@@ -34,6 +34,27 @@ namespace BigMath
       return;
     }
 
+    if (base == Base2_64)
+    {
+      ULong128 acc = b;
+      SizeT i = aStart;
+      while (acc)
+      {
+        if (i <= aEnd && i < a.size())
+        {
+          acc += a[i];
+          a[i] = (DataT)(acc & 0xFFFFFFFFFFFFFFFFULL);
+        }
+        else
+        {
+          a.push_back((DataT)(acc & 0xFFFFFFFFFFFFFFFFULL));
+        }
+        acc >>= 64;
+        ++i;
+      }
+      return;
+    }
+
     ULong sum = b;
     ULong carry = 0;
     if (aEnd >= aStart)
@@ -85,8 +106,31 @@ namespace BigMath
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
 
     Int size = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
-    Long carry = 0;
 
+    if (base == Base2_64)
+    {
+      ULong128 carry = 0;
+      for (Int i = 0; i < size; i++)
+      {
+        ULong128 digitOps = carry;
+        Int aPos = i + aStart;
+        if (aPos <= aEnd && aPos < (Int)a.size())
+          digitOps += a[aPos];
+        Int bPos = i + bStart;
+        if (bPos <= bEnd && bPos < (Int)b.size())
+          digitOps += b[bPos];
+        Int rPos = rStart + i;
+        if (rPos < (Int)result.size())
+          result[rPos] = (DataT)(digitOps & 0xFFFFFFFFFFFFFFFFULL);
+        carry = digitOps >> 64;
+      }
+      Int rPos = rStart + size;
+      if (carry > 0 && rPos < (Int)result.size())
+        result[rPos] += (DataT)carry;
+      return;
+    }
+
+    Long carry = 0;
     for (Int i = 0; i < size; i++)
     {
       Long digitOps = 0;
@@ -159,6 +203,11 @@ namespace BigMath
           a.push_back((DataT)(b & 0xFFFFFFFFULL));
           b >>= 32;
         }
+      }
+      else if (base == Base2_64)
+      {
+        // b fits in a single 64-bit limb; one push suffices.
+        a.push_back((DataT)b);
       }
       else
       {
