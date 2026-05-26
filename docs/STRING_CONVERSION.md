@@ -266,18 +266,18 @@ while (!(r.size() == 1 && r[0] == 0))
 
 Each `DivModTo` is O(|r|) limb operations. The number of iterations is O(L / 18) where L is the digit count. Total O(L · |r|) = O(L · L/9.6) = O(L²). Same quadratic complexity as the linear parser; same threshold for switching to D&C.
 
-The inner loop of `DivModTo(vec, Base10_18, Base2_32)` walks `vec` from high limb to low, maintaining a `ULong128` accumulator:
+The inner loop of `DivModTo(vec, Base10_18, Base2_32)` walks `vec` from high limb to low, maintaining a `ULong128` accumulator. Each limb step is a Möller-Granlund "div2by1" reciprocal divide (`GranlundMollerDivider`, built once per call from the invariant divisor):
 
 ```
+   gm  = GranlundMollerDivider(d=Base10_18)   ← precompute shift, dn, v once
    acc = 0
    for i = n-1 down to 0:
-       acc      = (acc << 32) | vec[i]   ← ULong128 by construction
-       vec[i]   = (acc / Base10_18)       ← ULong128 / ULong64 → __udivmodti4
-       acc      = (acc % Base10_18)
-   return (ULong)acc                      ← the remainder (a base-10¹⁸ digit)
+       acc          = (acc << 32) | vec[i]
+       (vec[i], r)  = gm.DivMod(acc.hi, acc.lo)  ← UMULH + add + ≤2 fixups
+   return r                                  ← the remainder (a base-10¹⁸ digit)
 ```
 
-The `__udivmodti4` is the single hottest instruction in linear formatting. On M1 it lowers to a `UDIV` plus a multiply-subtract; on x86 to a `DIV`. Both are slow compared to the surrounding bit operations — Granlund–Möller's "magic-number" division by an invariant constant could replace it with a few `UMULH`s, but the gain caps at ~1–2% on `ToString 100 000` (see [Future opportunities](#future-opportunities)).
+Replacing the prior `__udivmodti4` libcall (one `UDIV` + multiply-subtract on ARM64, one `DIV` on x86) with `UMULH` + adds yields a measured 1.08–2.13× speedup on `ToString` depending on input size — small inputs that stay in the linear leaf gain the most, large inputs gain less because the D&C path dominates. See [Optimizations already implemented §Granlund–Möller](#granlundmöller-magic-number-divmod-in-classicdivision).
 
 ### Divide-and-conquer formatter (`ToStringDivConquer`)
 
@@ -519,17 +519,28 @@ The estimate is always an overestimate (rounds up). The overestimate is harmless
 
 Discussed in detail in [MULTIPLICATION.md §Classic schoolbook](MULTIPLICATION.md#classic-schoolbook). Every `Multiply` and `Square` call inside the parser's D&C combine and the ToString's `Pow10` build hits Karatsuba (for the mid-sized intermediate products) and benefits from the 64-bit hybrid leaf. The ToString 10k case went from 31× to 22× vs GMP largely thanks to this multiplication-level change, even though no string-conversion code was modified.
 
+### Granlund–Möller magic-number divmod in `ClassicDivision`
+
+Landed 2026-05-26. `ClassicDivision::DivideTo`, `DivModTo`, and `DivideAndRemainder` all replaced their `ULong128 / d` inner loops with Möller-Granlund "div2by1" reciprocal arithmetic (paper Algorithm 4). Reciprocal is built once per call (`(2^128 - 1) / dn` precompute) and amortized across the per-limb loop; each limb step then costs one 64×64→128 `UMULH` plus a 128-bit add and 1–2 fixup branches, vs the prior `__udivmodti4` libcall.
+
+`ToString` benefits directly — every `DivModTo(r, Base10_18, ...)` call in `ToStringLinearAppend` runs through the new path, and the D&C formatter routes hundreds of <2 048-digit leaf subproblems through the same loop. Measured wins (M1 Max, default stack):
+
+| size | pre-GM BM ms | post-GM BM ms | speedup | pre-GM × GMP | post-GM × GMP |
+|---|---:|---:|---:|---:|---:|
+| ToString 1 000 | 0.017 | 0.008 | **2.13×** | 5.67 × | 2.34 × |
+| ToString 10 000 | 0.863 | 0.724 | **1.19×** | 11.2 × | 8.78 × |
+| ToString 50 000 | 10.1 | 9.07 | **1.11×** | 12.0 × | 10.4 × |
+| ToString 100 000 | 22.5 | 20.85 | **1.08×** | 9.57 × | 8.62 × |
+
+Pre-implementation estimate in this doc was "1–2% on ToString 100k" (capped by `__udivmodti4` being only 2.2% of profile). Realized win at 100k is ~8%, larger than predicted because the D&C path's leaves all hit the linear formatter, not just the top-level dispatch. Small-N wins are large (2.13× at 1k) because that range stays entirely in the linear leaf — exactly the regime where the prior `__udivmodti4` libcall dominated.
+
+`Parse` is unaffected (parser uses `MultiplyTo`, not `DivModTo`). `FastDivision` and friends call `ClassicDivision::DivModTo` for their single-limb-divisor fallback, so any caller passing a single-limb divisor now benefits.
+
 ---
 
 ## Future opportunities
 
 Ranked by expected ROI per unit of effort.
-
-### Granlund–Möller magic-number divmod by 10¹⁸ (cheap, marginal)
-
-`ToStringLinearAppend` calls `ClassicDivision::DivModTo(r, Base10_18, Base2_32)` in a tight loop. Each call ultimately invokes `__udivmodti4` (128/64 long division) per limb step. For the invariant divisor `10¹⁸`, [Granlund–Möller "Improved Division by Invariant Integers"](https://gmplib.org/~tege/division-paper.pdf) reduces divmod to a multiply-by-precomputed-reciprocal-high plus a small correction — one or two `UMULH`s replacing a `UDIV` sequence.
-
-Estimated win: 1–2% on ToString 100k (capped because `__udivmodti4` is only 2.2% of profile). Effort: ~80 lines, low risk (the invariant divisor makes the reciprocal computation a constant). Probably worth doing if/when the linear leaf gets attention.
 
 ### 64-bit hybrid in `ClassicMultiplication::MultiplyTo` (cheap, marginal)
 
