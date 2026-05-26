@@ -20,8 +20,12 @@
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
+// Default: CRT NTT enabled via size-gated dispatch (threshold 5000 limbs
+// sum). Wins 5-15% on large mul / skewed div / parse / ToString when the
+// combined operand size crosses the gate. Below the gate, Goldilocks NTT
+// runs as before — zero-cost fall-through. Opt out via -DBIGMATH_NTT_CRT=0.
 #ifndef BIGMATH_NTT_CRT
-#define BIGMATH_NTT_CRT 0
+#define BIGMATH_NTT_CRT 1
 #endif
 
 #ifndef NTT_MULTIPLICATION_CRT
