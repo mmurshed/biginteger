@@ -9,6 +9,7 @@
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
 #include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 #include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "biginteger/algorithms/multiplication/Toom5Multiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 #include "biginteger/algorithms/multiplication/ClassicSquare.h"
 #include "biginteger/algorithms/multiplication/KaratsubaSquare.h"
@@ -41,10 +42,12 @@ static bool CheckSize(int digits)
   vector<DataT> classic = ClassicMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> toom = ToomCookMultiplication::Multiply(av, bv, BigInteger::Base());
+  vector<DataT> toom5 = Toom5Multiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(av, bv, BigInteger::Base());
 
   bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
+  bool okToom5 = Compare(classic, toom5) == 0;
   bool okNtt = Compare(classic, ntt) == 0;
 
   // Squaring vs Multiply(a,a) cross-check (uses `a` only).
@@ -61,6 +64,7 @@ static bool CheckSize(int digits)
   cout << digits
        << " digits: kara=" << okKara
        << " toom=" << okToom
+       << " toom5=" << okToom5
        << " ntt=" << okNtt
        << " csq=" << okCsq
        << " ksq=" << okKsq
@@ -69,7 +73,7 @@ static bool CheckSize(int digits)
        << " limbs=" << av.size()
        << endl;
 
-  return okKara && okToom && okNtt && okCsq && okKsq && okNsq && okDsq;
+  return okKara && okToom && okToom5 && okNtt && okCsq && okKsq && okNsq && okDsq;
 }
 
 static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const char *label)
@@ -77,20 +81,23 @@ static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const c
   vector<DataT> classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> toom = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
+  vector<DataT> toom5 = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(a, b, BigInteger::Base());
 
   bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
+  bool okToom5 = Compare(classic, toom5) == 0;
   bool okNtt = Compare(classic, ntt) == 0;
 
   cout << label
        << ": kara=" << okKara
        << " toom=" << okToom
+       << " toom5=" << okToom5
        << " ntt=" << okNtt
        << " limbs=" << a.size() << "x" << b.size()
        << endl;
 
-  return okKara && okToom && okNtt;
+  return okKara && okToom && okToom5 && okNtt;
 }
 
 int main()

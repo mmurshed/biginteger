@@ -21,6 +21,7 @@
 #include "biginteger/algorithms/multiplication/KaratsubaSquare.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTSquare.h"
+#include "biginteger/algorithms/multiplication/Toom5Multiplication.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Util.h"
 
@@ -84,7 +85,7 @@ namespace
   void TuneMultiplication(bool full)
   {
     PrintHeader("Multiplication Dispatch");
-    cout << "limbs_each,total_limbs,classic_ms,karatsuba_ms,ntt_ms,winner\n";
+    cout << "limbs_each,total_limbs,classic_ms,karatsuba_ms,toom5_ms,ntt_ms,winner\n";
 
     vector<SizeT> sizes = {
         8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384, 512,
@@ -122,14 +123,19 @@ namespace
         return (SizeT)r.size();
       }, reps);
 
+      double toom5Ms = BestMs([&]() {
+        auto r = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
+        return (SizeT)r.size();
+      }, reps);
+
       double nttMs = BestMs([&]() {
         auto r = NTTMultiplication::Multiply(a, b, BigInteger::Base());
         return (SizeT)r.size();
       }, reps);
 
       string winner = limbs <= 256
-                          ? Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"ntt", nttMs}})
-                          : Winner({{"karatsuba", karaMs}, {"ntt", nttMs}});
+                          ? Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"toom5", toom5Ms}, {"ntt", nttMs}})
+                          : Winner({{"karatsuba", karaMs}, {"toom5", toom5Ms}, {"ntt", nttMs}});
 
       if (!foundClassicCrossover && limbs <= 256 && karaMs < classicMs)
       {
@@ -141,7 +147,7 @@ namespace
 
       cout << limbs << ',' << limbs * 2 << ','
            << fixed << setprecision(4) << classicMs << ','
-           << karaMs << ',' << nttMs << ','
+           << karaMs << ',' << toom5Ms << ',' << nttMs << ','
            << winner << '\n';
       previousTotal = limbs * 2;
     }

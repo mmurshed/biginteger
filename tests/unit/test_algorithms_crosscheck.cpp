@@ -24,6 +24,7 @@
 #include "biginteger/algorithms/multiplication/KaratsubaSquare.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTSquare.h"
+#include "biginteger/algorithms/multiplication/Toom5Multiplication.h"
 #include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "biginteger/common/Comparator.h"
 
@@ -49,9 +50,11 @@ static void CrossMul(SizeT aLimbs, SizeT bLimbs, uint64_t seed)
   auto classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   auto kara    = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
   auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
+  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   auto ntt     = NTTMultiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, kara), 0);
   ASSERT_EQ(Compare(classic, toom), 0);
+  ASSERT_EQ(Compare(classic, toom5), 0);
   ASSERT_EQ(Compare(classic, ntt),  0);
 }
 
@@ -74,9 +77,11 @@ REGISTER_TEST(MulCross, MaxCarry257)
   auto classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   auto kara    = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
   auto toom    = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
+  auto toom5   = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   auto ntt     = NTTMultiplication::Multiply(a, b, BigInteger::Base());
   ASSERT_EQ(Compare(classic, kara), 0);
   ASSERT_EQ(Compare(classic, toom), 0);
+  ASSERT_EQ(Compare(classic, toom5), 0);
   ASSERT_EQ(Compare(classic, ntt),  0);
 }
 

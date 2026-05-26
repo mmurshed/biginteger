@@ -89,7 +89,7 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `4096` | sum of limbs | Karatsuba below, NTT above |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `48` | max of operands | Inside Karatsuba: base-case cutoff |
 
-`Toom-Cook 3` is implemented and correctness-tested but **not in the default dispatch** — see [its section](#toom-cook-3) for why.
+`Toom-Cook 3` and `Toom-5` are implemented and correctness-tested but **not in the default dispatch** — see [Toom-Cook 3](#toom-cook-3) and [Toom-5](#toom-5) for why.
 
 `Square(a, base)` lives in `algorithms/Squaring.h` and has its own parallel dispatcher:
 
@@ -225,6 +225,16 @@ These eliminate per-iteration branches that the compiler was not consistently ho
 **Why it isn't in dispatch.** Toom-3's best historical case was only a small win over Karatsuba, while the NTT path dominates once operands are large enough for Toom's lower exponent to matter. Current dispatcher sweeps keep Karatsuba until roughly 2048×2048 limbs and switch to NTT from total size ~4096. There is still no measured operand-size band where Toom-3 is the production winner.
 
 Toom-3 is kept callable for cross-checking in `tests/mult_correctness.cpp` and as a reference implementation. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
+
+### Toom-5
+
+**Location:** `algorithms/multiplication/Toom5Multiplication.h`.
+
+**Status:** implemented and validated, but **not in dispatch**.
+
+Toom-5 splits operands into five chunks, evaluates at `{0, ±1, ±2, ±3, 4, ∞}`, performs nine pointwise products, and interpolates coefficients `c0..c8`. The implementation uses exact small-rational interpolation over the fixed seven nontrivial points after removing `c0` and `c8`.
+
+Benchmarks show no useful production band. Below the Toom-5 threshold the function falls back to Karatsuba. At the first active point, 512×512 limbs, Toom-5 is already about 3× slower than Karatsuba (`0.1507 ms` vs `0.0488 ms` in the full dispatch tuner run). It remains slower through the pre-NTT band, so it is kept only as an experimental cross-check/benchmark candidate.
 
 ### NTT (Goldilocks prime)
 
@@ -558,6 +568,20 @@ The 2026-05 rewrite verified Toom-3 is correct. The current portable C++ dispatc
 | 4 096 | 1.3077 | 0.8010 | N |
 
 Toom-3 has no operand-size band where it has proven useful in production dispatch. Adding it to dispatch caused a 3.3× regression on `mul 5k × 5k` in earlier trials. Kept as a cross-check reference, not as a production path.
+
+### Toom-5 in dispatch
+
+The 2026-05 Toom-5 prototype was benchmarked in `dispatch_tuner --full`:
+
+| limbs | Karatsuba ms | Toom-5 ms | NTT ms | winner |
+|---|---:|---:|---:|---|
+| 256 | 0.0131 | 0.0122 | 0.0341 | Toom-5 function, but still Karatsuba internally |
+| 384 | 0.0264 | 0.0262 | 0.0874 | Toom-5 function, but still Karatsuba internally |
+| 512 | 0.0488 | 0.1507 | 0.0893 | Karatsuba |
+| 1 024 | 0.1482 | 0.3214 | 0.1926 | Karatsuba |
+| 2 048 | 0.4640 | 0.7553 | 0.3690 | NTT |
+
+The apparent wins below 512 limbs are not real Toom-5 wins because `Toom5Multiplication` falls back to Karatsuba below `BIGMATH_TOOM5_THRESHOLD = 512`. Once Toom-5 is active, interpolation/evaluation overhead dominates. Do not add Toom-5 to dispatch without new benchmark evidence.
 
 ### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 4096
 
