@@ -9,13 +9,17 @@
 
 #include <cstdint>
 
-// Limb width selector. When 0 (default), DataT stores 32-bit values in a 64-bit
-// container — the historical layout. When 1, DataT stores true 64-bit values
-// and Base() switches to Base2_64. Foundation flag for the multi-PR 64-bit-limb
-// refactor; subsequent PRs add the 64-bit code paths gated on this macro. The
-// 32-bit path remains the default until the refactor is complete and tested.
+// Limb width selector. When 1 (default), DataT stores true 64-bit values and
+// Base() == Base2_64. When 0, DataT stores 32-bit values in a 64-bit container
+// (the historical layout) and Base() == Base2_32. The 32-bit path is kept
+// available for A/B testing and as a fallback; flip via -DBIGMATH_LIMB_64=0.
+//
+// Bench (M1 Max, -O3 -march=native, bench_vs_gmp): LIMB_64=1 matches or beats
+// LIMB_64=0 on every measured op. Wins: small/mid mul -25 to -60%, skewed div
+// -36 to -59%, parse -24 to -34%, ToString -19 to -28%. 1M NTT-bound mul is
+// flat (NTT-coefficient-bound, not limb-bound).
 #ifndef BIGMATH_LIMB_64
-#define BIGMATH_LIMB_64 0
+#define BIGMATH_LIMB_64 1
 #endif
 
 namespace BigMath
