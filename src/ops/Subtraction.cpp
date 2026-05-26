@@ -49,7 +49,14 @@ namespace BigMath
           Add(a.GetInteger(), b.GetInteger(), BigInteger::Base()),
           aNeg && !bNeg);
 
-    return SubtractCompared(a, b);
+    // Same sign: a - b = ±(|a| - |b|) where the outer sign is `aNeg`.
+    // SubtractCompared treats inputs as magnitudes and signs the result by
+    // whichever magnitude is bigger; that's correct for both-positive but
+    // inverts for both-negative, so flip when aNeg.
+    BigInteger r = SubtractCompared(a, b);
+    if (aNeg && !r.Zero())
+      r.SetSign(!r.IsNegative());
+    return r;
   }
 
   BigInteger operator-(BigInteger const &a, BigInteger const &b)

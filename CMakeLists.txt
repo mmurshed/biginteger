@@ -73,6 +73,13 @@ if(BIGMATH_BUILD_TESTS)
     bigmath_add_test(mult_correctness tests/mult_correctness.cpp)
     bigmath_add_test(div_correctness  tests/div_correctness.cpp)
 
+    # Aggregated unit-test binary (one TU per area, single REGISTER_TEST registry)
+    file(GLOB BIGMATH_UNIT_TEST_SOURCES CONFIGURE_DEPENDS tests/unit/*.cpp)
+    add_executable(unit_tests ${BIGMATH_UNIT_TEST_SOURCES})
+    target_link_libraries(unit_tests PRIVATE bigmath::bigmath)
+    target_include_directories(unit_tests PRIVATE tests/unit)
+    add_test(NAME unit_tests COMMAND unit_tests)
+
     # Performance harnesses (no `add_test` because they print, not assert)
     add_executable(multperf_simple tests/multperf_simple.cpp)
     target_link_libraries(multperf_simple PRIVATE bigmath::bigmath)
