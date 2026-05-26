@@ -133,10 +133,16 @@ namespace BigMath
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
 #if BIGMATH_NTT_CRT
-            // Multi-prime CRT NTT (three 30-bit primes, 32-bit coefficient split).
-            // Halves coefficient count vs Goldilocks at the cost of 3 parallel
-            // transforms + CRT reconstruction. See NTTMultiplicationCrt.h.
-            return NttCrt::Multiply(a, b, base);
+            // Size-gated hybrid: CRT wins on large NTT-bound ops where its
+            // per-op savings outweigh the 3× transform overhead. Below the
+            // threshold, Goldilocks wins (notably mul 50k×50k +18% with CRT).
+            // Tuned 2026-05 on M1 Max; override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
+#ifndef BIGMATH_NTT_CRT_THRESHOLD
+#define BIGMATH_NTT_CRT_THRESHOLD 10000
+#endif
+            if (a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD)
+                return NttCrt::Multiply(a, b, base);
+            // Fall through to Goldilocks below threshold.
 #endif
 
             // If the base is Base2_32, we split each 32-bit limb into two 16-bit halves
