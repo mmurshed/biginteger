@@ -319,9 +319,18 @@ namespace BigMath
     while (r.size() > 1 && r.back() == 0)
       r.pop_back();
 
-    // Each 32-bit limb ≈ log10(2^32) ≈ 9.633 decimal digits. Overestimate is fine —
-    // used only for buffer reserve and D&C level choice.
-    SizeT approxDigits = (SizeT)((double)r.size() * 9.633) + 1;
+    // Each LimbBits-wide limb ≈ LimbBits * log10(2) decimal digits.
+    // Base2_32 = 9.633, Base2_64 = 19.266. Used for buffer reserve AND D&C
+    // chain depth — underestimating leaves the linear-leaf chunk way too big
+    // (e.g. Base2_64 with 9.633 underestimates 2×, halves chain depth, and
+    // pushes a 60k-digit value through ToStringLinearAppend, dominating
+    // runtime with __udivmodti4 libcalls).
+#if BIGMATH_LIMB_64
+    constexpr double digitsPerLimb = 19.266;
+#else
+    constexpr double digitsPerLimb = 9.633;
+#endif
+    SizeT approxDigits = (SizeT)((double)r.size() * digitsPerLimb) + 1;
 
     std::string s;
     s.reserve(approxDigits + (isNeg ? 2 : 1));
