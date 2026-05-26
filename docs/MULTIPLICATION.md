@@ -1,0 +1,616 @@
+# Multiplication in BigMath
+
+A technical reference for the multiplication subsystem of this BigInteger library: implemented algorithms, dispatch policy, optimization history, benchmark results against GMP, and a catalogue of approaches that were considered and rejected (with their reasons).
+
+---
+
+## Table of contents
+
+1. [Scope and audience](#scope-and-audience)
+2. [Number representation](#number-representation)
+3. [Top-level dispatch](#top-level-dispatch)
+4. [Algorithms](#algorithms)
+   - [Classic schoolbook](#classic-schoolbook)
+   - [Karatsuba](#karatsuba)
+   - [Toom-Cook 3](#toom-cook-3)
+   - [NTT (Goldilocks prime)](#ntt-goldilocks-prime)
+   - [Squaring](#squaring)
+5. [Benchmark results vs GMP](#benchmark-results-vs-gmp)
+6. [Optimizations already implemented](#optimizations-already-implemented)
+7. [Future opportunities](#future-opportunities)
+8. [Explored but rejected](#explored-but-rejected)
+9. [References](#references)
+
+---
+
+## Scope and audience
+
+This document covers `Multiply` and `Square` only. Division, addition, subtraction, parsing, and formatting are out of scope, except where they appear as callers in the benchmarks.
+
+Assumed reader: a working C++ engineer with light numerics background. Familiar with big-integer arithmetic at the level of [Knuth Vol. 2 §4.3](https://en.wikipedia.org/wiki/The_Art_of_Computer_Programming) but not necessarily with FFT-based multiplication internals.
+
+Code references use `path:line` where applicable.
+
+---
+
+## Number representation
+
+The library uses **base 2³² limbs**, stored little-endian:
+
+```
+                    most significant ──→
+        ┌────────┬────────┬────────┬────────┐
+   a =  │  a[3]  │  a[2]  │  a[1]  │  a[0]  │
+        └────────┴────────┴────────┴────────┘
+            ↑                         ↑
+         high                       low
+```
+
+A `BigInteger` (`biginteger/BigInteger.h`) wraps a `std::vector<DataT>` where `DataT = uint64_t` but each limb only holds a 32-bit value (`Base2_32 = 2³²`). The upper 32 bits are kept as headroom for carries during arithmetic — this avoids spilling into a separate carry variable in many inner loops.
+
+| symbol | type | width | role |
+|---|---|---|---|
+| `DataT` | `uint64_t` | 64-bit storage, 32-bit value | one limb |
+| `BaseT` | `uint64_t` | constant `2³²` | the base |
+| `ULong` | `uint64_t` | 64-bit | accumulator (one product fits) |
+| `ULong128` | `__uint128_t` | 128-bit | accumulator for 64-bit limb paths (NTT, hybrid basecase) |
+
+The choice of 32-bit limbs (rather than GMP's 64-bit) is a structural decision discussed under [future opportunities](#future-opportunities) and [explored but rejected](#explored-but-rejected). It costs roughly a 2× factor in scalar arithmetic versus GMP, recovered only partially via the hybrid basecase.
+
+Number-theoretic transform (NTT) input is always split into 16-bit chunks regardless of limb size — this is fixed by the Goldilocks prime's coefficient capacity (see [NTT section](#ntt-goldilocks-prime)).
+
+---
+
+## Top-level dispatch
+
+`biginteger/algorithms/Multiplication.h` exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and picks one of three implementations.
+
+```mermaid
+flowchart TD
+    A[Multiply&#40;a, b, base&#41;] --> B{IsZero?}
+    B -- yes --> Z[return &#123;0&#125;]
+    B -- no --> C{a or b<br/>single limb?}
+    C -- yes --> Sc[ClassicMultiplication::Multiply&#40;scalar&#41;]
+    C -- no --> D{size ≤ CLASSIC_THRESHOLD<br/>OR<br/>minSize ≤ CLASSIC_MIN_LIMB?}
+    D -- yes --> Cl[ClassicMultiplication::Multiply]
+    D -- no --> E{size &lt; NTT_THRESHOLD?}
+    E -- yes --> K[KaratsubaMultiplication::Multiply]
+    E -- no --> N[NTTMultiplication::Multiply]
+```
+
+`size = a.size() + b.size()`, `minSize = min(a.size(), b.size())`.
+
+Default thresholds (overridable via `-D...`):
+
+| macro | default | unit | meaning |
+|---|---|---|---|
+| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `0` | sum of limbs | Classic only for 1-limb operand |
+| `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Same, secondary guard |
+| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `1500` | sum of limbs | Karatsuba below, NTT above |
+| `BIGMATH_KARATSUBA_THRESHOLD` | `48` | max of operands | Inside Karatsuba: base-case cutoff |
+
+`Toom-Cook 3` is implemented and correctness-tested but **not in the default dispatch** — see [its section](#toom-cook-3) for why.
+
+`Square(a, base)` lives in `algorithms/Squaring.h` and has its own parallel dispatcher:
+
+```mermaid
+flowchart TD
+    A[Square&#40;a, base&#41;] --> B{IsZero?}
+    B -- yes --> Z[return &#123;0&#125;]
+    B -- no --> C{a.size&#40;&#41; == 1?}
+    C -- yes --> Sc[ClassicSquare]
+    C -- no --> D{a.size&#40;&#41; &lt; NTT_SQUARE_THRESHOLD?}
+    D -- yes --> K[KaratsubaSquare]
+    D -- no --> N[NTTSquare]
+```
+
+`NTT_SQUARE_THRESHOLD` defaults to `NTT_MULTIPLICATION_THRESHOLD / 2 = 750` limbs (the threshold uses operand size directly, not the sum).
+
+---
+
+## Algorithms
+
+### Classic schoolbook
+
+**Location:** `algorithms/multiplication/ClassicMultiplication.h`, plus an inlined hybrid leaf in `algorithms/multiplication/KaratsubaMultiplication.h::MultiplyClassicPtr`.
+
+**Complexity:** O(n²) limb multiplies, O(n + m) space.
+
+**Algorithm:** for each `b[i]`, compute `b[i] · a` and add at offset `i` of the result. The standard form is:
+
+```
+for i in 0..nb-1:
+    carry = 0
+    for j in 0..na-1:
+        prod = a[j] * b[i] + r[i+j] + carry
+        r[i+j] = prod mod 2³²
+        carry  = prod div 2³²
+    r[i+na] = carry
+```
+
+The Karatsuba leaf implementation (`KaratsubaMultiplication.h::MultiplyClassicPtr`) uses a **64-bit hybrid** Base2_32 path landed during the 2026-05 optimization pass. Conceptually:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Pack adjacent 32-bit limbs into 64-bit values:                 │
+│                                                                │
+│     a[2k+1] : a[2k]    →    a64[k] = a[2k] | (a[2k+1] << 32)   │
+│                                                                │
+│ Run schoolbook in 64-bit limb space:                           │
+│                                                                │
+│     prod = (__uint128_t)a64[j] * b64[i] + r64[i+j] + carry     │
+│     r64[i+j] = (uint64_t)prod                                  │
+│     carry    = (uint64_t)(prod >> 64)                          │
+│                                                                │
+│ Unpack r64 back to 32-bit limbs at the end.                    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+On ARM64 each 64×64→128 multiply is `MUL` + `UMULH` (≈ 2 cycles), versus one 32×32→64 `UMULL` (1 cycle). With ¼ as many multiplies the net is ~2× over the scalar 32-bit form.
+
+Stack buffers cover up to 64 packed limbs (i.e. 128 32-bit limbs of input) without heap allocation, which is comfortably above the Karatsuba leaf threshold of 48.
+
+### Karatsuba
+
+**Location:** `algorithms/multiplication/KaratsubaMultiplication.h`.
+
+**Complexity:** O(n^{log₂3}) ≈ O(n^1.585) multiplies, O(n) extra space.
+
+**Algorithm:** split each operand into low/high halves at limb position m:
+
+```
+   a = a_lo + a_hi · B^m
+   b = b_lo + b_hi · B^m
+
+   a · b = a_lo · b_lo                                   ← T1
+         + ((a_lo + a_hi)(b_lo + b_hi) − T1 − T2) · B^m  ← T3 trick
+         + a_hi · b_hi · B^(2m)                          ← T2
+```
+
+The "T3 trick" replaces the four multiplications of the naive split with **three** sub-multiplications. Recursively applied, the multiplication count drops from n² to n^{log₂3}.
+
+The implementation uses pointer-based recursion with a shared workspace (`unique_ptr<DataT[]>` of size ~8n) to avoid per-recursion `vector` allocations. Output `c` and workspace region `t3` are NOT pre-zeroed — recursive sub-calls (which eventually leaf to `MultiplyClassicPtr`, which does zero its own output region) cover every position written.
+
+**Diagram of one recursion level:**
+
+```
+         a = [ a_lo | a_hi ]            b = [ b_lo | b_hi ]
+                                                                 
+   step 1:  c[0..2m-1]      = MulRec(a_lo,  b_lo)     ← T1
+   step 2:  c[2m..2n-1]     = MulRec(a_hi,  b_hi)     ← T2
+   step 3:  sum_a = a_lo + a_hi
+            sum_b = b_lo + b_hi
+            t3 = MulRec(sum_a, sum_b)                  ← (a_lo+a_hi)(b_lo+b_hi)
+   step 4:  t3 -= T1
+            t3 -= T2                                   ← middle term = 2·a_lo·a_hi
+   step 5:  c[m..] += t3
+```
+
+Base case (`max(la, lb) ≤ KARATSUBA_THRESHOLD = 48`) hands off to `MultiplyClassicPtr` (the hybrid 64-bit basecase above).
+
+Helpers `AddPtr`, `AddToPtr`, `SubtractFromPtr` were rewritten in the same optimization pass with:
+
+- the `Base2_32` branch hoisted out of the inner loop
+- three loop phases: both-contribute, longer-only, carry-propagate
+
+These eliminate per-iteration branches that the compiler was not consistently hoisting on its own.
+
+### Toom-Cook 3
+
+**Location:** `algorithms/multiplication/ToomCookMultiplication.h`.
+
+**Complexity:** O(n^{log₃5}) ≈ O(n^1.465) multiplies. Faster asymptotic exponent than Karatsuba, but larger constant factor due to evaluation/interpolation overhead.
+
+**Status:** *implemented and validated against `mult_correctness.cpp`, but **not** in the dispatch chain.*
+
+**Algorithm:** split each operand into three parts, evaluate the resulting polynomials at five points {0, 1, −1, 2, ∞}, perform five sub-multiplications, and interpolate. Concretely:
+
+```
+   a = a₀ + a₁·B^k + a₂·B^(2k)  (k = ⌈n/3⌉)
+   b = b₀ + b₁·B^k + b₂·B^(2k)
+
+   Evaluations:
+       p(0)  = a₀                    q(0)  = b₀
+       p(1)  = a₀ + a₁ + a₂          q(1)  = b₀ + b₁ + b₂
+       p(−1) = a₀ − a₁ + a₂          q(−1) = b₀ − b₁ + b₂
+       p(2)  = a₀ + 2a₁ + 4a₂        q(2)  = b₀ + 2b₁ + 4b₂
+       p(∞)  = a₂                    q(∞)  = b₂
+
+   Five pointwise products:  rᵢ = p(xᵢ) · q(xᵢ)
+
+   Interpolate c₀..c₄ from r values, then assemble:
+       a·b = c₀ + c₁·B^k + c₂·B^(2k) + c₃·B^(3k) + c₄·B^(4k)
+```
+
+**Why it isn't in dispatch.** Benchmarks across 128–8192 limbs showed Toom-3's best case is ~6% over Karatsuba at 4096 limbs, but at the same operand size **NTT is 4× faster than either**. Goldilocks NTT crosses Karatsuba at ~256 limbs in this codebase, leaving no operand-size band where Toom-3 wins. Adding it to dispatch regressed `mul 5k×5k` from 3.13× to 10.43× vs GMP in initial trials.
+
+Toom-3 is kept callable for cross-checking in `tests/mult_correctness.cpp` and as a reference implementation. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
+
+### NTT (Goldilocks prime)
+
+**Location:** `algorithms/multiplication/NTTMultiplication.h`.
+
+**Complexity:** O(n log n) limb multiplies. Constant factor is large (three FFT-sized transforms plus pointwise multiply), so it loses to Karatsuba below ~750 packed input limbs.
+
+**Setup.** Multiplication via NTT computes a cyclic convolution of the digit sequences in a finite field, then propagates carries. The choice of field is critical: it must support a root of unity of sufficient order, fast reduction, and a coefficient capacity large enough that the unreduced convolution sum cannot overflow the field.
+
+**Goldilocks prime: `P = 2⁶⁴ − 2³² + 1`.**
+
+This prime has three properties that make it ideal for NTT on 64-bit hardware:
+
+1. It fits in a 64-bit machine word, so all field elements are `uint64_t`.
+2. It supports a `2³²`-th root of unity, which covers any practical transform size.
+3. It admits a closed-form fast reduction exploiting the identities
+
+   ```
+   2⁶⁴ ≡ 2³² − 1   (mod P)
+   2⁹⁶ ≡ −1        (mod P)
+   ```
+
+   so a 128-bit value `x = x_lo + 2⁶⁴·x_hi_lo + 2⁹⁶·x_hi_hi` reduces to `x_lo + (2³²−1)·x_hi_lo − x_hi_hi` modulo P, computable with a few add/sub instructions and no division.
+
+The `ModularField::Reduce` implementation uses branchless overflow detection via `__builtin_sub_overflow` / `__builtin_add_overflow`, where the overflow flag becomes a mask (`-overflow`) used to conditionally adjust the result. On ARM64 this compiles to `CSEL`; on x86 to `CMOV`. Avoiding mispredicted branches in the inner butterfly hot loop matters because the NTT pass touches O(n log n) coefficients with no spatial locality.
+
+**Input split.** Each 32-bit limb is split into two 16-bit chunks before transform. Coefficients are then 16-bit values, so a convolution sum of `m` products of such coefficients has magnitude at most `m · 2³²`. For the Goldilocks field `P ≈ 2⁶⁴` to safely contain this sum, `m ≤ 2³²`. That bounds the transform length at `2³²` coefficients ≈ 2³¹ source limbs ≈ 8 GB operands — well beyond any practical input.
+
+**Transform pair.** The library uses a **forward DIF + inverse DIT** pair:
+
+```
+     forward DIF (decimation-in-frequency):
+         input:  natural-order coefficients
+         output: bit-reversed-order spectrum
+                                                  
+     inverse DIT (decimation-in-time):
+         input:  bit-reversed-order spectrum
+         output: natural-order coefficients
+```
+
+The two orderings cancel: both transformed operands land in bit-reversed order, so pointwise multiplication is index-aligned regardless. The explicit bit-reversal permutation pass that ordinary Cooley-Tukey requires is eliminated. Measured: ~14% win at 100k digits, ~15% at 500k vs the explicit-permutation form.
+
+**Butterfly inner loop (forward DIF):**
+
+```
+for len in (n, n/2, n/4, ..., 2):
+    halflen = len / 2
+    stride  = n / len
+    for each block of `len` starting at i:
+        for j in 0..halflen-1:
+            u = a[i + j]
+            v = a[i + j + halflen]
+            a[i + j]           = (u + v) mod P                   ← branchless Add
+            a[i + j + halflen] = ((u − v) mod P) · roots[j·stride]   ← branchless Sub, then Mul
+```
+
+`ModularField::Mul` is `Reduce((ULong128)a * b)`. On ARM64 that's one `MUL` + one `UMULH` for the 64×64→128 product, then the closed-form reduce. On x86, `MULX` plus reduce. This is the single most heavily executed instruction sequence in the library and dominates the cost of any operation routed to NTT.
+
+**Twiddle factor cache.** Roots are precomputed once per transform size and cached in a `thread_local unordered_map<Int, vector<ULong>>` keyed by `n`. Subsequent transforms at the same size pay only a hash lookup. Newton iterations and Karatsuba-leaf NTT calls (when they occur) thus amortize root construction.
+
+**End-to-end flow:**
+
+```
+                                         
+    A (32-bit limbs)           B (32-bit limbs)              
+         │                          │                       
+         ▼                          ▼                       
+    [split → 16-bit              [split → 16-bit         ← input packing
+     coefficients]                coefficients]             
+         │                          │                       
+         ▼                          ▼                       
+    [forward DIF                  [forward DIF           ← FFT 1, FFT 2
+     transform]                    transform]              
+         │                          │                       
+         └──────────┬───────────────┘                       
+                    ▼                                       
+              [pointwise                                 ← O(n) mod-Mul
+               multiply mod P]                              
+                    │                                       
+                    ▼                                       
+              [inverse DIT                               ← FFT 3
+               transform]                                   
+                    │                                       
+                    ▼                                       
+              [carry propagation                         ← serial fixup
+               in base 2¹⁶]                                 
+                    │                                       
+                    ▼                                       
+              [reassemble pairs                          ← output unpacking
+               into 32-bit limbs]                          
+                    │                                       
+                    ▼                                       
+                  A · B                                     
+```
+
+References for further reading: [Cooley-Tukey FFT algorithm (Wikipedia)](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm), [Discrete Fourier transform over a ring (Wikipedia)](https://en.wikipedia.org/wiki/Discrete_Fourier_transform_over_a_ring), and [Plonky2's Goldilocks documentation](https://github.com/0xPolygonZero/plonky2) for an introduction to the prime in the SNARK context.
+
+### Squaring
+
+**Locations:** `algorithms/multiplication/ClassicSquare.h`, `KaratsubaSquare.h`, `NTTSquare.h`; dispatcher in `algorithms/Squaring.h`.
+
+`Square(a, base)` computes `a²` faster than the equivalent `Multiply(a, a, base)`. Three implementations, parallel to the multiplication stack:
+
+| size | algorithm | speedup vs `Multiply(a, a)` |
+|---|---|---|
+| ≤ 48 limbs | `ClassicSquare` | ~1.5× |
+| 48 – 750 limbs | `KaratsubaSquare` (pointer-based) | 1.38–1.59× |
+| ≥ 750 limbs | `NTTSquare` (single forward FFT) | 1.4–1.45× |
+
+**Classic schoolbook square.** Half the partial products of full multiplication:
+
+```
+   ┌─────────────────┐
+   │                 │
+   │   a[i] · a[j]   │  ← for j > i, this product appears TWICE in a²
+   │                 │
+   └─────────────────┘
+   
+   Step 1: compute Σ_{i<j} a[i]·a[j]  (upper triangle, once)
+   Step 2: multiply that sum by 2     (left-shift by 1 bit)
+   Step 3: add the diagonal Σ a[i]²
+```
+
+Performs about n²/2 partial products versus n² for full multiplication.
+
+**Karatsuba square.** Same recursion structure as Karatsuba multiplication, but uses three *squarings* instead of three multiplications:
+
+```
+   a² = a_lo² + ((a_lo + a_hi)² − a_lo² − a_hi²) · B^m + a_hi² · B^(2m)
+```
+
+Pointer-based recursion with shared workspace (≈ 8n limbs) mirrors `KaratsubaMultiplication`. An earlier vector-based version regressed at 128 limbs (0.55× — slower than `Multiply(a,a)`) due to per-recursion `vector` allocations. The pointer rewrite fixed it and gives uniform ≥1.38× across all Karatsuba-band sizes.
+
+**NTT square.** Single forward transform on `a`, pointwise self-multiply, single inverse transform — that's *one* forward FFT instead of two, the structural source of the ~1.4× win.
+
+**Why this exists.** `Pow10(d)` in `common/Parser.h` recursively constructs powers of 10 used by `ToString`'s divide-and-conquer formatter. For even `d`, `Pow10(d) = Pow10(d/2)²` — a genuine squaring call. The chain build during a cold `ToString` invocation benefits proportionally to the fraction of total time spent in `Pow10` construction. In warm-cache benchmarks the `Pow10` cache is hit on the second iteration and beyond, so the steady-state benefit is small (~2–3% as predicted). The infrastructure also exists for a future `BigInteger::Pow` operator (modular exponentiation, RSA-style use cases), where squaring becomes the hot path.
+
+---
+
+## Benchmark results vs GMP
+
+Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
+
+```
+c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
+    tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
+```
+
+Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported numbers are `min` over a small iteration count to suppress scheduling jitter. Inputs are random decimal digits parsed into both libraries.
+
+| operation | size | BigMath ms | GMP ms | BM / GMP |
+|---|---|---:|---:|---:|
+| `mul` | 1 000 × 1 000 digits | 0.003 | 0.001 | **3.5 ×** |
+| `mul` | 5 000 × 5 000 | 0.043 | 0.012 | **3.5 ×** |
+| `mul` | 10 000 × 10 000 | 0.36 | 0.03 | 12 × |
+| `mul` | 50 000 × 50 000 | 2.12 | 0.36 | 5.9 × |
+| `mul` | 100 000 × 100 000 | 3.55 | 0.61 | 5.9 × |
+| `mul` | 500 000 × 500 000 | 17.5 | 4.2 | 4.2 × |
+| `mul` | 1 000 000 × 1 000 000 | 37.5 | 8.9 | 4.2 × |
+| `mul` (skewed) | 100 000 × 10 000 | 1.62 | 0.30 | 5.4 × |
+| `mul` (skewed) | 500 000 × 50 000 | 7.4 | 2.1 | 3.6 × |
+| `mul` (skewed) | 1 000 000 × 100 000 | 16.1 | 4.6 | 3.5 × |
+
+(Division, parse, and ToString benchmarks are in the same harness but covered in other documents.)
+
+**Reading these numbers.** Small operands (≤5 000 digits, ~520 limbs) live entirely inside the Karatsuba+leaf path that benefits from the 64-bit hybrid basecase; this is where the library is closest to GMP. Large operands (≥50 000 digits) spend 97% of their time inside the NTT butterfly loop, where the structural gap (32-bit limbs forcing 16-bit NTT input split; pure C++ versus GMP's hand-tuned ARM64 assembly) puts the floor at ~4–6×. The 10 000-limb point is a noisy crossover band where small absolute GMP timings dominate the ratio.
+
+A historical view of the same benchmark (early 2026 vs current):
+
+| op | early 2026 | current | improvement |
+|---|---|---|---|
+| mul 1 000 × 1 000 | 10.5 × | 3.5 × | **3.0 ×** |
+| mul 5 000 × 5 000 | 14.4 × | 3.5 × | **4.1 ×** |
+| mul 100 000 × 100 000 | 6.2 × | 5.9 × | ~ |
+| mul 1 000 000 × 1 000 000 | 4.2 × | 4.2 × | — |
+
+The small-mult band moved several × in the recent optimization pass; the large-mult band is at its structural floor and barely moves.
+
+---
+
+## Optimizations already implemented
+
+A loosely chronological summary of optimizations that landed and stuck.
+
+### Build flags
+
+`-O3 -march=native` is the canonical build flag. On Apple Silicon this enables NEON autovectorization for the helpers and unlocks ARM64-specific instruction scheduling for the schoolbook leaf. The `mul 5 000 × 5 000` case improved from ~9× to ~3.5× when switching from `-O2` to `-O3 -march=native`.
+
+### NTT branchless reduction
+
+`ModularField::Add`, `Sub`, and `Reduce` use `__builtin_*_overflow` returning a flag, then `mask = -flag` for conditional subtraction. The compiler turns this into `CSEL` on ARM64 / `CMOV` on x86. Earlier versions used `if (sum >= P) sum -= P;` which mispredicted ~50% of the time in the butterfly hot loop.
+
+### NTT DIF + DIT pair
+
+Forward decimation-in-frequency leaves the output in bit-reversed order; inverse decimation-in-time accepts bit-reversed input and emits natural order. Both transformed operands have the same ordering, so pointwise multiplication is still index-aligned without an explicit permutation pass. Measured 14–15% improvement at 100k–500k digits.
+
+### NTT twiddle cache
+
+Thread-local `unordered_map<Int, vector<ULong>>` per (size, direction). The second multiplication at the same NTT size pays only a hash lookup rather than rebuilding roots — important when Newton division iterates at a fixed size.
+
+### Karatsuba pointer-based workspace
+
+`KaratsubaMultiplication::MultiplyRecursive` uses `unique_ptr<DataT[]>` of size 8n for workspace, skipping the per-recursion `vector` zero-initialization that a naive implementation incurs.
+
+### Karatsuba 48-limb base case
+
+The Karatsuba-to-classic crossover (`BIGMATH_KARATSUBA_THRESHOLD`) is 48 limbs. A sweep showed this beats both 32 and 64 — at 32 the Karatsuba dispatch overhead is too high; at 64 the schoolbook leaf grows quadratically.
+
+### Karatsuba helper rewrite (2026-05)
+
+`AddPtr`, `AddToPtr`, `SubtractFromPtr` had the `base == Base2_32` check hoisted out of the inner loop, and were split into three phases (both-contribute / longer-only / carry-propagate) to eliminate per-iteration boundary branches. Modest 0–4% net wins; compiler had already done most of this.
+
+### Karatsuba memset removal
+
+Two redundant `memset`s — the output buffer `c` and workspace region `t3` — were removed from `MultiplyRecursive`. The recursive sub-calls fully cover both regions (the leaf `MultiplyClassicPtr` zero-initializes its own output), so the upfront wipes were duplicate work.
+
+### 64-bit hybrid Karatsuba leaf (2026-05, biggest single win)
+
+`MultiplyClassicPtr` Base2_32 path packs pairs of 32-bit limbs into 64-bit values, runs schoolbook in 64-bit limb space (one `MUL`+`UMULH` per partial product, `__uint128_t` accumulator), and unpacks back to 32-bit. Stack buffers for up to 64 packed limbs avoid heap allocation in the common case.
+
+The mathematical change is just a base swap: a × b at base 2³² with `n` limbs is the same as a × b at base 2⁶⁴ with `⌈n/2⌉` limbs. The 64-bit form does ¼ the partial-product multiplies; each multiply costs ~2 cycles instead of 1; net ≈ 2× over scalar 32-bit schoolbook.
+
+Benchmark impact (Karatsuba-band ops):
+
+| op | before hybrid | after | improvement |
+|---|---|---|---|
+| mul 1 000 × 1 000 | 9.78 × vs GMP | 3.68 × | **2.7 × faster** |
+| mul 5 000 × 5 000 | 9.31 × | 3.81 × | **2.4 × faster** |
+| ToString 100 000 digits (Pow10 + Newton chain) | 19.6 × | 17.8 × | −10 % |
+
+The profile that motivated this change showed `MultiplyClassicPtr` at 39% of `ToString 100k` time; after the change it dropped to 2.7%.
+
+### Squaring family (2026-05)
+
+`ClassicSquare`, `KaratsubaSquare` (pointer-based with 8n workspace), `NTTSquare` (single forward FFT instead of two), and `Square` dispatcher. Wired into `Pow10` even-d branch. Microbenchmark shows uniform 1.4–1.6× over `Multiply(a, a)` across all sizes. Real-world steady-state benefit on `Pow10`-driven ToString/Parse is ~2–3% (limited by `Pow10`'s thread-local cache being warm after the first iteration).
+
+### Toom-Cook 3 rewrite (correct but not dispatched)
+
+Pre-2026 the `ToomCookMultiplication` class had an early `return KaratsubaMultiplication::Multiply(...)` in its recursive entry, making the Toom-3 evaluation/interpolation code unreachable. The dispatcher cross-checked against this dead implementation in `mult_correctness.cpp` and saw apparent correctness, but Toom-3 had never actually run.
+
+The 2026-05 rewrite implements correct Toom-3 with eval points {0, 1, −1, 2, ∞}, signed interpolation, and recursion bottoming to Karatsuba below `BIGMATH_TOOM3_THRESHOLD = 256`. Validated against `mult_correctness`. Not in dispatch — see [explored but rejected](#explored-but-rejected).
+
+---
+
+## Future opportunities
+
+Ranked by expected ROI per unit of effort.
+
+### Port the 64-bit hybrid to `ClassicMultiplication::MultiplyTo` (cheap, marginal)
+
+The hybrid pack/unpack trick is currently only in the Karatsuba leaf. `ClassicMultiplication::MultiplyTo` (used by `ParseUnsignedLinear` and `ToStringLinearAppend`) is still scalar 32-bit. Estimated 1–3% on parse, ~30 lines, low risk. Same trick to `ClassicDivision::DivModTo` Base10_18 path saves another 1–2% on ToString.
+
+### Granlund–Möller magic-number division by 10¹⁸ (cheap, marginal)
+
+`ToStringLinearAppend` calls `ClassicDivision::DivModTo(r, Base10_18, Base2_32)` in a tight loop, each invocation ultimately routing through the compiler-provided `__udivmodti4` (a 128/64 long division). For a fixed divisor (`10¹⁸`), [Granlund–Möller "Improved division by invariant integers"](https://gmplib.org/~tege/divcnst-pldi94.pdf) reduces this to a multiply-by-reciprocal-high plus a small correction — one or two `UMULH`s replacing a `UDIV`-loop. Profile shows `__udivmodti4` at 1.5–2.2% of `ToString 100k`, so the upper bound on the win is small (~1–2% on ToString).
+
+### Full 64-bit limb refactor (large effort, moderate but uneven win)
+
+The library stores each limb in a `uint64_t` but only uses 32 bits. Reinterpreting the storage as full 64-bit limbs (with `__uint128_t` accumulators) would halve the limb count throughout, doubling throughput in scalar paths (schoolbook, Newton/BZ/FastDivision inner loops, parser, ToString linear leaf).
+
+Estimated touch: 1000–2000 lines across `Constants.h`, `BigInteger.h`, `Addition.h`, `Subtraction.h`, `Shift.h`, every multiplication algorithm (Classic, Karatsuba, NTT, Toom-Cook), every division algorithm, parser, and ToString. Multi-pass debugging time: 1–2 weeks.
+
+Expected wins (best case):
+
+| op | now | est | gain |
+|---|---|---|---|
+| mul small (1k) | 3.5 × | ~3 × | marginal — Karatsuba leaf already 64-bit-hybrid |
+| mul mid (5–50k) | 3.5–5.9 × | ~3 × | small-moderate |
+| **mul large (1M)** | **4.2 ×** | **4.2 ×** | **zero — NTT input still 16-bit per Goldilocks** |
+| div skewed (200k/50k) | 13.7 × | ~7–9 × | significant |
+| parse 100k | 7.1 × | ~5 × | moderate |
+| ToString 100k | 17.7 × | ~12–14 × | moderate |
+
+Critical caveat: **NTT-bound multiplications get nothing.** The Goldilocks prime caps coefficient width at 16 bits regardless of source limb size (`m · 2^(2c) < 2^64` forces `c = 16` for any practical `m`). All large mults pass through NTT, so limb-size refactor leaves the 1M-digit mult ratio unchanged.
+
+Risk-adjusted ROI is moderate. The big wins (div, parse, ToString) come at the cost of every carry/borrow chain in the library being rewritten and re-validated.
+
+### Replace Karatsuba with parallel sub-multiplications (architectural)
+
+Karatsuba's three sub-multiplications at each recursion level are independent. A thread pool could compute them in parallel, giving up to 3× speedup on mid-sized operands where Karatsuba is the chosen algorithm (5k–100k digits in this codebase). This is an architectural change — the library is currently single-threaded and header-only — and tooling for managing a worker pool inside a header-only library is awkward.
+
+### NTT butterfly assembly
+
+The NTT butterfly is 95–97% of cost for large mults. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover 30–50% of the ~1.5–2× gap to GMP at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
+
+---
+
+## Explored but rejected
+
+Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
+
+### Schönhage–Strassen (SSA)
+
+[Schönhage–Strassen](https://en.wikipedia.org/wiki/Sch%C3%B6nhage%E2%80%93Strassen_algorithm) multiplies in O(n · log n · log log n) using nested FFTs over a Fermat number ring `Z / (2^N + 1) Z`. The `log log n` factor is asymptotically better than NTT's effective `log n`, but the constant factors are dominated by the inner mod-2^N+1 arithmetic.
+
+In this codebase: Goldilocks NTT with 16-bit input split handles up to ~2³¹ source limbs (≈ 8 GB operands). SSA's asymptotic edge requires `n` past the point where this matters, and the implementation cost (~700–1000 lines of nested-FFT machinery, recursive ring arithmetic, careful precision management) is not justified for any input size a user will plausibly hit. See also [Fürer's algorithm](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm) which improves SSA's outer factor further but has the same constant-factor problem.
+
+### Different NTT prime / multi-prime CRT
+
+Replacing Goldilocks with a different prime (Solinas, generalized Mersenne, etc.) or running multiple smaller primes in parallel and combining via CRT.
+
+Goldilocks is uniquely suited to this codebase: closed-form reduction, fits 64 bits, supports 16-bit input coefficients with full safety margin. A multi-prime scheme triples the transform cost without enabling a larger usable input range.
+
+### SIMD/NEON acceleration of NTT butterfly
+
+NEON on M1 lacks a 64×64→128 multiply primitive. The Goldilocks `Mul` is exactly that operation. Implementing it via 32-bit-half decomposition doubles the multiply count, which kills the SIMD speedup before lane-level parallelism even helps. AVX2/AVX-512 on x86 have the same issue (no full-width 64-bit mul-high in early AVX revisions; VPCLMULQDQ doesn't help). The branchless scalar form (already implemented) captures most realistic ARM64 wins.
+
+### 6-step Cooley-Tukey decomposition
+
+[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. On M1: L1 is 192 KB, L2 is 8 MB. The NTT working set fits L1 at all practical input sizes the dispatcher routes to NTT (~750 limbs minimum). Six-step would only help once working set exceeds L2, which corresponds to operand sizes well beyond what this library targets.
+
+### Cached bit-reversal permutation
+
+Building the bit-reversed index map once and reusing it. Implemented during exploration, correct, but no measurable speedup over the in-place butterfly. Replaced by the [DIF+DIT pair](#ntt-goldilocks-prime) which eliminates the permutation entirely.
+
+### Montgomery reduction in the Goldilocks field
+
+[Montgomery multiplication](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication) avoids division by replacing it with shifts and a precomputed inverse. For general primes this is a significant win. For Goldilocks specifically, the closed-form `Reduce` is already minimal (subtraction, shift, conditional add), and Montgomery would add a forward/backward transform per multiplication with no win.
+
+### Toom-Cook 3 in dispatch (rewritten, then declined)
+
+The 2026-05 rewrite verified Toom-3 is correct. Sweeping multiplication algorithms across 128–8192 limbs directly:
+
+| limbs | Karatsuba ms | Toom-3 ms | NTT ms | winner |
+|---|---:|---:|---:|---|
+| 128 | 0.012 | 0.012 | 0.016 | K (≈ tie with T) |
+| 256 | 0.056 | 0.063 | 0.047 | N |
+| 512 | 0.118 | 0.118 | 0.076 | N |
+| 1 024 | 0.345 | 0.431 | 0.163 | N |
+| 4 096 | 3.08 | 2.90 | 0.76 | N |
+| 8 192 | 9.44 | 9.54 | 1.64 | N |
+
+NTT dominates from ~256 limbs upward. Below that, Karatsuba ties or beats Toom-3. Toom-3 has no operand-size band where it wins. Adding it to dispatch caused a 3.3× regression on `mul 5k × 5k`. Kept as a cross-check reference, not as a production path.
+
+### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 1500
+
+Direct algorithm microbenchmarks suggest NTT beats Karatsuba from 256 limbs. End-to-end benchmarks (via `BigInteger::operator*` in `bench_vs_gmp`) tell a different story: NTT-via-dispatcher at sum ~1040 (mul 5k×5k) is *slower* than Karatsuba-via-dispatcher at the same size, because the path has setup overhead (coefficient packing, twiddle cache lookup, allocation) that algorithm-direct benchmarks don't capture. Sweeping `NTT_THRESHOLD ∈ {384, 512, 768, 1024, 1500}` confirmed 1500 (sum-of-limbs) is the operational optimum. Lesson: don't tune dispatch from microbenchmarks alone.
+
+### PGO (Profile-Guided Optimization)
+
+Two-stage build (`-fprofile-generate` → train → `llvm-profdata merge` → `-fprofile-use`) was tested. Net change versus the same compiler without PGO: essentially zero. Hot loops are already inlined and unrolled by `-O3 -march=native`; PGO had no branch-prediction profile to exploit. Not worth the build-pipeline complexity.
+
+### Block-recursive Mulders multiplication
+
+[Mulders' short multiplication](https://eprint.iacr.org/2018/004) computes only the high half of a product. Useful for Newton's reciprocal iteration. Not implemented because the Newton implementation already uses full multiplication, and Mulders' wins are marginal compared to the optimization opportunities still on the table at the time of analysis.
+
+---
+
+## References
+
+### Algorithms
+
+- Knuth, D. E. *The Art of Computer Programming, Vol. 2: Seminumerical Algorithms*, §4.3 — the canonical treatment of classical multiplication, Karatsuba, and Toom-Cook.
+- [Karatsuba algorithm — Wikipedia](https://en.wikipedia.org/wiki/Karatsuba_algorithm)
+- [Toom–Cook multiplication — Wikipedia](https://en.wikipedia.org/wiki/Toom%E2%80%93Cook_multiplication)
+- [Bodrato, M. — "Towards Optimal Toom-Cook Multiplication for Univariate and Multivariate Polynomials in Characteristic 2 and 0", WAIFI 2007](https://www.bodrato.it/papers/#WAIFI2007) — optimal interpolation sequences.
+- [Schönhage–Strassen algorithm — Wikipedia](https://en.wikipedia.org/wiki/Sch%C3%B6nhage%E2%80%93Strassen_algorithm)
+- [Fürer's algorithm — Wikipedia](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm)
+
+### NTT and Goldilocks
+
+- [Discrete Fourier transform over a ring — Wikipedia](https://en.wikipedia.org/wiki/Discrete_Fourier_transform_over_a_ring) — the algebraic framework underlying NTT.
+- [Cooley–Tukey FFT algorithm — Wikipedia](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm) — DIF and DIT variants.
+- [Plonky2 (0xPolygonZero) — Goldilocks field implementation](https://github.com/0xPolygonZero/plonky2) — production use of the Goldilocks prime in zero-knowledge proof systems; good source for design notes.
+- [Bailey, D. H. — "FFTs in External or Hierarchical Memory" (1990)](https://www.davidhbailey.com/dhbpapers/six-step.pdf) — the six-step FFT decomposition.
+
+### Modular arithmetic and reduction
+
+- [Montgomery modular multiplication — Wikipedia](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication)
+- [Granlund, T. and Möller, N. — "Improved division by invariant integers" (1994)](https://gmplib.org/~tege/divcnst-pldi94.pdf) — magic-number division by constants.
+
+### Reference implementations
+
+- [GMP — The GNU Multiple Precision Arithmetic Library](https://gmplib.org/) — the canonical reference for hand-tuned multi-precision arithmetic.
+- [GMP manual: "Basecase Multiplication"](https://gmplib.org/manual/Basecase-Multiplication) — descriptions of `mpn_mul_basecase` and its assembly tuning.
+- [MPIR (Multiple Precision Integers and Rationals)](http://mpir.org/) — fork of GMP with alternative algorithms.
+
+### This codebase
+
+- `biginteger/algorithms/Multiplication.h` — top-level dispatcher.
+- `biginteger/algorithms/multiplication/ClassicMultiplication.h` — schoolbook.
+- `biginteger/algorithms/multiplication/KaratsubaMultiplication.h` — Karatsuba with 64-bit hybrid leaf.
+- `biginteger/algorithms/multiplication/ToomCookMultiplication.h` — Toom-3 (not in dispatch).
+- `biginteger/algorithms/multiplication/NTTMultiplication.h` — Goldilocks NTT.
+- `biginteger/algorithms/Squaring.h` — square dispatcher.
+- `biginteger/algorithms/multiplication/{Classic,Karatsuba,NTT}Square.h` — square implementations.
+- `tests/mult_correctness.cpp` — cross-algorithm correctness harness.
+- `tests/performance/bench_vs_gmp.cpp` — GMP comparison.
+- `tests/performance/dispatch_tuner.cpp` — reports recommended dispatch constants for the current machine.
