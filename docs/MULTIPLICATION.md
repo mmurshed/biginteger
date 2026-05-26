@@ -619,9 +619,11 @@ Direct algorithm microbenchmarks can make NTT look attractive too early. End-to-
 
 Two-stage build (`-fprofile-generate` → train → `llvm-profdata merge` → `-fprofile-use`) was tested. Net change versus the same compiler without PGO: essentially zero. Hot loops are already inlined and unrolled by `-O3 -march=native`; PGO had no branch-prediction profile to exploit. Not worth the build-pipeline complexity.
 
-### Block-recursive Mulders multiplication
+### Mulders' short multiplication (high-half only)
 
-[Mulders' short multiplication](https://eprint.iacr.org/2018/004) computes only the high half of a product. Useful for Newton's reciprocal iteration. Not implemented because the Newton implementation already uses full multiplication, and Mulders' wins are marginal compared to the optimization opportunities still on the table at the time of analysis.
+[Mulders' short multiplication](https://eprint.iacr.org/2018/004) computes only the high half of a product — useful for Newton's reciprocal iteration in `NewtonDivision`.
+
+Implemented exactly (two-step recursive decomposition with carry tracking) on branch `feat/mulders-short-mul` 2026-05-26 and measured flat across every skewed-div bench size. Reverted. Root cause: every Newton call site at the bench-relevant sizes routes through CRT-NTT, where `M(2n, n+1)` and `M(a_h, b) + M(a_l, b)` carry near-identical cost (the two-NTT sum is ≈ 1.0–1.27× the single full mult); Mulders' Karatsuba edge does not translate. Detail in [`DIVISION.md` § Mulders' short multiplication](DIVISION.md#reduce-ntt-calls--mulders-short-multiplication-implemented-rejected-2026-05-26).
 
 ---
 
