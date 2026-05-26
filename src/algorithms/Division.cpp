@@ -15,6 +15,9 @@ namespace BigMath
   const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
   const SizeT NEWTON_SKEW_NUMERATOR = BIGMATH_NEWTON_SKEW_NUMERATOR;
   const SizeT NEWTON_SKEW_DENOMINATOR = BIGMATH_NEWTON_SKEW_DENOMINATOR;
+  const SizeT NEWTON_HIGH_SKEW_B = BIGMATH_NEWTON_HIGH_SKEW_B;
+  const SizeT NEWTON_HIGH_SKEW_NUMERATOR = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
+  const SizeT NEWTON_HIGH_SKEW_DENOMINATOR = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
 
   std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
       std::vector<DataT> const &a,
@@ -39,15 +42,19 @@ namespace BigMath
 
     // Newton handles any ratio via blockwise mode; pick when divisor is large enough
     // for reciprocal-setup amortization and skew is in band.
-    bool newton_eligible =
+    bool newton_medium_skew =
         b.size() >= NEWTON_MEDIUM_B &&
         NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
+    bool newton_high_skew =
+        b.size() >= NEWTON_HIGH_SKEW_B &&
+        NEWTON_HIGH_SKEW_DENOMINATOR * a.size() >= NEWTON_HIGH_SKEW_NUMERATOR * b.size();
+    bool newton_eligible = newton_medium_skew || newton_high_skew;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
     // BZ for large near-balanced divisors and for big-and-skewed cases.
     bool bz_eligible =
-        base == Base2_32 &&
+        (base == Base2_32 || base == Base2_64) &&
         b.size() > BZ_DIVISOR_THRESHOLD &&
         ((b.size() >= 1024 && a.size() <= 3 * b.size()) ||
          (a.size() > 2048 && a.size() > 3 * b.size()));
