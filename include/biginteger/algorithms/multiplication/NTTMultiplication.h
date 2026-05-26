@@ -161,8 +161,18 @@ namespace BigMath
                 const NTTPlan &plan = NTTCore::GetPlan((Int)n);
                 NTTCore::Forward(fa, plan);
                 NTTCore::Forward(fb, plan);
-                for (Int i = 0; i < (Int)n; i++)
-                    fa[i] = ModularField::Mul(fa[i], fb[i]);
+                {
+                    ULong *faPtr = fa.data();
+                    ULong *fbPtr = fb.data();
+                    auto body = [faPtr, fbPtr](Int s, Int e) {
+                        for (Int i = s; i < e; ++i)
+                            faPtr[i] = ModularField::Mul(faPtr[i], fbPtr[i]);
+                    };
+                    if ((SizeT)n >= ParallelMinSize())
+                        ParallelFor((Int)n, body);
+                    else
+                        body(0, (Int)n);
+                }
                 NTTCore::Inverse(fa, plan);
 
                 return FinalizeBase2_32(fa, (SizeT)coeffCount);
@@ -203,8 +213,18 @@ namespace BigMath
                 const NTTPlan &plan = NTTCore::GetPlan((Int)n);
                 NTTCore::Forward(fa, plan);
                 NTTCore::Forward(fb, plan);
-                for (Int i = 0; i < (Int)n; i++)
-                    fa[i] = ModularField::Mul(fa[i], fb[i]);
+                {
+                    ULong *faPtr = fa.data();
+                    ULong *fbPtr = fb.data();
+                    auto body = [faPtr, fbPtr](Int s, Int e) {
+                        for (Int i = s; i < e; ++i)
+                            faPtr[i] = ModularField::Mul(faPtr[i], fbPtr[i]);
+                    };
+                    if ((SizeT)n >= ParallelMinSize())
+                        ParallelFor((Int)n, body);
+                    else
+                        body(0, (Int)n);
+                }
                 NTTCore::Inverse(fa, plan);
 
                 return FinalizeBase2_64(fa, (SizeT)coeffCount);
@@ -227,8 +247,18 @@ namespace BigMath
                 const NTTPlan &plan = NTTCore::GetPlan((Int)n);
                 NTTCore::Forward(fa, plan);
                 NTTCore::Forward(fb, plan);
-                for (Int i = 0; i < (Int)n; i++)
-                    fa[i] = ModularField::Mul(fa[i], fb[i]);
+                {
+                    ULong *faPtr = fa.data();
+                    ULong *fbPtr = fb.data();
+                    auto body = [faPtr, fbPtr](Int s, Int e) {
+                        for (Int i = s; i < e; ++i)
+                            faPtr[i] = ModularField::Mul(faPtr[i], fbPtr[i]);
+                    };
+                    if ((SizeT)n >= ParallelMinSize())
+                        ParallelFor((Int)n, body);
+                    else
+                        body(0, (Int)n);
+                }
                 NTTCore::Inverse(fa, plan);
 
                 vector<DataT> c;

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../../common/Util.h"
+#include "../../common/Parallel.h"
 
 namespace BigMath
 {
@@ -125,49 +126,85 @@ namespace BigMath
         // Forward DIF and inverse DIT pair. The forward transform leaves data in
         // bit-reversed order; pointwise multiplication stays aligned and inverse DIT
         // returns natural-order coefficients.
+        //
+        // Under BIGMATH_USE_THREADS=1 each layer's i-blocks are split across the
+        // pool. The outer block index `i` advances by `len`, so the number of
+        // i-blocks per layer is n/len. Top layer (len==n) has 1 block — falls
+        // back to serial there; subsequent layers parallelize across blocks.
         static void Forward(std::vector<ULong> &a, const NTTPlan &plan)
         {
             Int n = (Int)a.size();
-            const std::vector<ULong> &roots = plan.forwardRoots;
+            const std::vector<ULong> *rootsPtr = &plan.forwardRoots;
             for (Int len = n; len > 1; len >>= 1)
             {
                 Int halflen = len >> 1;
                 Int stride = n / len;
-                for (Int i = 0; i < n; i += len)
-                {
-                    for (Int j = 0; j < halflen; ++j)
+                Int numBlocks = n / len;
+                ULong *aPtr = a.data();
+                const ULong *roots = rootsPtr->data();
+                auto body = [aPtr, halflen, len, stride, roots](Int bStart, Int bEnd) {
+                    for (Int b = bStart; b < bEnd; ++b)
                     {
-                        ULong u = a[i + j];
-                        ULong v = a[i + j + halflen];
-                        a[i + j] = ModularField::Add(u, v);
-                        a[i + j + halflen] = ModularField::Mul(ModularField::Sub(u, v), roots[j * stride]);
+                        Int i = b * len;
+                        for (Int j = 0; j < halflen; ++j)
+                        {
+                            ULong u = aPtr[i + j];
+                            ULong v = aPtr[i + j + halflen];
+                            aPtr[i + j] = ModularField::Add(u, v);
+                            aPtr[i + j + halflen] = ModularField::Mul(ModularField::Sub(u, v), roots[j * stride]);
+                        }
                     }
-                }
+                };
+                // Each i-block does `halflen` butterflies = ~halflen * 30 ns. Run
+                // parallel only when total work per layer crosses the threshold.
+                if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
+                    ParallelFor(numBlocks, body);
+                else
+                    body(0, numBlocks);
             }
         }
 
         static void Inverse(std::vector<ULong> &a, const NTTPlan &plan)
         {
             Int n = (Int)a.size();
-            const std::vector<ULong> &roots = plan.inverseRoots;
+            const std::vector<ULong> *rootsPtr = &plan.inverseRoots;
             for (Int len = 2; len <= n; len <<= 1)
             {
                 Int halflen = len >> 1;
                 Int stride = n / len;
-                for (Int i = 0; i < n; i += len)
-                {
-                    for (Int j = 0; j < halflen; ++j)
+                Int numBlocks = n / len;
+                ULong *aPtr = a.data();
+                const ULong *roots = rootsPtr->data();
+                auto body = [aPtr, halflen, len, stride, roots](Int bStart, Int bEnd) {
+                    for (Int b = bStart; b < bEnd; ++b)
                     {
-                        ULong u = a[i + j];
-                        ULong v = ModularField::Mul(a[i + j + halflen], roots[j * stride]);
-                        a[i + j] = ModularField::Add(u, v);
-                        a[i + j + halflen] = ModularField::Sub(u, v);
+                        Int i = b * len;
+                        for (Int j = 0; j < halflen; ++j)
+                        {
+                            ULong u = aPtr[i + j];
+                            ULong v = ModularField::Mul(aPtr[i + j + halflen], roots[j * stride]);
+                            aPtr[i + j] = ModularField::Add(u, v);
+                            aPtr[i + j + halflen] = ModularField::Sub(u, v);
+                        }
                     }
-                }
+                };
+                if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
+                    ParallelFor(numBlocks, body);
+                else
+                    body(0, numBlocks);
             }
 
-            for (Int i = 0; i < n; i++)
-                a[i] = ModularField::Mul(a[i], plan.inverseSize);
+            // Final scaling by inverse size — trivially parallel.
+            ULong *aPtr = a.data();
+            ULong invSize = plan.inverseSize;
+            auto scaleBody = [aPtr, invSize](Int s, Int e) {
+                for (Int i = s; i < e; ++i)
+                    aPtr[i] = ModularField::Mul(aPtr[i], invSize);
+            };
+            if ((SizeT)n >= ParallelMinSize())
+                ParallelFor(n, scaleBody);
+            else
+                scaleBody(0, n);
         }
     };
 }
