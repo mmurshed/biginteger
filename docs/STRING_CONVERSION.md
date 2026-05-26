@@ -454,7 +454,7 @@ Profile of `ToString 100 000 digits` under default stack (sample(1), M1 Max):
 | `ToStringDivConquer` orchestration + Compare/Shift/TrimZeros | ~7% |
 | Allocation + misc | ~3% |
 
-The distribution is now dominated by Newton's divmod chain calling NTT mults. The earlier hot spots (39% in `MultiplyClassicPtr` schoolbook leaf, 5-10% in `__udivmodti4`) were eliminated by the 64-bit hybrid leaf + `digitsPerLimb` fix. Remaining headroom would come from Mulders' short-mult inside Newton — see [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor).
+The distribution is now dominated by Newton's divmod chain calling NTT mults. The earlier hot spots (39% in `MultiplyClassicPtr` schoolbook leaf, 5-10% in `__udivmodti4`) were eliminated by the 64-bit hybrid leaf + `digitsPerLimb` fix. The next algorithmic candidate — Mulders' short-mult inside Newton — was implemented exactly and measured flat at the bench sizes (see [DIVISION.md §Mulders'](DIVISION.md#reduce-ntt-calls--mulders-short-multiplication-implemented-rejected-2026-05-26)), so the remaining gap concentrates in the NTT butterfly inner loop itself rather than in Newton's call count.
 
 ### Parse: where the time goes
 

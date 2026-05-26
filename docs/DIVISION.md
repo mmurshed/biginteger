@@ -462,18 +462,26 @@ Once dominant: `200k/50k` at 12.4× GMP and `500k/100k` at 11.6×. **Status as o
 
 Remaining angles, ranked:
 
-### Reduce NTT calls — Mulders' short multiplication (high effort, 10–20%)
+### Reduce NTT calls — Mulders' short multiplication (IMPLEMENTED, REJECTED 2026-05-26)
 
-Newton's `R_new = R · (2 − D · R) / B^k` only needs the high half of `D · R`. [Mulders (2000), "On Short Multiplications and Divisions"](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=10.1.1.20.1948) shows the high half can be computed in ~60–75% of full-multiplication cost via a recursive split that drops the contribution from the low-low product. Similarly, `DivideChunk`'s `Q ≈ (chunk · R) >> 2n` only needs the high half of `chunk · R`.
+Newton's `R_new = R · (2 − D · R) / B^k` only needs the high half of `D · R`. [Mulders (2000), "On Short Multiplications and Divisions"](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=10.1.1.20.1948) gives ~60–75% of full-mult cost for Karatsuba via recursive split. Same opportunity in `DivideChunk`'s `Q ≈ (chunk · R) >> 2n`.
 
-Estimated impact on the skewed-div benchmarks (most mults in the Newton path are full mults; replacing with Mulders mulhi would cut per-mult cost):
+Built on branch `feat/mulders-short-mul` (not merged): bit-exact `MulHigh(a, b, want)` via two-step decomposition — full `a_h · b` + recursive top-B of `a_l · b` + carry-tracking add. Wired into both `ApproxReciprocal` (RD = R_pad · diff) and `DivideChunk` (CR = chunk · R). Cross-checked vs full `Multiply` and truncate across 13 shapes (3 to 5200 limbs); all bit-exact.
 
-| case | now | est after Mulders | delta |
+**Measured: flat across every skewed-div size** (bench_vs_gmp, min of 3 runs):
+
+| case | baseline | with exact MulHigh | delta |
 |---|---:|---:|---:|
-| 200 000 / 50 000 | 20.9 ms | ~15–17 ms | −15 to −25% |
-| 500 000 / 100 000 | 53.7 ms | ~40–45 ms | −15 to −25% |
+| 40 000 / 10 000 | 1.07 ms | 1.08 ms | flat |
+| 100 000 / 10 000 | 3.12 ms | 3.19 ms | +2% (noise) |
+| 200 000 / 50 000 | 9.25 ms | 9.21 ms | flat |
+| 500 000 / 100 000 | 18.92 ms | 19.01 ms | flat |
 
-Cost: ~400–600 lines for `MulHigh` (recursive split with lost-low-bits handling), separate Karatsuba-style and NTT-style implementations, careful precision analysis to bound the lost contribution. Risk: medium — Newton's fixup loop has a tight `FIXUP_LIMIT=8`, and Mulders' approximation could push some inputs over that bound.
+Root cause: at the bench operand sizes (n = 2600–5200 limbs in CRT-NTT range), exact MulHigh decomposes one full `Multiply(chunk, R)` (NTT on ~3n+1 limbs) into `Multiply(a_h, b) + Multiply(a_l, b)` (two NTTs on ~2n+1 limbs each). NTT cost scales near-linearly in operand size, so the two-NTT sum totals ≈ 1.0–1.27× the original — Mulders' Karatsuba edge does not translate to NTT.
+
+Bonus pitfall surfaced during development: `Multiply()` trims trailing zeros, so indexing the top window via `p.size() - want` instead of `(A + B) - want` returns the wrong slice when the top product limb is 0. The initial naive impl regressed +700% on `500 000 / 100 000` (cascading Newton fixup → FastDivision fallback) before this was found.
+
+Reverted in full. Don't re-attempt unless a non-NTT multiplication path becomes dominant, or there's a Karatsuba-only Newton band big enough to matter.
 
 ### Parallelize NTT — multithreading (LANDED, PR #32/#38/#39)
 
@@ -528,10 +536,6 @@ PR #17 landed M-G for Base2_32 with strong wins. Base2_64 currently uses Knuth q
 
 Effort: ~150 lines. Risk: low (M-G algorithm already validated at Base2_32; the new piece is just the 192/128 divide).
 
-### Mulders' short multiplication in Newton iteration
-
-Detailed in the [Improving skewed division](#improving-skewed-division-beyond-the-current-floor) section above. With threading + CRT now landed, Mulders is the highest-impact remaining algorithmic improvement. Estimated additional 15-25% on the floor cases (200k/50k currently 9.2 ms → ~7 ms; 500k/100k currently 18.9 ms → ~15 ms).
-
 ---
 
 ## Explored but rejected
@@ -552,9 +556,9 @@ Initially considered, then pivoted to full Newton-Raphson reciprocal division �
 
 Pivoted to blockwise Newton, which captures the same recurrence behavior at the operand sizes this library actually hits, with simpler implementation. Mulders' multi-quotient-block recursive division is theoretically nicer but in practice Newton's blockwise mode plus reciprocal caching delivers the same asymptotic win with less code.
 
-### Mulders' short multiplication — round 1 (now promoted to future-opportunity)
+### Mulders' short multiplication
 
-Newton's iteration `R · (2 − D · R)` only needs the high half of `D · R`. Originally rejected on the basis that other optimization paths had higher ROI. After the 64-bit limb refactor (2026-05) closed those other paths, Mulders is now the highest-impact remaining algorithmic optimization — see [Improving skewed division beyond the current floor](#improving-skewed-division-beyond-the-current-floor).
+Implemented exactly (carry-tracking two-step decomposition) on branch `feat/mulders-short-mul` 2026-05-26, measured flat across every skewed-div bench size, reverted. The two sub-mults of the decomposition sum to ≈ 1.0–1.27× the single mult they replace under CRT-NTT (which routes every bench-relevant operand), and Mulders' Karatsuba edge does not translate. Detail and measurement table in [Improving skewed division beyond the current floor](#improving-skewed-division-beyond-the-current-floor) above.
 
 ### Lowering `BIGMATH_BZ_RECURSION_THRESHOLD` below 512
 
