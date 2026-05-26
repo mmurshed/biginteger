@@ -551,12 +551,6 @@ Pre-implementation estimate in this doc was "1–2% on ToString 100k" (capped by
 
 Ranked by expected ROI per unit of effort.
 
-### 64-bit hybrid in `ClassicMultiplication::MultiplyTo` (cheap, marginal)
-
-The parser's linear leaf uses `ClassicMultiplication::MultiplyTo` for the `r ← r · 10¹⁸` step. This is the same scalar-by-vector multiplication shape that the Karatsuba leaf got hybridized in 2026-05, but on a different code path. Porting the trick gives ~2× on the leaf's inner loop, which translates to perhaps 1–3% on parse overall (the leaf is only ~3.4% of parse time, but it's amplified by the per-level cost contribution at the D&C bottom).
-
-Effort: ~30 lines, low risk. Worth doing as a small follow-up.
-
 ### Lower `BIGMATH_TOSTR_DC_THRESHOLD` for sub-2k inputs
 
 The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — lowering it makes the D&C overhead (chain construction, more recursion levels) exceed the linear formatter's quadratic cost at small sizes; raising it leaves small-N wins on the table for the linear formatter. Don't tune without re-measuring.
