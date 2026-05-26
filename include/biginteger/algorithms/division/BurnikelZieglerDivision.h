@@ -365,23 +365,45 @@ namespace BigMath
       if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
-      // BZ recursion needs an even-sized divisor at the top level so the 2n-by-n
-      // split is balanced. For odd nb, bit-shift both a and b left so b's MSB is
-      // pushed into a new high limb (nb → nb+1, even). Quotient is shift-invariant;
-      // remainder is shifted right by the same amount to undo.
-      if (b.size() % 2 != 0)
+      // Knuth-normalize the divisor (top bit of b.back() set). Required for BZ's
+      // 3n/2n correction-loop bound of 2 iterations; without it the loop runs O(B)
+      // times when the recursive q-estimate is wildly off (PR #30 LIMB_64 sparse-input
+      // hang was here — divisor.back() = 1 forced ~2^64 correction iters).
+      DataT b_top = b[b.size() - 1];
+      Int shift = 0;
+#if BIGMATH_LIMB_64
+      const DataT topBitMask = 0x8000000000000000ULL;
+#else
+      const DataT topBitMask = 0x80000000U;
+#endif
+      while ((b_top & topBitMask) == 0)
       {
-        vector<DataT> bv(b.begin(), b.end());
-        Int shift = BitsToBumpLimbCount(bv);
-        vector<DataT> aShifted = ShiftLeftBits(vector<DataT>(a.begin(), a.end()), shift);
-        vector<DataT> bShifted = ShiftLeftBits(bv, shift);
-        auto qr = DivideRecursive(aShifted, bShifted, base, computeRemainder);
-        if (computeRemainder)
+        b_top <<= 1;
+        ++shift;
+      }
+
+      vector<DataT> aNorm = (shift > 0)
+                                ? ShiftLeftBits(vector<DataT>(a.begin(), a.end()), shift)
+                                : vector<DataT>(a.begin(), a.end());
+      vector<DataT> bNorm = (shift > 0)
+                                ? ShiftLeftBits(vector<DataT>(b.begin(), b.end()), shift)
+                                : vector<DataT>(b.begin(), b.end());
+
+      // BZ recursion needs even divisor size for the 2n-by-n split. If post-normalize
+      // size is odd, fall to FastDivision — which has its own internal normalization
+      // and isn't sensitive to BZ's correction-loop bound.
+      if (bNorm.size() % 2 != 0)
+      {
+        auto qr = FastDivision::DivideAndRemainder(aNorm, bNorm, base, computeRemainder);
+        if (computeRemainder && shift > 0)
           qr.second = ShiftRightBits(qr.second, shift);
         return qr;
       }
 
-      return DivideRecursive(FromSpan(a), FromSpan(b), base, computeRemainder);
+      auto qr = DivideRecursive(aNorm, bNorm, base, computeRemainder);
+      if (computeRemainder && shift > 0)
+        qr.second = ShiftRightBits(qr.second, shift);
+      return qr;
     }
 
     static vector<DataT> Divide(span<const DataT> a, span<const DataT> b, BaseT base)
