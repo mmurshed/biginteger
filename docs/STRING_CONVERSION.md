@@ -551,12 +551,6 @@ Pre-implementation estimate in this doc was "1–2% on ToString 100k" (capped by
 
 Ranked by expected ROI per unit of effort.
 
-### 64-bit hybrid in `ClassicMultiplication::MultiplyTo` (cheap, marginal)
-
-The parser's linear leaf uses `ClassicMultiplication::MultiplyTo` for the `r ← r · 10¹⁸` step. This is the same scalar-by-vector multiplication shape that the Karatsuba leaf got hybridized in 2026-05, but on a different code path. Porting the trick gives ~2× on the leaf's inner loop, which translates to perhaps 1–3% on parse overall (the leaf is only ~3.4% of parse time, but it's amplified by the per-level cost contribution at the D&C bottom).
-
-Effort: ~30 lines, low risk. Worth doing as a small follow-up.
-
 ### Lower `BIGMATH_TOSTR_DC_THRESHOLD` for sub-2k inputs
 
 The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — lowering it makes the D&C overhead (chain construction, more recursion levels) exceed the linear formatter's quadratic cost at small sizes; raising it leaves small-N wins on the table for the linear formatter. Don't tune without re-measuring.
@@ -597,6 +591,14 @@ Fixed by constructing the chain top-down with `chain[i] = 10^(L / 2^(i+1))`, gua
 Documented in [project_rejected_algorithms.md](.../memory/) as historical context. Before the `NewtonDivision::Divider` cached-reciprocal API existed, an earlier D&C ToString implementation rebuilt the Newton reciprocal at every divmod call. Each per-level divmod was effectively quadratic in `n`, making the whole D&C approach slower than the linear formatter. The implementation was correctly recognized as a regression and reverted.
 
 The 2026-05 D&C ToString worked specifically because `Divider` made per-divide cost O(M(n)) — the same divmod that had been quadratic before became O(M(n) log n) across the chain, finally beating the linear formatter's O(L²).
+
+### 64-bit hybrid in `ClassicMultiplication::MultiplyTo` (obsoleted by LIMB_64 default)
+
+Previously listed as a cheap, marginal future opportunity. The plan was to pack pairs of 32-bit limbs from the parser's accumulator `r` into 64-bit values so the `r ← r · 10¹⁸` scalar multiply ran one mul per 64 bits instead of one mul per 32 bits — same trick the [Karatsuba leaf](MULTIPLICATION.md#64-bit-hybrid-karatsuba-leaf-2026-05-biggest-single-win) got in 2026-05.
+
+Obsoleted by `BIGMATH_LIMB_64=1` becoming default (PR #30). Under LIMB_64, `Parser.cpp::ParseUnsignedLinear` calls `MultiplyTo(r, Base10_18, CurrentBase)` with `CurrentBase = Base2_64`, which routes to MultiplyTo's `Base2_64` fast path — already one 64×64→128 mul per limb, the optimum. Further packing would require 256-bit primitives. The hybrid trick has no remaining target.
+
+The Base2_32 path of `MultiplyTo` is still reachable when a consumer builds with `-DBIGMATH_LIMB_64=0`. Implementing the hybrid would benefit only those legacy builds (1–3% on parse). Not worth carrying ~30 lines of additional code for a niche build mode.
 
 ### Per-digit parser (no chunking)
 
