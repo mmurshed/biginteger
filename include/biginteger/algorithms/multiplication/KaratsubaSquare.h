@@ -35,6 +35,19 @@ namespace BigMath
         DataT *r, SizeT lenR,
         BaseT base)
     {
+      if (base == Base2_64)
+      {
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < lenR; ++i)
+        {
+          ULong128 sum = carry;
+          if (i < lenA) sum += a[i];
+          if (i < lenB) sum += b[i];
+          r[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+          carry = sum >> 64;
+        }
+        return;
+      }
       ULong carry = 0;
       for (SizeT i = 0; i < lenR; ++i)
       {
@@ -60,6 +73,19 @@ namespace BigMath
         const DataT *src, SizeT srcLen,
         BaseT base)
     {
+      if (base == Base2_64)
+      {
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < destLen; ++i)
+        {
+          ULong128 sum = (ULong128)dest[i] + carry;
+          if (i < srcLen) sum += src[i];
+          dest[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+          carry = sum >> 64;
+          if (carry == 0 && i >= srcLen) break;
+        }
+        return;
+      }
       ULong carry = 0;
       for (SizeT i = 0; i < destLen; ++i)
       {
@@ -85,6 +111,24 @@ namespace BigMath
         const DataT *src, SizeT srcLen,
         BaseT base)
     {
+      if (base == Base2_64)
+      {
+        // 64-bit limbs don't fit Long; unsigned modular sub with explicit borrow.
+        ULong borrow = 0;
+        for (SizeT i = 0; i < destLen; ++i)
+        {
+          ULong ai = dest[i];
+          ULong t1 = ai - borrow;
+          ULong borrow1 = (ai < borrow) ? 1 : 0;
+          ULong bi = (i < srcLen) ? src[i] : 0;
+          ULong diff = t1 - bi;
+          ULong borrow2 = (t1 < bi) ? 1 : 0;
+          borrow = borrow1 + borrow2;
+          dest[i] = (DataT)diff;
+          if (borrow == 0 && i >= srcLen) break;
+        }
+        return;
+      }
       Long borrow = 0;
       for (SizeT i = 0; i < destLen; ++i)
       {
