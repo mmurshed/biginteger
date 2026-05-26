@@ -598,6 +598,26 @@ A reentrancy guard (thread-local "skip inner" flag making inner `ParallelDo` run
 
 Reverted. Prerequisite for re-attempting: rearchitect the pool to support concurrent dispatchers from multiple external threads (or implement nested-call work redirection).
 
+### Direct in-place D&C formatting (measured flat at orchestration layer)
+
+Attempted 2026-05-26. Doc previously estimated 3–5% on ToString by "avoiding the std::move chain" in `ToStringDivConquer`. Built a lite variant that passes `n` by mutable reference and uses `std::vector::swap` to reuse the caller's slot for `qr.first` and `qr.second` between recursive calls — eliminates the by-value pass entirely at the orchestration layer.
+
+Result (M1 Max, ToString 100k/200k/500k/1M/2M, 3 runs each, min):
+
+| size | baseline | in-place lite | delta |
+|---|---:|---:|---:|
+| 100k | 20.81 ms | 20.82 ms | flat |
+| 200k | 43.3 ms  | 43.1 ms  | flat (-0.5%, within noise) |
+| 500k | 118.6 ms | 118.5 ms | flat |
+| 1M   | 243.5 ms | 246.3 ms | flat (+1%, noise) |
+| 2M   | 527.1 ms | 533.5 ms | flat (+1%, noise) |
+
+Why doc estimate was wrong: `std::move` of a `std::vector` is already an O(1) pointer swap — not an allocation. The "orchestration" bucket in the profile (~7% of ToString) is dominated by `Compare`, `TrimZeros`, and Newton's internal `ShiftLeftBits` during normalize — none of those go away by removing the std::move chain.
+
+The only path to a real win would be a `Divider::DivideAndRemainderInto(a, q_out, r_out)` API that writes directly into caller-provided buffers, eliminating Newton's per-call zero-init of `q` and `rem` vectors. That's ~200 lines touching `NewtonDivision::Divider` (a load-bearing class also used by `BigDecimal` and the Newton dispatch path). Worst case loss: subtle bug in the rewrite for ≤2% projected win. Not worth.
+
+Reverted. Don't re-propose at the orchestration layer.
+
 ### Per-digit parser (no chunking)
 
 The classical textbook parser processes one ASCII digit at a time: `r = r * 10 + digit`. 18× more multi-precision operations than the chunked parser, each scaling by 10 instead of 10¹⁸. Has been universally superseded by chunked variants in production libraries since at least the 1980s. Not implemented; not on any future opportunity list.
