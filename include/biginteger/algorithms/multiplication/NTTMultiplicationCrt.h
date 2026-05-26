@@ -143,34 +143,33 @@ namespace BigMath
       return cache.emplace(n, BuildPlan<F, G>(n)).first->second;
     }
 
+    // Always-serial Forward/Inverse. Parallelism in the CRT path is coarse-
+    // grained: NttCrt::Multiply dispatches the 6 transforms (3 forward of a,
+    // 3 forward of b) and 3 inverses as batched ParallelFor work units, one
+    // per prime. Layer-level parallelism inside a single NTT was tried (see
+    // git history) but the per-layer dispatch overhead (~30µs × log2(n)) at
+    // sub-megabyte NTT sizes exceeded the parallel win. Coarse-grained
+    // parallelism amortizes ~3 dispatches per Multiply across 3-6 work units.
     template <typename F>
     inline void Forward(std::vector<UInt> &a, const Plan<F> &plan)
     {
       Int n = (Int)a.size();
       const UInt *roots = plan.forwardRoots.data();
+      UInt *aPtr = a.data();
       for (Int len = n; len > 1; len >>= 1)
       {
         Int halflen = len >> 1;
         Int stride = n / len;
-        Int numBlocks = n / len;
-        UInt *aPtr = a.data();
-        auto body = [aPtr, halflen, len, stride, roots](Int bStart, Int bEnd) {
-          for (Int b = bStart; b < bEnd; ++b)
+        for (Int i = 0; i < n; i += len)
+        {
+          for (Int j = 0; j < halflen; ++j)
           {
-            Int i = b * len;
-            for (Int j = 0; j < halflen; ++j)
-            {
-              UInt u = aPtr[i + j];
-              UInt v = aPtr[i + j + halflen];
-              aPtr[i + j] = F::Add(u, v);
-              aPtr[i + j + halflen] = F::Mul(F::Sub(u, v), roots[j * stride]);
-            }
+            UInt u = aPtr[i + j];
+            UInt v = aPtr[i + j + halflen];
+            aPtr[i + j] = F::Add(u, v);
+            aPtr[i + j + halflen] = F::Mul(F::Sub(u, v), roots[j * stride]);
           }
-        };
-        if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
-          ParallelFor(numBlocks, body);
-        else
-          body(0, numBlocks);
+        }
       }
     }
 
@@ -179,40 +178,25 @@ namespace BigMath
     {
       Int n = (Int)a.size();
       const UInt *roots = plan.inverseRoots.data();
+      UInt *aPtr = a.data();
       for (Int len = 2; len <= n; len <<= 1)
       {
         Int halflen = len >> 1;
         Int stride = n / len;
-        Int numBlocks = n / len;
-        UInt *aPtr = a.data();
-        auto body = [aPtr, halflen, len, stride, roots](Int bStart, Int bEnd) {
-          for (Int b = bStart; b < bEnd; ++b)
+        for (Int i = 0; i < n; i += len)
+        {
+          for (Int j = 0; j < halflen; ++j)
           {
-            Int i = b * len;
-            for (Int j = 0; j < halflen; ++j)
-            {
-              UInt u = aPtr[i + j];
-              UInt v = F::Mul(aPtr[i + j + halflen], roots[j * stride]);
-              aPtr[i + j] = F::Add(u, v);
-              aPtr[i + j + halflen] = F::Sub(u, v);
-            }
+            UInt u = aPtr[i + j];
+            UInt v = F::Mul(aPtr[i + j + halflen], roots[j * stride]);
+            aPtr[i + j] = F::Add(u, v);
+            aPtr[i + j + halflen] = F::Sub(u, v);
           }
-        };
-        if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
-          ParallelFor(numBlocks, body);
-        else
-          body(0, numBlocks);
+        }
       }
 
-      UInt *aPtr = a.data();
       UInt invSize = plan.invSize;
-      auto scale = [aPtr, invSize](Int s, Int e) {
-        for (Int i = s; i < e; ++i) aPtr[i] = F::Mul(aPtr[i], invSize);
-      };
-      if ((SizeT)n >= ParallelMinSize())
-        ParallelFor(n, scale);
-      else
-        scale(0, n);
+      for (Int i = 0; i < n; ++i) aPtr[i] = F::Mul(aPtr[i], invSize);
     }
 
     // ─── Garner CRT reconstruction ───────────────────────────────────────────
@@ -323,9 +307,34 @@ namespace BigMath
       const auto &plan2 = GetPlan<F2, G2>(n);
       const auto &plan3 = GetPlan<F3, G3>(n);
 
+#if BIGMATH_USE_THREADS
+      // Cross-prime parallelism: 6 forwards as one batch.
+      {
+        std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(*bufs[0], *p1); break;
+              case 1: Forward<F1>(*bufs[1], *p1); break;
+              case 2: Forward<F2>(*bufs[2], *p2); break;
+              case 3: Forward<F2>(*bufs[3], *p2); break;
+              case 4: Forward<F3>(*bufs[4], *p3); break;
+              case 5: Forward<F3>(*bufs[5], *p3); break;
+            }
+          }
+        };
+        ParallelDo(6, body);
+      }
+#else
       Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
       Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
       Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
+#endif
 
       {
         UInt *p1a = fa1.data(), *p1b = fb1.data();
@@ -343,9 +352,30 @@ namespace BigMath
         else body(0, n);
       }
 
+#if BIGMATH_USE_THREADS
+      {
+        std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Inverse<F1>(*bufs[0], *p1); break;
+              case 1: Inverse<F2>(*bufs[1], *p2); break;
+              case 2: Inverse<F3>(*bufs[2], *p3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+#else
       Inverse<F1>(fa1, plan1);
       Inverse<F2>(fa2, plan2);
       Inverse<F3>(fa3, plan3);
+#endif
 
       // CRT reconstruct + propagate carries into output limbs.
       const InvTable &inv = GarnerInverses();
