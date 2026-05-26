@@ -62,6 +62,28 @@ namespace BigMath
                     carry = 0;
                 }
             }
+            else if (base == Base2_64)
+            {
+                // ULong128 sum to capture the carry bit on full 64-bit limbs.
+                ULong128 carry = 0;
+                for (SizeT i = 0; i < minLen; ++i)
+                {
+                    ULong128 sum = (ULong128)a[i] + b[i] + carry;
+                    r[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+                    carry = sum >> 64;
+                }
+                for (SizeT i = minLen; i < maxLen; ++i)
+                {
+                    ULong128 sum = (ULong128)longer[i] + carry;
+                    r[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+                    carry = sum >> 64;
+                }
+                for (SizeT i = maxLen; i < lenR; ++i)
+                {
+                    r[i] = (DataT)(carry & 0xFFFFFFFFFFFFFFFFULL);
+                    carry = 0;
+                }
+            }
             else
             {
                 ULong carry = 0;
@@ -110,6 +132,23 @@ namespace BigMath
                     carry = sum >> 32;
                 }
             }
+            else if (base == Base2_64)
+            {
+                ULong128 carry = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
+                {
+                    ULong128 sum = (ULong128)dest[i] + src[i] + carry;
+                    dest[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+                    carry = sum >> 64;
+                }
+                for (; i < destLen && carry; ++i)
+                {
+                    ULong128 sum = (ULong128)dest[i] + carry;
+                    dest[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
+                    carry = sum >> 64;
+                }
+            }
             else
             {
                 ULong carry = 0;
@@ -153,6 +192,31 @@ namespace BigMath
                     Long diff = (Long)dest[i] - borrow;
                     if (diff < 0) { diff += (Long)1 << 32; borrow = 1; }
                     else borrow = 0;
+                    dest[i] = (DataT)diff;
+                }
+            }
+            else if (base == Base2_64)
+            {
+                // 64-bit limbs don't fit in signed Long; use unsigned with
+                // two-step borrow detection (matches Subtraction.cpp pattern).
+                ULong borrow = 0;
+                SizeT i = 0;
+                for (; i < shared; ++i)
+                {
+                    ULong ai = dest[i];
+                    ULong bi = src[i];
+                    ULong t1 = ai - borrow;
+                    ULong borrow1 = (ai < borrow) ? 1 : 0;
+                    ULong diff = t1 - bi;
+                    ULong borrow2 = (t1 < bi) ? 1 : 0;
+                    borrow = borrow1 + borrow2;
+                    dest[i] = (DataT)diff;
+                }
+                for (; i < destLen && borrow; ++i)
+                {
+                    ULong ai = dest[i];
+                    ULong diff = ai - borrow;
+                    borrow = (ai < borrow) ? 1 : 0;
                     dest[i] = (DataT)diff;
                 }
             }
@@ -254,6 +318,23 @@ namespace BigMath
                     SizeT lo = 2 * k;
                     if (lo < rLen) r[lo] = (DataT)(r64[k] & 0xFFFFFFFFULL);
                     if (lo + 1 < rLen) r[lo + 1] = (DataT)(r64[k] >> 32);
+                }
+            }
+            else if (base == Base2_64)
+            {
+                // Plain 64×64→128 schoolbook. No pack-to-larger trick available
+                // (would need 256-bit primitives), so just one multiply per cell.
+                for (SizeT i = 0; i < lenB; ++i)
+                {
+                    if (b[i] == 0) continue;
+                    ULong carry = 0;
+                    for (SizeT j = 0; j < lenA; ++j)
+                    {
+                        ULong128 prod = (ULong128)a[j] * b[i] + r[i + j] + carry;
+                        r[i + j] = (DataT)(prod & 0xFFFFFFFFFFFFFFFFULL);
+                        carry = (ULong)(prod >> 64);
+                    }
+                    r[i + lenA] = (DataT)carry;
                 }
             }
             else

@@ -87,8 +87,8 @@ namespace BigMath
 
       if (chunkMul == Base10_18)
       {
-        ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);
-        AddTo(r, chunk, Base2_32);
+        ClassicMultiplication::MultiplyTo(r, Base10_18, CurrentBase);
+        AddTo(r, chunk, CurrentBase);
         chunk = 0;
         chunkMul = 1;
       }
@@ -96,8 +96,8 @@ namespace BigMath
 
     if (chunkMul > 1)
     {
-      ClassicMultiplication::MultiplyTo(r, chunkMul, Base2_32);
-      AddTo(r, chunk, Base2_32);
+      ClassicMultiplication::MultiplyTo(r, chunkMul, CurrentBase);
+      AddTo(r, chunk, CurrentBase);
     }
 
     if (c == EOF)

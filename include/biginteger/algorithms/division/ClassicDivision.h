@@ -14,6 +14,7 @@
 #include <algorithm>
 using namespace std;
 
+#include "../../common/Comparator.h"
 #include "../../common/Util.h"
 #include "../Addition.h"
 #include "../Subtraction.h"
@@ -93,6 +94,26 @@ namespace BigMath
                 return;
             }
 
+            // Base-2^64 fast path: shift-by-64 instead of -32. Compiler lowers
+            // the ULong128 / ULong64 divide via a libcall on ARM64.
+            if (base == Base2_64)
+            {
+                ULong128 r = 0;
+                for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
+                {
+                    r = (r << 64) | (ULong128)u[i];
+                    DataT q = (DataT)(r / d);
+                    r %= d;
+                    SizeT wPos = wStart + (i - uStart);
+                    if (wPos <= wEnd)
+                        w[wPos] = q;
+                    else
+                        w.push_back(q);
+                }
+                TrimZeros(w);
+                return;
+            }
+
             // 'r' is the running remainder.
             ULong r = 0;
 
@@ -137,6 +158,20 @@ namespace BigMath
                 return (DataT)r;
             }
 
+            if (base == Base2_64)
+            {
+                ULong128 r = 0;
+                for (Int i = (Int)u.size() - 1; i >= 0; --i)
+                {
+                    r = (r << 64) | (ULong128)u[i];
+                    u[i] = (DataT)(r / d);
+                    r %= d;
+                }
+                while (u.size() > 1 && u.back() == 0)
+                    u.pop_back();
+                return (DataT)r;
+            }
+
             ULong r = 0;
             for (Int i = (Int)u.size() - 1; i >= 0; --i)
             {
@@ -165,6 +200,17 @@ namespace BigMath
                 for (Int i = (Int)u.size() - 1; i >= 0; i--)
                 {
                     r = (r << 32) | (ULong128)u[i];
+                    w[i] = (DataT)(r / d);
+                    r %= d;
+                }
+                v[0] = (DataT)r;
+            }
+            else if (base == Base2_64)
+            {
+                ULong128 r = 0;
+                for (Int i = (Int)u.size() - 1; i >= 0; i--)
+                {
+                    r = (r << 64) | (ULong128)u[i];
                     w[i] = (DataT)(r / d);
                     r %= d;
                 }
