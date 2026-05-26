@@ -22,6 +22,8 @@ include/biginteger/    public BigInteger headers (algorithms, ops, common)
 include/bigdecimal/    public BigDecimal headers
 src/                   non-inline BigInteger implementations
 bigdecimal/            BigDecimal implementation
+include/biginteger/    public headers (algorithms, ops, common)
+src/                   non-inline implementations
 tests/                 correctness, performance, unit tests
 calculator/            REPL frontend
 docs/                  technical references (see below)
