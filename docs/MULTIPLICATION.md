@@ -393,14 +393,24 @@ Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported number
 | `mul` | 50 000 × 50 000 | 0.531 | 0.273 | **1.95 ×** |
 | `mul` | 100 000 × 100 000 | 1.06 | 0.61 | **1.74 ×** |
 | `mul` | 500 000 × 500 000 | 6.06 | 4.22 | **1.44 ×** |
-| `mul` | 1 000 000 × 1 000 000 | 12.52 | 8.90 | **1.41 ×** |
+| `mul` | 1 000 000 × 1 000 000 | 9.57 | 8.63 | **1.11 ×** |
+| `mul` | 2 000 000 × 2 000 000 | 26.25 | 20.59 | **1.27 ×** |
+| `mul` | **5 000 000 × 5 000 000** | **60.52** | **65.80** | **0.92 ×** ← BigMath faster |
+| `mul` | **10 000 000 × 10 000 000** | **158.24** | **216.91** | **0.73 ×** ← BigMath faster |
 | `mul` (skewed) | 100 000 × 10 000 | 0.52 | 0.30 | 1.73 × |
 | `mul` (skewed) | 500 000 × 50 000 | 2.17 | 2.09 | **1.04 ×** |
 | `mul` (skewed) | 1 000 000 × 100 000 | 4.62 | 4.52 | **1.02 ×** |
+| `mul` (skewed) | 2 000 000 × 200 000 | 9.88 | 9.40 | **1.05 ×** |
+| `mul` (skewed) | 5 000 000 × 500 000 | 41.11 | 30.36 | 1.35 × |
+| `mul` (skewed) | 10 000 000 × 1 000 000 | 107.05 | 69.88 | 1.53 × |
 
 (Division, parse, and ToString benchmarks are in the same harness but covered in other documents.)
 
-**Reading these numbers.** Large skewed multiplications (500k/50k and 1M/100k) **match GMP within 2-4%** — the threaded CRT NTT path with 8 workers parallelizes the 3 forwards + 3 inverses across the pool, closing nearly all of the previous 3-5× gap. Balanced mults still trail GMP by 1.4-3.3× because they hit balanced-NTT cost without the asymmetric work overlap that the skewed cases enjoy.
+**Reading these numbers.**
+
+- **Balanced multiplication crosses GMP between 2M and 5M digits.** At 5M and 10M BigMath wins by 8% and 27% respectively — the NTT's asymptotic edge over GMP's hand-tuned Karatsuba/Toom assembly takes over once the operand is large enough. Below 2M GMP's basecase tuning keeps the lead.
+- **Skewed mults stay in a narrow 1.0–1.5× band** across all sizes. The threaded CRT NTT closes most of the original 3–5× gap.
+- **At 10M skewed (10M × 1M) the gap widens to 1.53×** — the smaller operand fits in GMP's well-tuned mid-band, while the larger operand drags BigMath into the NTT-bound regime asymmetrically. This is the residual structural gap to GMP's asm-level scheduling on skewed mid-band ops.
 
 A historical view of the same benchmark (early 2026 vs current default stack):
 

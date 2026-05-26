@@ -115,18 +115,22 @@ Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LI
 
 | operation | size | BigMath | GMP | ratio |
 |---|---|---:|---:|---:|
-| mul | 5 000 × 5 000 digits | 0.030 ms | 0.011 ms | 2.73× |
-| mul | 100 000 × 100 000 | 1.06 ms | 0.61 ms | **1.74×** |
-| mul | 1 000 000 × 1 000 000 | 12.5 ms | 8.9 ms | **1.41×** |
-| mul (skewed) | 500 000 / 50 000 | 2.17 ms | 2.09 ms | **1.04× (parity)** |
-| mul (skewed) | 1 000 000 / 100 000 | 4.62 ms | 4.52 ms | **1.02× (parity)** |
-| div (skewed) | 200 000 / 50 000 | 8.91 ms | 1.71 ms | 5.21× |
+| mul | 100 000 × 100 000 | 1.06 ms | 0.61 ms | 1.74× |
+| mul | 1 000 000 × 1 000 000 | 9.57 ms | 8.63 ms | 1.11× |
+| mul | 2 000 000 × 2 000 000 | 26.3 ms | 20.6 ms | 1.27× |
+| mul | **5 000 000 × 5 000 000** | **60.5 ms** | **65.8 ms** | **0.92×** ← BigMath faster |
+| mul | **10 000 000 × 10 000 000** | **158 ms** | **217 ms** | **0.73×** ← BigMath faster |
+| mul (skewed) | 1 000 000 / 100 000 | 4.62 ms | 4.52 ms | 1.02× |
+| mul (skewed) | 10 000 000 / 1 000 000 | 107 ms | 69.9 ms | 1.53× |
 | div (skewed) | 500 000 / 100 000 | 18.6 ms | 4.56 ms | 4.09× |
-| parse | 100 000 digits | 3.24 ms | 1.04 ms | 3.10× |
-| parse | 1 000 000 digits | 48.0 ms | 20.6 ms | 2.33× |
-| ToString | 100 000 digits | 22.5 ms | 2.35 ms | 9.57× |
+| div (skewed) | 10 000 000 / 2 000 000 | 457 ms | 150 ms | 3.06× |
+| parse | 1 000 000 digits | 47.9 ms | 20.5 ms | 2.33× |
+| parse | 10 000 000 digits | 597 ms | 344 ms | 1.73× |
+| ToString | 100 000 digits | 20.9 ms | 2.42 ms | 8.62× |
+| ToString | 1 000 000 digits | 243 ms | 49.5 ms | 4.92× |
+| ToString | 2 000 000 digits | 527 ms | 118 ms | 4.47× |
 
-**Skewed multiplications at the 1M scale match GMP within 2-4%.** Balanced large mults (1.41-1.74× GMP) still trail because the threaded CRT NTT can't hide the symmetric work overlap. Division and base conversion close most of the original 12-20× gap via the same threaded CRT path. Residual gap concentrated in ToString divmod chains and the basecase NTT butterfly inner loop (where GMP's hand-tuned ARM64 assembly maintains an edge). See the per-doc ratio tables for the full breakdown.
+**BigMath overtakes GMP on balanced multiplication at ≥5M digits** — the NTT's asymptotic edge wins out over GMP's hand-tuned Karatsuba/Toom assembly at this size. Skewed mults stay within 1.0-1.5×. Skewed division floors at ~3-4× (NTT-bound; further improvement requires reducing NTT call count, not qhat cost). ToString gap narrows with size (D&C asymptotic winning: 9.6× at 100k → 4.5× at 2M). Parse similarly narrows: 2.3× at 1M → 1.7× at 10M. See the per-doc ratio tables for the full breakdown.
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
