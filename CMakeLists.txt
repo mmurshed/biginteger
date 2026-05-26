@@ -31,8 +31,8 @@ option(BIGMATH_BUILD_TESTS "Build correctness and performance tests" ON)
 option(BIGMATH_BUILD_SHARED "Also build a shared-library variant" OFF)
 
 # ─── library target ───────────────────────────────────────────────────────────
-file(GLOB_RECURSE BIGMATH_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-file(GLOB_RECURSE BIGMATH_HEADERS CONFIGURE_DEPENDS include/biginteger/*.h)
+file(GLOB_RECURSE BIGMATH_SOURCES CONFIGURE_DEPENDS src/*.cpp bigdecimal/*.cpp)
+file(GLOB_RECURSE BIGMATH_HEADERS CONFIGURE_DEPENDS include/biginteger/*.h include/bigdecimal/*.h)
 
 add_library(bigmath STATIC ${BIGMATH_SOURCES} ${BIGMATH_HEADERS})
 add_library(bigmath::bigmath ALIAS bigmath)
@@ -91,6 +91,10 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(divperf_simple tests/divperf_simple.cpp)
     target_link_libraries(divperf_simple PRIVATE bigmath::bigmath)
 
+    # BigDecimal performance bench
+    add_executable(bigdecimal_perf tests/bigdecimal_perf.cpp)
+    target_link_libraries(bigdecimal_perf PRIVATE bigmath::bigmath)
+
     # GMP-comparison bench (requires libgmp)
     find_library(GMP_LIBRARY gmp)
     find_path(GMP_INCLUDE_DIR gmp.h)
@@ -110,3 +114,4 @@ install(TARGETS bigmath
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/biginteger DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/bigdecimal DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
