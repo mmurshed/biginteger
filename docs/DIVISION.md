@@ -307,27 +307,29 @@ For `a.size() == b.size()` the quotient is 1–2 limbs and both libraries short-
 
 ### Skewed division (dispatcher routes to Newton)
 
-Numbers below are with `BIGMATH_LIMB_64=1` (the default since 2026-05).
+Numbers below are with the full default stack: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT_CRT=1`, `BIGMATH_USE_THREADS=1` (M1 Max, 8-thread pool, min over 5 runs).
 
 | sizes (digits) | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| `a=40 000, b=10 000` | 1.04 | 0.22 | **4.8 ×** |
-| `a=100 000, b=10 000` | 3.12 | 0.45 | **6.9 ×** |
-| `a=200 000, b=50 000` | 20.9 | 1.69 | **12.4 ×** |
-| `a=500 000, b=100 000` | 53.7 | 4.63 | **11.6 ×** |
+| `a=40 000, b=10 000` | 1.04 | 0.22 | **4.77 ×** |
+| `a=100 000, b=10 000` | 3.12 | 0.45 | **6.91 ×** |
+| `a=200 000, b=50 000` | 8.91 | 1.71 | **5.21 ×** |
+| `a=500 000, b=100 000` | 18.64 | 4.56 | **4.09 ×** |
 
-All four cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult.
+All four cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT.
 
 **Historical view** of the same skewed sizes:
 
-| sizes (digits) | early 2026 | Base2_32 tuned | Base2_64 default | improvement |
-|---|---|---|---|---|
-| 40 000 / 10 000 | 23 × | 21 × | **4.8 ×** | **4.8 ×** |
-| 100 000 / 10 000 | 34 × | 20 × | **6.9 ×** | **4.9 ×** |
-| 200 000 / 50 000 | 72 × | 14 × | **12.4 ×** | **5.8 ×** |
-| 500 000 / 100 000 | 12 × | 12 × | **11.6 ×** | ≈ same (NTT-bound) |
+| sizes (digits) | early 2026 | Base2_32 tuned | LIMB_64 default | + CRT default | + threads default |
+|---|---|---|---|---|---|
+| 40 000 / 10 000 | 23 × | 21 × | 4.8 × | 4.7 × | 4.77 × |
+| 100 000 / 10 000 | 34 × | 20 × | 6.9 × | 7.0 × | 6.91 × |
+| 200 000 / 50 000 | 72 × | 14 × | 12.4 × | 11.0 × | **5.21 ×** |
+| 500 000 / 100 000 | 12 × | 12 × | 11.6 × | 10.5 × | **4.09 ×** |
 
-The 40k/10k and 100k/10k cases dropped 4–5× from the Base2_32-tuned numbers via the 64-bit limb refactor — Newton's outer loop (scalar shifts, carry chains, FastDivision base case) halved its operation count. The 500k/100k case is at the NTT floor: nearly all time is inside Goldilocks NTT mults, which see no benefit from wider limbs since the 16-bit coefficient capacity is fixed by the prime.
+The 200k/50k and 500k/100k floor cases — previously stuck at the NTT-bound ratio — dropped 2.3-2.8× via cross-prime CRT parallelism (PR #38). Cumulative improvement on 500k/100k vs the original ~12× ratio: **~3× closer to GMP**. The 40k/10k case sees no further improvement because its NTT calls are below the parallelism threshold (Newton's internal mults are too small).
+
+The smaller cases (40k/10k, 100k/10k) saw their improvements from the 64-bit limb refactor halving Newton's outer-loop limb count (PRs #18–#30). They've been at the NTT-bound floor since then; CRT's per-coefficient savings barely move them because at these sizes the NTT is a small fraction of total wall time.
 
 **Where the time actually goes.** Profile of `div 100k/10k` (a = 100 000 decimal digits, b = 10 000):
 
@@ -429,11 +431,36 @@ The smaller cases benefit most: Newton's outer loop (scalar carry chains, FastDi
 
 Opt-out: `-DBIGMATH_LIMB_64=0` reverts to 32-bit limbs.
 
+### Multi-prime CRT NTT (2026-05, PRs #34–#37, default since #37)
+
+Three 30-bit NTT-friendly primes (998244353, 985661441, 754974721) with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4 × 16-bit). Halves the NTT length at the cost of 3 parallel transforms + Garner CRT reconstruction. Size-gated via `BIGMATH_NTT_CRT_THRESHOLD` (default 5000 limbs sum); below the gate, Goldilocks runs unchanged.
+
+Per-prime modular arithmetic is 32-bit (single `MUL` + simple reduce), much cheaper than Goldilocks' ULong128 reduce. Net win on Newton-internal mults: 10-12% on the floor div cases.
+
+Opt-out: `-DBIGMATH_NTT_CRT=0`. Threshold tuneable via `-DBIGMATH_NTT_CRT_THRESHOLD=N`.
+
+### Multithreaded NTT (2026-05, PRs #32, #38, default since #39)
+
+`BIGMATH_USE_THREADS=1` default activates a small thread pool (size `min(hw_concurrency, BIGMATH_MAX_THREADS=8)`). The CRT NTT's 6 forwards + 3 inverses dispatch as batched `ParallelDo` work units — one dispatch per phase, **2 dispatches per Multiply** total (down from the 100+ in an earlier per-layer attempt that regressed; see PR #38 for the profile-driven fix).
+
+Each NTT runs serially inside its worker. Pointwise multiply chunks across the pool too. Speedup vs serial:
+
+| case | serial | threads | speedup |
+|---|---:|---:|---:|
+| 200 000 / 50 000 | 20.9 ms | 9.21 ms | 2.3× |
+| 500 000 / 100 000 | 53.7 ms | 18.9 ms | 2.8× |
+
+Combined with the CRT NTT default, the cumulative win on the original floor cases is ~2.5-3× vs the pre-CRT-pre-threading baseline.
+
+Opt-out: `-DBIGMATH_USE_THREADS=0`. Pool size override: `-DBIGMATH_MAX_THREADS=N`. See [`THREAD_SAFETY.md`](THREAD_SAFETY.md) for the thread-safety model.
+
 ---
 
 ## Improving skewed division beyond the current floor
 
-The remaining gap is concentrated in two cases — `200k/50k` at 12.4× GMP and `500k/100k` at 11.6×. Both are NTT-mult-dominated per the profile above (~70% inside `NTTCore`). Improvements fall into four categories.
+Once dominant: `200k/50k` at 12.4× GMP and `500k/100k` at 11.6×. **Status as of 2026-05: both cases now at 5.21× and 4.09× GMP respectively** via two follow-up PRs (multi-prime CRT NTT in PR #34/#35/#36/#37, cross-prime threading in PR #38/#39, both default-on). Cumulative wins via the threading/CRT default stack: **2.3-2.8× on the floor cases.**
+
+Remaining angles, ranked:
 
 ### Reduce NTT calls — Mulders' short multiplication (high effort, 10–20%)
 
@@ -448,49 +475,40 @@ Estimated impact on the skewed-div benchmarks (most mults in the Newton path are
 
 Cost: ~400–600 lines for `MulHigh` (recursive split with lost-low-bits handling), separate Karatsuba-style and NTT-style implementations, careful precision analysis to bound the lost contribution. Risk: medium — Newton's fixup loop has a tight `FIXUP_LIMIT=8`, and Mulders' approximation could push some inputs over that bound.
 
-### Parallelize NTT — multithreading (medium effort, 1.5–3× best case)
+### Parallelize NTT — multithreading (LANDED, PR #32/#38/#39)
 
-The 60% of wall time inside `NTTCore::Forward`/`Inverse` is structurally parallelizable:
+`BIGMATH_USE_THREADS=1` (default since PR #39) wires a small thread pool (size `min(hw_concurrency, BIGMATH_MAX_THREADS=8)`) into the CRT NTT path. The 6 forwards (3 of `fa`, 3 of `fb`) dispatch as one `ParallelDo` batch of 6 work units; 3 inverses dispatch as a 3-unit batch. Each NTT runs serially within its worker — **2 dispatches per Multiply**, not 100+.
 
-1. **Forward + Forward in parallel.** A full `Multiply(a, b)` does two `Forward()` calls (one for `fa`, one for `fb`). Independent — can run on two threads. Win bounded by `min(forward_a, forward_b)` overlap.
-2. **Butterfly layers within a single `Forward()`.** Each layer of an `n`-point NTT is `n/2` independent butterflies. Parallelizing across cores via `for` chunking. With 8 perf cores on an M1 Max, the theoretical speedup per layer is 8×, but synchronization at each layer barrier eats most of it at the sizes we hit (~32k coefficients).
-3. **Pointwise multiply.** Trivially parallel.
-4. **Inverse `Inverse()` symmetric to Forward.**
+Earlier attempts at per-NTT-layer parallelism regressed (`__psynch_cvwait` dominated profile at 42K samples). Profile-driven fix in PR #38 moved to coarse-grained cross-prime parallelism.
 
-**Critical caveat: `DivideChunk` blockwise is inherently sequential.** Each block consumes the previous block's remainder as its high half — the dependency chain blocks coarse-grained parallelism across blocks. Only **within** a single `DivideChunk`'s `Multiply` call can we parallelize. The 500k/100k case has ~5 blocks, each with two ~5000-limb NTT mults. Each mult is ~3 ms wall time on a single core; parallelizing across 4 cores could bring per-mult to ~1.2 ms (4× peak speedup minus barrier overhead and L2 contention → realistic 2.5×).
+Measured speedup vs serial baseline (M1 Max, 8 threads):
 
-Predicted end-to-end:
+| case | serial | threaded | speedup |
+|---|---:|---:|---:|
+| 200 000 / 50 000 | 20.9 ms | 9.21 ms | 2.3× |
+| 500 000 / 100 000 | 53.7 ms | 18.93 ms | 2.8× |
+| 1M / 1M (mul, for ref) | 36.5 ms | 12.85 ms | 2.8× |
 
-| case | now (1 thread) | est 2 threads | est 4 threads | est 8 threads |
-|---|---:|---:|---:|---:|
-| 200 000 / 50 000 | 20.9 ms | ~13 ms | ~9 ms | ~7 ms |
-| 500 000 / 100 000 | 53.7 ms | ~33 ms | ~22 ms | ~17 ms |
-| 1M / 1M (mul, for ref) | 36.5 ms | ~22 ms | ~14 ms | ~11 ms |
+Architectural notes:
+- Public headers stay free of `<thread>` — pthread linkage only when `BIGMATH_USE_THREADS=1` and consumer links the lib.
+- Pool created lazily on first `ParallelDo` call. Workers spin on a condition variable; dispatch latency ~5µs.
+- `static thread_local` NTT plan + Pow10 caches mean each worker fills its own on first touch — warm pool with one large mult per thread for latency-critical workloads.
+- See [`THREAD_SAFETY.md`](THREAD_SAFETY.md) for the full thread-safety model.
 
-These are upper bounds assuming Amdahl on the 60–70% parallelizable portion and ~70% efficiency per thread. The 30% serial portion (allocation, `ApproxReciprocal` data dependencies, `Finalize` accumulation, `DivideChunk` block dependencies) caps the speedup well below thread count.
+### Faster NTT kernel — multi-prime CRT with 32-bit coefficients (LANDED, PR #34/#35/#36/#37)
 
-**Implementation cost:** the library is intentionally header-only with no external dependencies. Adding threading needs careful design:
+`BIGMATH_NTT_CRT=1` (default since PR #37) uses 3-prime CRT (998244353 / 985661441 / 754974721, all 30-bit, NTT-friendly) with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4). Halves coefficient count at the cost of 3 parallel transforms + Garner CRT reconstruction.
 
-- **Don't** add `#include <thread>` to public headers — pulls in pthread linkage for every consumer.
-- **Do** add an opt-in `BIGMATH_USE_THREADS` macro that, when set, links a thread pool defined in `src/`. Public headers stay unchanged.
-- Use `std::jthread` (C++20, already in use) or [Apple GCD](https://developer.apple.com/documentation/dispatch) on Apple Silicon. Avoid OpenMP (compiler-pragma sensitivity, and the parallel regions here are too fine-grained for OpenMP's overhead model).
-- Thread pool size = `min(hardware_concurrency(), 8)`. Beyond 8 threads the L2 cache pressure on NTT working sets (~512KB at 32k-coefficient transforms) dominates over compute parallelism on M1 Max's shared-L2 architecture.
-- Avoid thread creation per mult — pool with persistent workers, dispatch via condition variables. Thread creation on macOS is ~50µs (one shot), well above the ~1ms per-mult budget at these sizes.
-- Stub out for `BIGMATH_USE_THREADS=0` (default for now) so single-threaded users see zero overhead.
+Size-gated via `BIGMATH_NTT_CRT_THRESHOLD` (default 5000 limbs sum). Below the gate, single-prime Goldilocks NTT runs unchanged (CRT loses on small NTTs where its 3× transform overhead exceeds per-op savings).
 
-**Risk:** medium-high. The library is currently free of thread-safety concerns because everything is local. Introducing a pool requires auditing every `static thread_local` cache (NTT twiddles, `Pow10`) for correctness under parallel section invocation. The NTT twiddle cache is already `thread_local` per-thread, which is *good* for thread safety but means each worker thread pays its own first-call cost. Solution: warm pool threads at startup (call `NTTCore::GetPlan` from each worker once).
+Measured speedup vs Goldilocks-only on the skewed-div cases:
 
-**Recommendation:** worth doing once a concrete user case demands sub-50ms `500k/100k` div. The 2–3× wall-time win is real, but adding a thread pool to a header-only library is a non-trivial architectural step and only narrow workloads care about this size band.
+| case | Goldilocks | CRT | delta |
+|---|---:|---:|---:|
+| 200 000 / 50 000 | 20.93 ms | 18.78 ms | −10% |
+| 500 000 / 100 000 | 53.69 ms | 47.83 ms | −11% |
 
-### Faster NTT kernel — multi-prime CRT with 32-bit coefficients (high effort, 1.5–2× on the NTT itself)
-
-The current Goldilocks NTT splits each input limb into 16-bit coefficients (4 per 64-bit limb). Coefficient × coefficient = 32 bits, accumulated over `n` positions = up to ~`n · 2^32`. Goldilocks' ~2^64 modulus tolerates `n` up to ~2^32, which is way past anything we care about — there's headroom.
-
-Switching to a single 64-bit prime with 32-bit coefficients **doesn't fit** (32 × 32 = 64 bits, no headroom for accumulation). The path is **multi-prime CRT**: use two ~64-bit primes (e.g. two of the Solinas primes near 2^62), do two parallel NTTs at 32-bit coefficient width, CRT the results. Halves the coefficient count → ~2× NTT speed, at the cost of doing two NTTs (~2× the work) — net break-even at first glance, **but** the per-coefficient `ModularField::Mul` work shrinks too (operations on 32-bit inputs in 64-bit modulus are cheaper than on 16-bit inputs in 64-bit modulus), so net ~1.3–1.5× speedup expected.
-
-Cost: rewrite of `NTTCore.h` (~400–800 lines), addition of CRT reconstruction, new prime selection. Risk: high — touches every NTT caller, accumulation bounds for 32-bit coefficients need re-derivation for the new primes.
-
-Previously rejected in `project-rejected-algorithms` memory under "Different NTT prime / multi-prime CRT" with the reasoning "triples transform cost without enabling a larger range anyone uses." That argument was about extending the operand-size range (Goldilocks at 16-bit coefficients already covers ~2^31 limbs ≈ 16 GB). The current motivation is different — **same operand range, fewer coefficients, faster transform** — and deserves a fresh analysis if the multithreading path doesn't deliver enough.
+The CRT + threading combination compounds: 4-5× cumulative win on the floor cases. See the "Measured speedup" table in the multithreading section above for the combined numbers.
 
 ### Algorithmic alternatives (out of scope without a concrete trigger)
 
@@ -512,11 +530,7 @@ Effort: ~150 lines. Risk: low (M-G algorithm already validated at Base2_32; the 
 
 ### Mulders' short multiplication in Newton iteration
 
-Detailed in the [Improving skewed division](#improving-skewed-division-beyond-the-current-floor) section above. The highest-impact algorithmic improvement available without threading.
-
-### Multithreaded NTT
-
-Detailed above. Requires architectural change to add a thread pool. Probably the path with the best wall-clock-per-effort ratio at the 500k/100k case, but adds a non-trivial dependency surface.
+Detailed in the [Improving skewed division](#improving-skewed-division-beyond-the-current-floor) section above. With threading + CRT now landed, Mulders is the highest-impact remaining algorithmic improvement. Estimated additional 15-25% on the floor cases (200k/50k currently 9.2 ms → ~7 ms; 500k/100k currently 18.9 ms → ~15 ms).
 
 ---
 
