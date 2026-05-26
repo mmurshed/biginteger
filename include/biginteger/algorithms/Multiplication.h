@@ -30,7 +30,13 @@
 namespace BigMath
 {
 #ifndef BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD
+// dispatch_tuner LIMB_64=1: Classic wins up to total 96 limbs (much larger
+// schoolbook range than 32-bit, where Classic only wins at 1-limb operands).
+#if BIGMATH_LIMB_64
+#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 96
+#else
 #define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 0
+#endif
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
