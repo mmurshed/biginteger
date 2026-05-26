@@ -65,9 +65,9 @@
 #ifndef EXPRESSION_EVALUATOR
 #define EXPRESSION_EVALUATOR
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/common/Parser.h"
-#include "../biginteger/ops/Operations.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/common/Parser.h"
+#include "biginteger/ops/Operations.h"
 
 using namespace BigMath;
 

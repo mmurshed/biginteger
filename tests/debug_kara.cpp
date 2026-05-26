@@ -3,12 +3,12 @@
 #include <string>
 #include <random>
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/ops/IO.h"
-#include "../biginteger/ops/Comparison.h"
-#include "../biginteger/common/Parser.h"
-#include "../biginteger/algorithms/multiplication/ClassicMultiplication.h"
-#include "../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/ops/IO.h"
+#include "biginteger/ops/Comparison.h"
+#include "biginteger/common/Parser.h"
+#include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 
 using namespace std;
 using namespace BigMath;

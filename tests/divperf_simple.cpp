@@ -3,10 +3,10 @@
 #include <random>
 #include <vector>
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/common/Comparator.h"
-#include "../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../biginteger/algorithms/division/FastDivision.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/common/Comparator.h"
+#include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
+#include "biginteger/algorithms/division/FastDivision.h"
 
 using namespace BigMath;
 using namespace std;

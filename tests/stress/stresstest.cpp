@@ -20,9 +20,9 @@
 
 using namespace std;
 
-#include "../../biginteger/BigInteger.h"
-#include "../../biginteger/ops/Operations.h"
-#include "../../biginteger/common/Parser.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/ops/Operations.h"
+#include "biginteger/common/Parser.h"
 
 using namespace BigMath;
 

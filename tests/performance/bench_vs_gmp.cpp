@@ -17,10 +17,10 @@
 
 #include <gmp.h>
 
-#include "../../biginteger/BigInteger.h"
-#include "../../biginteger/ops/Operations.h"
-#include "../../biginteger/common/Builder.h"
-#include "../../biginteger/common/Parser.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/ops/Operations.h"
+#include "biginteger/common/Builder.h"
+#include "biginteger/common/Parser.h"
 
 using namespace std;
 using namespace BigMath;

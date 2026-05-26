@@ -8,17 +8,17 @@
 #include <utility>
 #include <vector>
 
-#include "../../biginteger/BigInteger.h"
-#include "../../biginteger/algorithms/Division.h"
-#include "../../biginteger/algorithms/Multiplication.h"
-#include "../../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../../biginteger/algorithms/division/FastDivision.h"
-#include "../../biginteger/algorithms/division/NewtonDivision.h"
-#include "../../biginteger/algorithms/multiplication/ClassicMultiplication.h"
-#include "../../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
-#include "../../biginteger/algorithms/multiplication/NTTMultiplication.h"
-#include "../../biginteger/common/Comparator.h"
-#include "../../biginteger/common/Util.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/algorithms/Division.h"
+#include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
+#include "biginteger/algorithms/division/FastDivision.h"
+#include "biginteger/algorithms/division/NewtonDivision.h"
+#include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
+#include "biginteger/algorithms/multiplication/NTTMultiplication.h"
+#include "biginteger/common/Comparator.h"
+#include "biginteger/common/Util.h"
 
 using namespace BigMath;
 using namespace std;

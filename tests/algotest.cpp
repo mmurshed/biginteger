@@ -20,16 +20,16 @@
 
 using namespace std;
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/ops/IO.h"
-#include "../biginteger/common/Parser.h"
-#include "../biginteger/ops/Comparison.h"
-#include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
-#include "../biginteger/algorithms/multiplication/ClassicMultiplication.h"
-#include "../biginteger/algorithms/multiplication/NTTMultiplication.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/ops/IO.h"
+#include "biginteger/common/Parser.h"
+#include "biginteger/ops/Comparison.h"
+#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 
-#include "../biginteger/algorithms/division/KnuthDivision.h"
-#include "../biginteger/algorithms/division/FastDivision.h"
+#include "biginteger/algorithms/division/KnuthDivision.h"
+#include "biginteger/algorithms/division/FastDivision.h"
 
 using namespace BigMath;
 

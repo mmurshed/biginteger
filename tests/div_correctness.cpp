@@ -2,16 +2,16 @@
 #include <random>
 #include <vector>
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/common/Comparator.h"
-#include "../biginteger/algorithms/Addition.h"
-#include "../biginteger/algorithms/Division.h"
-#include "../biginteger/algorithms/Multiplication.h"
-#include "../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../biginteger/algorithms/division/ClassicDivision.h"
-#include "../biginteger/algorithms/division/FastDivision.h"
-#include "../biginteger/algorithms/division/NewtonDivision.h"
-#include "../biginteger/algorithms/division/ReciprocalDivision.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/common/Comparator.h"
+#include "biginteger/algorithms/Addition.h"
+#include "biginteger/algorithms/Division.h"
+#include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
+#include "biginteger/algorithms/division/ClassicDivision.h"
+#include "biginteger/algorithms/division/FastDivision.h"
+#include "biginteger/algorithms/division/NewtonDivision.h"
+#include "biginteger/algorithms/division/ReciprocalDivision.h"
 
 using namespace BigMath;
 using namespace std;

@@ -15,13 +15,13 @@
 
 using namespace std;
 
-#include "../../biginteger/BigInteger.h"
-#include "../../biginteger/ops/IO.h"
-#include "../../biginteger/common/Parser.h"
-#include "../../biginteger/common/Comparator.h"
-#include "../../biginteger/algorithms/division/BurnikelZieglerDivision.h"
-#include "../../biginteger/algorithms/division/FastDivision.h"
-#include "../../biginteger/algorithms/division/KnuthDivision.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/ops/IO.h"
+#include "biginteger/common/Parser.h"
+#include "biginteger/common/Comparator.h"
+#include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
+#include "biginteger/algorithms/division/FastDivision.h"
+#include "biginteger/algorithms/division/KnuthDivision.h"
 
 using namespace BigMath;
 

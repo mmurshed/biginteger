@@ -3,17 +3,17 @@
 #include <string>
 #include <vector>
 
-#include "../biginteger/BigInteger.h"
-#include "../biginteger/common/Parser.h"
-#include "../biginteger/ops/Comparison.h"
-#include "../biginteger/algorithms/multiplication/ClassicMultiplication.h"
-#include "../biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
-#include "../biginteger/algorithms/multiplication/ToomCookMultiplication.h"
-#include "../biginteger/algorithms/multiplication/NTTMultiplication.h"
-#include "../biginteger/algorithms/multiplication/ClassicSquare.h"
-#include "../biginteger/algorithms/multiplication/KaratsubaSquare.h"
-#include "../biginteger/algorithms/multiplication/NTTSquare.h"
-#include "../biginteger/algorithms/Squaring.h"
+#include "biginteger/BigInteger.h"
+#include "biginteger/common/Parser.h"
+#include "biginteger/ops/Comparison.h"
+#include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
+#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "biginteger/algorithms/multiplication/NTTMultiplication.h"
+#include "biginteger/algorithms/multiplication/ClassicSquare.h"
+#include "biginteger/algorithms/multiplication/KaratsubaSquare.h"
+#include "biginteger/algorithms/multiplication/NTTSquare.h"
+#include "biginteger/algorithms/Squaring.h"
 
 using namespace BigMath;
 using namespace std;
