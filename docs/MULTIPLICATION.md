@@ -477,44 +477,68 @@ Pre-2026 the `ToomCookMultiplication` class had an early `return KaratsubaMultip
 
 The 2026-05 rewrite implements correct Toom-3 with eval points {0, 1, −1, 2, ∞}, signed interpolation, and recursion bottoming to Karatsuba below `BIGMATH_TOOM3_THRESHOLD = 256`. Validated against `mult_correctness`. Not in dispatch — see [explored but rejected](#explored-but-rejected).
 
+### 64-bit limb refactor (2026-05, PRs #18–#30)
+
+`DataT` now stores true 64-bit values and `Base() == Base2_64` by default. Every multiplication algorithm has a native Base2_64 path:
+
+- `ClassicMultiplication`: `ULong128` accumulator, 64×64 → 128 per cell.
+- `KaratsubaMultiplication`: `ULong128` add/sub helpers; the leaf `MultiplyClassicPtr` Base2_64 path is plain 64-bit schoolbook (no further pack trick — would need 256-bit primitives).
+- `NTTMultiplication` + `NTTSquare`: each 64-bit limb splits into **four** 16-bit Goldilocks coefficients (vs two for Base2_32); `FinalizeBase2_64` reassembles 4-into-1 with carry propagation. Same prime, same `NTTCore`.
+- `ToomCookMultiplication` + `Toom5Multiplication`: 64-bit `HalveInPlace` / `DivBy3InPlace` / `DivSmallInPlace` using `ULong128` for the rolling remainder.
+
+Dispatch thresholds re-tuned for 64-bit limbs (`-DBIGMATH_LIMB_64`-gated defaults in `Multiplication.h` / `Squaring.h`):
+
+- `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD`: 0 → 96 (Classic schoolbook wins through 96 total limbs at 64-bit width)
+- `BIGMATH_NTT_SQUARE_THRESHOLD`: 512 → 2048 (KaratsubaSquare wins through ~1536 limbs)
+
+Wins on `bench_vs_gmp` (vs Base2_32 baseline, M1 Max, `-O3 -march=native`):
+
+| op | Base2_32 | Base2_64 | delta |
+|---|---:|---:|---:|
+| mul 1k×1k | 0.005 ms | 0.002 ms | **−60%** |
+| mul 5k×5k | 0.040 ms | 0.033 ms | −18% |
+| mul 10k×10k | 0.127 ms | 0.093 ms | −27% |
+| mul 50k×50k | 2.387 ms | 1.779 ms | −25% |
+| mul 100k×100k | 3.824 ms | 3.482 ms | −9% |
+| **mul 1M×1M** | **37.5 ms** | **36.5 ms** | **≈ 0** (NTT-bound, expected) |
+| mul 100k/10k skewed | 1.614 ms | 1.669 ms | ≈ 0 |
+
+The largest case is unchanged because the Goldilocks NTT coefficient capacity is fixed at 16 bits regardless of source limb width — same problem produces the same NTT coefficient count. The mid-range cases (1k–50k) benefit from halving the scalar limb count in the Karatsuba leaf and the Newton-driven `Pow10` chain.
+
+Opt-out: `-DBIGMATH_LIMB_64=0` reverts to 32-bit limbs.
+
 ---
 
 ## Future opportunities
 
 Ranked by expected ROI per unit of effort.
 
-### Port the 64-bit hybrid to `ClassicMultiplication::MultiplyTo` (cheap, marginal)
-
-The hybrid pack/unpack trick is currently only in the Karatsuba leaf. `ClassicMultiplication::MultiplyTo` (used by `ParseUnsignedLinear` and `ToStringLinearAppend`) is still scalar 32-bit. Estimated 1–3% on parse, ~30 lines, low risk. Same trick to `ClassicDivision::DivModTo` Base10_18 path saves another 1–2% on ToString.
-
 ### Granlund–Möller magic-number division by 10¹⁸ (cheap, marginal)
 
-`ToStringLinearAppend` calls `ClassicDivision::DivModTo(r, Base10_18, Base2_32)` in a tight loop, each invocation ultimately routing through the compiler-provided `__udivmodti4` (a 128/64 long division). For a fixed divisor (`10¹⁸`), [Granlund–Möller "Improved division by invariant integers"](https://gmplib.org/~tege/divcnst-pldi94.pdf) reduces this to a multiply-by-reciprocal-high plus a small correction — one or two `UMULH`s replacing a `UDIV`-loop. Profile shows `__udivmodti4` at 1.5–2.2% of `ToString 100k`, so the upper bound on the win is small (~1–2% on ToString).
+`ToStringLinearAppend` calls `ClassicDivision::DivModTo(r, Base10_18, base)` in a tight loop, each invocation ultimately routing through the compiler-provided `__udivmodti4` (a 128/64 long division). For a fixed divisor (`10¹⁸`), [Granlund–Möller "Improved division by invariant integers"](https://gmplib.org/~tege/divcnst-pldi94.pdf) reduces this to a multiply-by-reciprocal-high plus a small correction — one or two `UMULH`s replacing a `UDIV`-loop.
 
-### Full 64-bit limb refactor (large effort, moderate but uneven win)
+Under `BIGMATH_LIMB_64=0` (legacy 32-bit limbs): profile shows `__udivmodti4` at 1.5–2.2% of `ToString 100k`, so the upper bound on the win is small (~1–2% on ToString).
 
-The library stores each limb in a `uint64_t` but only uses 32 bits. Reinterpreting the storage as full 64-bit limbs (with `__uint128_t` accumulators) would halve the limb count throughout, doubling throughput in scalar paths (schoolbook, Newton/BZ/FastDivision inner loops, parser, ToString linear leaf).
+Under `BIGMATH_LIMB_64=1` (default since 2026-05): `__udivmodti4` rose to 5–10% of `ToString 100k` after the limb refactor (twice as many libcalls per leaf at half the limb count, with leaf chunks now correctly sized after the `digitsPerLimb` fix in PR #29). Estimated win: 3–6% on ToString. ~80 lines, low risk.
 
-Estimated touch: 1000–2000 lines across `Constants.h`, `BigInteger.h`, `Addition.h`, `Subtraction.h`, `Shift.h`, every multiplication algorithm (Classic, Karatsuba, NTT, Toom-Cook), every division algorithm, parser, and ToString. Multi-pass debugging time: 1–2 weeks.
+### Multithreaded NTT (architectural, 1.5–3× on large NTT-bound ops)
 
-Expected wins (best case):
+Detailed in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). Applies symmetrically to multiplication — `Multiply` at ≥ 100k digits is NTT-bound and would benefit identically. The architectural lift is the same (header-only library + thread pool design), so the cost amortizes across both subsystems.
 
-| op | now | est | gain |
-|---|---|---|---|
-| mul small (1k) | 3.5 × | ~3 × | marginal — Karatsuba leaf already 64-bit-hybrid |
-| mul mid (5–50k) | 3.5–5.9 × | ~3 × | small-moderate |
-| **mul large (1M)** | **4.2 ×** | **4.2 ×** | **zero — NTT input still 16-bit per Goldilocks** |
-| div skewed (200k/50k) | 13.7 × | ~7–9 × | significant |
-| parse 100k | 7.1 × | ~5 × | moderate |
-| ToString 100k | 17.7 × | ~12–14 × | moderate |
+Predicted end-to-end multiplication wins:
 
-Critical caveat: **NTT-bound multiplications get nothing.** The Goldilocks prime caps coefficient width at 16 bits regardless of source limb size (`m · 2^(2c) < 2^64` forces `c = 16` for any practical `m`). All large mults pass through NTT, so limb-size refactor leaves the 1M-digit mult ratio unchanged.
+| size | now (1 thread) | est 2 threads | est 4 threads |
+|---|---:|---:|---:|
+| mul 100k×100k | 3.48 ms | ~2.2 ms | ~1.4 ms |
+| mul 1M×1M | 36.5 ms | ~22 ms | ~14 ms |
 
-Risk-adjusted ROI is moderate. The big wins (div, parse, ToString) come at the cost of every carry/borrow chain in the library being rewritten and re-validated.
+### Multi-prime CRT NTT with 32-bit coefficients (high effort, 1.3–1.5× on NTT)
 
-### Replace Karatsuba with parallel sub-multiplications (architectural)
+Also covered in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor) under "Faster NTT kernel". The original rejection (see below) was about extending the operand-size range; the current motivation is fewer coefficients at the same range. Worth a fresh look if multithreading isn't enough.
 
-Karatsuba's three sub-multiplications at each recursion level are independent. A thread pool could compute them in parallel, giving up to 3× speedup on mid-sized operands where Karatsuba is the chosen algorithm (5k–100k digits in this codebase). This is an architectural change — the library is currently single-threaded and header-only — and tooling for managing a worker pool inside a header-only library is awkward.
+### NTT butterfly assembly
+
+The NTT butterfly is 95–97% of cost for large mults. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover 30–50% of the ~1.5–2× gap to GMP at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
 
 ### NTT butterfly assembly
 
@@ -532,11 +556,13 @@ Each rejection has a concrete reason. Don't re-propose without new evidence over
 
 In this codebase: Goldilocks NTT with 16-bit input split handles up to ~2³¹ source limbs (≈ 8 GB operands). SSA's asymptotic edge requires `n` past the point where this matters, and the implementation cost (~700–1000 lines of nested-FFT machinery, recursive ring arithmetic, careful precision management) is not justified for any input size a user will plausibly hit. See also [Fürer's algorithm](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm) which improves SSA's outer factor further but has the same constant-factor problem.
 
-### Different NTT prime / multi-prime CRT
+### Different NTT prime / multi-prime CRT — round 1 (range-extension framing)
 
-Replacing Goldilocks with a different prime (Solinas, generalized Mersenne, etc.) or running multiple smaller primes in parallel and combining via CRT.
+Replacing Goldilocks with a different prime (Solinas, generalized Mersenne, etc.) or running multiple smaller primes in parallel and combining via CRT to **extend the usable operand-size range**.
 
-Goldilocks is uniquely suited to this codebase: closed-form reduction, fits 64 bits, supports 16-bit input coefficients with full safety margin. A multi-prime scheme triples the transform cost without enabling a larger usable input range.
+Goldilocks is uniquely suited to this codebase: closed-form reduction, fits 64 bits, supports 16-bit input coefficients with full safety margin out to ~2³¹ source limbs (≈ 16 GB operands). A multi-prime scheme triples the transform cost without enabling a larger range anyone uses.
+
+**This rejection is now narrowly scoped to the range-extension motivation.** A separate motivation — **same range, fewer coefficients at wider per-coefficient width** — is reopened in [Future opportunities §Multi-prime CRT NTT](#future-opportunities) and tracked symmetrically in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). The trade is now: 2× NTT count × ~half the per-NTT cost ≈ 1.3–1.5× net speedup, vs the prior framing's straight 3× cost penalty.
 
 ### SIMD/NEON acceleration of NTT butterfly
 
