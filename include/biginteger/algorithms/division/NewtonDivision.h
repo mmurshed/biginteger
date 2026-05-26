@@ -28,7 +28,7 @@ namespace BigMath
   class NewtonDivision
   {
   private:
-    // Bit-shift left by `bits` in [0,31].
+    // Bit-shift left by `bits` in [0, LimbBits-1].
     static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int bits)
     {
       if (bits == 0 || IsZero(v))
@@ -36,15 +36,21 @@ namespace BigMath
       vector<DataT> out(v.size() + 1, 0);
       for (SizeT i = 0; i < v.size(); ++i)
       {
+#if BIGMATH_LIMB_64
+        ULong128 cur = (ULong128)v[i] << bits;
+        out[i] |= (DataT)(cur & 0xFFFFFFFFFFFFFFFFULL);
+        out[i + 1] |= (DataT)(cur >> 64);
+#else
         ULong cur = (ULong)v[i] << bits;
         out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
         out[i + 1] |= (DataT)(cur >> 32);
+#endif
       }
       TrimZerosToOne(out);
       return out;
     }
 
-    // Bit-shift right by `bits` in [0,31].
+    // Bit-shift right by `bits` in [0, LimbBits-1].
     static vector<DataT> ShiftRightBits(vector<DataT> const &v, Int bits)
     {
       if (bits == 0 || IsZero(v))
@@ -52,10 +58,17 @@ namespace BigMath
       vector<DataT> out(v.size(), 0);
       for (Int i = 0; i < (Int)v.size(); ++i)
       {
+#if BIGMATH_LIMB_64
+        ULong128 cur = (ULong128)v[i];
+        if (i + 1 < (Int)v.size())
+          cur |= ((ULong128)v[i + 1]) << 64;
+        out[i] = (DataT)((cur >> bits) & 0xFFFFFFFFFFFFFFFFULL);
+#else
         ULong cur = v[i];
         if (i + 1 < (Int)v.size())
           cur |= ((ULong)v[i + 1]) << 32;
         out[i] = (DataT)((cur >> bits) & 0xFFFFFFFFULL);
+#endif
       }
       TrimZerosToOne(out);
       return out;
@@ -74,9 +87,22 @@ namespace BigMath
     {
       SizeT n = (SizeT)D.size();
 
-      // n == 1 base case: direct 128/32 div.
+      // n == 1 base case: R ≈ B^2 / D[0].
       if (n == 1)
       {
+#if BIGMATH_LIMB_64
+        // B^2 = 2^128 doesn't fit in ULong128; use (2^128 - 1) / D[0]. Result
+        // is in [2^64, 2^65 - 1] for normalized D[0] ∈ [2^63, 2^64 - 1], so up
+        // to 2 limbs. Newton fixup loop corrects the off-by-one when relevant.
+        ULong128 num = ~(ULong128)0;
+        ULong128 R = num / D[0];
+        vector<DataT> result;
+        result.push_back((DataT)R);
+        if ((ULong)(R >> 64))
+          result.push_back((DataT)(R >> 64));
+        TrimZerosToOne(result);
+        return result;
+#else
         ULong128 num = (ULong128)1 << 64; // B^2
         ULong128 R = num / D[0];
         vector<DataT> result;
@@ -86,8 +112,23 @@ namespace BigMath
           result.push_back((DataT)(R >> 64));
         TrimZerosToOne(result);
         return result;
+#endif
       }
 
+#if BIGMATH_LIMB_64
+      // 64-bit limbs: bootstrap from top single limb. R_seed ≈ B^2 / D[n-1]
+      // gives a 1-2-limb reciprocal at cur_n = 1, then Newton's quadratic
+      // doubling reaches full n-limb precision in ceil(log2(n)) iterations.
+      ULong128 D_top = (ULong128)D[n - 1];
+      ULong128 R_seed = (~(ULong128)0) / D_top; // floor((2^128 - 1) / D[n-1])
+
+      vector<DataT> R;
+      R.push_back((DataT)R_seed);
+      if ((ULong)(R_seed >> 64))
+        R.push_back((DataT)(R_seed >> 64));
+
+      SizeT cur_n = 1;
+#else
       // Bootstrap from top 2 limbs: R_seed ≈ B^4 / D_top.
       ULong128 D_top = ((ULong128)D[n - 1] << 32) | D[n - 2];
       ULong128 R_seed = ((ULong128)-1) / D_top; // floor((2^128 - 1) / D_top)
@@ -99,6 +140,7 @@ namespace BigMath
         R.push_back((DataT)(R_seed >> 64));
 
       SizeT cur_n = 2;
+#endif
       SizeT extra_iters_done = 0;
       const SizeT EXTRA_REFINE_ITERS = high_precision ? 1 : 0;
       while (cur_n < n || extra_iters_done < EXTRA_REFINE_ITERS)
@@ -125,7 +167,7 @@ namespace BigMath
         vector<DataT> D_new(D.begin() + (n - new_n), D.end());
 
         // T = D_new * R_pad
-        vector<DataT> T = Multiply(D_new, R_pad, Base2_32);
+        vector<DataT> T = Multiply(D_new, R_pad, CurrentBase);
 
         // diff = 2*B^(2*new_n) - T  (should be ≥ 0 for valid seeds).
         vector<DataT> two_S(2 * new_n + 1, 0);
@@ -134,7 +176,7 @@ namespace BigMath
         vector<DataT> diff;
         if (Compare(two_S, T) >= 0)
         {
-          diff = Subtract(two_S, T, Base2_32);
+          diff = Subtract(two_S, T, CurrentBase);
         }
         else
         {
@@ -143,7 +185,7 @@ namespace BigMath
         }
 
         // R_new = (R_pad * diff) >> (32 * 2 * new_n)
-        vector<DataT> RD = Multiply(R_pad, diff, Base2_32);
+        vector<DataT> RD = Multiply(R_pad, diff, CurrentBase);
         if (RD.size() > 2 * new_n)
         {
           R.assign(RD.begin() + 2 * new_n, RD.end());
@@ -178,7 +220,7 @@ namespace BigMath
       SizeT n = (SizeT)b_norm.size();
 
       // Q ≈ (chunk * R) >> (2n limbs)
-      vector<DataT> CR = Multiply(chunk, R, Base2_32);
+      vector<DataT> CR = Multiply(chunk, R, CurrentBase);
       vector<DataT> Q;
       if (CR.size() > 2 * n)
         Q.assign(CR.begin() + 2 * n, CR.end());
@@ -186,7 +228,7 @@ namespace BigMath
         Q = vector<DataT>{0};
       TrimZerosToOne(Q);
 
-      vector<DataT> QB = Multiply(Q, b_norm, Base2_32);
+      vector<DataT> QB = Multiply(Q, b_norm, CurrentBase);
 
       const int FIXUP_LIMIT = 8;
       vector<DataT> one{1};
@@ -196,18 +238,18 @@ namespace BigMath
       {
         if (++iters > FIXUP_LIMIT)
           return {{}, {}, false};
-        Q = Subtract(Q, one, Base2_32);
-        QB = Subtract(QB, b_norm, Base2_32);
+        Q = Subtract(Q, one, CurrentBase);
+        QB = Subtract(QB, b_norm, CurrentBase);
       }
-      vector<DataT> rem = Subtract(chunk, QB, Base2_32);
+      vector<DataT> rem = Subtract(chunk, QB, CurrentBase);
 
       iters = 0;
       while (Compare(rem, b_norm) >= 0)
       {
         if (++iters > FIXUP_LIMIT)
           return {{}, {}, false};
-        rem = Subtract(rem, b_norm, Base2_32);
-        Q = Add(Q, one, Base2_32);
+        rem = Subtract(rem, b_norm, CurrentBase);
+        Q = Add(Q, one, CurrentBase);
       }
 
       TrimZerosToOne(Q);
@@ -335,11 +377,16 @@ namespace BigMath
         if (IsZero(divisor))
           throw invalid_argument("Division by zero");
 
-        if (base != Base2_32 || divisor.size() <= 1)
+        if ((base != Base2_32 && base != Base2_64) || divisor.size() <= 1)
           return;
 
         DataT b_top = divisor.back();
-        while ((b_top & 0x80000000U) == 0)
+#if BIGMATH_LIMB_64
+        const DataT topBitMask = 0x8000000000000000ULL;
+#else
+        const DataT topBitMask = 0x80000000U;
+#endif
+        while ((b_top & topBitMask) == 0)
         {
           b_top <<= 1;
           ++shift;
@@ -413,16 +460,20 @@ namespace BigMath
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
-      // Restricted to Base2_32 multi-limb divisor. Base2_64 falls back to
-      // FastDivision until the reciprocal seed bootstrap is ported to 64-bit
-      // limbs (requires 256-bit intermediate).
-      if (base != Base2_32 || b.size() <= 1)
+      // Newton supports Base2_32 and Base2_64 multi-limb divisors. Other bases
+      // and single-limb divisors fall back to FastDivision.
+      if ((base != Base2_32 && base != Base2_64) || b.size() <= 1)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       // Normalize: shift so top bit of b's top limb is set.
       DataT b_top = b.back();
       Int shift = 0;
-      while ((b_top & 0x80000000U) == 0)
+#if BIGMATH_LIMB_64
+      const DataT topBitMask = 0x8000000000000000ULL;
+#else
+      const DataT topBitMask = 0x80000000U;
+#endif
+      while ((b_top & topBitMask) == 0)
       {
         b_top <<= 1;
         ++shift;
