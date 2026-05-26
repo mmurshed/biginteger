@@ -123,6 +123,16 @@ namespace BigMath
           carry = v % d;
         }
       }
+      else if (base == Base2_64)
+      {
+        // v = carry * 2^64 + a[i] fits ULong128 since carry < d ≤ ~5040.
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong128 v = (ULong128)a[i] | ((ULong128)carry << 64);
+          a[i] = (DataT)(v / d);
+          carry = (ULong)(v % d);
+        }
+      }
       else
       {
         for (Int i = (Int)a.size() - 1; i >= 0; --i)
