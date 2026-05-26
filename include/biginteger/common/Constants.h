@@ -7,6 +7,8 @@
 #ifndef BIGINTEGER_CONSTANTS
 #define BIGINTEGER_CONSTANTS
 
+#include <cstdint>
+
 namespace BigMath
 {
   typedef int64_t Long;
