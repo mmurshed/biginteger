@@ -519,6 +519,19 @@ The largest case is unchanged because the Goldilocks NTT coefficient capacity is
 
 Opt-out: `-DBIGMATH_LIMB_64=0` reverts to 32-bit limbs.
 
+### Shape-aware skew dispatch and NTT finalization pass (2026-05)
+
+`tests/performance/multiplication_shape_bench.cpp` measures balanced and skewed limb shapes directly against Classic, Karatsuba, NTT, dispatcher, and an experimental blockwise-skew prototype. This exposed one real dispatch miss: very small high-skew operands were entering Karatsuba even when Classic was faster.
+
+The production dispatcher now keeps `minSize <= 64` and `maxSize >= 10 * minSize` on Classic. Representative M1 Max timings:
+
+| shape | before dispatch | after dispatch | reason |
+|---|---:|---:|---|
+| `1280x64` limbs (`20n/n`) | 0.1522 ms | 0.0848 ms | avoid Karatsuba skew overhead |
+| `3200x64` limbs (`50n/n`) | 0.4469 ms | ~0.21-0.25 ms | avoid Karatsuba skew overhead |
+
+The same pass simplified Base2_64 finalization in `NTTMultiplication` and CRT NTT by packing fixed groups of coefficients directly into output limbs. End-to-end gains are small and noisy, but the implementation removes slot/flush lambda overhead from a hot path and passed the multiplication correctness suite.
+
 ---
 
 ## Future opportunities
@@ -540,9 +553,9 @@ Predicted end-to-end multiplication wins:
 
 Also covered in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor) under "Faster NTT kernel". The original rejection (see below) was about extending the operand-size range; the current motivation is fewer coefficients at the same range. Worth a fresh look if multithreading isn't enough.
 
-### NTT butterfly assembly
+### Prepared/reusable NTT operands
 
-The NTT butterfly is 95–97% of cost for large mults. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover 30–50% of the ~1.5–2× gap to GMP at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
+Repeated multiplication by the same large operand could cache coefficient splitting, transform size, and forward spectra. This does not help one-off `Multiply(a, b)` because the legal transform size depends on both operands. A useful implementation needs an explicit prepared-operand API and invalidation rules for Goldilocks vs CRT modes.
 
 ### NTT butterfly assembly
 
@@ -616,6 +629,14 @@ The apparent wins below 512 limbs are not real Toom-5 wins because `Toom5Multipl
 ### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 4096
 
 Direct algorithm microbenchmarks can make NTT look attractive too early. End-to-end dispatcher sweeps tell a different story: NTT-via-dispatcher below total size ~4096 is slower than Karatsuba-via-dispatcher because the path has setup overhead (coefficient packing, twiddle cache lookup, and buffer preparation) that algorithm-direct benchmarks do not fully capture. The 2026-05 portable C++ NTT plan/cache/finalization pass retuned `NTT_THRESHOLD` to 4096 total limbs. Lesson: don't tune dispatch from microbenchmarks alone.
+
+### Blockwise skew multiplication in dispatch
+
+A prototype split the larger operand into chunks, multiplied each chunk by the smaller operand, and accumulated shifted partial products. It remains in `multiplication_shape_bench.cpp` for experiments. It can win in narrow `min=64`, high-ratio microbenchmarks, but it regressed when promoted into production dispatch and loses once the smaller operand reaches 512+ limbs because repeated setup and accumulation exceed one full NTT.
+
+### Barrett reduction for CRT NTT primes
+
+CRT NTT uses fixed 32-bit primes, so Barrett reduction looked like an obvious way to avoid `% P` in `ModField::Mul`. The prototype regressed all tested CRT-heavy rows, including the `512`, `1024`, `2048`, and `4096` limb shape sweeps. The compiler's division/modulo lowering for these constants is already better than the generic Barrett sequence in this loop.
 
 ### PGO (Profile-Guided Optimization)
 

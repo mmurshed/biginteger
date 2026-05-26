@@ -387,24 +387,28 @@ namespace BigMath
         // 2 coefficients per output limb, each 32 bits → 64-bit limb. Carry
         // propagation needs more than the per-coeff width; use ULong128.
         ULong128 carry = 0;
-        ULong limb_acc = 0;
-        int slot = 0;
-        auto flush = [&result, &limb_acc, &slot](bool force) {
-          if (slot == 2 || (force && slot != 0))
-          {
-            result.push_back((DataT)limb_acc);
-            limb_acc = 0;
-            slot = 0;
-          }
-        };
-        for (SizeT i = 0; i < (SizeT)coeffCount; ++i)
+        SizeT i = 0;
+        for (; i + 1 < (SizeT)coeffCount; i += 2)
         {
           ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          ULong digit = (ULong)(total & 0xFFFFFFFFULL);
+          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
           carry = total >> 32;
-          limb_acc |= digit << (slot * 32);
-          ++slot;
-          flush(false);
+
+          total = Garner(fa1[i + 1], fa2[i + 1], fa3[i + 1], inv) + carry;
+          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+
+          result.push_back((DataT)(lo | (hi << 32)));
+        }
+
+        ULong limb_acc = 0;
+        int slot = 0;
+        if (i < (SizeT)coeffCount)
+        {
+          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
+          limb_acc = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+          slot = 1;
         }
         while (carry > 0)
         {
@@ -412,9 +416,15 @@ namespace BigMath
           carry >>= 32;
           limb_acc |= digit << (slot * 32);
           ++slot;
-          flush(false);
+          if (slot == 2)
+          {
+            result.push_back((DataT)limb_acc);
+            limb_acc = 0;
+            slot = 0;
+          }
         }
-        flush(true);
+        if (slot != 0)
+          result.push_back((DataT)limb_acc);
       }
       else
       {

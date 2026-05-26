@@ -47,9 +47,19 @@ namespace BigMath
 #define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 0
 #endif
 
+#ifndef BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD
+#define BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD 64
+#endif
+
+#ifndef BIGMATH_CLASSIC_SKEW_RATIO
+#define BIGMATH_CLASSIC_SKEW_RATIO 10
+#endif
+
   extern const SizeT CLASSIC_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
+  extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
+  extern const SizeT CLASSIC_SKEW_RATIO;
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,
                               std::vector<DataT> const &b,

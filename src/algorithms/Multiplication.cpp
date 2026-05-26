@@ -13,6 +13,8 @@ namespace BigMath
   const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
   const SizeT NTT_MULTIPLICATION_THRESHOLD = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
   const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
+  const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
+  const SizeT CLASSIC_SKEW_RATIO = BIGMATH_CLASSIC_SKEW_RATIO;
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,
                               std::vector<DataT> const &b,
@@ -28,8 +30,12 @@ namespace BigMath
 
     SizeT size = a.size() + b.size();
     SizeT minSize = std::min(a.size(), b.size());
+    SizeT maxSize = std::max(a.size(), b.size());
 
     if (size <= CLASSIC_MULTIPLICATION_THRESHOLD || minSize <= CLASSIC_MIN_LIMB_THRESHOLD)
+      return ClassicMultiplication::Multiply(a, b, base);
+
+    if (minSize <= CLASSIC_SKEW_MIN_LIMB_THRESHOLD && maxSize >= CLASSIC_SKEW_RATIO * minSize)
       return ClassicMultiplication::Multiply(a, b, base);
 
     if (size < NTT_MULTIPLICATION_THRESHOLD)
