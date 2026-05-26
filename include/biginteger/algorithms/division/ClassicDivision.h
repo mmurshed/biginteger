@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <vector>
 #include <string>
+#include <stdexcept>
 #include <algorithm>
 using namespace std;
 
