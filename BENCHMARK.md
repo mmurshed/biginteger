@@ -64,6 +64,17 @@ Skewed (`a.size() >> b.size()`):
 - Below 1M, GMP's hand-tuned basecase keeps a 1.4-2.6× lead.
 - Skewed mults stay within a 1.0-1.6× band across the size range. The 2M×200k case is at parity; larger skewed sizes drag the smaller operand into BigMath's NTT-bound regime asymmetrically while GMP keeps the small operand in its well-tuned mid-band.
 
+### Shape-focused multiplication dispatch
+
+`tests/performance/multiplication_shape_bench.cpp` was added to measure direct Classic, Karatsuba, NTT, dispatcher, and an experimental blockwise-skew prototype by limb shape. It found one production dispatch miss: tiny high-skew operands should not enter Karatsuba.
+
+| limb shape | previous dispatch | retuned dispatch | impact |
+|---|---:|---:|---|
+| `1280x64` (`20n/n`) | 0.1522 ms | 0.0848 ms | 1.8× faster |
+| `3200x64` (`50n/n`) | 0.4469 ms | ~0.21-0.25 ms | ~1.8-2.1× faster |
+
+The blockwise-skew prototype wins some `min=64` microbenchmarks but loses at larger smaller-operand sizes, so it remains benchmark-only. A Barrett modular multiply experiment for CRT NTT primes was slower than the existing `% P` lowering and was rejected.
+
 ---
 
 ## Division

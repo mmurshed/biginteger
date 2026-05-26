@@ -78,30 +78,38 @@ namespace BigMath
             result.reserve(coeffCount / 4 + 2);
 
             ULong carry = 0;
-            ULong limb_acc = 0;
-            int slot = 0; // 0..3 within the current limb
-
-            auto flush = [&result, &limb_acc, &slot](bool force)
+            SizeT i = 0;
+            for (; i + 3 < coeffCount; i += 4)
             {
-                if (slot == 4 || (force && slot != 0))
-                {
-                    result.push_back((DataT)limb_acc);
-                    limb_acc = 0;
-                    slot = 0;
-                }
-            };
+                ULong total0 = coeffs[i] + carry;
+                ULong d0 = total0 & 0xFFFFULL;
+                carry = total0 >> 16;
 
-            for (SizeT i = 0; i < coeffCount; ++i)
+                ULong total1 = coeffs[i + 1] + carry;
+                ULong d1 = total1 & 0xFFFFULL;
+                carry = total1 >> 16;
+
+                ULong total2 = coeffs[i + 2] + carry;
+                ULong d2 = total2 & 0xFFFFULL;
+                carry = total2 >> 16;
+
+                ULong total3 = coeffs[i + 3] + carry;
+                ULong d3 = total3 & 0xFFFFULL;
+                carry = total3 >> 16;
+
+                result.push_back((DataT)(d0 | (d1 << 16) | (d2 << 32) | (d3 << 48)));
+            }
+
+            ULong limb_acc = 0;
+            int slot = 0;
+            for (; i < coeffCount; ++i)
             {
                 ULong total = coeffs[i] + carry;
                 ULong digit = total & 0xFFFFULL;
                 carry = total >> 16;
-
                 limb_acc |= digit << (slot * 16);
                 ++slot;
-                flush(false);
             }
-
             while (carry > 0)
             {
                 ULong digit = carry & 0xFFFFULL;
@@ -109,10 +117,16 @@ namespace BigMath
 
                 limb_acc |= digit << (slot * 16);
                 ++slot;
-                flush(false);
+                if (slot == 4)
+                {
+                    result.push_back((DataT)limb_acc);
+                    limb_acc = 0;
+                    slot = 0;
+                }
             }
 
-            flush(true);
+            if (slot != 0)
+                result.push_back((DataT)limb_acc);
 
             TrimZeros(result);
             return result;
