@@ -62,9 +62,9 @@ flowchart TD
     C -- no --> D{Compare&#40;a, b&#41;}
     D -- a == b --> Eq[return &#123;1, 0&#125;]
     D -- a &lt; b --> Less[return &#123;0, a&#125;]
-    D -- a &gt; b --> E{b.size &gt;= NEWTON_MEDIUM_B<br/>AND<br/>a.size·DEN &gt;= b.size·NUM?}
+    D -- a &gt; b --> E{Newton medium-skew<br/>or high-skew band?}
     E -- yes --> N[NewtonDivision]
-    E -- no --> F{Base2_32<br/>AND b.size &gt; BZ_THRESHOLD<br/>AND BZ band fits?}
+    E -- no --> F{Power-of-two base<br/>AND b.size &gt; BZ_THRESHOLD<br/>AND BZ band fits?}
     F -- yes --> BZ[BurnikelZieglerDivision]
     F -- no --> FD[FastDivision]
 ```
@@ -75,9 +75,12 @@ Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
-| `BIGMATH_NEWTON_MEDIUM_B` | `1024` | limbs | Newton lower bound for divisor size |
-| `BIGMATH_NEWTON_SKEW_NUMERATOR` | `3` | — | Newton requires `a.size() ≥ 3·b.size() / 1` |
+| `BIGMATH_NEWTON_MEDIUM_B` | `4096` | limbs | Newton lower bound for medium-skew division |
+| `BIGMATH_NEWTON_SKEW_NUMERATOR` | `3` | — | medium-skew Newton requires `a.size() ≥ 3·b.size() / 1` |
 | `BIGMATH_NEWTON_SKEW_DENOMINATOR` | `1` | — | |
+| `BIGMATH_NEWTON_HIGH_SKEW_B` | `2048` | limbs | lower bound for very-high-skew Newton |
+| `BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR` | `8` | — | high-skew Newton requires `a.size() ≥ 8·b.size() / 1` |
+| `BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR` | `1` | — | |
 | `BIGMATH_NEWTON_LARGE_B` | `24576` | limbs | declared but **unused** in current dispatch — historical |
 | `BIGMATH_BZ_DIVISOR_THRESHOLD` | `512` | limbs | BZ entry guard |
 | `BIGMATH_BZ_RECURSION_THRESHOLD` | `512` | limbs | BZ base-case cutoff (inside `BurnikelZieglerDivision.h`) |
@@ -85,15 +88,16 @@ Default thresholds (overridable via `-D...`):
 The current dispatch logic, paraphrased:
 
 ```
-1. b.size ≥ 1024  AND  a.size ≥ 3·b.size                                  → Newton
-2. Base2_32  AND  b.size > 512  AND
+1. (b.size ≥ 4096 AND a.size ≥ 3·b.size)
+   OR (b.size ≥ 2048 AND a.size ≥ 8·b.size)                               → Newton
+2. (Base2_32 OR Base2_64)  AND  b.size > 512  AND
    ( (b.size ≥ 1024 AND a.size ≤ 3·b.size)
      OR (a.size > 2048 AND a.size > 3·b.size) )                           → Burnikel–Ziegler
 3. else                                                                   → FastDivision
 4. (b.size == 1 inside FastDivision)                                      → ClassicDivision
 ```
 
-The ordering matters: Newton wins on **skewed** problems (large dividend over medium divisor) because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **near-balanced** large problems where its 2n/n recursion structure shines. FastDivision is the default workhorse for everything else.
+The ordering matters: Newton wins on **large skewed** problems because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **near-balanced and mid-size skewed** problems where its 2n/n recursion structure beats both FastDivision and Newton's setup cost. FastDivision is the default workhorse for everything else.
 
 `KnuthDivision` and `ReciprocalDivision` exist as alternate implementations used by correctness tests for cross-checking. They are not in the production dispatch path.
 
@@ -400,6 +404,33 @@ One extra Newton refinement iteration at full precision when the dividend window
 ### Dispatcher band tuning (2026-05)
 
 The GMP bench surfaced a 72× regression on `200k / 50k` digits. Tracing showed the dispatcher predicate `a.size() ≥ 4·b.size()` was missing the case by 1–3 limbs at random sizes (`a = 20763, b = 5191` vs `4·5191 = 20764`). Lowering `NEWTON_SKEW_NUMERATOR` from 4 to 3 admitted these boundary cases to Newton. `NEWTON_MEDIUM_B` lowered from 8192 to 1024 after observing Newton beats FastDivision at much smaller divisors than the old guess. Result: that case dropped to 14×, a 5.3× improvement.
+
+### Base2_64 BZ dispatch and shape-focused retune (2026-05-26)
+
+`tests/performance/division_shape_bench.cpp` was added to benchmark meaningful division shapes directly: `2n/n`, `3n/2n`, `3n/n`, `5n/2n`, `5n/n`, and `10n/n`. This exposed a stale dispatcher guard: BZ itself supports Base2_64, but dispatch required `base == Base2_32`, so the default Base2_64 build routed many near-balanced cases to quadratic FastDivision.
+
+The dispatcher now allows BZ for both `Base2_32` and `Base2_64`, raises the medium-skew Newton floor to 4096 limbs, and adds a separate very-high-skew Newton band at 2048 limbs with ratio `a >= 8b`.
+
+Representative Base2_64 timings before the dispatch fix:
+
+| shape | fast ms | BZ ms | Newton ms | old dispatch ms | best |
+|---|---:|---:|---:|---:|---|
+| `4096/2048` | 5.25 | 3.04 | 7.51 | 5.99 | BZ |
+| `6144/4096` | 10.56 | 3.74 | 7.64 | 11.15 | BZ |
+| `10240/4096` | 31.61 | 10.37 | 11.94 | 32.73 | BZ |
+| `12288/8192` | 43.42 | 8.10 | 13.92 | 44.41 | BZ |
+
+After the retune, dispatch tracks the measured winner or near-winner:
+
+| shape | fast ms | BZ ms | Newton ms | new dispatch ms |
+|---|---:|---:|---:|---:|
+| `4096/2048` | 5.26 | 3.04 | 7.54 | 3.04 |
+| `6144/4096` | 10.51 | 3.69 | 7.61 | 3.61 |
+| `10240/4096` | 31.59 | 10.31 | 11.73 | 10.24 |
+| `12288/8192` | 43.38 | 8.00 | 13.84 | 7.94 |
+| `20480/2048` (`10n/n`) | 47.52 | 22.90 | 19.30 | 19.19 |
+
+The precomputed BZ divisor-tree prototype, a practical version of pre-inverted recursive D&C for this codebase, was also tried. It cached divisor splits and high-half recursive dividers across BZ blocks. It measured mixed/flat, so it was reverted: the current static BZ recursion remains simpler and just as fast.
 
 ### Newton reciprocal allocation cleanup
 

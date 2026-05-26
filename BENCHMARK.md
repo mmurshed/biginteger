@@ -100,6 +100,20 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 - Residual ~3× gap is the structural cost of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` (a single recursive divide rather than reciprocal-then-chunk).
 - Balanced cases route through trivial short-circuits and aren't algorithmically meaningful at this size profile.
 
+### Shape-focused division dispatch
+
+`tests/performance/division_shape_bench.cpp` was added after the table above to benchmark meaningful limb-shape division directly. The pass found that the default Base2_64 dispatcher was excluding BZ and sending many near-balanced cases through FastDivision. Dispatch now enables BZ for Base2_64, raises normal Newton entry to 4096-limb divisors, and keeps a high-skew Newton band from 2048-limb divisors at `a >= 8b`.
+
+Representative Base2_64 results:
+
+| shape (limbs) | old dispatch ms | new dispatch ms | main winner |
+|---|---:|---:|---|
+| `4096/2048` | 5.99 | 3.04 | BZ |
+| `6144/4096` | 11.15 | 3.61 | BZ |
+| `10240/4096` | 32.73 | 10.24 | BZ |
+| `12288/8192` | 44.41 | 7.94 | BZ |
+| `20480/2048` (`10n/n`) | 19.15 | 19.19 | Newton |
+
 ---
 
 ## Decimal parse (string → BigInteger)
