@@ -22,14 +22,20 @@
 #define BIGMATH_LIMB_64 1
 #endif
 
-// Opt-in internal parallelism for NTT-bound operations. When 0 (default),
-// the library is single-threaded — zero overhead. When 1, NTT Forward,
-// Inverse, and pointwise multiply use a small thread pool. See
-// docs/THREAD_SAFETY.md for the full thread-safety model.
+// Internal parallelism for NTT-bound operations. When 1 (default), the
+// CRT NTT path dispatches its 6 forwards + 3 inverses as batched work
+// units across a small thread pool; pointwise multiply is also chunked
+// across workers. When 0, all calls reduce to inline serial loops — zero
+// overhead and no pthread linkage pulled into the binary.
 //
 // Pool size auto-detected at runtime, capped at BIGMATH_MAX_THREADS.
+// See docs/THREAD_SAFETY.md for the thread-safety model.
+//
+// Bench (M1 Max, default LIMB_64=1 + CRT default): 2.3-3.4× speedup on
+// large mul / skewed div / parse vs the single-thread path. Opt out via
+// -DBIGMATH_USE_THREADS=0 for embedded/header-only-strict consumers.
 #ifndef BIGMATH_USE_THREADS
-#define BIGMATH_USE_THREADS 0
+#define BIGMATH_USE_THREADS 1
 #endif
 
 #ifndef BIGMATH_MAX_THREADS
