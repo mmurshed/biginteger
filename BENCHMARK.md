@@ -135,6 +135,20 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 
 **Observation:** narrowest gap at 1k (the linear leaf, where GM div2by1 already runs); peaks at 50k (D&C overhead + Newton recip setup not yet amortized); narrows again from 100k onward as D&C asymptotic + NTT inheriting from multiplication's overtake compound.
 
+### ToString focused warm benchmark
+
+After the table above, `tests/performance/tostring_bench.cpp` was added to isolate BigMath conversion cost without GMP and to measure warm-cache optimization deltas. The 2026-05-26 ToString pass added bit-length digit estimation, thread-local cached D&C divider chains, 10¹⁹ linear formatting chunks, digit-pair ASCII emission, and a boundary `NewtonDivision::Divider::DivideAndRemainderInto` API.
+
+| size (digits) | pre-pass ms | post-pass ms | speedup |
+|---|---:|---:|---:|
+| 1 000 | 0.0079 | 0.0063-0.0066 | 1.2-1.3× |
+| 10 000 | 1.1224 | 0.2793-0.2924 | 3.8-4.0× |
+| 50 000 | 9.4674 | 3.95-4.05 | 2.3-2.4× |
+| 100 000 | 19.8435 | 8.94-9.05 | 2.2× |
+| 200 000 | 41.1607 | 20.28-20.65 | 2.0× |
+
+The dominant win is cached divider-chain reuse. The `DivideAndRemainderInto` API is currently neutral because it delegates to existing Newton internals; deeper scratch-buffer reuse would need to be pushed into `DivideChunk`, multiplication, and subtraction temporaries.
+
 ---
 
 ## Headline summary
@@ -142,7 +156,7 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 - **Multiplication ≥5M digits:** BigMath faster than GMP (0.89× at 5M, 0.65× at 10M balanced).
 - **Multiplication skewed 2M×200k:** parity (0.98×).
 - **Division skewed:** ~3-6× behind GMP, narrowing slowly with size (NTT-bound — multiplication win flows through Newton's reciprocal iteration).
-- **ToString:** 4.5× at 2M, narrows from 11× peak at 50k. Still the widest residual gap; concentrated in Newton's per-chunk divmod and the linear leaf's `__udivmodti4` (already mitigated by M-G div2by1, PR #43).
+- **ToString:** 4.5× at 2M in the GMP comparison table, with focused warm BigMath-only results now showing a 2-4× improvement from cached divider chains and leaf formatting changes. The remaining gap is still concentrated in Newton's per-chunk divmod and NTT-backed multiplication inside division.
 - **Parse:** 1.7× at 10M, monotonically narrowing.
 
 For optimizations considered and rejected with measurement evidence, see the **Explored but rejected** sections of each subsystem doc. The 2026-05 optimization stack (LIMB_64 + CRT NTT + threading + M-G reciprocals + BZ Knuth fix) closed the GMP gap by 3-5× across every band; the remaining gap concentrates in the basecase NTT butterfly inner loop where GMP's hand-tuned ARM64 assembly maintains an edge.

@@ -459,7 +459,7 @@ Profile of `ToString 100 000 digits` under default stack (sample(1), M1 Max):
 |---|---:|
 | `NewtonDivision::Divider::DivideAndRemainder` (D&C chain divmod calls) | ~55% |
 | `NttCrt::Multiply` (internal mults inside Newton's `ApproxReciprocal` + `DivideChunk`) | ~25% |
-| `ToStringLinearAppend` (linear leaf, divmod-10¹⁸ loop) + `__udivmodti4` | ~10% |
+| `ToStringLinearAppend` (linear leaf, divmod-10¹⁹ loop) | ~10% |
 | `ToStringDivConquer` orchestration + Compare/Shift/TrimZeros | ~7% |
 | Allocation + misc | ~3% |
 
@@ -488,9 +488,9 @@ A loosely chronological summary of optimizations that landed and stuck.
 
 The base case for all parsing. Reads 18 ASCII digits at a time, multiplies the partial result by 10¹⁸ via `ClassicMultiplication::MultiplyTo`, adds the chunk via `AddTo`. 18× fewer multi-precision multiplications than a per-digit parser. Has always existed.
 
-### Linear formatter with divmod-10¹⁸
+### Linear formatter with divmod-10¹⁹
 
-The base case for all formatting. Divides by 10¹⁸ in place via `ClassicDivision::DivModTo`, emits 18 ASCII digits per division. Symmetric to the parser. Has always existed.
+The base case for all formatting. Divides by 10¹⁹ in place via `ClassicDivision::DivModTo`, emits 19 ASCII digits per division. Parsing still uses 10¹⁸ so scalar chunk multiplication keeps broad carry headroom; formatting can use the larger divisor safely because it only performs scalar division and the divisor fits in `uint64_t`.
 
 ### `Pow10` memoization
 
@@ -506,23 +506,39 @@ The 2026-05 optimization that produced the largest single ToString win. Chain of
 
 Critical detail: the chain must be constructed top-down with `chain[i] = 10^(L / 2^(i+1))`. An earlier power-of-2-tower construction (`chain[i] = 10^(18 · 2^i)`) gave catastrophically unbalanced splits and made the D&C formatter slower than the linear formatter at 500k digits.
 
+### Cached ToString divider chains
+
+The D&C formatter now keeps a thread-local cache of full decimal divider chains keyed by the top split digit count. `Pow10` values were already cached, but warm `ToString` calls still rebuilt every `NewtonDivision::Divider` reciprocal. Reusing the chain targets the previous chain-construction cost directly and benefits repeated conversions of similarly sized values.
+
+Focused warm benchmark on this repository's `tests/performance/tostring_bench.cpp`:
+
+| size | baseline ms | cached-chain stack ms | speedup |
+|---|---:|---:|---:|
+| 1 000 | 0.0079 | 0.0063-0.0066 | 1.2-1.3× |
+| 10 000 | 1.1224 | 0.2793-0.2924 | 3.8-4.0× |
+| 50 000 | 9.4674 | 3.95-4.05 | 2.3-2.4× |
+| 100 000 | 19.8435 | 8.94-9.05 | 2.2× |
+| 200 000 | 41.1607 | 20.28-20.65 | 2.0× |
+
+The cache is `thread_local` like `Pow10`; entries grow monotonically for the lifetime of the thread.
+
 ### Squaring in `Pow10` even-`d` branch
 
 For even `d`, `Pow10(d) = Pow10(d/2)²`. Using [`Square`](MULTIPLICATION.md#squaring) instead of `Multiply(p, p)` saves one FFT in the NTT case (1.4×) and half the partial products in the Karatsuba/schoolbook case (1.5×). Real-world impact: ~3% on cold-start parse and ToString (caught by the `Pow10` cache after the first invocation).
 
 ### `ToStringLinearAppend` direct ASCII formatting
 
-The linear formatter formats each chunk's digits directly into a `char` buffer using straightforward modular reduction, then `out.append`s the buffer. No intermediate `std::string` allocations per chunk. The top chunk is special-cased to skip leading zeros; lower chunks always emit full 18 digits.
+The linear formatter formats each chunk's digits directly into a `char` buffer, then `out.append`s the buffer. No intermediate `std::string` allocations per chunk. The top chunk is special-cased to skip leading zeros; lower chunks always emit full 19 digits. The current code uses a 100-entry digit-pair table to halve the number of scalar decimal divisions in the ASCII emission loop.
 
 ### Approximate decimal length estimation
 
-`ToString` estimates the output decimal length as `(SizeT)((double)r.size() * 9.633) + 1` (each 32-bit limb is roughly `log10(2³²) ≈ 9.633` decimal digits). The estimate is used to:
+`ToString` estimates the output decimal length from the actual bit length of the most significant limb, using `floor(bits * log10(2)) + 1`. The estimate is used to:
 
 1. Pre-reserve the output string buffer (avoids re-allocation during append).
 2. Decide whether to take the linear or D&C path.
 3. Choose the top `Pow10` for the chain.
 
-The estimate is always an overestimate (rounds up). The overestimate is harmless: pre-reserved buffer holds slightly more than needed; chain construction handles the top split robustly.
+This is still a safe upper bound, but it is tighter than multiplying by total limb count because the most significant limb is often only partially full. That avoids some oversized top-level divider chains near D&C boundaries.
 
 ### 64-bit hybrid Karatsuba leaf (indirect)
 

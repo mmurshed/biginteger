@@ -432,6 +432,17 @@ namespace BigMath
             computeRemainder);
       }
 
+      void DivideAndRemainderInto(
+          vector<DataT> const &a,
+          vector<DataT> &q,
+          vector<DataT> &r,
+          bool computeRemainder = true) const
+      {
+        auto qr = DivideAndRemainder(a, computeRemainder);
+        q = std::move(qr.first);
+        r = std::move(qr.second);
+      }
+
       vector<DataT> Divide(vector<DataT> const &a) const
       {
         return DivideAndRemainder(a, false).first;

@@ -35,6 +35,10 @@ namespace BigMath
   // Base 10^18 grouping. 10^18 < 2^60, fits in uint64 with room for 32-bit limb multiply.
   inline constexpr ULong Base10_18 = 1000000000000000000ULL;
   inline constexpr SizeT Base10_18_Zeroes = 18;
+  // Formatting can divide by 10^19 directly. Parsing keeps 10^18 so chunk*limb
+  // multiplication has broad carry headroom across both limb modes.
+  inline constexpr ULong Base10_19 = 10000000000000000000ULL;
+  inline constexpr SizeT Base10_19_Zeroes = 19;
   inline constexpr SizeT DecimalDcThreshold = 8192;
 
 #ifndef BIGMATH_TOSTR_DC_THRESHOLD
