@@ -561,10 +561,6 @@ Effort: ~30 lines, low risk. Worth doing as a small follow-up.
 
 The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — lowering it makes the D&C overhead (chain construction, more recursion levels) exceed the linear formatter's quadratic cost at small sizes; raising it leaves small-N wins on the table for the linear formatter. Don't tune without re-measuring.
 
-### Parallel D&C recursion (architectural)
-
-The two halves at each `ToStringDivConquer` level are independent. A thread pool could compute them in parallel, giving up to 2× per level. With 6 levels at 100k digits, the theoretical max is much higher, but cache pressure and synchronization overhead limit the realized gain. Header-only library constraint makes thread pool management awkward. Estimated practical gain: 1.5–2× on ToString for large inputs.
-
 ### Direct in-place D&C formatting (avoid `std::move` chain)
 
 `ToStringDivConquer` repeatedly moves `n` into recursive calls. Profile shows ~7.5% of ToString time in orchestration (Compare, std::move, recursive dispatch). Restructuring to operate on a pre-allocated buffer with index ranges (rather than constructing fresh `vector<DataT>` per level) could eliminate most of this. Estimated win: 3–5%. Effort: substantial restructure of `ToStringDivConquer`, moderate risk.
@@ -597,6 +593,16 @@ Fixed by constructing the chain top-down with `chain[i] = 10^(L / 2^(i+1))`, gua
 Documented in [project_rejected_algorithms.md](.../memory/) as historical context. Before the `NewtonDivision::Divider` cached-reciprocal API existed, an earlier D&C ToString implementation rebuilt the Newton reciprocal at every divmod call. Each per-level divmod was effectively quadratic in `n`, making the whole D&C approach slower than the linear formatter. The implementation was correctly recognized as a regression and reverted.
 
 The 2026-05 D&C ToString worked specifically because `Divider` made per-divide cost O(M(n)) — the same divmod that had been quadratic before became O(M(n) log n) across the chain, finally beating the linear formatter's O(L²).
+
+### Parallel D&C recursion (deadlock on current pool)
+
+Attempted 2026-05-26. Wrapped `ToStringDivConquer` in a return-style variant that dispatched the two halves via `ParallelDo(2)` with a depth-cap derived from `ParallelNumThreads()`. ToString at 100k digits: 20.85 ms → 16.83 ms (1.24×). ToString at 200k digits: **deadlock**.
+
+Root cause: nested `ParallelDo` on the shared thread pool. Outer `ParallelDo(2)` workers ran Newton, which calls NTT-CRT, which calls `ParallelDo(3)` internally for the per-prime forwards/inverses. The pool (`src/common/Parallel.cpp`) has a single `(curBody, curCtx, generation)` slot — second dispatch overwrites the first, `remaining` counter races, outer wait condition never satisfied. At 100k the per-Newton-call NTT stayed below the CRT threshold so no inner dispatch occurred; at 200k+ the inner CRT fired and deadlocked.
+
+A reentrancy guard (thread-local "skip inner" flag making inner `ParallelDo` run inline when called from a pool worker) would avoid deadlock but loses: outer split 2× × inner serial 1× = 2× total, vs original outer serial 1× × inner CRT-threaded ~2.5× = 2.5×. Outer parallelism on top of inner CRT parallelism requires a reentrancy-aware pool (per-call work queue + generation→counter map), which is a separate piece of work.
+
+Reverted. Prerequisite for re-attempting: rearchitect the pool to support concurrent dispatchers from multiple external threads (or implement nested-call work redirection).
 
 ### Per-digit parser (no chunking)
 
