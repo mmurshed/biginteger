@@ -16,6 +16,7 @@
 #include "biginteger/algorithms/division/NewtonDivision.h"
 
 #include <memory>
+#include <cmath>
 #include <unordered_map>
 #include <utility>
 
@@ -195,7 +196,66 @@ namespace BigMath
     return Parse(num, 0, char_processed);
   }
 
-  // Linear divmod-10^18 formatter. Appends to `out`. padTo > 0 pads to exactly
+  namespace
+  {
+    constexpr char DigitPairs[] =
+        "00010203040506070809"
+        "10111213141516171819"
+        "20212223242526272829"
+        "30313233343536373839"
+        "40414243444546474849"
+        "50515253545556575859"
+        "60616263646566676869"
+        "70717273747576777879"
+        "80818283848586878889"
+        "90919293949596979899";
+
+    void AppendUnsignedDecimal(ULong v, std::string &out)
+    {
+      char buf[20];
+      char *p = buf + sizeof(buf);
+      while (v >= 100)
+      {
+        ULong q = v / 100;
+        unsigned rem = (unsigned)(v - q * 100);
+        p -= 2;
+        p[0] = DigitPairs[2 * rem];
+        p[1] = DigitPairs[2 * rem + 1];
+        v = q;
+      }
+      if (v >= 10)
+      {
+        p -= 2;
+        p[0] = DigitPairs[2 * v];
+        p[1] = DigitPairs[2 * v + 1];
+      }
+      else
+      {
+        *--p = (char)('0' + v);
+      }
+      out.append(p, (buf + sizeof(buf)) - p);
+    }
+
+    void AppendPaddedUnsignedDecimal(ULong v, SizeT width, std::string &out)
+    {
+      char buf[20];
+      SizeT pos = width;
+      while (pos >= 2)
+      {
+        ULong q = v / 100;
+        unsigned rem = (unsigned)(v - q * 100);
+        pos -= 2;
+        buf[pos] = DigitPairs[2 * rem];
+        buf[pos + 1] = DigitPairs[2 * rem + 1];
+        v = q;
+      }
+      if (pos == 1)
+        buf[0] = (char)('0' + v);
+      out.append(buf, width);
+    }
+  }
+
+  // Linear divmod-10^19 formatter. Appends to `out`. padTo > 0 pads to exactly
   // padTo decimal digits with leading zeros (used by D&C lower halves).
   void ToStringLinearAppend(std::vector<DataT> r, SizeT padTo, std::string &out)
   {
@@ -214,44 +274,44 @@ namespace BigMath
     std::vector<ULong> chunks;
     chunks.reserve(r.size() + 1);
     while (!(r.size() == 1 && r[0] == 0))
-      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, CurrentBase));
+      chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_19, CurrentBase));
 
     int topDigits = 0;
     {
       ULong v = chunks.back();
       do { ++topDigits; v /= 10; } while (v);
     }
-    SizeT natural = (chunks.size() - 1) * Base10_18_Zeroes + (SizeT)topDigits;
+    SizeT natural = (chunks.size() - 1) * Base10_19_Zeroes + (SizeT)topDigits;
 
     if (padTo > natural)
       out.append(padTo - natural, '0');
 
-    char buf[20];
-    char *bufEnd = buf + 20;
-
     auto it = chunks.rbegin();
     {
       ULong v = *it++;
-      char *p = bufEnd;
-      do { *--p = (char)('0' + (v % 10)); v /= 10; } while (v);
-      out.append(p, bufEnd - p);
+      AppendUnsignedDecimal(v, out);
     }
     for (; it != chunks.rend(); ++it)
-    {
-      ULong v = *it;
-      for (Int i = (Int)Base10_18_Zeroes - 1; i >= 0; --i)
-      {
-        buf[i] = (char)('0' + (v % 10));
-        v /= 10;
-      }
-      out.append(buf, Base10_18_Zeroes);
-    }
+      AppendPaddedUnsignedDecimal(*it, Base10_19_Zeroes, out);
   }
 
   // Chain entry: 10^digits + its precomputed Newton-reciprocal divider.
   // Built top-down so each level splits its parent in half — balanced T(N) = 2T(N/2) + M(N).
   namespace
   {
+    SizeT EstimateDecimalDigits(std::vector<DataT> const &r)
+    {
+#if BIGMATH_LIMB_64
+      constexpr SizeT limbBits = 64;
+      SizeT highBits = limbBits - (SizeT)__builtin_clzll((ULong)r.back());
+#else
+      constexpr SizeT limbBits = 32;
+      SizeT highBits = limbBits - (SizeT)__builtin_clz((unsigned)r.back());
+#endif
+      long double bits = (long double)(r.size() - 1) * (long double)limbBits + (long double)highBits;
+      return (SizeT)std::floor(bits * 0.3010299956639811952137388947244930267682L) + 1;
+    }
+
     struct DecimalDcEntry
     {
       SizeT digits;
@@ -271,6 +331,17 @@ namespace BigMath
         chain.push_back(std::move(e));
       }
       return chain;
+    }
+
+    std::vector<DecimalDcEntry> const &GetDecimalDcChain(SizeT topDigits)
+    {
+      static thread_local std::unordered_map<SizeT, std::vector<DecimalDcEntry>> cache;
+      auto it = cache.find(topDigits);
+      if (it != cache.end())
+        return it->second;
+
+      auto inserted = cache.emplace(topDigits, BuildDecimalDcChain(topDigits));
+      return inserted.first->second;
     }
 
     void ToStringDivConquer(
@@ -302,11 +373,13 @@ namespace BigMath
         return;
       }
 
-      auto qr = chain[level].divider->DivideAndRemainder(n);
+      std::vector<DataT> q;
+      std::vector<DataT> r;
+      chain[level].divider->DivideAndRemainderInto(n, q, r);
       SizeT half = chain[level].digits;
       SizeT topPad = (padTo > half) ? padTo - half : 0;
-      ToStringDivConquer(std::move(qr.first), chain, level + 1, topPad, out);
-      ToStringDivConquer(std::move(qr.second), chain, level + 1, half, out);
+      ToStringDivConquer(std::move(q), chain, level + 1, topPad, out);
+      ToStringDivConquer(std::move(r), chain, level + 1, half, out);
     }
   } // namespace
 
@@ -319,18 +392,7 @@ namespace BigMath
     while (r.size() > 1 && r.back() == 0)
       r.pop_back();
 
-    // Each LimbBits-wide limb ≈ LimbBits * log10(2) decimal digits.
-    // Base2_32 = 9.633, Base2_64 = 19.266. Used for buffer reserve AND D&C
-    // chain depth — underestimating leaves the linear-leaf chunk way too big
-    // (e.g. Base2_64 with 9.633 underestimates 2×, halves chain depth, and
-    // pushes a 60k-digit value through ToStringLinearAppend, dominating
-    // runtime with __udivmodti4 libcalls).
-#if BIGMATH_LIMB_64
-    constexpr double digitsPerLimb = 19.266;
-#else
-    constexpr double digitsPerLimb = 9.633;
-#endif
-    SizeT approxDigits = (SizeT)((double)r.size() * digitsPerLimb) + 1;
+    SizeT approxDigits = EstimateDecimalDigits(r);
 
     std::string s;
     s.reserve(approxDigits + (isNeg ? 2 : 1));
@@ -343,7 +405,7 @@ namespace BigMath
       return s;
     }
 
-    auto chain = BuildDecimalDcChain(approxDigits / 2);
+    auto const &chain = GetDecimalDcChain(approxDigits / 2);
     ToStringDivConquer(std::move(r), chain, 0, 0, s);
     return s;
   }
