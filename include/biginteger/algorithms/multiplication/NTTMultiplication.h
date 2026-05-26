@@ -133,12 +133,16 @@ namespace BigMath
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
 #if BIGMATH_NTT_CRT
-            // Size-gated hybrid: CRT wins on large NTT-bound ops where its
-            // per-op savings outweigh the 3× transform overhead. Below the
-            // threshold, Goldilocks wins (notably mul 50k×50k +18% with CRT).
-            // Tuned 2026-05 on M1 Max; override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
+            // Size-gated hybrid. Crossover measured via direct NTT-vs-CRT
+            // sweep (min of 7 iters per case, M1 Max, -O3 -march=native):
+            //   sum=4000   Goldilocks wins big (0.76 vs 1.24 ms = 1.6× faster)
+            //   sum=6000   CRT wins (2.12 vs 1.70 ms = 1.24×)
+            //   sum=8000   CRT wins (1.73 vs 1.49 ms = 1.16×)
+            //   sum≥10000  tie within 1-2%
+            // Threshold 5000 catches the 6000-8000 wins without admitting
+            // the sum=4000 regression. Override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
 #ifndef BIGMATH_NTT_CRT_THRESHOLD
-#define BIGMATH_NTT_CRT_THRESHOLD 10000
+#define BIGMATH_NTT_CRT_THRESHOLD 5000
 #endif
             if (a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD)
                 return NttCrt::Multiply(a, b, base);
