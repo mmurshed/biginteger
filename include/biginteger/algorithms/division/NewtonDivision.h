@@ -413,7 +413,9 @@ namespace BigMath
       if (cmp == 0)
         return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
 
-      // Restricted to Base2_32 multi-limb divisor.
+      // Restricted to Base2_32 multi-limb divisor. Base2_64 falls back to
+      // FastDivision until the reciprocal seed bootstrap is ported to 64-bit
+      // limbs (requires 256-bit intermediate).
       if (base != Base2_32 || b.size() <= 1)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
