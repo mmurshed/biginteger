@@ -84,6 +84,17 @@ namespace BigMath
           carry = v & 1ULL;
         }
       }
+      else if (base == Base2_64)
+      {
+        // carry is 0 or 1 (v % 2). v = (carry << 64) | a[i] fits ULong128.
+        ULong carry = 0;
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong128 v = (ULong128)a[i] | ((ULong128)carry << 64);
+          a[i] = (DataT)(v >> 1);
+          carry = (ULong)(v & 1);
+        }
+      }
       else
       {
         ULong carry = 0;
@@ -108,6 +119,17 @@ namespace BigMath
           ULong v = ((ULong)a[i]) | (carry << 32);
           a[i] = (DataT)(v / 3);
           carry = v % 3;
+        }
+      }
+      else if (base == Base2_64)
+      {
+        // carry is 0, 1, or 2 (v % 3). v = (carry << 64) | a[i] fits ULong128.
+        ULong carry = 0;
+        for (Int i = (Int)a.size() - 1; i >= 0; --i)
+        {
+          ULong128 v = (ULong128)a[i] | ((ULong128)carry << 64);
+          a[i] = (DataT)(v / 3);
+          carry = (ULong)(v % 3);
         }
       }
       else
