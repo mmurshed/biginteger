@@ -551,9 +551,27 @@ Pre-implementation estimate in this doc was "1–2% on ToString 100k" (capped by
 
 Ranked by expected ROI per unit of effort.
 
-### Lower `BIGMATH_TOSTR_DC_THRESHOLD` for sub-2k inputs
+### `BIGMATH_TOSTR_DC_THRESHOLD` tuning (re-confirmed 2026-05-26)
 
-The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — lowering it makes the D&C overhead (chain construction, more recursion levels) exceed the linear formatter's quadratic cost at small sizes; raising it leaves small-N wins on the table for the linear formatter. Don't tune without re-measuring.
+The threshold defaults to 2 048. **Re-swept 2026-05-26** after the GM div2by1 in `ClassicDivision` (PR #43) made the linear leaf 2.13× faster at 1k digits — that shift could have moved the linear→D&C crossover. It didn't. 2 048 remains the right compromise.
+
+Best ToString time (ms, min over many iters, M1 Max, full default stack) at each (size, threshold) cell:
+
+| size (digits) | T=256 | T=512 | T=1024 | **T=2048** | T=4096 | T=8192 |
+|---|---:|---:|---:|---:|---:|---:|
+| 500    | 0.0053 | 0.0020 | 0.0020 | **0.0020** | 0.0020 | 0.0020 |
+| 1 000  | 0.0170 | 0.0141 | 0.0078 | **0.0077** | 0.0128 | 0.0079 |
+| 1 500  | 0.0314 | 0.0293 | 0.0263 | **0.0196** | 0.0213 | 0.0213 |
+| 2 000  | 0.0458 | 0.0433 | 0.0385 | **0.0316** | 0.0317 | 0.0316 |
+| 3 000  | 0.0962 | 0.0924 | 0.0900 | **0.0878** | 0.0717 | 0.0717 |
+| 5 000  | 0.2297 | 0.2228 | 0.2207 | **0.2217** | 0.2224 | 0.2004 |
+| 10 000 | 0.6926 | 0.6797 | 0.6791 | **0.6905** | 0.7223 | 0.7722 |
+| 50 000 | 8.899  | 8.887  | 8.922  | **9.049**  | 9.399  | 10.145 |
+| 100 000| 19.461 | 19.603 | 19.527 | **19.743** | 20.562 | 22.163 |
+
+**Why 2048 is the right default.** No single threshold dominates across the size range — at 1.5–2k T=2048 is best (the doc's stated sweet spot), at 3k T=4096 wins by 18%, at 10k+ T=1024 marginally faster (1–2%). 2048 sits at the corner of the curve. Lowering to 1024 costs 22–34% at 1500–2000 digits in exchange for ~1–2% at 10k+ — net loss. Raising to 4096 saves 18% at 3k but costs 66% at 1k (puny tier 0.013ms but a common case). 2048 minimizes the worst-case regression across the typical workload mix.
+
+**Don't tune without re-measuring.** The pre-PR-#43 sweep gave the same answer with different absolute times. If further optimizations land that shift the linear-leaf cost again, re-run the sweep before changing the default.
 
 ### Direct in-place D&C formatting (avoid `std::move` chain)
 
