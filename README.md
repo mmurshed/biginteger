@@ -12,11 +12,16 @@ Target: pure C++ that gets within 2–6× of GMP across the typical workload, wi
 - **Division:** Classic short division → Knuth Algorithm D (`FastDivision`) → Burnikel–Ziegler (balanced large) → Newton–Raphson with reciprocal caching (skewed large). Identity `q·b + r == a` is cross-checked in `tests/div_correctness.cpp`.
 - **Squaring:** Specialized Classic / Karatsuba / NTT squarers (1.4–1.6× over `Multiply(a,a)`).
 - **String I/O:** Linear chunked parser/formatter for small inputs, divide-and-conquer with cached Newton reciprocals at scale. Asymptotic `O(M(L) · log L)` both directions.
+- **BigDecimal:** Java-style fixed-point decimal (unscaled BigInteger + int scale) with exact +, −, \*; rounded division taking 8 rounding modes; parse/format covering plain and scientific notation.
 - **Calculator REPL:** Variables, hex/bin/dec output, multi-line continuation, comments, `:help :quit :vars :reset :base :digits :time :load :save` directives. Built as a separate executable.
 
 ## Layout
 
 ```
+include/biginteger/    public BigInteger headers (algorithms, ops, common)
+include/bigdecimal/    public BigDecimal headers
+src/                   non-inline BigInteger implementations
+bigdecimal/            BigDecimal implementation
 include/biginteger/    public headers (algorithms, ops, common)
 src/                   non-inline implementations
 tests/                 correctness, performance, unit tests
@@ -95,6 +100,7 @@ Operators: `+ - * / % ^` (with `^` right-associative). Literals: decimal, `0x…
 - [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md) — Classic / Karatsuba / Toom-3 / NTT and their tradeoffs
 - [docs/DIVISION.md](docs/DIVISION.md) — Classic / Fast (Knuth D) / Burnikel–Ziegler / Newton / Reciprocal-cached
 - [docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md) — chunked decimal I/O, D&C parse/format, Newton-divider chain
+- [docs/BIGDECIMAL.md](docs/BIGDECIMAL.md) — fixed-point decimal model, rounding modes, performance
 - [BUILDING.md](BUILDING.md) — CMake build, install, threshold tuning
 
 Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations that landed, and approaches that were tried and rejected with reasons.
