@@ -559,10 +559,6 @@ The threshold defaults to 2 048. A sweep showed that 2 048 is optimal — loweri
 
 The two halves at each `ToStringDivConquer` level are independent. A thread pool could compute them in parallel, giving up to 2× per level. With 6 levels at 100k digits, the theoretical max is much higher, but cache pressure and synchronization overhead limit the realized gain. Header-only library constraint makes thread pool management awkward. Estimated practical gain: 1.5–2× on ToString for large inputs.
 
-### Direct in-place D&C formatting (avoid `std::move` chain)
-
-`ToStringDivConquer` repeatedly moves `n` into recursive calls. Profile shows ~7.5% of ToString time in orchestration (Compare, std::move, recursive dispatch). Restructuring to operate on a pre-allocated buffer with index ranges (rather than constructing fresh `vector<DataT>` per level) could eliminate most of this. Estimated win: 3–5%. Effort: substantial restructure of `ToStringDivConquer`, moderate risk.
-
 ### Full 64-bit limb refactor (large effort, moderate gain)
 
 Discussed in detail in [MULTIPLICATION.md §Future opportunities](MULTIPLICATION.md#future-opportunities). For string conversion specifically, the wins are:
@@ -599,6 +595,26 @@ Previously listed as a cheap, marginal future opportunity. The plan was to pack 
 Obsoleted by `BIGMATH_LIMB_64=1` becoming default (PR #30). Under LIMB_64, `Parser.cpp::ParseUnsignedLinear` calls `MultiplyTo(r, Base10_18, CurrentBase)` with `CurrentBase = Base2_64`, which routes to MultiplyTo's `Base2_64` fast path — already one 64×64→128 mul per limb, the optimum. Further packing would require 256-bit primitives. The hybrid trick has no remaining target.
 
 The Base2_32 path of `MultiplyTo` is still reachable when a consumer builds with `-DBIGMATH_LIMB_64=0`. Implementing the hybrid would benefit only those legacy builds (1–3% on parse). Not worth carrying ~30 lines of additional code for a niche build mode.
+
+### Direct in-place D&C formatting (measured flat at orchestration layer)
+
+Attempted 2026-05-26. Doc previously estimated 3–5% on ToString by "avoiding the std::move chain" in `ToStringDivConquer`. Built a lite variant that passes `n` by mutable reference and uses `std::vector::swap` to reuse the caller's slot for `qr.first` and `qr.second` between recursive calls — eliminates the by-value pass entirely at the orchestration layer.
+
+Result (M1 Max, ToString 100k/200k/500k/1M/2M, 3 runs each, min):
+
+| size | baseline | in-place lite | delta |
+|---|---:|---:|---:|
+| 100k | 20.81 ms | 20.82 ms | flat |
+| 200k | 43.3 ms  | 43.1 ms  | flat (-0.5%, within noise) |
+| 500k | 118.6 ms | 118.5 ms | flat |
+| 1M   | 243.5 ms | 246.3 ms | flat (+1%, noise) |
+| 2M   | 527.1 ms | 533.5 ms | flat (+1%, noise) |
+
+Why doc estimate was wrong: `std::move` of a `std::vector` is already an O(1) pointer swap — not an allocation. The "orchestration" bucket in the profile (~7% of ToString) is dominated by `Compare`, `TrimZeros`, and Newton's internal `ShiftLeftBits` during normalize — none of those go away by removing the std::move chain.
+
+The only path to a real win would be a `Divider::DivideAndRemainderInto(a, q_out, r_out)` API that writes directly into caller-provided buffers, eliminating Newton's per-call zero-init of `q` and `rem` vectors. That's ~200 lines touching `NewtonDivision::Divider` (a load-bearing class also used by `BigDecimal` and the Newton dispatch path). Worst case loss: subtle bug in the rewrite for ≤2% projected win. Not worth.
+
+Reverted. Don't re-propose at the orchestration layer.
 
 ### Per-digit parser (no chunking)
 
