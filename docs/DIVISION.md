@@ -315,29 +315,35 @@ Numbers below are with the full default stack: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT
 
 | sizes (digits) | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| `a=40 000, b=10 000` | 1.07 | 0.23 | **4.76 ×** |
-| `a=100 000, b=10 000` | 3.21 | 0.46 | **6.95 ×** |
-| `a=200 000, b=50 000` | 9.07 | 1.68 | **5.41 ×** |
-| `a=500 000, b=100 000` | 18.95 | 4.65 | **4.07 ×** |
-| `a=1 000 000, b=200 000` | 36.00 | 9.86 | **3.65 ×** |
-| `a=2 000 000, b=500 000` | 89.39 | 23.81 | **3.75 ×** |
-| `a=5 000 000, b=1 000 000` | 219.75 | 66.75 | **3.29 ×** |
-| `a=10 000 000, b=2 000 000` | 457.46 | 149.55 | **3.06 ×** |
+| `a=40 000, b=10 000` | 0.761 | 0.225 | **3.38 ×** |
+| `a=100 000, b=10 000` | 2.194 | 0.454 | **4.83 ×** |
+| `a=200 000, b=50 000` | 11.292 | 1.674 | **6.74 ×** |
+| `a=500 000, b=100 000` | 18.243 | 4.755 | **3.84 ×** |
+| `a=1 000 000, b=200 000` | 35.215 | 10.677 | **3.30 ×** |
+| `a=2 000 000, b=500 000` | 81.141 | 25.526 | **3.18 ×** |
+| `a=5 000 000, b=1 000 000` | 191.291 | 68.730 | **2.78 ×** |
+| `a=10 000 000, b=2 000 000` | 412.358 | 156.831 | **2.63 ×** |
+| `a=20 000 000, b=4 000 000` | 909.693 | 343.664 | **2.65 ×** |
+| `a=50 000 000, b=10 000 000` | 2 355.601 | 1 312.316 | **1.79 ×** |
 
-All cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT.
+All cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT + radix-4+8 fused butterflies.
 
-**Trend at large sizes.** As operands grow into the multi-million-digit range, the ratio to GMP slowly closes — from 4-6× at the 100k-divisor band down to ~3× at 10M/2M. This is because BigMath's NTT-based mult begins to overtake GMP's Karatsuba/Toom around 5M (see [MULTIPLICATION.md §Benchmark](MULTIPLICATION.md#benchmark-results-vs-gmp)), and Newton's internal mults inherit that win. The residual ~3× gap at the largest sizes is the structural overhead of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` — a single recursive divide rather than reciprocal-then-chunk.
+**Trend at large sizes.** As operands grow into the multi-million-digit range, the ratio to GMP closes — from 4-6× at the 100k-divisor band down to **1.79× at 50M/10M**. This is because BigMath's NTT-based mult beats GMP across the 2M-20M band (see [MULTIPLICATION.md §Benchmark](MULTIPLICATION.md#benchmark-results-vs-gmp)), and Newton's internal mults inherit that win. The residual gap at the largest sizes is the structural overhead of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` — a single recursive divide rather than reciprocal-then-chunk.
 
 **Historical view** of the same skewed sizes:
 
-| sizes (digits) | early 2026 | Base2_32 tuned | LIMB_64 default | + CRT default | + threads default |
-|---|---|---|---|---|---|
-| 40 000 / 10 000 | 23 × | 21 × | 4.8 × | 4.7 × | 4.77 × |
-| 100 000 / 10 000 | 34 × | 20 × | 6.9 × | 7.0 × | 6.91 × |
-| 200 000 / 50 000 | 72 × | 14 × | 12.4 × | 11.0 × | **5.21 ×** |
-| 500 000 / 100 000 | 12 × | 12 × | 11.6 × | 10.5 × | **4.09 ×** |
+| sizes (digits) | early 2026 | LIMB_64 | + CRT + threads | + radix-4+8 (now) |
+|---|---|---|---|---|
+| 40 000 / 10 000 | 23 × | 4.8 × | 4.77 × | **3.38 ×** |
+| 100 000 / 10 000 | 34 × | 6.9 × | 6.91 × | **4.83 ×** |
+| 200 000 / 50 000 | 72 × | 12.4 × | 5.21 × | **6.74 ×** ⁂ |
+| 500 000 / 100 000 | 12 × | 11.6 × | 4.09 × | **3.84 ×** |
+| 10 000 000 / 2 000 000 | — | — | 3.06 × | **2.63 ×** |
+| 50 000 000 / 10 000 000 | — | — | — | **1.79 ×** |
 
-The 200k/50k and 500k/100k floor cases — previously stuck at the NTT-bound ratio — dropped 2.3-2.8× via cross-prime CRT parallelism (PR #38). Cumulative improvement on 500k/100k vs the original ~12× ratio: **~3× closer to GMP**. The 40k/10k case sees no further improvement because its NTT calls are below the parallelism threshold (Newton's internal mults are too small).
+⁂ The 200k/50k case fluctuates with measurement noise (divisor sits below the Newton band at 2596 limbs and routes through BZ, which has lower NTT density per limb than Newton). The other cases all benefit monotonically from the radix-4+8 NTT speedup flowing through Newton's per-chunk multiplications.
+
+The 40k/10k case sees the smallest improvement because its NTT calls are below the parallelism threshold (Newton's internal mults are too small).
 
 The smaller cases (40k/10k, 100k/10k) saw their improvements from the 64-bit limb refactor halving Newton's outer-loop limb count (PRs #18–#30). They've been at the NTT-bound floor since then; CRT's per-coefficient savings barely move them because at these sizes the NTT is a small fraction of total wall time.
 

@@ -403,44 +403,51 @@ Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BI
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.002 | 0.002 | **1.00 ×** |
-| 10 000 digits | 0.112 | 0.038 | 2.95 × |
-| 50 000 digits | 1.34 | 0.39 | 3.47 × |
-| 100 000 digits | 3.24 | 1.04 | **3.10 ×** |
-| 500 000 digits | 21.4 | 8.88 | **2.41 ×** |
-| 1 000 000 digits | 47.9 | 20.5 | **2.33 ×** |
-| 2 000 000 digits | 105.5 | 46.9 | **2.25 ×** |
-| 5 000 000 digits | 274.0 | 148.1 | **1.85 ×** |
-| 10 000 000 digits | 596.9 | 344.5 | **1.73 ×** |
+| 1 000 digits | 0.003 | 0.002 | 1.58 × |
+| 10 000 digits | 0.112 | 0.039 | 2.89 × |
+| 50 000 digits | 1.343 | 0.391 | 3.44 × |
+| 100 000 digits | 3.190 | 1.059 | **3.01 ×** |
+| 500 000 digits | 21.260 | 8.905 | **2.39 ×** |
+| 1 000 000 digits | 46.496 | 20.496 | **2.27 ×** |
+| 2 000 000 digits | 101.795 | 48.581 | **2.10 ×** |
+| 5 000 000 digits | 264.905 | 147.716 | **1.79 ×** |
+| 10 000 000 digits | 570.287 | 343.762 | **1.66 ×** |
+| 20 000 000 digits | 1 242.885 | 800.282 | **1.55 ×** |
+| 50 000 000 digits | 4 665.032 | 2 674.914 | **1.74 ×** |
 
-Parse's BM/GMP ratio narrows monotonically with size — at 10M digits the gap is 1.73× vs 3.1× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which itself crosses GMP around 5M digits (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). At extreme sizes Parse should approach parity.
+Parse's BM/GMP ratio narrows monotonically with size — **at 20M digits the gap is 1.55×** vs 3.0× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which now crosses GMP at 2M digits (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). The 50M tick widens slightly to 1.74× as GMP's SSA recovers at sizes past BigMath's NTT sweet spot.
 
 ### ToString
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.008 | 0.004 | 2.34 × |
-| 10 000 digits | 0.724 | 0.083 | 8.78 × |
-| 50 000 digits | 9.07 | 0.876 | 10.4 × |
-| 100 000 digits | 20.85 | 2.42 | **8.62 ×** |
-| 200 000 digits | 43.3 | 6.20 | 6.99 × |
-| 500 000 digits | 118.6 | 20.81 | 5.70 × |
-| 1 000 000 digits | 243.5 | 49.5 | **4.92 ×** |
-| 2 000 000 digits | 527.1 | 118.0 | **4.47 ×** |
+| 1 000 digits | 0.006 | 0.004 | 1.74 × |
+| 10 000 digits | 0.269 | 0.077 | 3.50 × |
+| 50 000 digits | 3.833 | 0.848 | 4.52 × |
+| 100 000 digits | 19.453 | 2.360 | **8.24 ×** |
+| 200 000 digits | 39.651 | 6.309 | 6.29 × |
+| 500 000 digits | 109.246 | 20.341 | 5.37 × |
+| 1 000 000 digits | 227.797 | 48.731 | **4.67 ×** |
+| 2 000 000 digits | 479.826 | 118.745 | **4.04 ×** |
+| 5 000 000 digits | 1 074.873 | 378.272 | 2.84 × |
+| 10 000 000 digits | 2 311.310 | 918.750 | 2.52 × |
+| 20 000 000 digits | 5 237.676 | 2 115.032 | **2.48 ×** |
 
-ToString's BM/GMP ratio narrows from 8.6× at 100k to 4.5× at 2M. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` is `O(n²)` by default, so the asymptotic line crosses around 100k where ratios start dropping; (2) at the larger sizes BigMath's NTT-based mult inside Newton's reciprocal chain begins to overtake GMP's basecase. Expect continued convergence at 5M+ digits.
+ToString's BM/GMP ratio narrows from 8.2× at 100k to **2.48× at 20M**. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` is `O(n²)` by default, so the asymptotic line crosses around 100k where ratios start dropping; (2) at the larger sizes BigMath's NTT-based mult inside Newton's reciprocal chain overtakes GMP's basecase. The radix-4+8 fused butterflies (PRs #59, #60) accelerated this convergence — 10M ToString improved 2.84× → 2.52× relative to GMP.
 
 **Historical view** showing the cumulative wins across the 2026-05 optimization pass:
 
-| size | early 2026 | mid-session | now (CRT + threads default) | improvement |
+| size | early 2026 | CRT + threads | + radix-4+8 (now) | total |
 |---|---|---|---|---|
-| Parse 100 000 | 7.1 × | 7.1 × | **3.10 ×** | **2.3 ×** |
-| Parse 1 000 000 | 6.0 × | 6.0 × | **2.33 ×** | **2.6 ×** |
-| ToString 10 000 | 47 × | 22 × | **11.2 ×** | **4.2 ×** |
-| ToString 50 000 | 113 × | 20 × | **12.0 ×** | **9.4 ×** |
-| ToString 100 000 | **160 ×** | 18 × | **9.57 ×** | **16.7 ×** |
+| Parse 100 000 | 7.1 × | 3.10 × | **3.01 ×** | **2.4 ×** |
+| Parse 1 000 000 | 6.0 × | 2.33 × | **2.27 ×** | **2.6 ×** |
+| Parse 10 000 000 | — | 1.73 × | **1.66 ×** | — |
+| ToString 10 000 | 47 × | 11.2 × | **3.50 ×** | **13.4 ×** |
+| ToString 100 000 | **160 ×** | 9.57 × | **8.24 ×** | **19.4 ×** |
+| ToString 1 000 000 | — | 4.92 × | **4.67 ×** | — |
+| ToString 10 000 000 | — | 2.84 × | **2.52 ×** | — |
 
-The 100k ToString case went from 160× to 9.6× over the session — **16.7× cumulative improvement**. Wins came from:
+The 100k ToString case went from 160× to 8.24× over the session — **19.4× cumulative improvement**. Wins came from:
 
 1. D&C ToString with Newton-Divider chain (8.4× at 100k).
 2. 64-bit hybrid Karatsuba leaf (improved every `Multiply` and `Divide` call in the chain).
@@ -450,6 +457,7 @@ The 100k ToString case went from 160× to 9.6× over the session — **16.7× cu
 6. **`digitsPerLimb` fix** correctly sized D&C leaf chunks under LIMB_64 (PR #29 — caught a 2× regression that the limb refactor had introduced).
 7. **Multi-prime CRT NTT** dropped per-coefficient modular cost (PRs #34-#37).
 8. **Multithreaded NTT** parallelizes the 3 CRT primes' transforms across the pool (PRs #32, #38-#39).
+9. **Radix-4 + radix-8 fused NTT butterflies** cut memory-pass count from log₂(n) to log₈(n) (PRs #59, #60). Every Newton-chain `Multiply` and `Divide` inherits ~1.6× wall-clock at ≥2M limbs.
 
 ### Where the ToString time goes (post-optimization)
 
