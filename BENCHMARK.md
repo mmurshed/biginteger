@@ -70,6 +70,18 @@ Skewed (`a.size() >> b.size()`):
 - Below 500k, GMP's hand-tuned basecase keeps a 1.5-3.3× lead.
 - **Skewed mults: BigMath wins from 500k×50k through 50M×5M.** Four sweet spots: 0.97× / 0.95× / 0.91× / 0.94×. Past 100M×10M (1.27×) GMP recovers via SSA.
 
+### Multithreaded NTT check
+
+`BIGMATH_USE_THREADS=1` is the default. A focused `mul_xl_bench` run on 2026-05-27 compared the default build against `-DBIGMATH_USE_THREADS=0`:
+
+| limb size | serial ms | threaded ms | speedup |
+|---:|---:|---:|---:|
+| 100 000 | 55.171 | 17.634 | 3.13× |
+| 500 000 | 257.394 | 90.207 | 2.85× |
+| 1 000 000 | 602.433 | 250.242 | 2.41× |
+
+The threaded path uses coarse CRT parallelism for the six forward transforms and three inverse transforms, plus chunked pointwise multiplication. Single-prime Goldilocks fallback also uses size-gated layer parallelism.
+
 ### Shape-focused multiplication dispatch
 
 `tests/performance/multiplication_shape_bench.cpp` was added to measure direct Classic, Karatsuba, NTT, dispatcher, and an experimental blockwise-skew prototype by limb shape. It found one production dispatch miss: tiny high-skew operands should not enter Karatsuba.
