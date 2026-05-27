@@ -133,6 +133,27 @@ namespace BigMath
         }
 
     public:
+        using PreparedOperand = NttCrt::PreparedOperand;
+
+        // Precompute the CRT NTT spectra for `operand` so repeated
+        // multiplications by operands up to `maxOtherLimbs` can skip one side's
+        // packing and forward transforms. This targets repeated same-operand
+        // workloads; one-off Multiply(a,b) remains unchanged.
+        static PreparedOperand PrepareOperand(
+            const vector<DataT> &operand,
+            SizeT maxOtherLimbs,
+            BaseT base)
+        {
+            return NttCrt::PrepareOperand(operand, maxOtherLimbs, base);
+        }
+
+        static vector<DataT> Multiply(
+            const PreparedOperand &prepared,
+            const vector<DataT> &other)
+        {
+            return NttCrt::Multiply(prepared, other);
+        }
+
         // Multiply two vectors of digits using NTT-based convolution.
         static vector<DataT> Multiply(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
         {

@@ -44,6 +44,13 @@ static bool CheckSize(int digits)
   vector<DataT> toom = ToomCookMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(av, bv, BigInteger::Base());
+  bool okPrepared = true;
+  if (av.size() + bv.size() >= 512)
+  {
+    auto prepared = NTTMultiplication::PrepareOperand(av, (SizeT)bv.size(), BigInteger::Base());
+    vector<DataT> preparedProduct = NTTMultiplication::Multiply(prepared, bv);
+    okPrepared = Compare(classic, preparedProduct) == 0;
+  }
   bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
@@ -65,6 +72,7 @@ static bool CheckSize(int digits)
        << " toom=" << okToom
        << " toom5=" << okToom5
        << " ntt=" << okNtt
+       << " pntt=" << okPrepared
        << " csq=" << okCsq
        << " ksq=" << okKsq
        << " nsq=" << okNsq
@@ -72,7 +80,7 @@ static bool CheckSize(int digits)
        << " limbs=" << av.size()
        << endl;
 
-  return okKara && okToom && okToom5 && okNtt && okCsq && okKsq && okNsq && okDsq;
+  return okKara && okToom && okToom5 && okNtt && okPrepared && okCsq && okKsq && okNsq && okDsq;
 }
 
 static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const char *label)
@@ -82,6 +90,13 @@ static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const c
   vector<DataT> toom = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(a, b, BigInteger::Base());
+  bool okPrepared = true;
+  if (a.size() + b.size() >= 512)
+  {
+    auto prepared = NTTMultiplication::PrepareOperand(a, (SizeT)b.size(), BigInteger::Base());
+    vector<DataT> preparedProduct = NTTMultiplication::Multiply(prepared, b);
+    okPrepared = Compare(classic, preparedProduct) == 0;
+  }
   bool okKara = Compare(classic, kara) == 0;
   bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
@@ -92,10 +107,11 @@ static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const c
        << " toom=" << okToom
        << " toom5=" << okToom5
        << " ntt=" << okNtt
+       << " pntt=" << okPrepared
        << " limbs=" << a.size() << "x" << b.size()
        << endl;
 
-  return okKara && okToom && okToom5 && okNtt;
+  return okKara && okToom && okToom5 && okNtt && okPrepared;
 }
 
 int main()

@@ -35,6 +35,7 @@
 #include <array>
 #include <bit>
 #include <cstdint>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -526,6 +527,282 @@ namespace BigMath
       return (ULong128)u1 + (ULong128)P1 * u2 + inv.p1p2 * u3;
     }
 
+    inline SizeT CoeffsPerLimb(BaseT base)
+    {
+      return base == Base2_64 ? 2u : 1u;
+    }
+
+    inline void PackOperand(const std::vector<DataT> &v,
+                            BaseT base,
+                            std::vector<UInt> &dst1,
+                            std::vector<UInt> &dst2,
+                            std::vector<UInt> &dst3)
+    {
+      if (base == Base2_64)
+      {
+        for (SizeT i = 0; i < v.size(); ++i)
+        {
+          SizeT j = i * 2;
+          UInt lo = (UInt)(v[i] & 0xFFFFFFFFULL);
+          UInt hi = (UInt)((v[i] >> 32) & 0xFFFFFFFFULL);
+          dst1[j]     = lo % P1; dst1[j + 1] = hi % P1;
+          dst2[j]     = lo % P2; dst2[j + 1] = hi % P2;
+          dst3[j]     = lo % P3; dst3[j + 1] = hi % P3;
+        }
+      }
+      else
+      {
+        // Base2_32: each limb is already a 32-bit value.
+        for (SizeT i = 0; i < v.size(); ++i)
+        {
+          UInt vv = (UInt)v[i];
+          dst1[i] = vv % P1;
+          dst2[i] = vv % P2;
+          dst3[i] = vv % P3;
+        }
+      }
+    }
+
+    inline std::vector<DataT> FinalizeProduct(const std::vector<UInt> &fa1,
+                                              const std::vector<UInt> &fa2,
+                                              const std::vector<UInt> &fa3,
+                                              ULong coeffCount,
+                                              BaseT base,
+                                              SizeT reserveLimbs)
+    {
+      const InvTable &inv = GarnerInverses();
+      std::vector<DataT> result;
+      result.reserve(reserveLimbs);
+
+      if (base == Base2_64)
+      {
+        // 2 coefficients per output limb, each 32 bits → 64-bit limb. Carry
+        // propagation needs more than the per-coeff width; use ULong128.
+        ULong128 carry = 0;
+        SizeT i = 0;
+        for (; i + 1 < (SizeT)coeffCount; i += 2)
+        {
+          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
+          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+
+          total = Garner(fa1[i + 1], fa2[i + 1], fa3[i + 1], inv) + carry;
+          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+
+          result.push_back((DataT)(lo | (hi << 32)));
+        }
+
+        ULong limb_acc = 0;
+        int slot = 0;
+        if (i < (SizeT)coeffCount)
+        {
+          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
+          limb_acc = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+          slot = 1;
+        }
+        while (carry > 0)
+        {
+          ULong digit = (ULong)(carry & 0xFFFFFFFFULL);
+          carry >>= 32;
+          limb_acc |= digit << (slot * 32);
+          ++slot;
+          if (slot == 2)
+          {
+            result.push_back((DataT)limb_acc);
+            limb_acc = 0;
+            slot = 0;
+          }
+        }
+        if (slot != 0)
+          result.push_back((DataT)limb_acc);
+      }
+      else
+      {
+        // Base2_32: 1 coefficient per output limb (already 32-bit).
+        ULong128 carry = 0;
+        for (SizeT i = 0; i < (SizeT)coeffCount; ++i)
+        {
+          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
+          result.push_back((DataT)(total & 0xFFFFFFFFULL));
+          carry = total >> 32;
+        }
+        while (carry > 0)
+        {
+          result.push_back((DataT)(carry & 0xFFFFFFFFULL));
+          carry >>= 32;
+        }
+      }
+
+      TrimZeros(result);
+      return result;
+    }
+
+    struct PreparedOperand
+    {
+      BaseT base = Base2_32;
+      SizeT operandLimbs = 0;
+      SizeT maxOtherLimbs = 0;
+      SizeT coeffsPerLimb = 1;
+      ULong operandCoeffSize = 0;
+      Int n = 0;
+      std::vector<UInt> f1;
+      std::vector<UInt> f2;
+      std::vector<UInt> f3;
+
+      bool Empty() const { return n == 0 || f1.empty(); }
+    };
+
+    inline PreparedOperand PrepareOperand(const std::vector<DataT> &operand,
+                                          SizeT maxOtherLimbs,
+                                          BaseT base)
+    {
+      PreparedOperand prepared;
+      prepared.base = base;
+      prepared.operandLimbs = (SizeT)operand.size();
+      prepared.maxOtherLimbs = maxOtherLimbs;
+      prepared.coeffsPerLimb = CoeffsPerLimb(base);
+
+      if (IsZero(operand))
+        return prepared;
+      if (maxOtherLimbs == 0)
+        throw std::invalid_argument("prepared NTT maxOtherLimbs must be non-zero");
+
+      prepared.operandCoeffSize = (ULong)operand.size() * prepared.coeffsPerLimb;
+      ULong maxOtherCoeffSize = (ULong)maxOtherLimbs * prepared.coeffsPerLimb;
+      ULong maxCoeffCount = prepared.operandCoeffSize + maxOtherCoeffSize - 1;
+      prepared.n = (Int)std::max<ULong>(2, std::bit_ceil(maxCoeffCount));
+
+      prepared.f1.assign(prepared.n, 0);
+      prepared.f2.assign(prepared.n, 0);
+      prepared.f3.assign(prepared.n, 0);
+      PackOperand(operand, base, prepared.f1, prepared.f2, prepared.f3);
+
+      const auto &plan1 = GetPlan<F1, G1>(prepared.n);
+      const auto &plan2 = GetPlan<F2, G2>(prepared.n);
+      const auto &plan3 = GetPlan<F3, G3>(prepared.n);
+
+#if BIGMATH_USE_THREADS
+      {
+        PreparedOperand *p = &prepared;
+        const Plan<F1> *pl1 = &plan1;
+        const Plan<F2> *pl2 = &plan2;
+        const Plan<F3> *pl3 = &plan3;
+        auto body = [p, pl1, pl2, pl3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(p->f1, *pl1); break;
+              case 1: Forward<F2>(p->f2, *pl2); break;
+              case 2: Forward<F3>(p->f3, *pl3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+#else
+      Forward<F1>(prepared.f1, plan1);
+      Forward<F2>(prepared.f2, plan2);
+      Forward<F3>(prepared.f3, plan3);
+#endif
+
+      return prepared;
+    }
+
+    inline std::vector<DataT> Multiply(const PreparedOperand &prepared,
+                                       const std::vector<DataT> &other)
+    {
+      if (prepared.Empty() || IsZero(other))
+        return std::vector<DataT>();
+      if (other.size() > prepared.maxOtherLimbs)
+        throw std::invalid_argument("prepared NTT operand exceeds maxOtherLimbs");
+
+      ULong otherCoeffSize = (ULong)other.size() * prepared.coeffsPerLimb;
+      ULong coeffCount = prepared.operandCoeffSize + otherCoeffSize - 1;
+
+      static thread_local std::vector<UInt> fb1, fb2, fb3;
+      fb1.assign(prepared.n, 0);
+      fb2.assign(prepared.n, 0);
+      fb3.assign(prepared.n, 0);
+      PackOperand(other, prepared.base, fb1, fb2, fb3);
+
+      const auto &plan1 = GetPlan<F1, G1>(prepared.n);
+      const auto &plan2 = GetPlan<F2, G2>(prepared.n);
+      const auto &plan3 = GetPlan<F3, G3>(prepared.n);
+
+#if BIGMATH_USE_THREADS
+      {
+        std::vector<UInt> *bufs[3] = {&fb1, &fb2, &fb3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(*bufs[0], *p1); break;
+              case 1: Forward<F2>(*bufs[1], *p2); break;
+              case 2: Forward<F3>(*bufs[2], *p3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+#else
+      Forward<F1>(fb1, plan1);
+      Forward<F2>(fb2, plan2);
+      Forward<F3>(fb3, plan3);
+#endif
+
+      {
+        UInt *p1a = fb1.data(), *p2a = fb2.data(), *p3a = fb3.data();
+        const UInt *p1b = prepared.f1.data();
+        const UInt *p2b = prepared.f2.data();
+        const UInt *p3b = prepared.f3.data();
+        auto body = [p1a, p2a, p3a, p1b, p2b, p3b](Int s, Int e) {
+          for (Int i = s; i < e; ++i)
+          {
+            p1a[i] = F1::Mul(p1a[i], p1b[i]);
+            p2a[i] = F2::Mul(p2a[i], p2b[i]);
+            p3a[i] = F3::Mul(p3a[i], p3b[i]);
+          }
+        };
+        if ((SizeT)prepared.n >= ParallelMinSize()) ParallelFor(prepared.n, body);
+        else body(0, prepared.n);
+      }
+
+#if BIGMATH_USE_THREADS
+      {
+        std::vector<UInt> *bufs[3] = {&fb1, &fb2, &fb3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Inverse<F1>(*bufs[0], *p1); break;
+              case 1: Inverse<F2>(*bufs[1], *p2); break;
+              case 2: Inverse<F3>(*bufs[2], *p3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+#else
+      Inverse<F1>(fb1, plan1);
+      Inverse<F2>(fb2, plan2);
+      Inverse<F3>(fb3, plan3);
+#endif
+
+      return FinalizeProduct(
+          fb1, fb2, fb3, coeffCount, prepared.base, prepared.operandLimbs + other.size() + 2);
+    }
+
     // ─── Public Multiply ─────────────────────────────────────────────────────
 
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
@@ -539,8 +816,7 @@ namespace BigMath
       // Split into 32-bit coefficients. Works for Base2_32 (1 coeff per limb)
       // and Base2_64 (2 coeffs per limb). Pre-CRT bounds: each coefficient is
       // < 2^32, convolution sum at length N is < N · 2^64.
-      bool b64 = (base == Base2_64);
-      SizeT coeffsPerLimb = b64 ? 2u : 1u;
+      SizeT coeffsPerLimb = CoeffsPerLimb(base);
 
       ULong aCoeffSize = (ULong)a.size() * coeffsPerLimb;
       ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
@@ -553,35 +829,8 @@ namespace BigMath
       fa2.assign(n, 0); fb2.assign(n, 0);
       fa3.assign(n, 0); fb3.assign(n, 0);
 
-      auto pack = [&](const std::vector<DataT> &v, std::vector<UInt> &dst1,
-                      std::vector<UInt> &dst2, std::vector<UInt> &dst3) {
-        if (b64)
-        {
-          for (SizeT i = 0; i < v.size(); ++i)
-          {
-            SizeT j = i * 2;
-            UInt lo = (UInt)(v[i] & 0xFFFFFFFFULL);
-            UInt hi = (UInt)((v[i] >> 32) & 0xFFFFFFFFULL);
-            dst1[j]     = lo % P1; dst1[j + 1] = hi % P1;
-            dst2[j]     = lo % P2; dst2[j + 1] = hi % P2;
-            dst3[j]     = lo % P3; dst3[j + 1] = hi % P3;
-          }
-        }
-        else
-        {
-          // Base2_32: each limb is already a 32-bit value.
-          for (SizeT i = 0; i < v.size(); ++i)
-          {
-            UInt vv = (UInt)v[i];
-            dst1[i] = vv % P1;
-            dst2[i] = vv % P2;
-            dst3[i] = vv % P3;
-          }
-        }
-      };
-
-      pack(a, fa1, fa2, fa3);
-      pack(b, fb1, fb2, fb3);
+      PackOperand(a, base, fa1, fa2, fa3);
+      PackOperand(b, base, fb1, fb2, fb3);
 
       const auto &plan1 = GetPlan<F1, G1>(n);
       const auto &plan2 = GetPlan<F2, G2>(n);
@@ -657,74 +906,7 @@ namespace BigMath
       Inverse<F3>(fa3, plan3);
 #endif
 
-      // CRT reconstruct + propagate carries into output limbs.
-      const InvTable &inv = GarnerInverses();
-      std::vector<DataT> result;
-      result.reserve(a.size() + b.size() + 2);
-
-      if (b64)
-      {
-        // 2 coefficients per output limb, each 32 bits → 64-bit limb. Carry
-        // propagation needs more than the per-coeff width; use ULong128.
-        ULong128 carry = 0;
-        SizeT i = 0;
-        for (; i + 1 < (SizeT)coeffCount; i += 2)
-        {
-          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-
-          total = Garner(fa1[i + 1], fa2[i + 1], fa3[i + 1], inv) + carry;
-          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-
-          result.push_back((DataT)(lo | (hi << 32)));
-        }
-
-        ULong limb_acc = 0;
-        int slot = 0;
-        if (i < (SizeT)coeffCount)
-        {
-          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          limb_acc = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-          slot = 1;
-        }
-        while (carry > 0)
-        {
-          ULong digit = (ULong)(carry & 0xFFFFFFFFULL);
-          carry >>= 32;
-          limb_acc |= digit << (slot * 32);
-          ++slot;
-          if (slot == 2)
-          {
-            result.push_back((DataT)limb_acc);
-            limb_acc = 0;
-            slot = 0;
-          }
-        }
-        if (slot != 0)
-          result.push_back((DataT)limb_acc);
-      }
-      else
-      {
-        // Base2_32: 1 coefficient per output limb (already 32-bit).
-        ULong128 carry = 0;
-        for (SizeT i = 0; i < (SizeT)coeffCount; ++i)
-        {
-          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          result.push_back((DataT)(total & 0xFFFFFFFFULL));
-          carry = total >> 32;
-        }
-        while (carry > 0)
-        {
-          result.push_back((DataT)(carry & 0xFFFFFFFFULL));
-          carry >>= 32;
-        }
-      }
-
-      TrimZeros(result);
-      return result;
+      return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
     }
   } // namespace NttCrt
 } // namespace BigMath

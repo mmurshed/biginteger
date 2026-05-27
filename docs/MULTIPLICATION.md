@@ -446,6 +446,20 @@ A loosely chronological summary of optimizations that landed and stuck.
 
 `ModularField::Add`, `Sub`, and `Reduce` use `__builtin_*_overflow` returning a flag, then `mask = -flag` for conditional subtraction. The compiler turns this into `CSEL` on ARM64 / `CMOV` on x86. Earlier versions used `if (sum >= P) sum -= P;` which mispredicted ~50% of the time in the butterfly hot loop.
 
+### Multi-prime CRT NTT with 32-bit coefficients (2026-05, PRs #34-#37)
+
+`NTTMultiplication` dispatches large products to `NttCrt::Multiply` when `BIGMATH_NTT_CRT=1` and `a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD` (default threshold: 5000 limbs). The CRT path uses three 30-bit NTT primes:
+
+| prime | primitive root | max power-of-two length |
+|---:|---:|---:|
+| 998244353 | 3 | 2^23 |
+| 985661441 | 3 | 2^22 |
+| 754974721 | 11 | 2^24 |
+
+For `Base2_64`, each 64-bit limb is split into two 32-bit coefficients instead of the four 16-bit coefficients required by the single-prime Goldilocks path. After three independent convolutions, Garner reconstruction combines the residues and the final carry pass packs two 32-bit coefficients back into each 64-bit limb.
+
+The design trades three smaller 32-bit NTTs against one longer 64-bit Goldilocks NTT. It wins once the transform is large enough because the CRT path halves coefficient count, uses denser 32-bit buffers, and maps naturally onto the cross-prime threaded execution described below. Opt out with `-DBIGMATH_NTT_CRT=0`; adjust the crossover with `-DBIGMATH_NTT_CRT_THRESHOLD=N`.
+
 ### Radix-4 + radix-8 fused NTT butterflies (2026-05, PRs #59, #60)
 
 Adjacent radix-2 layers collapse into single load/store butterflies. **Radix-4** fuses 2 layers across 4 elements (4 muls + 4 add + 4 sub per butterfly); **radix-8** fuses 3 layers across 8 elements (12 muls + 12 add + 12 sub, structured as two radix-4 sub-butterflies on slots {0,2,4,6} and {1,3,5,7} followed by 4 radix-2 on the resulting pairs). Modular op count unchanged vs the radix-2 sequence; the win is **memory bandwidth** — radix-8 makes log₈(n) full-array sweeps instead of log₂(n), a 3× reduction.
@@ -495,6 +509,22 @@ Fresh local check on 2026-05-27, `mul_xl_bench`, M1 Max, Base2_64, CRT default:
 | 1 000 000 | 602.433 ms | 250.242 ms | 2.41× |
 
 Opt out with `-DBIGMATH_USE_THREADS=0`; cap pool size with `-DBIGMATH_MAX_THREADS=N`.
+
+### Prepared/reusable CRT NTT operands (2026-05)
+
+`NTTMultiplication::PrepareOperand(operand, maxOtherLimbs, base)` precomputes the CRT NTT spectra for one reusable operand at a transform size large enough for partners up to `maxOtherLimbs`. `NTTMultiplication::Multiply(prepared, other)` then repacks and transforms only `other`, pointwise-multiplies against the cached spectra, runs the inverse transforms, and finalizes normally.
+
+This targets repeated same-operand workloads such as multiplying many values by one large modulus-related constant or table entry. It does not change one-off `Multiply(a, b)` dispatch, and it is intentionally explicit because the prepared transform size is only valid up to the caller-provided maximum partner size.
+
+Focused `prepared_ntt_bench` results, M1 Max, Base2_64, CRT default, 100k×100k limbs:
+
+| build | count | normal total | prepare | prepared total | steady-state speedup | amortized speedup |
+|---|---:|---:|---:|---:|---:|---:|
+| threaded default | 5 | 95.100 ms | 6.921 ms | 87.037 ms | 1.09× | 1.01× |
+| threaded default | 20 | 372.320 ms | 6.996 ms | 346.550 ms | 1.07× | 1.05× |
+| serial `-DBIGMATH_USE_THREADS=0` | 5 | 291.137 ms | 16.590 ms | 198.299 ms | 1.47× | 1.35× |
+
+The threaded gain is smaller because normal CRT multiplication already runs the six forward transforms concurrently; prepared operands save CPU work and one side's packing, but wall time is partially hidden by cross-prime parallelism.
 
 ### Karatsuba pointer-based workspace
 
@@ -587,14 +617,6 @@ The same pass simplified Base2_64 finalization in `NTTMultiplication` and CRT NT
 
 Ranked by expected ROI per unit of effort.
 
-### Multi-prime CRT NTT with 32-bit coefficients (high effort, 1.3–1.5× on NTT)
-
-Also covered in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor) under "Faster NTT kernel". The original rejection (see below) was about extending the operand-size range; the current motivation is fewer coefficients at the same range. Worth a fresh look if multithreading isn't enough.
-
-### Prepared/reusable NTT operands
-
-Repeated multiplication by the same large operand could cache coefficient splitting, transform size, and forward spectra. This does not help one-off `Multiply(a, b)` because the legal transform size depends on both operands. A useful implementation needs an explicit prepared-operand API and invalidation rules for Goldilocks vs CRT modes.
-
 ### NTT butterfly assembly
 
 The NTT butterfly is 95–97% of cost for large mults (confirmed via profile at 100M digits: 59.5% in 6 forwards + 36.6% in 3 inverses = 96.1% NTT). Radix-4 + radix-8 fused butterflies (PRs #59, #60) extracted **~1.6× wall-clock** at ≥2M limbs without leaving C++ — cutting memory-pass count from log₂(n) to log₈(n). The remaining gap is per-butterfly throughput. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover further at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
@@ -633,7 +655,7 @@ Replacing Goldilocks with a different prime (Solinas, generalized Mersenne, etc.
 
 Goldilocks is uniquely suited to this codebase: closed-form reduction, fits 64 bits, supports 16-bit input coefficients with full safety margin out to ~2³¹ source limbs (≈ 16 GB operands). A multi-prime scheme triples the transform cost without enabling a larger range anyone uses.
 
-**This rejection is now narrowly scoped to the range-extension motivation.** A separate motivation — **same range, fewer coefficients at wider per-coefficient width** — is reopened in [Future opportunities §Multi-prime CRT NTT](#future-opportunities) and tracked symmetrically in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). The trade is now: 2× NTT count × ~half the per-NTT cost ≈ 1.3–1.5× net speedup, vs the prior framing's straight 3× cost penalty.
+**This rejection is now narrowly scoped to the range-extension motivation.** A separate motivation — **same range, fewer coefficients at wider per-coefficient width** — became the implemented [multi-prime CRT NTT](#multi-prime-crt-ntt-with-32-bit-coefficients-2026-05-prs-34-37). The trade is now: three 32-bit NTTs at roughly half coefficient length, plus CRT reconstruction, versus one longer 64-bit Goldilocks NTT.
 
 ### SIMD/NEON acceleration of NTT butterfly — narrowly scoped to Goldilocks
 
