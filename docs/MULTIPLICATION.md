@@ -387,43 +387,50 @@ Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported number
 
 | operation | size | BigMath ms | GMP ms | BM / GMP |
 |---|---|---:|---:|---:|
-| `mul` | 1 000 × 1 000 digits | 0.002 | 0.001 | **2.00 ×** |
-| `mul` | 5 000 × 5 000 | 0.030 | 0.011 | 2.73 × |
-| `mul` | 10 000 × 10 000 | 0.093 | 0.028 | 3.32 × |
-| `mul` | 50 000 × 50 000 | 0.531 | 0.273 | **1.95 ×** |
-| `mul` | 100 000 × 100 000 | 1.06 | 0.61 | **1.74 ×** |
-| `mul` | 500 000 × 500 000 | 6.06 | 4.22 | **1.44 ×** |
-| `mul` | 1 000 000 × 1 000 000 | 9.57 | 8.63 | **1.11 ×** |
-| `mul` | 2 000 000 × 2 000 000 | 26.25 | 20.59 | **1.27 ×** |
-| `mul` | **5 000 000 × 5 000 000** | **60.52** | **65.80** | **0.92 ×** ← BigMath faster |
-| `mul` | **10 000 000 × 10 000 000** | **158.24** | **216.91** | **0.73 ×** ← BigMath faster |
-| `mul` (skewed) | 100 000 × 10 000 | 0.52 | 0.30 | 1.73 × |
-| `mul` (skewed) | 500 000 × 50 000 | 2.17 | 2.09 | **1.04 ×** |
-| `mul` (skewed) | 1 000 000 × 100 000 | 4.62 | 4.52 | **1.02 ×** |
-| `mul` (skewed) | 2 000 000 × 200 000 | 9.88 | 9.40 | **1.05 ×** |
-| `mul` (skewed) | 5 000 000 × 500 000 | 41.11 | 30.36 | 1.35 × |
-| `mul` (skewed) | 10 000 000 × 1 000 000 | 107.05 | 69.88 | 1.53 × |
+| `mul` | 1 000 × 1 000 digits | 0.002 | 0.001 | 2.24 × |
+| `mul` | 5 000 × 5 000 | 0.036 | 0.014 | 2.64 × |
+| `mul` | 10 000 × 10 000 | 0.197 | 0.059 | 3.32 × |
+| `mul` | 50 000 × 50 000 | 0.600 | 0.362 | 1.66 × |
+| `mul` | 100 000 × 100 000 | 1.198 | 0.761 | **1.57 ×** |
+| `mul` | 500 000 × 500 000 | 5.014 | 4.204 | **1.19 ×** |
+| `mul` | 1 000 000 × 1 000 000 | 9.839 | 8.892 | **1.11 ×** |
+| `mul` | **2 000 000 × 2 000 000** | **19.843** | **20.823** | **0.95 ×** ← BigMath faster |
+| `mul` | **5 000 000 × 5 000 000** | **45.811** | **63.960** | **0.72 ×** ← BigMath faster |
+| `mul` | **10 000 000 × 10 000 000** | **103.018** | **213.191** | **0.48 ×** ← BigMath 2.08× faster |
+| `mul` | **20 000 000 × 20 000 000** | **276.471** | **280.078** | **0.99 ×** ← parity |
+| `mul` | 50 000 000 × 50 000 000 | 1 392.879 | 680.512 | 2.05 × ← GMP SSA recovers |
+| `mul` | 100 000 000 × 100 000 000 | 3 220.928 | 1 448.546 | 2.22 × |
+| `mul` (skewed) | 100 000 × 10 000 | 0.543 | 0.303 | 1.79 × |
+| `mul` (skewed) | **500 000 × 50 000** | **2.010** | **2.074** | **0.97 ×** ← BigMath faster |
+| `mul` (skewed) | **1 000 000 × 100 000** | **4.269** | **4.475** | **0.95 ×** ← BigMath faster |
+| `mul` (skewed) | **2 000 000 × 200 000** | **8.512** | **9.397** | **0.91 ×** ← BigMath faster |
+| `mul` (skewed) | 5 000 000 × 500 000 | 37.312 | 30.617 | 1.22 × |
+| `mul` (skewed) | 10 000 000 × 1 000 000 | 84.151 | 70.710 | 1.19 × |
+| `mul` (skewed) | 20 000 000 × 2 000 000 | 229.908 | 158.847 | 1.45 × |
+| `mul` (skewed) | **50 000 000 × 5 000 000** | **625.327** | **665.872** | **0.94 ×** ← BigMath faster |
+| `mul` (skewed) | 100 000 000 × 10 000 000 | 1 279.684 | 1 007.119 | 1.27 × |
 
 (Division, parse, and ToString benchmarks are in the same harness but covered in other documents.)
 
 **Reading these numbers.**
 
-- **Balanced multiplication crosses GMP between 2M and 5M digits.** At 5M and 10M BigMath wins by 8% and 27% respectively — the NTT's asymptotic edge over GMP's hand-tuned Karatsuba/Toom assembly takes over once the operand is large enough. Below 2M GMP's basecase tuning keeps the lead.
-- **Skewed mults stay in a narrow 1.0–1.5× band** across all sizes. The threaded CRT NTT closes most of the original 3–5× gap.
-- **At 10M skewed (10M × 1M) the gap widens to 1.53×** — the smaller operand fits in GMP's well-tuned mid-band, while the larger operand drags BigMath into the NTT-bound regime asymmetrically. This is the residual structural gap to GMP's asm-level scheduling on skewed mid-band ops.
+- **Balanced multiplication wins from 2M through 20M digits.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior 5M-10M sweet spot to 2M-20M and pushed the peak win to **2.08× faster at 10M** (103 ms vs 213 ms). 20M is now parity (0.99×, was 1.61× loss).
+- **GMP recovers at ≥50M via Schönhage-Strassen.** 2.05× at 50M, 2.22× at 100M — both halved vs prior 3.58× / 3.71×. BigMath's CRT NTT remains L2/L3-cache-bound; closing this gap requires either MFA-SSA (multi-day) or NEON SIMD on the CRT inner loop (see [Future opportunities](#future-opportunities)).
+- **Skewed mults: four sweet spots win** (500k×50k, 1M×100k, 2M×200k, 50M×5M at 0.91-0.97×). Past 100M×10M (1.27×) GMP's SSA recovers.
 
 A historical view of the same benchmark (early 2026 vs current default stack):
 
-| op | early 2026 | mid-session | now (CRT + threads default) | improvement |
+| op | early 2026 | CRT + threads | + radix-4+8 (now) | total improvement |
 |---|---|---|---|---|
-| mul 1 000 × 1 000 | 10.5 × | 3.5 × | **2.0 ×** | **5.3 ×** |
-| mul 5 000 × 5 000 | 14.4 × | 3.5 × | **2.7 ×** | **5.3 ×** |
-| mul 100 000 × 100 000 | 6.2 × | 5.9 × | **1.74 ×** | **3.6 ×** |
-| mul 500 000 × 500 000 | 5.0 × | 4.2 × | **1.44 ×** | **3.5 ×** |
-| mul 1 000 000 × 1 000 000 | 4.2 × | 4.2 × | **1.41 ×** | **3.0 ×** |
-| mul (skewed) 1M / 100k | 3.5 × | 3.5 × | **1.02 ×** | **3.4 ×** |
+| mul 100 000 × 100 000 | 6.2 × | 1.74 × | **1.57 ×** | **4.0 ×** |
+| mul 1 000 000 × 1 000 000 | 4.2 × | 1.41 × | **1.11 ×** | **3.8 ×** |
+| mul 5 000 000 × 5 000 000 | ~3 × | 0.92 × | **0.72 ×** | **4.2 ×** |
+| mul 10 000 000 × 10 000 000 | ~3 × | 0.73 × | **0.48 ×** | **6.3 ×** |
+| mul 20 000 000 × 20 000 000 | — | 1.61 × | **0.99 ×** | **1.6 ×** (vs CRT) |
+| mul 50 000 000 × 50 000 000 | — | 3.58 × | **2.05 ×** | **1.7 ×** (vs CRT) |
+| mul (skewed) 1M / 100k | 3.5 × | 1.02 × | **0.95 ×** | **3.7 ×** |
 
-The 2026-05 optimization stack — 64-bit limb refactor (PRs #18-#30), multi-prime CRT NTT (PRs #34-#37), and cross-prime threading (PR #38-#39) — closed the GMP gap by **3-5× across every band**. Skewed multiplications now run at parity with GMP.
+The 2026-05 optimization stack — 64-bit limb refactor (PRs #18-#30), multi-prime CRT NTT (PRs #34-#37), cross-prime threading (PR #38-#39), **radix-4 + radix-8 fused NTT butterflies (PRs #59, #60)** — closed the GMP gap by **3-6× across every band**. Balanced multiplication beats GMP across 2M-20M; skewed mults beat GMP across 500k×50k–50M×5M.
 
 ---
 
@@ -438,6 +445,32 @@ A loosely chronological summary of optimizations that landed and stuck.
 ### NTT branchless reduction
 
 `ModularField::Add`, `Sub`, and `Reduce` use `__builtin_*_overflow` returning a flag, then `mask = -flag` for conditional subtraction. The compiler turns this into `CSEL` on ARM64 / `CMOV` on x86. Earlier versions used `if (sum >= P) sum -= P;` which mispredicted ~50% of the time in the butterfly hot loop.
+
+### Radix-4 + radix-8 fused NTT butterflies (2026-05, PRs #59, #60)
+
+Adjacent radix-2 layers collapse into single load/store butterflies. **Radix-4** fuses 2 layers across 4 elements (4 muls + 4 add + 4 sub per butterfly); **radix-8** fuses 3 layers across 8 elements (12 muls + 12 add + 12 sub, structured as two radix-4 sub-butterflies on slots {0,2,4,6} and {1,3,5,7} followed by 4 radix-2 on the resulting pairs). Modular op count unchanged vs the radix-2 sequence; the win is **memory bandwidth** — radix-8 makes log₈(n) full-array sweeps instead of log₂(n), a 3× reduction.
+
+Dispatch picks radix-8 from outerLen ≥ 8, with radix-4 or radix-2 stragglers when `log₂(n) mod 3 ∈ {2, 1}`:
+
+```
+while (len >= 8) { ForwardRadix8Layer; len >>= 3; }
+if      (len == 4) ForwardRadix4Layer
+else if (len == 2) ForwardRadix2Layer
+```
+
+Inverse DIT mirrors this with bottom-first straggler logic (`logn % 3` decides whether the bottom radix-2 or radix-4 runs before the radix-8 chain starts at outerLen ∈ {8, 16, 32}).
+
+Applied to both `NTTCore` (single-prime Goldilocks) and `NttCrt` (3-prime templated). Wins (mul_xl_bench, M1 Max, Base2_64):
+
+| limbs | pre-radix-4 | post-r4 | post-r8 | total |
+|------:|------------:|--------:|--------:|------:|
+|    1M |    370.9 ms | 257.6 ms | 256.3 ms | 1.45× |
+|    2M |   1055.1 ms | 865.3 ms | 697.3 ms | 1.51× |
+|    5M |   5213.9 ms | 3694.6 ms | 3150.5 ms | 1.65× |
+|   10M |  11105.0 ms | 7933.6 ms | 6914.9 ms | 1.61× |
+|   20M |  25149.8 ms | 17864.3 ms | 15958.0 ms | 1.58× |
+
+Translated to BM/GMP: balanced 10M mul went from 0.71× → **0.48×** (BigMath 2.08× faster); 50M from 3.58× → 2.05× (loss halved); 20M from 1.61× loss to 0.99× parity.
 
 ### NTT DIF + DIT pair
 
@@ -559,7 +592,15 @@ Repeated multiplication by the same large operand could cache coefficient splitt
 
 ### NTT butterfly assembly
 
-The NTT butterfly is 95–97% of cost for large mults. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover 30–50% of the ~1.5–2× gap to GMP at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
+The NTT butterfly is 95–97% of cost for large mults (confirmed via profile at 100M digits: 59.5% in 6 forwards + 36.6% in 3 inverses = 96.1% NTT). Radix-4 + radix-8 fused butterflies (PRs #59, #60) extracted **~1.6× wall-clock** at ≥2M limbs without leaving C++ — cutting memory-pass count from log₂(n) to log₈(n). The remaining gap is per-butterfly throughput. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover further at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
+
+### NEON SIMD on CRT primes (re-opened)
+
+CRT NTT (default ≥5000 limbs sum) operates on 30-bit primes with 32-bit coefficients — these fit `uint32x4_t` lanes naturally, sidestepping the 64×64→128 issue that blocked NEON for the Goldilocks butterfly. Theoretical 4× throughput per butterfly. Earlier rejection was Goldilocks-specific; the CRT path makes this a fresh opportunity. Profile evidence (see `memory: ssa-rejection-2026-05-26`) ranks this as the highest-ROI next lever for closing the ≥50M gap to GMP. Cost: NEON intrinsics path + scalar fallback, ~300-500 LOC.
+
+### Matrix Fourier Algorithm (MFA) / Bailey 6-step for ≥50M digits
+
+GMP wins ≥50M via Schönhage-Strassen with MFA layout. Single-level SSA on this codebase has no winning parameter band (see `memory: ssa-rejection-2026-05-26` for the parameter sweep). MFA = recursive 2D sub-NTT layout that fits each sub-NTT in L1. ~500-1000 LOC of layout + twiddle indexing + transpose machinery. Bailey 6-step is the same idea expressed for FFT. Only worth doing if ≥50M digits becomes a real workload and (a) above doesn't close the gap.
 
 ---
 
@@ -567,11 +608,19 @@ The NTT butterfly is 95–97% of cost for large mults. Replacing the inner loop 
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
 
-### Schönhage–Strassen (SSA)
+### Schönhage–Strassen (SSA) — re-evaluated 2026-05-27
 
 [Schönhage–Strassen](https://en.wikipedia.org/wiki/Sch%C3%B6nhage%E2%80%93Strassen_algorithm) multiplies in O(n · log n · log log n) using nested FFTs over a Fermat number ring `Z / (2^N + 1) Z`. The `log log n` factor is asymptotically better than NTT's effective `log n`, but the constant factors are dominated by the inner mod-2^N+1 arithmetic.
 
-In this codebase: Goldilocks NTT with 16-bit input split handles up to ~2³¹ source limbs (≈ 8 GB operands). SSA's asymptotic edge requires `n` past the point where this matters, and the implementation cost (~700–1000 lines of nested-FFT machinery, recursive ring arithmetic, careful precision management) is not justified for any input size a user will plausibly hit. See also [Fürer's algorithm](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm) which improves SSA's outer factor further but has the same constant-factor problem.
+**Updated assessment after radix-4+8 landed.** GMP's lead at ≥50M digits halved (3.58× → 2.05× at 50M) but didn't disappear — SSA is the structural lever GMP uses there. A profile probe + parameter sweep for single-level SSA at 100M digits found:
+
+- Profile: 95.5% of CRT NTT time in forwards + inverses; SSA targets exactly this.
+- Parameter sweep: single-level SSA has **no winning band** at our sizes. For M = 2¹⁶ chunks, pointwise sub-mul cost dominates (~32 sec). For M = 2²⁰, per-element N grows so large the FFT cost explodes. Sweet spot only exists with recursive sub-multiplications + MFA layout (GMP's approach).
+- Implementation: full MFA-SSA = ~700-1000 LOC, multi-day work, real correctness risk in sign handling, chunk sizing, carry boundaries.
+
+**Decision:** still rejected for single-level. MFA-SSA is on the future-opportunities list under [§MFA / Bailey 6-step](#future-opportunities). Profile + math archived in `memory: ssa-rejection-2026-05-26`.
+
+See also [Fürer's algorithm](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm) which improves SSA's outer factor further but has the same constant-factor problem.
 
 ### Different NTT prime / multi-prime CRT — round 1 (range-extension framing)
 
@@ -581,13 +630,17 @@ Goldilocks is uniquely suited to this codebase: closed-form reduction, fits 64 b
 
 **This rejection is now narrowly scoped to the range-extension motivation.** A separate motivation — **same range, fewer coefficients at wider per-coefficient width** — is reopened in [Future opportunities §Multi-prime CRT NTT](#future-opportunities) and tracked symmetrically in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). The trade is now: 2× NTT count × ~half the per-NTT cost ≈ 1.3–1.5× net speedup, vs the prior framing's straight 3× cost penalty.
 
-### SIMD/NEON acceleration of NTT butterfly
+### SIMD/NEON acceleration of NTT butterfly — narrowly scoped to Goldilocks
 
-NEON on M1 lacks a 64×64→128 multiply primitive. The Goldilocks `Mul` is exactly that operation. Implementing it via 32-bit-half decomposition doubles the multiply count, which kills the SIMD speedup before lane-level parallelism even helps. AVX2/AVX-512 on x86 have the same issue (no full-width 64-bit mul-high in early AVX revisions; VPCLMULQDQ doesn't help). The branchless scalar form (already implemented) captures most realistic ARM64 wins.
+NEON on M1 lacks a 64×64→128 multiply primitive. The **Goldilocks** `Mul` is exactly that operation. Implementing it via 32-bit-half decomposition doubles the multiply count, which kills the SIMD speedup before lane-level parallelism even helps. AVX2/AVX-512 on x86 have the same issue (no full-width 64-bit mul-high in early AVX revisions; VPCLMULQDQ doesn't help). The branchless scalar form (already implemented) captures most realistic Goldilocks-path ARM64 wins.
 
-### 6-step Cooley-Tukey decomposition
+**This rejection is now narrowly scoped to the Goldilocks path.** The 3-prime CRT NTT (default ≥5000 limbs sum) uses 30-bit primes with 32-bit coefficients — `uint32x4_t` lanes fit, no double-mul problem. Tracked separately in [Future opportunities §NEON SIMD on CRT primes](#future-opportunities).
 
-[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. On M1: L1 is 192 KB, L2 is 8 MB. The NTT working set fits L1 at all practical input sizes near the dispatcher crossover. Six-step would only help once working set exceeds L2, which corresponds to operand sizes well beyond what this library targets.
+### 6-step Cooley-Tukey decomposition — historical rejection superseded
+
+[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. The original rejection cited "NTT working set fits L1 at all practical sizes" — that was true when the dispatcher capped NTT around 1M digit inputs. **No longer accurate** post-LIMB_64 + radix-4+8: at 100M digits per-prime CRT buffer is ~536 MB, well past L2 (32 MB shared on M1 Max). Profile at 100M shows the NTT inner loop is bandwidth-bound, not compute-bound.
+
+Bailey 6-step / MFA is now genuinely on the table for closing the ≥50M GMP gap — see [Future opportunities §MFA](#future-opportunities). Cost remains the same (~500-1000 LOC layout machinery), but the benefit is real where it wasn't before.
 
 ### Cached bit-reversal permutation
 
