@@ -97,10 +97,30 @@ namespace BigMath
             if (invert)
                 root = ModularField::Inv(root);
 
-            std::vector<ULong> roots(n / 2);
-            roots[0] = 1;
-            for (Int k = 1; k < n / 2; ++k)
-                roots[k] = ModularField::Mul(roots[k - 1], root);
+            Int half = n / 2;
+            std::vector<ULong> roots(half);
+            ULong *rPtr = roots.data();
+            // Parallel chunk fill mirroring NttCrt::BuildRoots — each thread
+            // jumps ahead via Power then sequential Mul within its range.
+            if ((SizeT)half >= ParallelMinSize())
+            {
+                ParallelFor(half, [rPtr, root](Int start, Int end) {
+                    if (end <= start) return;
+                    ULong cur = (start == 0) ? (ULong)1 : ModularField::Power(root, (ULong)start);
+                    rPtr[start] = cur;
+                    for (Int k = start + 1; k < end; ++k)
+                    {
+                        cur = ModularField::Mul(cur, root);
+                        rPtr[k] = cur;
+                    }
+                });
+            }
+            else
+            {
+                rPtr[0] = 1;
+                for (Int k = 1; k < half; ++k)
+                    rPtr[k] = ModularField::Mul(rPtr[k - 1], root);
+            }
             return roots;
         }
 

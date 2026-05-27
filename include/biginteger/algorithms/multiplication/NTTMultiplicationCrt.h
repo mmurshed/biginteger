@@ -118,9 +118,30 @@ namespace BigMath
     {
       UInt root = F::Power(G, (F::Prime - 1) / (UInt)n);
       if (invert) root = F::Inv(root);
-      std::vector<UInt> r(n / 2);
-      r[0] = 1;
-      for (Int k = 1; k < n / 2; ++k) r[k] = F::Mul(r[k - 1], root);
+      Int half = n / 2;
+      std::vector<UInt> r(half);
+      // Parallel chunk fill: each thread does one Power(root, chunk_start)
+      // then sequential Mul within its chunk. Eliminates the 16.5M-Mul
+      // serial dependency at N=33M (≈5-13% of 20M-100M mul time per row).
+      UInt *rPtr = r.data();
+      if ((SizeT)half >= ParallelMinSize())
+      {
+        ParallelFor(half, [rPtr, root](Int start, Int end) {
+          if (end <= start) return;
+          UInt cur = (start == 0) ? (UInt)1 : F::Power(root, (UInt)start);
+          rPtr[start] = cur;
+          for (Int k = start + 1; k < end; ++k)
+          {
+            cur = F::Mul(cur, root);
+            rPtr[k] = cur;
+          }
+        });
+      }
+      else
+      {
+        rPtr[0] = 1;
+        for (Int k = 1; k < half; ++k) rPtr[k] = F::Mul(rPtr[k - 1], root);
+      }
       return r;
     }
 
