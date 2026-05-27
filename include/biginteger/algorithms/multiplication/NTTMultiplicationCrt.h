@@ -171,27 +171,128 @@ namespace BigMath
     // git history) but the per-layer dispatch overhead (~30µs × log2(n)) at
     // sub-megabyte NTT sizes exceeded the parallel win. Coarse-grained
     // parallelism amortizes ~3 dispatches per Multiply across 3-6 work units.
+    //
+    // Butterflies are radix-4-fused: each layer-pair issues 4 muls + 8 add/subs
+    // per group of 4 elements, with one load+store pair instead of two —
+    // halves memory traffic vs separate radix-2 layers. Mirrors NTTCore.
+    template <typename F>
+    inline void ForwardRadix2Layer(UInt *a, Int n, Int len, const UInt *roots)
+    {
+      Int halflen = len >> 1;
+      Int stride = n / len;
+      for (Int i = 0; i < n; i += len)
+      {
+        for (Int j = 0; j < halflen; ++j)
+        {
+          UInt u = a[i + j];
+          UInt v = a[i + j + halflen];
+          a[i + j] = F::Add(u, v);
+          a[i + j + halflen] = F::Mul(F::Sub(u, v), roots[j * stride]);
+        }
+      }
+    }
+
+    template <typename F>
+    inline void ForwardRadix4Layer(UInt *a, Int n, Int outerLen, const UInt *roots)
+    {
+      Int halflen = outerLen >> 1;
+      Int qlen = outerLen >> 2;
+      Int stride = n / outerLen;
+      Int omega4_off = n / 4;
+      for (Int i = 0; i < n; i += outerLen)
+      {
+        for (Int j = 0; j < qlen; ++j)
+        {
+          UInt x0 = a[i + j];
+          UInt x1 = a[i + j + qlen];
+          UInt x2 = a[i + j + halflen];
+          UInt x3 = a[i + j + halflen + qlen];
+
+          UInt g  = roots[j * stride];
+          UInt gw = roots[j * stride + omega4_off];
+          UInt g2 = roots[2 * j * stride];
+
+          UInt t0 = F::Add(x0, x2);
+          UInt t1 = F::Add(x1, x3);
+          UInt t2 = F::Mul(F::Sub(x0, x2), g);
+          UInt t3 = F::Mul(F::Sub(x1, x3), gw);
+
+          a[i + j]                  = F::Add(t0, t1);
+          a[i + j + qlen]           = F::Mul(F::Sub(t0, t1), g2);
+          a[i + j + halflen]        = F::Add(t2, t3);
+          a[i + j + halflen + qlen] = F::Mul(F::Sub(t2, t3), g2);
+        }
+      }
+    }
+
+    template <typename F>
+    inline void InverseRadix2Layer(UInt *a, Int n, Int len, const UInt *roots)
+    {
+      Int halflen = len >> 1;
+      Int stride = n / len;
+      for (Int i = 0; i < n; i += len)
+      {
+        for (Int j = 0; j < halflen; ++j)
+        {
+          UInt u = a[i + j];
+          UInt v = F::Mul(a[i + j + halflen], roots[j * stride]);
+          a[i + j] = F::Add(u, v);
+          a[i + j + halflen] = F::Sub(u, v);
+        }
+      }
+    }
+
+    template <typename F>
+    inline void InverseRadix4Layer(UInt *a, Int n, Int outerLen, const UInt *roots)
+    {
+      Int halflen = outerLen >> 1;
+      Int qlen = outerLen >> 2;
+      Int stride = n / outerLen;
+      Int omega4_off = n / 4;
+      for (Int i = 0; i < n; i += outerLen)
+      {
+        for (Int j = 0; j < qlen; ++j)
+        {
+          UInt x0 = a[i + j];
+          UInt x1 = a[i + j + qlen];
+          UInt x2 = a[i + j + halflen];
+          UInt x3 = a[i + j + halflen + qlen];
+
+          UInt g  = roots[j * stride];
+          UInt gw = roots[j * stride + omega4_off];
+          UInt g2 = roots[2 * j * stride];
+
+          UInt y1 = F::Mul(x1, g2);
+          UInt y3 = F::Mul(x3, g2);
+          UInt t0 = F::Add(x0, y1);
+          UInt t1 = F::Sub(x0, y1);
+          UInt t2 = F::Mul(F::Add(x2, y3), g);
+          UInt t3 = F::Mul(F::Sub(x2, y3), gw);
+
+          a[i + j]                  = F::Add(t0, t2);
+          a[i + j + halflen]        = F::Sub(t0, t2);
+          a[i + j + qlen]           = F::Add(t1, t3);
+          a[i + j + halflen + qlen] = F::Sub(t1, t3);
+        }
+      }
+    }
+
     template <typename F>
     inline void Forward(std::vector<UInt> &a, const Plan<F> &plan)
     {
       Int n = (Int)a.size();
+      if (n <= 1) return;
       const UInt *roots = plan.forwardRoots.data();
       UInt *aPtr = a.data();
-      for (Int len = n; len > 1; len >>= 1)
+
+      Int len = n;
+      while (len >= 4)
       {
-        Int halflen = len >> 1;
-        Int stride = n / len;
-        for (Int i = 0; i < n; i += len)
-        {
-          for (Int j = 0; j < halflen; ++j)
-          {
-            UInt u = aPtr[i + j];
-            UInt v = aPtr[i + j + halflen];
-            aPtr[i + j] = F::Add(u, v);
-            aPtr[i + j + halflen] = F::Mul(F::Sub(u, v), roots[j * stride]);
-          }
-        }
+        ForwardRadix4Layer<F>(aPtr, n, len, roots);
+        len >>= 2;
       }
+      if (len == 2)
+        ForwardRadix2Layer<F>(aPtr, n, 2, roots);
     }
 
     template <typename F>
@@ -200,19 +301,24 @@ namespace BigMath
       Int n = (Int)a.size();
       const UInt *roots = plan.inverseRoots.data();
       UInt *aPtr = a.data();
-      for (Int len = 2; len <= n; len <<= 1)
+
+      if (n >= 2)
       {
-        Int halflen = len >> 1;
-        Int stride = n / len;
-        for (Int i = 0; i < n; i += len)
+        Int logn = __builtin_ctz((unsigned)n);
+        Int len;
+        if (logn & 1)
         {
-          for (Int j = 0; j < halflen; ++j)
-          {
-            UInt u = aPtr[i + j];
-            UInt v = F::Mul(aPtr[i + j + halflen], roots[j * stride]);
-            aPtr[i + j] = F::Add(u, v);
-            aPtr[i + j + halflen] = F::Sub(u, v);
-          }
+          InverseRadix2Layer<F>(aPtr, n, 2, roots);
+          len = 8;
+        }
+        else
+        {
+          len = 4;
+        }
+        while (len <= n)
+        {
+          InverseRadix4Layer<F>(aPtr, n, len, roots);
+          len <<= 2;
         }
       }
 
