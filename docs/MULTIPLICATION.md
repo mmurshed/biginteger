@@ -480,6 +480,22 @@ Forward decimation-in-frequency leaves the output in bit-reversed order; inverse
 
 Thread-local `unordered_map<Int, vector<ULong>>` per (size, direction). The second multiplication at the same NTT size pays only a hash lookup rather than rebuilding roots — important when Newton division iterates at a fixed size.
 
+### Multithreaded NTT (2026-05, default on)
+
+`BIGMATH_USE_THREADS=1` activates the shared thread pool from `common/Parallel.h`. The production CRT path uses coarse-grained cross-prime work: the 6 forward transforms (`fa`/`fb` for 3 primes) run as one `ParallelDo` batch, the pointwise multiply is chunked with `ParallelFor`, and the 3 inverse transforms run as a second `ParallelDo` batch. This keeps dispatch overhead low: two coarse transform dispatches per multiply instead of one dispatch per NTT layer.
+
+The Goldilocks fallback path also uses `ParallelFor` for large root generation, butterfly layers, pointwise multiply, and inverse scaling, gated by `ParallelMinSize()` to avoid small-input regressions.
+
+Fresh local check on 2026-05-27, `mul_xl_bench`, M1 Max, Base2_64, CRT default:
+
+| limbs | serial (`-DBIGMATH_USE_THREADS=0`) | threaded default | speedup |
+|---:|---:|---:|---:|
+| 100 000 | 55.171 ms | 17.634 ms | 3.13× |
+| 500 000 | 257.394 ms | 90.207 ms | 2.85× |
+| 1 000 000 | 602.433 ms | 250.242 ms | 2.41× |
+
+Opt out with `-DBIGMATH_USE_THREADS=0`; cap pool size with `-DBIGMATH_MAX_THREADS=N`.
+
 ### Karatsuba pointer-based workspace
 
 `KaratsubaMultiplication::MultiplyRecursive` uses `unique_ptr<DataT[]>` of size 8n for workspace, skipping the per-recursion `vector` zero-initialization that a naive implementation incurs.
@@ -570,17 +586,6 @@ The same pass simplified Base2_64 finalization in `NTTMultiplication` and CRT NT
 ## Future opportunities
 
 Ranked by expected ROI per unit of effort.
-
-### Multithreaded NTT (architectural, 1.5–3× on large NTT-bound ops)
-
-Detailed in [DIVISION.md §Improving skewed division](DIVISION.md#improving-skewed-division-beyond-the-current-floor). Applies symmetrically to multiplication — `Multiply` at ≥ 100k digits is NTT-bound and would benefit identically. The architectural lift is the same (header-only library + thread pool design), so the cost amortizes across both subsystems.
-
-Predicted end-to-end multiplication wins:
-
-| size | now (1 thread) | est 2 threads | est 4 threads |
-|---|---:|---:|---:|
-| mul 100k×100k | 3.48 ms | ~2.2 ms | ~1.4 ms |
-| mul 1M×1M | 36.5 ms | ~22 ms | ~14 ms |
 
 ### Multi-prime CRT NTT with 32-bit coefficients (high effort, 1.3–1.5× on NTT)
 
