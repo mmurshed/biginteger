@@ -277,6 +277,151 @@ namespace BigMath
       }
     }
 
+    // Radix-8 fused DIF: three layers (len, len/2, len/4) in one load/store.
+    template <typename F>
+    inline void ForwardRadix8Layer(UInt *a, Int n, Int outerLen, const UInt *roots)
+    {
+      Int halflen = outerLen >> 1;
+      Int qlen4 = outerLen >> 2;
+      Int qlen8 = outerLen >> 3;
+      Int stride = n / outerLen;
+      Int stride4 = stride << 2;
+      Int omega4_off = n / 4;
+      for (Int i = 0; i < n; i += outerLen)
+      {
+        for (Int j = 0; j < qlen8; ++j)
+        {
+          UInt x0 = a[i + j];
+          UInt x1 = a[i + j + qlen8];
+          UInt x2 = a[i + j + qlen4];
+          UInt x3 = a[i + j + qlen4 + qlen8];
+          UInt x4 = a[i + j + halflen];
+          UInt x5 = a[i + j + halflen + qlen8];
+          UInt x6 = a[i + j + halflen + qlen4];
+          UInt x7 = a[i + j + halflen + qlen4 + qlen8];
+
+          UInt g_a  = roots[j * stride];
+          UInt gw_a = roots[j * stride + omega4_off];
+          UInt g2_a = roots[2 * j * stride];
+          UInt g_b  = roots[(j + qlen8) * stride];
+          UInt gw_b = roots[(j + qlen8) * stride + omega4_off];
+          UInt g2_b = roots[2 * (j + qlen8) * stride];
+          UInt g3   = roots[j * stride4];
+
+          UInt t0 = F::Add(x0, x4);
+          UInt t1 = F::Add(x2, x6);
+          UInt t2 = F::Mul(F::Sub(x0, x4), g_a);
+          UInt t3 = F::Mul(F::Sub(x2, x6), gw_a);
+          UInt y0 = F::Add(t0, t1);
+          UInt y2 = F::Mul(F::Sub(t0, t1), g2_a);
+          UInt y4 = F::Add(t2, t3);
+          UInt y6 = F::Mul(F::Sub(t2, t3), g2_a);
+
+          UInt u0 = F::Add(x1, x5);
+          UInt u1 = F::Add(x3, x7);
+          UInt u2 = F::Mul(F::Sub(x1, x5), g_b);
+          UInt u3 = F::Mul(F::Sub(x3, x7), gw_b);
+          UInt y1 = F::Add(u0, u1);
+          UInt y3 = F::Mul(F::Sub(u0, u1), g2_b);
+          UInt y5 = F::Add(u2, u3);
+          UInt y7 = F::Mul(F::Sub(u2, u3), g2_b);
+
+          UInt z0 = F::Add(y0, y1);
+          UInt z1 = F::Mul(F::Sub(y0, y1), g3);
+          UInt z2 = F::Add(y2, y3);
+          UInt z3 = F::Mul(F::Sub(y2, y3), g3);
+          UInt z4 = F::Add(y4, y5);
+          UInt z5 = F::Mul(F::Sub(y4, y5), g3);
+          UInt z6 = F::Add(y6, y7);
+          UInt z7 = F::Mul(F::Sub(y6, y7), g3);
+
+          a[i + j]                          = z0;
+          a[i + j + qlen8]                  = z1;
+          a[i + j + qlen4]                  = z2;
+          a[i + j + qlen4 + qlen8]          = z3;
+          a[i + j + halflen]                = z4;
+          a[i + j + halflen + qlen8]        = z5;
+          a[i + j + halflen + qlen4]        = z6;
+          a[i + j + halflen + qlen4 + qlen8] = z7;
+        }
+      }
+    }
+
+    // Radix-8 fused DIT: inverse of ForwardRadix8Layer.
+    template <typename F>
+    inline void InverseRadix8Layer(UInt *a, Int n, Int outerLen, const UInt *roots)
+    {
+      Int halflen = outerLen >> 1;
+      Int qlen4 = outerLen >> 2;
+      Int qlen8 = outerLen >> 3;
+      Int stride = n / outerLen;
+      Int stride4 = stride << 2;
+      for (Int i = 0; i < n; i += outerLen)
+      {
+        for (Int j = 0; j < qlen8; ++j)
+        {
+          UInt x0 = a[i + j];
+          UInt x1 = a[i + j + qlen8];
+          UInt x2 = a[i + j + qlen4];
+          UInt x3 = a[i + j + qlen4 + qlen8];
+          UInt x4 = a[i + j + halflen];
+          UInt x5 = a[i + j + halflen + qlen8];
+          UInt x6 = a[i + j + halflen + qlen4];
+          UInt x7 = a[i + j + halflen + qlen4 + qlen8];
+
+          // Layer A (innermost, twiddle g_a).
+          UInt g_a = roots[j * stride4];
+          UInt v01 = F::Mul(x1, g_a);
+          UInt y0 = F::Add(x0, v01);
+          UInt y1 = F::Sub(x0, v01);
+          UInt v23 = F::Mul(x3, g_a);
+          UInt y2 = F::Add(x2, v23);
+          UInt y3 = F::Sub(x2, v23);
+          UInt v45 = F::Mul(x5, g_a);
+          UInt y4 = F::Add(x4, v45);
+          UInt y5 = F::Sub(x4, v45);
+          UInt v67 = F::Mul(x7, g_a);
+          UInt y6 = F::Add(x6, v67);
+          UInt y7 = F::Sub(x6, v67);
+
+          // Layer B (middle).
+          UInt g_b1 = roots[2 * j * stride];
+          UInt g_b2 = roots[2 * (j + qlen8) * stride];
+          UInt w02 = F::Mul(y2, g_b1);
+          UInt z0 = F::Add(y0, w02);
+          UInt z2 = F::Sub(y0, w02);
+          UInt w13 = F::Mul(y3, g_b2);
+          UInt z1 = F::Add(y1, w13);
+          UInt z3 = F::Sub(y1, w13);
+          UInt w46 = F::Mul(y6, g_b1);
+          UInt z4 = F::Add(y4, w46);
+          UInt z6 = F::Sub(y4, w46);
+          UInt w57 = F::Mul(y7, g_b2);
+          UInt z5 = F::Add(y5, w57);
+          UInt z7 = F::Sub(y5, w57);
+
+          // Layer C (outermost).
+          UInt g_c0 = roots[j * stride];
+          UInt g_c1 = roots[(j + qlen8) * stride];
+          UInt g_c2 = roots[(j + qlen4) * stride];
+          UInt g_c3 = roots[(j + qlen4 + qlen8) * stride];
+          UInt w04 = F::Mul(z4, g_c0);
+          UInt w15 = F::Mul(z5, g_c1);
+          UInt w26 = F::Mul(z6, g_c2);
+          UInt w37 = F::Mul(z7, g_c3);
+
+          a[i + j]                          = F::Add(z0, w04);
+          a[i + j + halflen]                = F::Sub(z0, w04);
+          a[i + j + qlen8]                  = F::Add(z1, w15);
+          a[i + j + halflen + qlen8]        = F::Sub(z1, w15);
+          a[i + j + qlen4]                  = F::Add(z2, w26);
+          a[i + j + halflen + qlen4]        = F::Sub(z2, w26);
+          a[i + j + qlen4 + qlen8]          = F::Add(z3, w37);
+          a[i + j + halflen + qlen4 + qlen8] = F::Sub(z3, w37);
+        }
+      }
+    }
+
     template <typename F>
     inline void Forward(std::vector<UInt> &a, const Plan<F> &plan)
     {
@@ -286,12 +431,14 @@ namespace BigMath
       UInt *aPtr = a.data();
 
       Int len = n;
-      while (len >= 4)
+      while (len >= 8)
       {
-        ForwardRadix4Layer<F>(aPtr, n, len, roots);
-        len >>= 2;
+        ForwardRadix8Layer<F>(aPtr, n, len, roots);
+        len >>= 3;
       }
-      if (len == 2)
+      if (len == 4)
+        ForwardRadix4Layer<F>(aPtr, n, 4, roots);
+      else if (len == 2)
         ForwardRadix2Layer<F>(aPtr, n, 2, roots);
     }
 
@@ -305,20 +452,26 @@ namespace BigMath
       if (n >= 2)
       {
         Int logn = __builtin_ctz((unsigned)n);
+        Int rem = logn % 3;
         Int len;
-        if (logn & 1)
+        if (rem == 1)
         {
           InverseRadix2Layer<F>(aPtr, n, 2, roots);
-          len = 8;
+          len = 16;
+        }
+        else if (rem == 2)
+        {
+          InverseRadix4Layer<F>(aPtr, n, 4, roots);
+          len = 32;
         }
         else
         {
-          len = 4;
+          len = 8;
         }
         while (len <= n)
         {
-          InverseRadix4Layer<F>(aPtr, n, len, roots);
-          len <<= 2;
+          InverseRadix8Layer<F>(aPtr, n, len, roots);
+          len <<= 3;
         }
       }
 

@@ -286,6 +286,171 @@ namespace BigMath
                 body(0, numBlocks);
         }
 
+        // Radix-8 fused DIF butterfly. Combines three radix-2 layers (len, len/2,
+        // len/4) into a single load/store across 8 elements. Internally a pair of
+        // radix-4 fused butterflies (slots {0,2,4,6} and {1,3,5,7}) followed by
+        // four radix-2 butterflies on the resulting pairs.
+        static inline void ForwardRadix8Layer(ULong *a, Int n, Int outerLen, const ULong *roots)
+        {
+            Int halflen = outerLen >> 1;
+            Int qlen4 = outerLen >> 2;
+            Int qlen8 = outerLen >> 3;
+            Int stride = n / outerLen;
+            Int stride4 = stride << 2;
+            Int numBlocks = n / outerLen;
+            Int omega4_off = n / 4;
+            auto body = [a, halflen, qlen4, qlen8, outerLen, stride, stride4, omega4_off, roots](Int bStart, Int bEnd) {
+                for (Int b = bStart; b < bEnd; ++b)
+                {
+                    Int i = b * outerLen;
+                    for (Int j = 0; j < qlen8; ++j)
+                    {
+                        ULong x0 = a[i + j];
+                        ULong x1 = a[i + j + qlen8];
+                        ULong x2 = a[i + j + qlen4];
+                        ULong x3 = a[i + j + qlen4 + qlen8];
+                        ULong x4 = a[i + j + halflen];
+                        ULong x5 = a[i + j + halflen + qlen8];
+                        ULong x6 = a[i + j + halflen + qlen4];
+                        ULong x7 = a[i + j + halflen + qlen4 + qlen8];
+
+                        ULong g_a  = roots[j * stride];
+                        ULong gw_a = roots[j * stride + omega4_off];
+                        ULong g2_a = roots[2 * j * stride];
+                        ULong g_b  = roots[(j + qlen8) * stride];
+                        ULong gw_b = roots[(j + qlen8) * stride + omega4_off];
+                        ULong g2_b = roots[2 * (j + qlen8) * stride];
+                        ULong g3   = roots[j * stride4];
+
+                        ULong t0 = ModularField::Add(x0, x4);
+                        ULong t1 = ModularField::Add(x2, x6);
+                        ULong t2 = ModularField::Mul(ModularField::Sub(x0, x4), g_a);
+                        ULong t3 = ModularField::Mul(ModularField::Sub(x2, x6), gw_a);
+                        ULong y0 = ModularField::Add(t0, t1);
+                        ULong y2 = ModularField::Mul(ModularField::Sub(t0, t1), g2_a);
+                        ULong y4 = ModularField::Add(t2, t3);
+                        ULong y6 = ModularField::Mul(ModularField::Sub(t2, t3), g2_a);
+
+                        ULong u0 = ModularField::Add(x1, x5);
+                        ULong u1 = ModularField::Add(x3, x7);
+                        ULong u2 = ModularField::Mul(ModularField::Sub(x1, x5), g_b);
+                        ULong u3 = ModularField::Mul(ModularField::Sub(x3, x7), gw_b);
+                        ULong y1 = ModularField::Add(u0, u1);
+                        ULong y3 = ModularField::Mul(ModularField::Sub(u0, u1), g2_b);
+                        ULong y5 = ModularField::Add(u2, u3);
+                        ULong y7 = ModularField::Mul(ModularField::Sub(u2, u3), g2_b);
+
+                        ULong z0 = ModularField::Add(y0, y1);
+                        ULong z1 = ModularField::Mul(ModularField::Sub(y0, y1), g3);
+                        ULong z2 = ModularField::Add(y2, y3);
+                        ULong z3 = ModularField::Mul(ModularField::Sub(y2, y3), g3);
+                        ULong z4 = ModularField::Add(y4, y5);
+                        ULong z5 = ModularField::Mul(ModularField::Sub(y4, y5), g3);
+                        ULong z6 = ModularField::Add(y6, y7);
+                        ULong z7 = ModularField::Mul(ModularField::Sub(y6, y7), g3);
+
+                        a[i + j]                          = z0;
+                        a[i + j + qlen8]                  = z1;
+                        a[i + j + qlen4]                  = z2;
+                        a[i + j + qlen4 + qlen8]          = z3;
+                        a[i + j + halflen]                = z4;
+                        a[i + j + halflen + qlen8]        = z5;
+                        a[i + j + halflen + qlen4]        = z6;
+                        a[i + j + halflen + qlen4 + qlen8] = z7;
+                    }
+                }
+            };
+            if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
+                ParallelFor(numBlocks, body);
+            else
+                body(0, numBlocks);
+        }
+
+        // Radix-8 fused DIT butterfly. Inverse of ForwardRadix8Layer: applies
+        // three DIT radix-2 layers (len/4 → len/2 → len) over 8 elements in a
+        // single load/store.
+        static inline void InverseRadix8Layer(ULong *a, Int n, Int outerLen, const ULong *roots)
+        {
+            Int halflen = outerLen >> 1;
+            Int qlen4 = outerLen >> 2;
+            Int qlen8 = outerLen >> 3;
+            Int stride = n / outerLen;
+            Int stride4 = stride << 2;
+            Int numBlocks = n / outerLen;
+            Int omega4_off = n / 4;
+            auto body = [a, halflen, qlen4, qlen8, outerLen, stride, stride4, omega4_off, roots](Int bStart, Int bEnd) {
+                for (Int b = bStart; b < bEnd; ++b)
+                {
+                    Int i = b * outerLen;
+                    for (Int j = 0; j < qlen8; ++j)
+                    {
+                        ULong x0 = a[i + j];
+                        ULong x1 = a[i + j + qlen8];
+                        ULong x2 = a[i + j + qlen4];
+                        ULong x3 = a[i + j + qlen4 + qlen8];
+                        ULong x4 = a[i + j + halflen];
+                        ULong x5 = a[i + j + halflen + qlen8];
+                        ULong x6 = a[i + j + halflen + qlen4];
+                        ULong x7 = a[i + j + halflen + qlen4 + qlen8];
+
+                        // Layer A (innermost, len=L/4, twiddle = roots[j*stride4]).
+                        ULong g_a = roots[j * stride4];
+                        ULong v01 = ModularField::Mul(x1, g_a);
+                        ULong y0 = ModularField::Add(x0, v01);
+                        ULong y1 = ModularField::Sub(x0, v01);
+                        ULong v23 = ModularField::Mul(x3, g_a);
+                        ULong y2 = ModularField::Add(x2, v23);
+                        ULong y3 = ModularField::Sub(x2, v23);
+                        ULong v45 = ModularField::Mul(x5, g_a);
+                        ULong y4 = ModularField::Add(x4, v45);
+                        ULong y5 = ModularField::Sub(x4, v45);
+                        ULong v67 = ModularField::Mul(x7, g_a);
+                        ULong y6 = ModularField::Add(x6, v67);
+                        ULong y7 = ModularField::Sub(x6, v67);
+
+                        // Layer B (len=L/2). Pairs (0,2),(1,3),(4,6),(5,7).
+                        ULong g_b1 = roots[2 * j * stride];
+                        ULong g_b2 = roots[2 * (j + qlen8) * stride];
+                        ULong w02 = ModularField::Mul(y2, g_b1);
+                        ULong z0 = ModularField::Add(y0, w02);
+                        ULong z2 = ModularField::Sub(y0, w02);
+                        ULong w13 = ModularField::Mul(y3, g_b2);
+                        ULong z1 = ModularField::Add(y1, w13);
+                        ULong z3 = ModularField::Sub(y1, w13);
+                        ULong w46 = ModularField::Mul(y6, g_b1);
+                        ULong z4 = ModularField::Add(y4, w46);
+                        ULong z6 = ModularField::Sub(y4, w46);
+                        ULong w57 = ModularField::Mul(y7, g_b2);
+                        ULong z5 = ModularField::Add(y5, w57);
+                        ULong z7 = ModularField::Sub(y5, w57);
+
+                        // Layer C (outermost, len=L). Pairs (0,4),(1,5),(2,6),(3,7).
+                        ULong g_c0 = roots[j * stride];
+                        ULong g_c1 = roots[(j + qlen8) * stride];
+                        ULong g_c2 = roots[(j + qlen4) * stride];
+                        ULong g_c3 = roots[(j + qlen4 + qlen8) * stride];
+                        ULong w04 = ModularField::Mul(z4, g_c0);
+                        ULong w15 = ModularField::Mul(z5, g_c1);
+                        ULong w26 = ModularField::Mul(z6, g_c2);
+                        ULong w37 = ModularField::Mul(z7, g_c3);
+
+                        a[i + j]                          = ModularField::Add(z0, w04);
+                        a[i + j + halflen]                = ModularField::Sub(z0, w04);
+                        a[i + j + qlen8]                  = ModularField::Add(z1, w15);
+                        a[i + j + halflen + qlen8]        = ModularField::Sub(z1, w15);
+                        a[i + j + qlen4]                  = ModularField::Add(z2, w26);
+                        a[i + j + halflen + qlen4]        = ModularField::Sub(z2, w26);
+                        a[i + j + qlen4 + qlen8]          = ModularField::Add(z3, w37);
+                        a[i + j + halflen + qlen4 + qlen8] = ModularField::Sub(z3, w37);
+                    }
+                }
+            };
+            if ((SizeT)(n / 2) >= ParallelMinSize() && numBlocks > 1)
+                ParallelFor(numBlocks, body);
+            else
+                body(0, numBlocks);
+        }
+
     public:
         static void Forward(std::vector<ULong> &a, const NTTPlan &plan)
         {
@@ -294,15 +459,17 @@ namespace BigMath
             ULong *aPtr = a.data();
             const ULong *roots = plan.forwardRoots.data();
 
-            // Pair from the top: (n, n/2), (n/4, n/8), …
+            // Triple from the top: (n, n/2, n/4), (n/8, n/16, n/32), …
+            // Straggler runs at len ∈ {4, 2} depending on log2(n) mod 3.
             Int len = n;
-            while (len >= 4)
+            while (len >= 8)
             {
-                ForwardRadix4Layer(aPtr, n, len, roots);
-                len >>= 2;
+                ForwardRadix8Layer(aPtr, n, len, roots);
+                len >>= 3;
             }
-            // If log2(n) is odd, one straggler layer at len=2.
-            if (len == 2)
+            if (len == 4)
+                ForwardRadix4Layer(aPtr, n, 4, roots);
+            else if (len == 2)
                 ForwardRadix2Layer(aPtr, n, 2, roots);
         }
 
@@ -314,24 +481,30 @@ namespace BigMath
 
             if (n >= 2)
             {
-                // Pair from the bottom: (2,4), (8,16), …
-                // If log2(n) odd, run the bottom layer (len=2) standalone first
-                // so subsequent pairs start at outer_len=8.
+                // Triple from the bottom: (2,4,8), (16,32,64), …
+                // If log2(n) % 3 ∈ {1,2}, a radix-2 or radix-4 head runs first
+                // so subsequent triples start at outer_len ∈ {8, 16, 32}.
                 Int logn = __builtin_ctzll((unsigned long long)n);
+                Int rem = logn % 3;
                 Int len;
-                if (logn & 1)
+                if (rem == 1)
                 {
                     InverseRadix2Layer(aPtr, n, 2, roots);
-                    len = 8;
+                    len = 16;
+                }
+                else if (rem == 2)
+                {
+                    InverseRadix4Layer(aPtr, n, 4, roots);
+                    len = 32;
                 }
                 else
                 {
-                    len = 4;
+                    len = 8;
                 }
                 while (len <= n)
                 {
-                    InverseRadix4Layer(aPtr, n, len, roots);
-                    len <<= 2;
+                    InverseRadix8Layer(aPtr, n, len, roots);
+                    len <<= 3;
                 }
             }
 
