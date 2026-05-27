@@ -53,10 +53,15 @@ namespace BigMath
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
     // BZ for large near-balanced divisors and for big-and-skewed cases.
+    // The +32-limb quotient-bulk guard in the near-balanced clause excludes
+    // degenerate cases where a ≈ b and the quotient is 0-2 limbs — BZ would
+    // split a into m = n/2 blocks and run wasted m×m multiplies on mostly-zero
+    // high blocks, while FastDivision short-circuits via a single qhat
+    // iteration. Regressed 5M×5M balanced 1.45 → 4.48 ms before this guard.
     bool bz_eligible =
         (base == Base2_32 || base == Base2_64) &&
         b.size() > BZ_DIVISOR_THRESHOLD &&
-        ((b.size() >= 1024 && a.size() <= 3 * b.size()) ||
+        ((b.size() >= 1024 && a.size() >= b.size() + 32 && a.size() <= 3 * b.size()) ||
          (a.size() > 2048 && a.size() > 3 * b.size()));
     if (bz_eligible)
       return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
