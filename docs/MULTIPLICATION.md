@@ -398,8 +398,8 @@ Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported number
 | `mul` | **5 000 000 × 5 000 000** | **45.811** | **63.960** | **0.72 ×** ← BigMath faster |
 | `mul` | **10 000 000 × 10 000 000** | **103.018** | **213.191** | **0.48 ×** ← BigMath 2.08× faster |
 | `mul` | **20 000 000 × 20 000 000** | **276.471** | **280.078** | **0.99 ×** ← parity |
-| `mul` | 50 000 000 × 50 000 000 | 1 392.879 | 680.512 | 2.05 × ← GMP SSA recovers |
-| `mul` | 100 000 000 × 100 000 000 | 3 220.928 | 1 448.546 | 2.22 × |
+| `mul` | 50 000 000 × 50 000 000 | 1 228.7 | 661.0 | 1.86 × ← GMP SSA still ahead |
+| `mul` | 100 000 000 × 100 000 000 | 2 589.6 | 1 389.3 | 1.86 × |
 | `mul` (skewed) | 100 000 × 10 000 | 0.543 | 0.303 | 1.79 × |
 | `mul` (skewed) | **500 000 × 50 000** | **2.010** | **2.074** | **0.97 ×** ← BigMath faster |
 | `mul` (skewed) | **1 000 000 × 100 000** | **4.269** | **4.475** | **0.95 ×** ← BigMath faster |
@@ -415,7 +415,7 @@ Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported number
 **Reading these numbers.**
 
 - **Balanced multiplication wins from 2M through 20M digits.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior 5M-10M sweet spot to 2M-20M and pushed the peak win to **2.08× faster at 10M** (103 ms vs 213 ms). 20M is now parity (0.99×, was 1.61× loss).
-- **GMP recovers at ≥50M via Schönhage-Strassen.** 2.05× at 50M, 2.22× at 100M — both halved vs prior 3.58× / 3.71×. BigMath's CRT NTT remains L2/L3-cache-bound; closing this gap requires either MFA-SSA (multi-day) or NEON SIMD on the CRT inner loop (see [Future opportunities](#future-opportunities)).
+- **GMP recovers at ≥50M via Schönhage-Strassen, but the gap narrowed again.** 1.86× at 50M and 100M after the 2026-05-27 MFA / Bailey-6-step landing (was 2.05× / 2.22× immediately post-radix-8). Cumulative trajectory at 50M: 3.58× → 2.05× (radix-4+8) → 1.86× (MFA). BigMath's CRT NTT inner loop is still scalar 32-bit modular ops; the remaining gap is closeable by NEON SIMD on the CRT prime arithmetic (see [Future opportunities](#future-opportunities)).
 - **Skewed mults: four sweet spots win** (500k×50k, 1M×100k, 2M×200k, 50M×5M at 0.91-0.97×). Past 100M×10M (1.27×) GMP's SSA recovers.
 
 A historical view of the same benchmark (early 2026 vs current default stack):
@@ -427,7 +427,7 @@ A historical view of the same benchmark (early 2026 vs current default stack):
 | mul 5 000 000 × 5 000 000 | ~3 × | 0.92 × | **0.72 ×** | **4.2 ×** |
 | mul 10 000 000 × 10 000 000 | ~3 × | 0.73 × | **0.48 ×** | **6.3 ×** |
 | mul 20 000 000 × 20 000 000 | — | 1.61 × | **0.99 ×** | **1.6 ×** (vs CRT) |
-| mul 50 000 000 × 50 000 000 | — | 3.58 × | **2.05 ×** | **1.7 ×** (vs CRT) |
+| mul 50 000 000 × 50 000 000 | — | 3.58 × | **1.86 ×** | **1.9 ×** (vs CRT) |
 | mul (skewed) 1M / 100k | 3.5 × | 1.02 × | **0.95 ×** | **3.7 ×** |
 
 The 2026-05 optimization stack — 64-bit limb refactor (PRs #18-#30), multi-prime CRT NTT (PRs #34-#37), cross-prime threading (PR #38-#39), **radix-4 + radix-8 fused NTT butterflies (PRs #59, #60)** — closed the GMP gap by **3-6× across every band**. Balanced multiplication beats GMP across 2M-20M; skewed mults beat GMP across 500k×50k–50M×5M.
@@ -446,15 +446,19 @@ A loosely chronological summary of optimizations that landed and stuck.
 
 `ModularField::Add`, `Sub`, and `Reduce` use `__builtin_*_overflow` returning a flag, then `mask = -flag` for conditional subtraction. The compiler turns this into `CSEL` on ARM64 / `CMOV` on x86. Earlier versions used `if (sum >= P) sum -= P;` which mispredicted ~50% of the time in the butterfly hot loop.
 
-### Multi-prime CRT NTT with 32-bit coefficients (2026-05, PRs #34-#37)
+### Multi-prime CRT NTT with 32-bit coefficients (2026-05, PRs #34-#37; prime ceiling lift 2026-05-27)
 
-`NTTMultiplication` dispatches large products to `NttCrt::Multiply` when `BIGMATH_NTT_CRT=1` and `a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD` (default threshold: 5000 limbs). The CRT path uses three 30-bit NTT primes:
+`NTTMultiplication` dispatches large products to `NttCrt::Multiply` when `BIGMATH_NTT_CRT=1` and `a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD` (default threshold: 5000 limbs). The CRT path uses three NTT-friendly primes with 2-adic order ≥ 2^26:
 
-| prime | primitive root | max power-of-two length |
-|---:|---:|---:|
-| 998244353 | 3 | 2^23 |
-| 985661441 | 3 | 2^22 |
-| 754974721 | 11 | 2^24 |
+| prime | primitive root | factorization | max power-of-two length |
+|---:|---:|---:|---:|
+| 2 013 265 921 | 31 | 15·2^27 + 1 | 2^27 |
+| 469 762 049 | 3 | 7·2^26 + 1 | 2^26 |
+| 1 811 939 329 | 13 | 27·2^26 + 1 | 2^26 |
+
+CRT length ceiling = min across all three = **2^26 ≈ 67M coefficients ≈ 640M-digit operand pairs**.
+
+> **Correctness note (2026-05-27 prime ceiling lift).** The original triple `{998244353, 985661441, 754974721}` had a P2 2-adic order of only 2^22. At transform length `n > 2^22` (≈ 20M-digit balanced operand pairs), `BuildRoots` computed `G^((P-1)/n)` with truncating integer division — producing a value that was **not** a primitive n-th root, silently corrupting one of the three CRT residues. Garner reconstruction blended the bad residue and returned mathematically wrong limbs. The bug surfaced when `mfa_vs_gmp_check` showed BigMath ≠ GMP at 22M digits while passing at 20M. The fix swaps all three primes to the triple shown above. Earlier BENCHMARK numbers at 50M / 100M digits timed *invalid* output and were replaced after the fix.
 
 For `Base2_64`, each 64-bit limb is split into two 32-bit coefficients instead of the four 16-bit coefficients required by the single-prime Goldilocks path. After three independent convolutions, Garner reconstruction combines the residues and the final carry pass packs two 32-bit coefficients back into each 64-bit limb.
 
@@ -525,6 +529,39 @@ Focused `prepared_ntt_bench` results, M1 Max, Base2_64, CRT default, 100k×100k 
 | serial `-DBIGMATH_USE_THREADS=0` | 5 | 291.137 ms | 16.590 ms | 198.299 ms | 1.47× | 1.35× |
 
 The threaded gain is smaller because normal CRT multiplication already runs the six forward transforms concurrently; prepared operands save CPU work and one side's packing, but wall time is partially hidden by cross-prime parallelism.
+
+### Matrix Fourier Algorithm (MFA) / Bailey 6-step for CRT NTT (2026-05-27)
+
+Recursive 2D layout for each per-prime NTT once length exceeds `BIGMATH_NTT_MFA_THRESHOLD` (default 2^21 ≈ 2M coefficients). For length `N = N1·N2`:
+
+1. Transpose `N2×N1 → N1×N2`
+2. `N1` forward sub-FFTs of length `N2` along rows
+3. Cross-twiddle: multiply position `[i, k2]` by `ω_N^{i·k2}`
+4. Transpose `N1×N2 → N2×N1`
+5. `N2` forward sub-FFTs of length `N1` along rows
+
+The win is **cache locality**. At 100M digits (n ≈ 33M per prime ≈ 134 MB per buffer) the linear NTT inner sweep streams memory; MFA keeps each sub-FFT inside L1/L2.
+
+**Threading reorganisation matters more than the layout itself.** A direct port that nested `ParallelFor` inside each sub-FFT and serialized the six cross-prime forwards lost 2.8–3.2× because it forfeited the cross-prime parallelism the non-MFA path gets from `ParallelDo(6)`. A second attempt that wrapped `ParallelDo(6)` around per-prime MFA tasks deadlocked the (non-reentrant, single-generation) pool: each worker thread cold-missed its own `thread_local` `Plan` cache, called `GetPlan` → `BuildRoots` → nested `ParallelFor`, and stalled.
+
+The landed design separates the two:
+
+- Plans are pre-built in the main thread via `BuildMfaPlanTree<F, G>(n, tree)` for each prime before any dispatch. The tree is then passed by `const &` capture into the worker lambda. Workers never call `GetPlan` and therefore never reenter the pool.
+- The six forward transforms (and three inverses) dispatch as `ParallelDo(6)` / `ParallelDo(3)` with `parallel=false` passed to `ForwardMFA` / `InverseMFA` to suppress *internal* `ParallelFor` calls. Each task is one full per-prime MFA running serially in its own thread.
+- Six per-task scratch buffers are allocated on the caller stack (NOT `thread_local`) before dispatch so the capturing pointers cross threads safely.
+
+`mul_xl_bench` on M1 Max, Base2_64, CRT default, threaded:
+
+| limbs | MFA off (ms) | MFA on (ms) | speedup |
+|------:|-------------:|------------:|--------:|
+|    1M |          266 |         247 |  1.07×  |
+|    2M |          710 |         596 |  1.19×  |
+|    5M |         3217 |        2670 |  1.20×  |
+|   10M |         6980 |        5524 |  1.26×  |
+
+Translated to BM/GMP at the target regime: 50M went 2.05× → 1.86×, 100M went 2.22× → 1.86×. MFA narrowed the gap but did not close it; the remaining lever is NEON on the CRT inner loop ([Future opportunities](#future-opportunities)).
+
+Gate via `BIGMATH_NTT_MFA` (default 1) and `BIGMATH_NTT_MFA_THRESHOLD` (default 2^21). Leaf size `BIGMATH_NTT_MFA_LEAF` (default 2^13) controls the recursion stopping point — sub-FFTs at or below the leaf size hit the existing radix-4/8 chain via `ForwardPtr`.
 
 ### Karatsuba pointer-based workspace
 
@@ -625,9 +662,9 @@ The NTT butterfly is 95–97% of cost for large mults (confirmed via profile at 
 
 CRT NTT (default ≥5000 limbs sum) operates on 30-bit primes with 32-bit coefficients — these fit `uint32x4_t` lanes naturally, sidestepping the 64×64→128 issue that blocked NEON for the Goldilocks butterfly. Theoretical 4× throughput per butterfly. Earlier rejection was Goldilocks-specific; the CRT path makes this a fresh opportunity. Profile evidence (see `memory: ssa-rejection-2026-05-26`) ranks this as the highest-ROI next lever for closing the ≥50M gap to GMP. Cost: NEON intrinsics path + scalar fallback, ~300-500 LOC.
 
-### Matrix Fourier Algorithm (MFA) / Bailey 6-step for ≥50M digits
+### MFA recursion below the leaf
 
-GMP wins ≥50M via Schönhage-Strassen with MFA layout. Single-level SSA on this codebase has no winning parameter band (see `memory: ssa-rejection-2026-05-26` for the parameter sweep). MFA = recursive 2D sub-NTT layout that fits each sub-NTT in L1. ~500-1000 LOC of layout + twiddle indexing + transpose machinery. Bailey 6-step is the same idea expressed for FFT. Only worth doing if ≥50M digits becomes a real workload and (a) above doesn't close the gap.
+The current MFA implementation factors `n = n1·n2` once and stops at a leaf level of `BIGMATH_NTT_MFA_LEAF = 2^13`. For `n > 2^26` (operand pairs above ~640M digits) the sub-FFTs themselves exceed L1 again and a second level of MFA would be needed. Not built because the prime ceiling caps `n` at `2^26` — going larger requires a fourth CRT prime or a fundamentally different scheme.
 
 ---
 
@@ -639,13 +676,13 @@ Each rejection has a concrete reason. Don't re-propose without new evidence over
 
 [Schönhage–Strassen](https://en.wikipedia.org/wiki/Sch%C3%B6nhage%E2%80%93Strassen_algorithm) multiplies in O(n · log n · log log n) using nested FFTs over a Fermat number ring `Z / (2^N + 1) Z`. The `log log n` factor is asymptotically better than NTT's effective `log n`, but the constant factors are dominated by the inner mod-2^N+1 arithmetic.
 
-**Updated assessment after radix-4+8 landed.** GMP's lead at ≥50M digits halved (3.58× → 2.05× at 50M) but didn't disappear — SSA is the structural lever GMP uses there. A profile probe + parameter sweep for single-level SSA at 100M digits found:
+**Updated assessment after radix-4+8 and MFA landed.** GMP's lead at ≥50M digits has now been roughly halved twice (3.58× → 2.05× via radix-4+8, then → 1.86× via MFA at 50M; analogous trajectory at 100M). SSA remains a structural lever GMP uses there. A profile probe + parameter sweep for single-level SSA at 100M digits had found:
 
 - Profile: 95.5% of CRT NTT time in forwards + inverses; SSA targets exactly this.
 - Parameter sweep: single-level SSA has **no winning band** at our sizes. For M = 2¹⁶ chunks, pointwise sub-mul cost dominates (~32 sec). For M = 2²⁰, per-element N grows so large the FFT cost explodes. Sweet spot only exists with recursive sub-multiplications + MFA layout (GMP's approach).
 - Implementation: full MFA-SSA = ~700-1000 LOC, multi-day work, real correctness risk in sign handling, chunk sizing, carry boundaries.
 
-**Decision:** still rejected for single-level. MFA-SSA is on the future-opportunities list under [§MFA / Bailey 6-step](#future-opportunities). Profile + math archived in `memory: ssa-rejection-2026-05-26`.
+**Decision:** still rejected for single-level. MFA itself is no longer on the future-opportunities list — it landed against the CRT NTT layer in 2026-05-27 (see [§Matrix Fourier Algorithm](#matrix-fourier-algorithm-mfa--bailey-6-step-for-crt-ntt-2026-05-27)). What remains unimplemented is *MFA-SSA* (SSA's inner ring substituted into MFA's recursion). Profile + math archived in `memory: ssa-rejection-2026-05-26`.
 
 See also [Fürer's algorithm](https://en.wikipedia.org/wiki/F%C3%BCrer%27s_algorithm) which improves SSA's outer factor further but has the same constant-factor problem.
 
@@ -663,11 +700,9 @@ NEON on M1 lacks a 64×64→128 multiply primitive. The **Goldilocks** `Mul` is 
 
 **This rejection is now narrowly scoped to the Goldilocks path.** The 3-prime CRT NTT (default ≥5000 limbs sum) uses 30-bit primes with 32-bit coefficients — `uint32x4_t` lanes fit, no double-mul problem. Tracked separately in [Future opportunities §NEON SIMD on CRT primes](#future-opportunities).
 
-### 6-step Cooley-Tukey decomposition — historical rejection superseded
+### 6-step Cooley-Tukey decomposition — historical rejection superseded, then implemented
 
-[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident in machines where the natural ordering blows the cache. The original rejection cited "NTT working set fits L1 at all practical sizes" — that was true when the dispatcher capped NTT around 1M digit inputs. **No longer accurate** post-LIMB_64 + radix-4+8: at 100M digits per-prime CRT buffer is ~536 MB, well past L2 (32 MB shared on M1 Max). Profile at 100M shows the NTT inner loop is bandwidth-bound, not compute-bound.
-
-Bailey 6-step / MFA is now genuinely on the table for closing the ≥50M GMP gap — see [Future opportunities §MFA](#future-opportunities). Cost remains the same (~500-1000 LOC layout machinery), but the benefit is real where it wasn't before.
+[Six-step FFT](https://www.davidhbailey.com/dhbpapers/six-step.pdf) (Bailey, 1990) tiles the transform to keep working sets cache-resident. The original rejection cited "NTT working set fits L1 at all practical sizes" — true when the dispatcher capped NTT around 1M-digit inputs. Became inaccurate post-LIMB_64 + radix-4+8 (at 100M digits per-prime CRT buffer ~134 MB on the new triple, well past L2 32 MB on M1 Max), and was then implemented on 2026-05-27 — see [§Matrix Fourier Algorithm](#matrix-fourier-algorithm-mfa--bailey-6-step-for-crt-ntt-2026-05-27).
 
 ### Cached bit-reversal permutation
 

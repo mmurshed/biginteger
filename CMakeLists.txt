@@ -90,6 +90,15 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(mul_xl_bench tests/performance/mul_xl_bench.cpp)
     target_link_libraries(mul_xl_bench PRIVATE bigmath::bigmath)
 
+    add_executable(mfa_correctness tests/performance/mfa_correctness.cpp)
+    target_link_libraries(mfa_correctness PRIVATE bigmath::bigmath)
+
+    add_executable(mfa_roundtrip tests/performance/mfa_roundtrip.cpp)
+    target_link_libraries(mfa_roundtrip PRIVATE bigmath::bigmath)
+
+    add_executable(mfa_dft_check tests/performance/mfa_dft_check.cpp)
+    target_link_libraries(mfa_dft_check PRIVATE bigmath::bigmath)
+
     # Interactive calculator REPL (not registered as a ctest target).
     add_executable(calculator calculator/calculator.cpp)
     target_link_libraries(calculator PRIVATE bigmath::bigmath)
@@ -107,6 +116,10 @@ if(BIGMATH_BUILD_TESTS)
     if(GMP_LIBRARY AND GMP_INCLUDE_DIR)
         add_executable(bench_vs_gmp tests/performance/bench_vs_gmp.cpp)
         target_link_libraries(bench_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+
+        add_executable(mfa_vs_gmp_check tests/performance/mfa_vs_gmp_check.cpp)
+        target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})
         target_include_directories(bench_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
     else()
         message(STATUS "GMP not found; bench_vs_gmp target skipped")
