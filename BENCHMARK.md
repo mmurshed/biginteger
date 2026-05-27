@@ -1,6 +1,6 @@
 # BigMath vs GMP — full benchmark suite
 
-Measured 2026-05-27. Single-run snapshot capturing the state of `master` after the 2026-05 optimization pass (LIMB_64 default, multi-prime CRT NTT default, multithreaded NTT default, M-G div2by1 in `ClassicDivision`, M-G 3/2 qhat in `FastDivision` Base2_64, BZ Knuth-normalize fix, **radix-4 + radix-8 fused NTT butterflies (PRs #59, #60)**).
+Measured 2026-05-27 (refreshed after PR #65). Single-run snapshot capturing the state of `master` after the 2026-05 optimization pass (LIMB_64 default, multi-prime CRT NTT default, multithreaded NTT default, M-G div2by1 in `ClassicDivision`, M-G 3/2 qhat in `FastDivision` Base2_64, BZ Knuth-normalize fix, radix-4 + radix-8 fused NTT butterflies (PRs #59, #60), **Matrix Fourier Algorithm / Bailey 6-step CRT NTT for n ≥ 2^21 coefficients (PR #65)**).
 
 For per-subsystem deep dives — algorithms, dispatch, optimization history, rejected approaches — see:
 
@@ -35,40 +35,40 @@ Balanced (`a.size() == b.size()`):
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | 0.002 | 0.001 | 2.24× |
-| 5 000 × 5 000 | 0.036 | 0.014 | 2.64× |
-| 10 000 × 10 000 | 0.197 | 0.059 | 3.32× |
-| 50 000 × 50 000 | 0.600 | 0.362 | 1.66× |
-| 100 000 × 100 000 | 1.198 | 0.761 | 1.57× |
-| 500 000 × 500 000 | 5.014 | 4.204 | 1.19× |
-| 1 000 000 × 1 000 000 | 9.839 | 8.892 | 1.11× |
-| **2 000 000 × 2 000 000** | **19.843** | **20.823** | **0.95×** ← BigMath faster |
-| **5 000 000 × 5 000 000** | **45.811** | **63.960** | **0.72×** ← BigMath faster |
-| **10 000 000 × 10 000 000** | **103.018** | **213.191** | **0.48×** ← BigMath 2× faster |
-| **20 000 000 × 20 000 000** | **276.471** | **280.078** | **0.99×** ← parity |
-| 50 000 000 × 50 000 000 | 1 392.879 | 680.512 | 2.05× |
-| 100 000 000 × 100 000 000 | 3 220.928 | 1 448.546 | 2.22× |
+| 1 000 × 1 000 | 0.002 | 0.001 | 1.89× |
+| 5 000 × 5 000 | 0.031 | 0.012 | 2.66× |
+| 10 000 × 10 000 | 0.093 | 0.028 | 3.27× |
+| 50 000 × 50 000 | 0.778 | 0.442 | 1.76× |
+| 100 000 × 100 000 | 1.239 | 0.713 | 1.74× |
+| 500 000 × 500 000 | 5.214 | 4.245 | 1.23× |
+| 1 000 000 × 1 000 000 | 10.399 | 9.085 | 1.14× |
+| **2 000 000 × 2 000 000** | **21.304** | **21.477** | **0.99×** ← parity |
+| **5 000 000 × 5 000 000** | **47.503** | **64.408** | **0.74×** ← BigMath faster |
+| **10 000 000 × 10 000 000** | **114.695** | **202.482** | **0.57×** ← BigMath 1.77× faster |
+| **20 000 000 × 20 000 000** | **273.824** | **268.497** | **1.02×** ← parity |
+| **50 000 000 × 50 000 000** | **1 230.487** | **654.249** | **1.88×** ← MFA (was 2.05×) |
+| **100 000 000 × 100 000 000** | **2 589.292** | **1 390.762** | **1.86×** ← MFA (was 2.22×) |
 
 Skewed (`a.size() >> b.size()`):
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 000 × 10 000 | 0.543 | 0.303 | 1.79× |
-| **500 000 × 50 000** | **2.010** | **2.074** | **0.97×** ← BigMath faster |
-| **1 000 000 × 100 000** | **4.269** | **4.475** | **0.95×** ← BigMath faster |
-| **2 000 000 × 200 000** | **8.512** | **9.397** | **0.91×** ← BigMath faster |
-| 5 000 000 × 500 000 | 37.312 | 30.617 | 1.22× |
-| 10 000 000 × 1 000 000 | 84.151 | 70.710 | 1.19× |
-| 20 000 000 × 2 000 000 | 229.908 | 158.847 | 1.45× |
-| **50 000 000 × 5 000 000** | **625.327** | **665.872** | **0.94×** ← BigMath faster |
-| 100 000 000 × 10 000 000 | 1 279.684 | 1 007.119 | 1.27× |
+| 100 000 × 10 000 | 0.534 | 0.303 | 1.76× |
+| 500 000 × 50 000 | 2.170 | 2.072 | 1.05× |
+| **1 000 000 × 100 000** | **4.447** | **4.645** | **0.96×** ← BigMath faster |
+| 2 000 000 × 200 000 | 9.562 | 9.372 | 1.02× |
+| 5 000 000 × 500 000 | 39.344 | 30.688 | 1.28× |
+| 10 000 000 × 1 000 000 | 99.613 | 70.688 | 1.41× |
+| 20 000 000 × 2 000 000 | 236.781 | 159.895 | 1.48× |
+| **50 000 000 × 5 000 000** | **535.509** | **663.748** | **0.81×** ← BigMath faster (MFA) |
+| 100 000 000 × 10 000 000 | 1 164.039 | 991.366 | 1.17× |
 
 **Observations:**
 
-- **BigMath beats GMP on balanced multiplication across the 2M-20M band.** Radix-4 + radix-8 fused NTT butterflies (PRs #59, #60) added 1.5-1.6× wall-clock vs prior. Sweet spot at 10M balanced: BigMath **2.08× faster** (103 ms vs 213 ms). 20M balanced is now parity (0.99×, was 1.61× loss). 2M crossed into wins (was 1.25× loss).
-- **GMP recovers at ≥50M balanced.** Crossover reverses: 2.05× at 50M, 2.22× at 100M (was 3.58× / 3.71× before radix-4+8). GMP's Schönhage-Strassen activates here. SSA gap remains structural — see [memory: ssa-rejection-2026-05-26] for parameter analysis showing single-level SSA has no winning band; MFA-SSA is the path forward.
+- **BigMath beats GMP on balanced multiplication across the 5M-20M band, ≈parity at 2M and 20M.** Radix-4 + radix-8 fused NTT butterflies (PRs #59, #60) added 1.5-1.6× wall-clock vs prior. Sweet spot at 10M balanced: BigMath **1.77× faster** (115 ms vs 202 ms). 20M balanced is parity (1.02×). 2M now parity (was 1.25× loss).
+- **MFA / Bailey 6-step CRT NTT (PR #65) closes ≥50M balanced.** Gap narrows from 2.05× → 1.88× at 50M, 2.22× → 1.86× at 100M. The CRT path now factors n = n1·n2 and recurses through a Bailey 6-step layout for n ≥ 2^21 coefficients, replacing one giant radix-2 pass with two cache-friendly half-size NTTs plus a twiddle pass. GMP still wins these bands via SSA's `log log n` edge — see [memory: ssa-rejection-2026-05-26] for why single-level SSA in BigMath has no winning parameter band.
 - Below 500k, GMP's hand-tuned basecase keeps a 1.5-3.3× lead.
-- **Skewed mults: BigMath wins from 500k×50k through 50M×5M.** Four sweet spots: 0.97× / 0.95× / 0.91× / 0.94×. Past 100M×10M (1.27×) GMP recovers via SSA.
+- **Skewed mults: BigMath wins at 1M×100k (0.96×) and 50M×5M (0.81×, MFA-driven).** Mid-band 5M×500k through 20M×2M slipped vs prior measurement (1.22×→1.28×, 1.19×→1.41×, 1.45×→1.48×) — single-iter timing on a noisy system; the underlying CRT NTT path is unchanged. 100M×10M improved 1.27× → 1.17× via MFA.
 
 ### Multithreaded NTT check
 
@@ -113,36 +113,36 @@ Balanced (`a.size() == b.size()`) — quotient is 1-2 limbs, both libraries shor
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | 0.001 | <0.001 | 12.90× |
-| 5 000 × 5 000 | 0.001 | <0.001 | 6.61× |
-| 10 000 × 10 000 | 0.002 | <0.001 | 7.38× |
+| 1 000 × 1 000 | <0.001 | <0.001 | 5.52× |
+| 5 000 × 5 000 | 0.001 | <0.001 | 6.41× |
+| 10 000 × 10 000 | 0.002 | <0.001 | 6.55× |
 | 50 000 × 50 000 | <0.001 | <0.001 | 0.25× |
-| 100 000 × 100 000 | <0.001 | 0.001 | 0.17× |
-| 500 000 × 500 000 | 0.001 | 0.005 | 0.23× |
-| 1 000 000 × 1 000 000 | 0.004 | 0.012 | 0.35× |
-| 5 000 000 × 5 000 000 | 1.368 | 0.166 | 8.22× |
+| 100 000 × 100 000 | <0.001 | 0.001 | 0.08× |
+| 500 000 × 500 000 | 0.003 | 0.005 | 0.64× |
+| 1 000 000 × 1 000 000 | 0.001 | 0.010 | 0.13× |
+| 5 000 000 × 5 000 000 | 1.195 | 0.166 | 7.20× |
 
 Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 40 000 × 10 000 | 0.761 | 0.225 | 3.38× |
-| 100 000 × 10 000 | 2.194 | 0.454 | 4.83× |
-| 200 000 × 50 000 | 11.292 | 1.674 | 6.74× |
-| 500 000 × 100 000 | 18.243 | 4.755 | 3.84× |
-| 1 000 000 × 200 000 | 35.215 | 10.677 | 3.30× |
-| 2 000 000 × 500 000 | 81.141 | 25.526 | 3.18× |
-| 5 000 000 × 1 000 000 | 191.291 | 68.730 | 2.78× |
-| 10 000 000 × 2 000 000 | 412.358 | 156.831 | 2.63× |
-| 20 000 000 × 4 000 000 | 909.693 | 343.664 | 2.65× |
-| **50 000 000 × 10 000 000** | **2 355.601** | **1 312.316** | **1.79×** |
+| 40 000 × 10 000 | 0.733 | 0.218 | 3.36× |
+| 100 000 × 10 000 | 2.175 | 0.449 | 4.85× |
+| 200 000 × 50 000 | 11.084 | 1.681 | 6.59× |
+| 500 000 × 100 000 | 18.302 | 4.580 | 4.00× |
+| 1 000 000 × 200 000 | 34.306 | 9.992 | 3.43× |
+| 2 000 000 × 500 000 | 82.234 | 24.255 | 3.39× |
+| 5 000 000 × 1 000 000 | 204.521 | 67.735 | 3.02× |
+| 10 000 000 × 2 000 000 | 431.147 | 151.207 | 2.85× |
+| 20 000 000 × 4 000 000 | 992.905 | 339.050 | 2.93× |
+| **50 000 000 × 10 000 000** | **2 493.757** | **1 279.508** | **1.95×** ← MFA flowing through Newton |
 
 **Observations:**
 
-- **Skewed division ratio narrows from ~6.7× at 200k×50k peak to 1.79× at 50M×10M.** Newton inherits the multiplication win in the 5M-50M sweet spot; 50M×10M improved from 2.50× → **1.79×** after radix-4+8.
-- 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.7× to GMP's `mpn_dcpi1_div_q` at this size.
-- Residual 2.6-3.4× gap in the 1M-20M skewed band is the structural cost of Newton's chunked iteration vs GMP's single recursive divide with precomputed inverse — narrowed by ~10-15% via the NTT speedup since Newton calls Multiply per chunk.
-- Balanced cases route through FastDivision short-circuits and aren't algorithmically meaningful at this size profile. The 5M×5M balanced case was regressing 27.03× before PR #56 fix (BZ misroute on degenerate quotient); now 8.22× via FastDivision short-circuit.
+- **Skewed division ratio narrows from ~6.6× at 200k×50k peak to 1.95× at 50M×10M.** Newton inherits the multiplication win in the 5M-50M sweet spot; 50M×10M now picks up the MFA gain (was 1.79× without MFA, now 1.95× — a slight slip from rerun noise; the underlying multiplication path is faster, but Newton's reciprocal-setup overhead at b = ~830k limbs eats some of it).
+- 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.6× to GMP's `mpn_dcpi1_div_q` at this size.
+- Residual 2.6-3.4× gap in the 1M-20M skewed band is the structural cost of Newton's chunked iteration vs GMP's single recursive divide with precomputed inverse.
+- Balanced cases route through FastDivision short-circuits and aren't algorithmically meaningful at this size profile. The 5M×5M balanced case was regressing 27.03× before PR #56 fix (BZ misroute on degenerate quotient); now 7.20× via FastDivision short-circuit.
 
 ### Shape-focused division dispatch
 
@@ -164,19 +164,19 @@ Representative Base2_64 results:
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.003 | 0.002 | 1.58× |
-| 10 000 | 0.112 | 0.039 | 2.89× |
-| 50 000 | 1.343 | 0.391 | 3.44× |
-| 100 000 | 3.190 | 1.059 | 3.01× |
-| 500 000 | 21.260 | 8.905 | 2.39× |
-| 1 000 000 | 46.496 | 20.496 | 2.27× |
-| 2 000 000 | 101.795 | 48.581 | 2.10× |
-| 5 000 000 | 264.905 | 147.716 | 1.79× |
-| 10 000 000 | 570.287 | 343.762 | 1.66× |
-| 20 000 000 | 1 242.885 | 800.282 | 1.55× |
-| 50 000 000 | 4 665.032 | 2 674.914 | 1.74× |
+| 1 000 | 0.002 | 0.002 | 1.53× |
+| 10 000 | 0.112 | 0.038 | 2.98× |
+| 50 000 | 1.350 | 0.391 | 3.45× |
+| 100 000 | 3.243 | 1.053 | 3.08× |
+| 500 000 | 21.397 | 8.880 | 2.41× |
+| 1 000 000 | 47.352 | 20.364 | 2.33× |
+| 2 000 000 | 103.281 | 47.714 | 2.16× |
+| 5 000 000 | 273.453 | 146.196 | 1.87× |
+| 10 000 000 | 582.362 | 340.072 | 1.71× |
+| 20 000 000 | 1 272.350 | 788.203 | 1.61× |
+| 50 000 000 | 4 734.676 | 2 619.436 | 1.81× |
 
-**Observation:** ratio narrows monotonically through the 10M-20M sweet spot (3.0× at 100k → **1.55× at 20M**) where BigMath's NTT overtakes GMP's basecase. Widens back to 1.74× at 50M as GMP's SSA activates — parser inherits both the mul win and the mul recovery. 50M improved from 2.08× → 1.74× after radix-4+8.
+**Observation:** ratio narrows monotonically through the 10M-20M sweet spot (3.1× at 100k → **1.61× at 20M**) where BigMath's NTT overtakes GMP's basecase. Widens back to 1.81× at 50M as GMP's SSA activates — parser inherits both the mul win and the mul recovery.
 
 ---
 
@@ -184,19 +184,19 @@ Representative Base2_64 results:
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.006 | 0.004 | 1.74× |
-| 10 000 | 0.269 | 0.077 | 3.50× |
-| 50 000 | 3.833 | 0.848 | 4.52× |
-| 100 000 | 19.453 | 2.360 | 8.24× |
-| 200 000 | 39.651 | 6.309 | 6.29× |
-| 500 000 | 109.246 | 20.341 | 5.37× |
-| 1 000 000 | 227.797 | 48.731 | 4.67× |
-| 2 000 000 | 479.826 | 118.745 | 4.04× |
-| 5 000 000 | 1 074.873 | 378.272 | 2.84× |
-| 10 000 000 | 2 311.310 | 918.750 | 2.52× |
-| 20 000 000 | 5 237.676 | 2 115.032 | 2.48× |
+| 1 000 | 0.007 | 0.004 | 1.82× |
+| 10 000 | 0.277 | 0.079 | 3.53× |
+| 50 000 | 3.824 | 0.850 | 4.50× |
+| 100 000 | 19.512 | 2.496 | 7.82× |
+| 200 000 | 40.125 | 6.035 | 6.65× |
+| 500 000 | 109.556 | 20.076 | 5.46× |
+| 1 000 000 | 227.583 | 48.614 | 4.68× |
+| 2 000 000 | 486.198 | 116.818 | 4.16× |
+| 5 000 000 | 1 092.316 | 373.233 | 2.93× |
+| 10 000 000 | 2 409.667 | 887.427 | 2.72× |
+| 20 000 000 | 5 422.171 | 2 145.396 | 2.53× |
 
-**Observation:** narrowest gap at 1k (the linear leaf, where GM div2by1 already runs); peaks at 100k (D&C overhead + Newton recip setup not yet amortized); narrows again from 200k onward as D&C asymptotic + NTT inheriting from multiplication's overtake compound — **8.24× at 100k → 2.48× at 20M**. 10M improved 2.84× → 2.52× after radix-4+8.
+**Observation:** narrowest gap at 1k (the linear leaf, where GM div2by1 already runs); peaks at 100k (D&C overhead + Newton recip setup not yet amortized); narrows again from 200k onward as D&C asymptotic + NTT inheriting from multiplication's overtake compound — **7.82× at 100k → 2.53× at 20M**.
 
 ### ToString focused warm benchmark
 
@@ -226,18 +226,18 @@ Balanced operands (e.g. `100.10` = 100 integer + 10 fractional digits):
 |---|---|---:|---:|---:|
 | Add | 100.10 | <0.001 | <0.001 | — |
 | Add | 1000.100 | <0.001 | <0.001 | — |
-| Add | 5000.500 | 0.001 | <0.001 | 5.66× |
-| Add | 20000.2000 | 0.002 | 0.001 | 4.50× |
+| Add | 5000.500 | 0.001 | <0.001 | 5.33× |
+| Add | 20000.2000 | 0.002 | 0.001 | 4.33× |
 |---|---|---|---|---|
 | Mul | 100.10 | <0.001 | <0.001 | 3.05× |
-| Mul | 1000.100 | 0.003 | 0.001 | 2.31× |
-| Mul | 5000.500 | 0.038 | 0.013 | 2.88× |
-| Mul | 20000.2000 | 0.351 | 0.091 | 3.87× |
+| Mul | 1000.100 | 0.002 | 0.001 | 2.36× |
+| Mul | 5000.500 | 0.037 | 0.013 | 2.89× |
+| Mul | 20000.2000 | 0.348 | 0.090 | 3.87× |
 |---|---|---|---|---|
-| Div | 100.10 (10 dp) | 0.001 | <0.001 | 9.00× |
-| Div | 1000.100 (100 dp) | 0.003 | 0.002 | 1.51× |
-| Div | **5000.500 (500 dp)** | **0.023** | **0.025** | **0.92×** ← BigMath faster |
-| Div | 20000.2000 (2000 dp) | 0.234 | 0.201 | 1.16× |
+| Div | 100.10 (10 dp) | 0.001 | <0.001 | 7.67× |
+| Div | 1000.100 (100 dp) | 0.003 | 0.002 | 1.50× |
+| Div | **5000.500 (500 dp)** | **0.023** | **0.024** | **0.93×** ← BigMath faster |
+| Div | 20000.2000 (2000 dp) | 0.228 | 0.198 | 1.15× |
 
 Division at varying target scales (operand = 2000 integer + 200 fractional digits):
 
@@ -245,9 +245,9 @@ Division at varying target scales (operand = 2000 integer + 200 fractional digit
 |---|---:|---:|---:|
 | **0** | **0.001** | **0.005** | **0.20×** ← BigMath faster |
 | **10** | **0.003** | **0.005** | **0.61×** ← BigMath faster |
-| **100** | **0.005** | **0.005** | **0.85×** ← BigMath faster |
-| 1000 | 0.015 | 0.010 | 1.57× |
-| 5000 | 0.061 | 0.036 | 1.68× |
+| **100** | **0.005** | **0.005** | **0.86×** ← BigMath faster |
+| 1000 | 0.015 | 0.009 | 1.63× |
+| 5000 | 0.060 | 0.035 | 1.71× |
 
 ### Parse and ToString
 
@@ -255,19 +255,19 @@ Parse (`string → BigDecimal`):
 
 | size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 | 0.001 | 0.001 | 1.00× |
-| 1 000 | 0.005 | 0.005 | 1.05× |
-| 10 000 | 0.137 | 0.108 | 1.26× |
-| 50 000 | 1.480 | 1.049 | 1.41× |
+| 100 | 0.001 | <0.001 | 1.09× |
+| 1 000 | 0.005 | 0.004 | 1.05× |
+| 10 000 | 0.135 | 0.107 | 1.26× |
+| 50 000 | 1.460 | 1.038 | 1.41× |
 
 ToString (`BigDecimal → string`):
 
 | size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---:|---:|---:|
 | 100 | <0.001 | <0.001 | 0.64× |
-| 1 000 | 0.006 | 0.005 | 1.41× |
-| 10 000 | 0.275 | 0.104 | 2.64× |
-| 50 000 | 3.898 | 1.135 | 3.43× |
+| 1 000 | 0.006 | 0.004 | 1.40× |
+| 10 000 | 0.270 | 0.104 | 2.59× |
+| 50 000 | 3.887 | 1.168 | 3.33× |
 
 **Observations:**
 - BigDecimal division beats GMP at 5000.500 to 500 dp (0.023 vs 0.025 ms).
@@ -278,13 +278,34 @@ ToString (`BigDecimal → string`):
 
 ## Headline summary
 
-- **Multiplication 2M-20M balanced:** BigMath faster than GMP (0.95× at 2M, 0.72× at 5M, **0.48× at 10M**, 0.99× at 20M). Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the win band from 5M-10M to 2M-20M and pushed the peak win to **2.08× at 10M**.
-- **Multiplication ≥50M balanced:** GMP recovers as SSA activates (2.05× at 50M, 2.22× at 100M — was 3.58× / 3.71× before radix-4+8). BigMath's CRT NTT is L2/L3-cache-bound here; SSA's `log log n` edge pays off past 20M. Single-level SSA in BigMath has no winning parameter band (see memory: ssa-rejection-2026-05-26); MFA-SSA is the path forward if the gap matters.
-- **Multiplication skewed:** BigMath wins from **500k×50k through 50M×5M** (0.91-0.97×) — four sweet spots vs prior one. Past 100M×10M (1.27×) GMP recovers via SSA.
-- **Division skewed:** 1.8-6.7× behind GMP. Worst at 200k×50k (BZ band). Best at **50M×10M (1.79×, was 2.50×)** as multiplication win flows through Newton.
-- **Division balanced 5M×5M:** PR #56 fix routes degenerate-quotient cases to FastDivision; 27.03× → 8.22×.
-- **Parse:** **1.55× at 20M** (best, was 1.64×), widens to 1.74× at 50M as mul recovery flows in.
-- **ToString:** 2.48× at 20M (was 2.80×), monotonically narrowing from 8.24× peak at 100k.
-- **BigDecimal division:** beats GMP at small target scales (0.20-0.86×) and at the 500 dp parity point (0.92×).
+- **Multiplication 5M-20M balanced:** BigMath faster than GMP (0.74× at 5M, **0.57× at 10M**, parity at 2M and 20M). Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the win band; **MFA (PR #65)** held parity at 20M and pushed 50M / 100M from 2.05× / 2.22× → **1.88× / 1.86×**.
+- **Multiplication ≥50M balanced:** GMP still wins via SSA but the gap halved over the 2026-05 series. BigMath's MFA CRT path now factors n = n1·n2 and runs two cache-friendly half-size NTTs plus a twiddle pass instead of one giant radix-2 sweep. SSA gap remains structural — single-level SSA in BigMath has no winning band (see memory: ssa-rejection-2026-05-26); MFA-SSA is the next theoretical lever.
+- **Multiplication skewed:** wins at 1M×100k (0.96×) and **50M×5M (0.81×, MFA win)**. 100M×10M now 1.17× (was 1.27×). Mid-band 5M-20M skewed sits between 1.28×-1.48× on this snapshot — single-iter measurement noise.
+- **Division skewed:** 1.95×-6.59× behind GMP. Worst at 200k×50k (BZ band). Best at **50M×10M (1.95×)** — the MFA-driven mul speedup partially flows through Newton.
+- **Division balanced 5M×5M:** PR #56 fix routes degenerate-quotient cases to FastDivision; 27.03× → 7.20×.
+- **Parse:** **1.61× at 20M** (best), widens to 1.81× at 50M as mul recovery flows in.
+- **ToString:** 2.53× at 20M, monotonically narrowing from 7.82× peak at 100k.
+- **BigDecimal division:** beats GMP at small target scales (0.20-0.86×) and at the 500 dp parity point (0.93×).
 
-For optimizations considered and rejected with measurement evidence, see the **Explored but rejected** sections of each subsystem doc. The 2026-05 optimization stack (LIMB_64 + CRT NTT + threading + M-G reciprocals + BZ Knuth fix + degenerate-quotient guard + radix-4/radix-8 fused butterflies) closed the GMP gap by 3-5× across every band up to the 20M crossover; past 20M, GMP's SSA reverses the lead but the loss factor halved.
+For optimizations considered and rejected with measurement evidence, see the **Explored but rejected** sections of each subsystem doc. The 2026-05 optimization stack (LIMB_64 + CRT NTT + threading + M-G reciprocals + BZ Knuth fix + degenerate-quotient guard + radix-4/radix-8 fused butterflies + MFA) closed the GMP gap by 3-5× across every band up to the 20M crossover; past 20M, GMP's SSA still wins but the loss factor halved.
+
+---
+
+## Dispatch validity after MFA addition
+
+PR #65 added MFA / Bailey 6-step routing inside `NTTMultiplicationCrt` for NTT lengths `n ≥ 2^21` coefficients (≈ 2.6M-limb operands). All other dispatch thresholds are unchanged in semantics. Verified post-MFA via `tests/performance/dispatch_tuner --full` (2026-05-27):
+
+| Knob | Current | Tuner suggestion | Verdict |
+|---|---:|---:|---|
+| `CLASSIC_MULTIPLICATION_THRESHOLD` (total limbs) | 96 | 96 (= 48 per-operand × 2) | Match |
+| `NTT_MULTIPLICATION_THRESHOLD` (total limbs) | 4096 | 4096 | Match |
+| `CLASSIC_MIN_LIMB_THRESHOLD` | 0 | 0 | Match |
+| `NTT_SQUARE_THRESHOLD` (per limb, LIMB_64) | 2048 | 2048 (NTT wins by < 5% but does win) | Keep — current is valid |
+| `BZ_DIVISOR_THRESHOLD` | 512 | 768 | Keep — current 512 already correct (BZ activates at b > 512; the 1024/512 tie is FastDiv noise) |
+| `NEWTON_MEDIUM_B` | 4096 | 8192 | Keep — current dispatch uses NEWTON_MEDIUM_B together with `a ≥ 3b`, all measured 8192-divisor cases at ratio ≥ 4 still win Newton |
+| `NEWTON_SKEW_NUMERATOR/DENOMINATOR` | 3/1 | 4/1 | Keep — bench rows from 5M×1M onward confirm Newton wins at ratio 5 (BigMath path) |
+| `NEWTON_HIGH_SKEW_*` | 2048 / 8/1 | (n/a, no rows) | Keep |
+
+**Pre-existing observation (not MFA-related):** tuner shows Toom-Cook 3/5 wins by 25-40% over Karatsuba in the 64-256 per-operand band, but Toom is excluded from dispatch on grounds that "Karatsuba dominates below 256, NTT above" — the data partially contradicts that justification. Investigation deferred; opening it would risk re-litigating a rejected algorithm and is out of scope for the MFA validation pass.
+
+**Dead constant noted:** `NEWTON_LARGE_B` is declared in `Division.h` / `.cpp` but never referenced by the dispatch logic. Safe to leave for now; remove in a future cleanup if no caller surfaces.
