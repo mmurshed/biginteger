@@ -369,12 +369,16 @@ flowchart TD
     P[Parse&#40;num&#41;] --> P2{length &gt; 8192?}
     P2 -- no --> PL[ParseUnsignedLinear]
     P2 -- yes --> PD[ParseUnsignedDivideConquer]
+    PD --> PP[Pow10 cache<br/>+ Multiply combine]
     PD -. recurses to .-> PL
 
-    T[ToString&#40;bigInt&#41;] --> T2{est decimal length &lt; 2048?}
+    T[ToString&#40;bigInt&#41;] --> TE[EstimateDecimalDigits]
+    TE --> T2{est decimal length &lt; 2048?}
     T2 -- yes --> TL[ToStringLinearAppend]
-    T2 -- no --> TC[BuildDecimalDcChain<br/>+ ToStringDivConquer]
-    TC -. leaves to .-> TL
+    T2 -- no --> TC[thread-local DecimalDcChain<br/>Pow10 + Newton Divider]
+    TC --> TD[ToStringDivConquer]
+    TD --> NV[NewtonDivision::Divider<br/>DivideAndRemainderInto]
+    TD -. leaves to .-> TL
 ```
 
 Thresholds (overridable via `-D...`):
@@ -393,61 +397,62 @@ The asymmetry between the parser and formatter thresholds reflects that the form
 Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
 
 ```
-c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
-    tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8 --target bench_vs_gmp
+./build/bench_vs_gmp
 ```
 
-Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Min over 5 runs.
+Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Refreshed 2026-05-27.
 
 ### Parse
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.003 | 0.002 | 1.58 × |
-| 10 000 digits | 0.112 | 0.039 | 2.89 × |
-| 50 000 digits | 1.343 | 0.391 | 3.44 × |
-| 100 000 digits | 3.190 | 1.059 | **3.01 ×** |
-| 500 000 digits | 21.260 | 8.905 | **2.39 ×** |
-| 1 000 000 digits | 46.496 | 20.496 | **2.27 ×** |
-| 2 000 000 digits | 101.795 | 48.581 | **2.10 ×** |
-| 5 000 000 digits | 264.905 | 147.716 | **1.79 ×** |
-| 10 000 000 digits | 570.287 | 343.762 | **1.66 ×** |
-| 20 000 000 digits | 1 242.885 | 800.282 | **1.55 ×** |
-| 50 000 000 digits | 4 665.032 | 2 674.914 | **1.74 ×** |
+| 1 000 digits | 0.002 | 0.002 | 1.55 × |
+| 10 000 digits | 0.112 | 0.038 | 2.97 × |
+| 50 000 digits | 1.350 | 0.389 | 3.47 × |
+| 100 000 digits | 3.287 | 1.042 | **3.15 ×** |
+| 500 000 digits | 22.220 | 8.799 | **2.53 ×** |
+| 1 000 000 digits | 48.652 | 20.301 | **2.40 ×** |
+| 2 000 000 digits | 106.413 | 46.878 | **2.27 ×** |
+| 5 000 000 digits | 266.531 | 148.477 | **1.80 ×** |
+| 10 000 000 digits | 577.357 | 340.170 | **1.70 ×** |
+| 20 000 000 digits | 1 252.454 | 803.190 | **1.56 ×** |
+| 50 000 000 digits | 5 212.270 | 2 629.889 | **1.98 ×** |
 
-Parse's BM/GMP ratio narrows monotonically with size — **at 20M digits the gap is 1.55×** vs 3.0× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which now crosses GMP at 2M digits (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). The 50M tick widens slightly to 1.74× as GMP's SSA recovers at sizes past BigMath's NTT sweet spot.
+Parse's BM/GMP ratio narrows with size — **at 20M digits the gap is 1.56×** vs 3.2× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which crosses GMP in the 5M-20M balanced multiplication band (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). The 50M tick widens to 1.98× as GMP's SSA recovers.
 
 ### ToString
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| 1 000 digits | 0.006 | 0.004 | 1.74 × |
-| 10 000 digits | 0.269 | 0.077 | 3.50 × |
-| 50 000 digits | 3.833 | 0.848 | 4.52 × |
-| 100 000 digits | 19.453 | 2.360 | **8.24 ×** |
-| 200 000 digits | 39.651 | 6.309 | 6.29 × |
-| 500 000 digits | 109.246 | 20.341 | 5.37 × |
-| 1 000 000 digits | 227.797 | 48.731 | **4.67 ×** |
-| 2 000 000 digits | 479.826 | 118.745 | **4.04 ×** |
-| 5 000 000 digits | 1 074.873 | 378.272 | 2.84 × |
-| 10 000 000 digits | 2 311.310 | 918.750 | 2.52 × |
-| 20 000 000 digits | 5 237.676 | 2 115.032 | **2.48 ×** |
+| 1 000 digits | 0.006 | 0.003 | 1.83 × |
+| 10 000 digits | 0.268 | 0.078 | 3.46 × |
+| 50 000 digits | 4.001 | 0.844 | 4.74 × |
+| 100 000 digits | 19.484 | 2.334 | **8.35 ×** |
+| 200 000 digits | 39.870 | 6.043 | 6.60 × |
+| 500 000 digits | 107.239 | 20.426 | 5.25 × |
+| 1 000 000 digits | 224.120 | 49.792 | **4.50 ×** |
+| 2 000 000 digits | 477.132 | 120.276 | **3.97 ×** |
+| 5 000 000 digits | 1 100.592 | 380.412 | 2.89 × |
+| 10 000 000 digits | 2 414.564 | 900.384 | 2.68 × |
+| 20 000 000 digits | 5 436.545 | 2 115.685 | **2.57 ×** |
 
-ToString's BM/GMP ratio narrows from 8.2× at 100k to **2.48× at 20M**. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` is `O(n²)` by default, so the asymptotic line crosses around 100k where ratios start dropping; (2) at the larger sizes BigMath's NTT-based mult inside Newton's reciprocal chain overtakes GMP's basecase. The radix-4+8 fused butterflies (PRs #59, #60) accelerated this convergence — 10M ToString improved 2.84× → 2.52× relative to GMP.
+ToString's BM/GMP ratio narrows from 8.4× at 100k to **2.57× at 20M**. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` uses highly tuned low-level code; (2) at larger sizes BigMath's NTT-based multiplication inside Newton's reciprocal chain enters the same 5M-20M sweet spot as multiplication. Raising the MFA gate to `2^24` is mostly neutral for ToString in this measured range.
 
 **Historical view** showing the cumulative wins across the 2026-05 optimization pass:
 
 | size | early 2026 | CRT + threads | + radix-4+8 (now) | total |
 |---|---|---|---|---|
-| Parse 100 000 | 7.1 × | 3.10 × | **3.01 ×** | **2.4 ×** |
-| Parse 1 000 000 | 6.0 × | 2.33 × | **2.27 ×** | **2.6 ×** |
-| Parse 10 000 000 | — | 1.73 × | **1.66 ×** | — |
-| ToString 10 000 | 47 × | 11.2 × | **3.50 ×** | **13.4 ×** |
-| ToString 100 000 | **160 ×** | 9.57 × | **8.24 ×** | **19.4 ×** |
-| ToString 1 000 000 | — | 4.92 × | **4.67 ×** | — |
-| ToString 10 000 000 | — | 2.84 × | **2.52 ×** | — |
+| Parse 100 000 | 7.1 × | 3.10 × | **3.15 ×** | **2.3 ×** |
+| Parse 1 000 000 | 6.0 × | 2.33 × | **2.40 ×** | **2.5 ×** |
+| Parse 10 000 000 | — | 1.73 × | **1.70 ×** | — |
+| ToString 10 000 | 47 × | 11.2 × | **3.46 ×** | **13.6 ×** |
+| ToString 100 000 | **160 ×** | 9.57 × | **8.35 ×** | **19.2 ×** |
+| ToString 1 000 000 | — | 4.92 × | **4.50 ×** | — |
+| ToString 10 000 000 | — | 2.84 × | **2.68 ×** | — |
 
-The 100k ToString case went from 160× to 8.24× over the session — **19.4× cumulative improvement**. Wins came from:
+The 100k ToString case went from 160× to 8.35× over the session — **19.2× cumulative improvement**. Wins came from:
 
 1. D&C ToString with Newton-Divider chain (8.4× at 100k).
 2. 64-bit hybrid Karatsuba leaf (improved every `Multiply` and `Divide` call in the chain).
@@ -522,11 +527,14 @@ Focused warm benchmark on this repository's `tests/performance/tostring_bench.cp
 
 | size | baseline ms | cached-chain stack ms | speedup |
 |---|---:|---:|---:|
-| 1 000 | 0.0079 | 0.0063-0.0066 | 1.2-1.3× |
-| 10 000 | 1.1224 | 0.2793-0.2924 | 3.8-4.0× |
-| 50 000 | 9.4674 | 3.95-4.05 | 2.3-2.4× |
-| 100 000 | 19.8435 | 8.94-9.05 | 2.2× |
-| 200 000 | 41.1607 | 20.28-20.65 | 2.0× |
+| 1 000 | 0.0079 | 0.0062 | 1.27× |
+| 10 000 | 1.1224 | 0.5097 | 2.20× |
+| 50 000 | 9.4674 | 4.4633 | 2.12× |
+| 100 000 | 19.8435 | 9.4409 | 2.10× |
+| 200 000 | 41.1607 | 20.5682 | 2.00× |
+| 500 000 | — | 61.1404 | — |
+| 1 000 000 | — | 135.8015 | — |
+| 2 000 000 | — | 299.5458 | — |
 
 The cache is `thread_local` like `Pow10`; entries grow monotonically for the lifetime of the thread.
 
@@ -575,6 +583,10 @@ Pre-implementation estimate in this doc was "1–2% on ToString 100k" (capped by
 
 Ranked by expected ROI per unit of effort.
 
+### MFA threshold effects
+
+Large `ToString` calls spend most of their time in Newton division, and Newton's hot path is multiplication. The MFA gate was raised from `2^21` to `2^24` transform coefficients after a focused on/off sweep showed regressions below `2^24`. The retune is mostly neutral for ToString through 20M digits; any further string-conversion gain should come from multiplication improvements or deeper Newton scratch reuse rather than formatter orchestration.
+
 ### `BIGMATH_TOSTR_DC_THRESHOLD` tuning (re-confirmed 2026-05-26)
 
 The threshold defaults to 2 048. **Re-swept 2026-05-26** after the GM div2by1 in `ClassicDivision` (PR #43) made the linear leaf 2.13× faster at 1k digits — that shift could have moved the linear→D&C crossover. It didn't. 2 048 remains the right compromise.
@@ -597,20 +609,9 @@ Best ToString time (ms, min over many iters, M1 Max, full default stack) at each
 
 **Don't tune without re-measuring.** The pre-PR-#43 sweep gave the same answer with different absolute times. If further optimizations land that shift the linear-leaf cost again, re-run the sweep before changing the default.
 
-### Direct in-place D&C formatting (avoid `std::move` chain)
+### True scratch-buffer reuse inside Newton division
 
-`ToStringDivConquer` repeatedly moves `n` into recursive calls. Profile shows ~7.5% of ToString time in orchestration (Compare, std::move, recursive dispatch). Restructuring to operate on a pre-allocated buffer with index ranges (rather than constructing fresh `vector<DataT>` per level) could eliminate most of this. Estimated win: 3–5%. Effort: substantial restructure of `ToStringDivConquer`, moderate risk.
-
-### Full 64-bit limb refactor (large effort, moderate gain)
-
-Discussed in detail in [MULTIPLICATION.md §Future opportunities](MULTIPLICATION.md#future-opportunities). For string conversion specifically, the wins are:
-
-| op | now | est | gain |
-|---|---|---|---|
-| Parse 100 000 | 7.1 × | ~5 × | moderate (linear leaf MultiplyTo + D&C combine mults) |
-| ToString 100 000 | 18 × | ~12–14 × | moderate (linear leaf DivModTo + D&C Newton chain) |
-
-The Newton-Divider chain in the D&C ToString would benefit because Newton's internal scalar arithmetic runs in base 2³² limbs today. At base 2⁶⁴ this scalar work would halve, with corresponding improvement in the D&C ToString overall. Same caveats as elsewhere: NTT-bound multiplications inside the chain wouldn't change.
+The current `NewtonDivision::Divider::DivideAndRemainderInto` boundary API avoids rebuilding the divisor reciprocal, but it still delegates to internals that allocate temporary quotient, remainder, normalization, and multiplication vectors. A deeper scratch-aware Newton path could reduce allocation churn in `ToStringDivConquer`. Expected win is small, probably low single digits, because profiling shows the dominant cost is still NTT multiplication. This is not a first-choice optimization unless allocation profiles show otherwise.
 
 ---
 
@@ -656,7 +657,7 @@ Result (M1 Max, ToString 100k/200k/500k/1M/2M, 3 runs each, min):
 
 Why doc estimate was wrong: `std::move` of a `std::vector` is already an O(1) pointer swap — not an allocation. The "orchestration" bucket in the profile (~7% of ToString) is dominated by `Compare`, `TrimZeros`, and Newton's internal `ShiftLeftBits` during normalize — none of those go away by removing the std::move chain.
 
-The only path to a real win would be a `Divider::DivideAndRemainderInto(a, q_out, r_out)` API that writes directly into caller-provided buffers, eliminating Newton's per-call zero-init of `q` and `rem` vectors. That's ~200 lines touching `NewtonDivision::Divider` (a load-bearing class also used by `BigDecimal` and the Newton dispatch path). Worst case loss: subtle bug in the rewrite for ≤2% projected win. Not worth.
+The boundary `Divider::DivideAndRemainderInto(a, q_out, r_out)` API now exists, but it still delegates to Newton internals that allocate their own temporaries. The missing piece is deeper scratch-aware `DivideChunk` / reciprocal multiplication plumbing. That is a broader division refactor for low-single-digit expected gain, not an orchestration-layer string-formatting change.
 
 Reverted. Don't re-propose at the orchestration layer.
 
@@ -684,7 +685,7 @@ Not pursued because the constant-factor difference between the current implement
 
 ### Pre-allocated thread-local scratch buffers for D&C
 
-Each `ToStringDivConquer` recursion level constructs fresh `vector<DataT>` for `qr.first` and `qr.second`. A thread-local scratch arena could amortize allocations. Estimated win: maybe 3–5% on ToString (caught in the 7.5% orchestration overhead in the profile). Effort: moderate. Not currently prioritized.
+Each `ToStringDivConquer` recursion level constructs fresh `vector<DataT>` for `q` and `r`, but the measured in-place-lite attempt above showed that moving/swapping those vectors is not the bottleneck. A plain thread-local arena at the formatter layer is unlikely to matter. Any real buffer-reuse win has to move down into Newton division's temporary vectors, as noted in [Future opportunities](#future-opportunities).
 
 ### Customized small-int parsing (≤ 18 digits)
 

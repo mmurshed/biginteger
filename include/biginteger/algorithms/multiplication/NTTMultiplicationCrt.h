@@ -51,11 +51,14 @@
 #define BIGMATH_NTT_MFA_LEAF (1 << 13)
 #endif
 
-// MFA fires when transform length n exceeds this. Default 2^21 = 2,097,152
-// coeffs ≈ 8 MB per-prime buffer — already past L2 at 6-buffer working set.
-// Roughly corresponds to operand sums ≥ 1M Base2_64 limbs (≈ 20 M digits).
+// MFA fires when transform length n reaches this. Default 2^24 = 16,777,216
+// coeffs ≈ 64 MB per-prime buffer. For balanced Base2_64 multiplication this
+// starts around 2M limbs per operand (≈40M decimal digits), because each limb
+// contributes two CRT coefficients and the convolution length is about 4L.
+// Fresh M1 Max measurements showed the previous 2^21 gate was too early: MFA
+// lost through ~2^23 and won around 2^24+ transform lengths.
 #ifndef BIGMATH_NTT_MFA_THRESHOLD
-#define BIGMATH_NTT_MFA_THRESHOLD (1 << 21)
+#define BIGMATH_NTT_MFA_THRESHOLD (1 << 24)
 #endif
 
 #ifndef NTT_MULTIPLICATION_CRT
