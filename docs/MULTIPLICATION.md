@@ -63,7 +63,7 @@ Number-theoretic transform (NTT) input is always split into 16-bit chunks regard
 
 ## Top-level dispatch
 
-`biginteger/algorithms/Multiplication.h` exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and picks one of three implementations.
+`biginteger/algorithms/Multiplication.h` exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and shape, then picks Classic, Karatsuba, Toom-3, or NTT. The NTT wrapper has a second-level dispatch between the Goldilocks and CRT/MFA kernels.
 
 ```mermaid
 flowchart TD
@@ -71,25 +71,39 @@ flowchart TD
     B -- yes --> Z[return &#123;0&#125;]
     B -- no --> C{a or b<br/>single limb?}
     C -- yes --> Sc[ClassicMultiplication::Multiply&#40;scalar&#41;]
-    C -- no --> D{size ≤ CLASSIC_THRESHOLD<br/>OR<br/>minSize ≤ CLASSIC_MIN_LIMB?}
+    C -- no --> D{size ≤ CLASSIC_THRESHOLD<br/>OR minSize ≤ CLASSIC_MIN_LIMB<br/>OR tiny high-skew shape?}
     D -- yes --> Cl[ClassicMultiplication::Multiply]
-    D -- no --> E{size &lt; NTT_THRESHOLD?}
+    D -- no --> E{size &lt; TOOM3_THRESHOLD?}
     E -- yes --> K[KaratsubaMultiplication::Multiply]
-    E -- no --> N[NTTMultiplication::Multiply]
+    E -- no --> T{size &lt; NTT_THRESHOLD?}
+    T -- yes --> Toom[ToomCookMultiplication::Multiply]
+    T -- no --> N[NTTMultiplication::Multiply]
+
+    N --> C1{CRT enabled<br/>AND size ≥ CRT_THRESHOLD?}
+    C1 -- no --> G[Goldilocks NTT]
+    C1 -- yes --> C2[3-prime CRT NTT]
+    C2 --> C3{transform n ≥ 2^24?}
+    C3 -- yes --> MFA[MFA / Bailey 6-step]
+    C3 -- no --> R8[radix-8 CRT NTT]
 ```
 
-`size = a.size() + b.size()`, `minSize = min(a.size(), b.size())`.
+`size = a.size() + b.size()`, `minSize = min(a.size(), b.size())`, `maxSize = max(a.size(), b.size())`. The tiny high-skew Classic guard is `minSize ≤ 64 && maxSize ≥ 10·minSize`.
 
 Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
-| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `0` | sum of limbs | Classic only for 1-limb operand |
-| `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Same, secondary guard |
-| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `4096` | sum of limbs | Karatsuba below, NTT above |
+| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `96` under LIMB_64 | sum of limbs | Classic small-product cutoff |
+| `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Secondary Classic guard |
+| `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `64` | min of limbs | Classic for tiny high-skew products |
+| `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | tiny high-skew Classic guard |
+| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `2560` | sum of limbs | Karatsuba below, Toom-3 above |
+| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `5120` | sum of limbs | Toom-3 below, NTT above |
+| `BIGMATH_NTT_CRT_THRESHOLD` | `5000` | sum of limbs | CRT NTT vs Goldilocks NTT |
+| `BIGMATH_NTT_MFA_THRESHOLD` | `2^24` | transform coefficients | MFA vs radix-8 CRT NTT |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `48` | max of operands | Inside Karatsuba: base-case cutoff |
 
-`Toom-Cook 3` and `Toom-5` are implemented and correctness-tested but **not in the default dispatch** — see [Toom-Cook 3](#toom-cook-3) and [Toom-5](#toom-5) for why.
+`Toom-Cook 3` is now in the default dispatch for a narrow pre-NTT band. `Toom-5` is implemented and correctness-tested but **not in the default dispatch** — see [Toom-5](#toom-5) for why.
 
 `Square(a, base)` lives in `algorithms/Squaring.h` and has its own parallel dispatcher:
 
@@ -104,7 +118,7 @@ flowchart TD
     D -- no --> N[NTTSquare]
 ```
 
-`NTT_SQUARE_THRESHOLD` defaults to `512` limbs, tuned separately from multiplication because NTT squaring needs only one forward transform (the threshold uses operand size directly, not the sum).
+`NTT_SQUARE_THRESHOLD` defaults to `2048` limbs under LIMB_64, tuned separately from multiplication because NTT squaring needs only one forward transform (the threshold uses operand size directly, not the sum). Legacy LIMB_32 builds keep the older `512`-limb default.
 
 ---
 
@@ -201,7 +215,7 @@ These eliminate per-iteration branches that the compiler was not consistently ho
 
 **Complexity:** O(n^{log₃5}) ≈ O(n^1.465) multiplies. Faster asymptotic exponent than Karatsuba, but larger constant factor due to evaluation/interpolation overhead.
 
-**Status:** *implemented and validated against `mult_correctness.cpp`, but **not** in the dispatch chain.*
+**Status:** *implemented, validated against `mult_correctness.cpp`, and used in the default dispatch for total limb size `2560 ≤ size < 5120`.*
 
 **Algorithm:** split each operand into three parts, evaluate the resulting polynomials at five points {0, 1, −1, 2, ∞}, perform five sub-multiplications, and interpolate. Concretely:
 
@@ -222,9 +236,9 @@ These eliminate per-iteration branches that the compiler was not consistently ho
        a·b = c₀ + c₁·B^k + c₂·B^(2k) + c₃·B^(3k) + c₄·B^(4k)
 ```
 
-**Why it isn't in dispatch.** Toom-3's best historical case was only a small win over Karatsuba, while the NTT path dominates once operands are large enough for Toom's lower exponent to matter. Current dispatcher sweeps keep Karatsuba until roughly 2048×2048 limbs and switch to NTT from total size ~4096. There is still no measured operand-size band where Toom-3 is the production winner.
+**Why the dispatch band is narrow.** Toom-3's useful window is the gap between Karatsuba's recursion overhead and NTT's next-power-of-two setup cost. Current dispatcher sweeps keep Karatsuba below total size 2560, use Toom-3 for `[2560, 5120)`, and switch to NTT at 5120+. The main production win is avoiding an NTT length-boundary regression near total size 4608.
 
-Toom-3 is kept callable for cross-checking in `tests/mult_correctness.cpp` and as a reference implementation. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
+Toom-3 is also kept callable directly for cross-checking in `tests/mult_correctness.cpp`. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
 
 ### Toom-5
 
@@ -240,7 +254,7 @@ Benchmarks show no useful production band. Below the Toom-5 threshold the functi
 
 **Location:** `algorithms/multiplication/NTTMultiplication.h`.
 
-**Complexity:** O(n log n) limb multiplies. Constant factor is large (three FFT-sized transforms plus pointwise multiply), so the dispatcher keeps Karatsuba until the equal-size product reaches roughly 4096 total limbs.
+**Complexity:** O(n log n) limb multiplies. Constant factor is large (transform setup, coefficient packing, transforms, pointwise multiply, and final carry propagation), so the dispatcher keeps Karatsuba/Toom-3 until the product reaches roughly 5120 total limbs.
 
 **Setup.** Multiplication via NTT computes a cyclic convolution of the digit sequences in a finite field, then propagates carries. The choice of field is critical: it must support a root of unity of sufficient order, fast reduction, and a coefficient capacity large enough that the unreduced convolution sum cannot overflow the field.
 
@@ -341,8 +355,8 @@ References for further reading: [Cooley-Tukey FFT algorithm (Wikipedia)](https:/
 | size | algorithm | speedup vs `Multiply(a, a)` |
 |---|---|---|
 | ≤ 48 limbs | `ClassicSquare` | ~1.5× |
-| 48 – 512 limbs | `KaratsubaSquare` (pointer-based) | 1.38–1.59× |
-| ≥ 512 limbs | `NTTSquare` (single forward FFT) | 1.4–1.45× |
+| 48 – 2048 limbs under LIMB_64 | `KaratsubaSquare` (pointer-based) | 1.38–1.59× |
+| ≥ 2048 limbs under LIMB_64 | `NTTSquare` (single forward FFT) | 1.4–1.45× |
 
 **Classic schoolbook square.** Half the partial products of full multiplication:
 
@@ -379,54 +393,55 @@ Pointer-based recursion with shared workspace (≈ 8n limbs) mirrors `KaratsubaM
 Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
 
 ```
-c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
-    tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8 --target bench_vs_gmp
+./build/bench_vs_gmp
 ```
 
-Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Reported numbers are `min` over 5 runs to suppress scheduling jitter. Build config: full defaults (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool).
+Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Refreshed 2026-05-27. Build config: full defaults (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool).
 
 | operation | size | BigMath ms | GMP ms | BM / GMP |
 |---|---|---:|---:|---:|
-| `mul` | 1 000 × 1 000 digits | 0.002 | 0.001 | 2.24 × |
-| `mul` | 5 000 × 5 000 | 0.036 | 0.014 | 2.64 × |
-| `mul` | 10 000 × 10 000 | 0.197 | 0.059 | 3.32 × |
-| `mul` | 50 000 × 50 000 | 0.600 | 0.362 | 1.66 × |
-| `mul` | 100 000 × 100 000 | 1.198 | 0.761 | **1.57 ×** |
-| `mul` | 500 000 × 500 000 | 5.014 | 4.204 | **1.19 ×** |
-| `mul` | 1 000 000 × 1 000 000 | 9.839 | 8.892 | **1.11 ×** |
-| `mul` | **2 000 000 × 2 000 000** | **19.843** | **20.823** | **0.95 ×** ← BigMath faster |
-| `mul` | **5 000 000 × 5 000 000** | **45.811** | **63.960** | **0.72 ×** ← BigMath faster |
-| `mul` | **10 000 000 × 10 000 000** | **103.018** | **213.191** | **0.48 ×** ← BigMath 2.08× faster |
-| `mul` | **20 000 000 × 20 000 000** | **276.471** | **280.078** | **0.99 ×** ← parity |
-| `mul` | 50 000 000 × 50 000 000 | 1 228.7 | 661.0 | 1.86 × ← GMP SSA still ahead |
-| `mul` | 100 000 000 × 100 000 000 | 2 589.6 | 1 389.3 | 1.86 × |
-| `mul` (skewed) | 100 000 × 10 000 | 0.543 | 0.303 | 1.79 × |
-| `mul` (skewed) | **500 000 × 50 000** | **2.010** | **2.074** | **0.97 ×** ← BigMath faster |
-| `mul` (skewed) | **1 000 000 × 100 000** | **4.269** | **4.475** | **0.95 ×** ← BigMath faster |
-| `mul` (skewed) | **2 000 000 × 200 000** | **8.512** | **9.397** | **0.91 ×** ← BigMath faster |
-| `mul` (skewed) | 5 000 000 × 500 000 | 37.312 | 30.617 | 1.22 × |
-| `mul` (skewed) | 10 000 000 × 1 000 000 | 84.151 | 70.710 | 1.19 × |
-| `mul` (skewed) | 20 000 000 × 2 000 000 | 229.908 | 158.847 | 1.45 × |
-| `mul` (skewed) | **50 000 000 × 5 000 000** | **625.327** | **665.872** | **0.94 ×** ← BigMath faster |
-| `mul` (skewed) | 100 000 000 × 10 000 000 | 1 279.684 | 1 007.119 | 1.27 × |
+| `mul` | 1 000 × 1 000 digits | 0.002 | 0.001 | 1.92 × |
+| `mul` | 5 000 × 5 000 | 0.030 | 0.011 | 2.66 × |
+| `mul` | 10 000 × 10 000 | 0.283 | 0.086 | 3.31 × |
+| `mul` | 50 000 × 50 000 | 1.022 | 0.578 | 1.77 × |
+| `mul` | 100 000 × 100 000 | 1.352 | 0.784 | **1.72 ×** |
+| `mul` | 500 000 × 500 000 | 5.218 | 4.217 | **1.24 ×** |
+| `mul` | 1 000 000 × 1 000 000 | 10.499 | 9.061 | **1.16 ×** |
+| `mul` | **2 000 000 × 2 000 000** | **21.893** | **20.555** | **1.07 ×** ← near parity |
+| `mul` | **5 000 000 × 5 000 000** | **46.470** | **63.450** | **0.73 ×** ← BigMath faster |
+| `mul` | **10 000 000 × 10 000 000** | **105.381** | **211.825** | **0.50 ×** ← BigMath 2.01× faster |
+| `mul` | **20 000 000 × 20 000 000** | **278.550** | **277.598** | **1.00 ×** ← parity |
+| `mul` | 50 000 000 × 50 000 000 | 1 231.5 | 660.4 | 1.86 × ← GMP SSA still ahead |
+| `mul` | 100 000 000 × 100 000 000 | 2 831.5 | 1 391.0 | 2.04 × |
+| `mul` (skewed) | 100 000 × 10 000 | 0.540 | 0.306 | 1.77 × |
+| `mul` (skewed) | **500 000 × 50 000** | **2.133** | **2.132** | **1.00 ×** ← parity |
+| `mul` (skewed) | **1 000 000 × 100 000** | **4.470** | **4.786** | **0.93 ×** ← BigMath faster |
+| `mul` (skewed) | **2 000 000 × 200 000** | **9.432** | **9.454** | **1.00 ×** ← parity |
+| `mul` (skewed) | 5 000 000 × 500 000 | 38.982 | 30.610 | 1.27 × |
+| `mul` (skewed) | 10 000 000 × 1 000 000 | 88.435 | 70.513 | 1.25 × |
+| `mul` (skewed) | 20 000 000 × 2 000 000 | 259.758 | 161.113 | 1.61 × |
+| `mul` (skewed) | **50 000 000 × 5 000 000** | **666.753** | **666.405** | **1.00 ×** ← parity |
+| `mul` (skewed) | 100 000 000 × 10 000 000 | 1 154.909 | 1 003.655 | 1.15 × |
 
 (Division, parse, and ToString benchmarks are in the same harness but covered in other documents.)
 
 **Reading these numbers.**
 
-- **Balanced multiplication wins from 2M through 20M digits.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior 5M-10M sweet spot to 2M-20M and pushed the peak win to **2.08× faster at 10M** (103 ms vs 213 ms). 20M is now parity (0.99×, was 1.61× loss).
-- **GMP recovers at ≥50M via Schönhage-Strassen, but the gap narrowed again.** 1.86× at 50M and 100M after the 2026-05-27 MFA / Bailey-6-step landing (was 2.05× / 2.22× immediately post-radix-8). Cumulative trajectory at 50M: 3.58× → 2.05× (radix-4+8) → 1.86× (MFA). BigMath's CRT NTT inner loop is still scalar 32-bit modular ops; the remaining gap is closeable by NEON SIMD on the CRT prime arithmetic (see [Future opportunities](#future-opportunities)).
-- **Skewed mults: four sweet spots win** (500k×50k, 1M×100k, 2M×200k, 50M×5M at 0.91-0.97×). Past 100M×10M (1.27×) GMP's SSA recovers.
+- **Balanced multiplication wins from 5M through 10M digits and is near parity at 20M.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior sweet spot. Raising the MFA gate to `2^24` improved the 10M balanced row by about 8% (114 ms → 105 ms) by avoiding early MFA.
+- **GMP recovers at ≥50M via Schönhage-Strassen.** The 2026-05-27 retuned run measured 1.86× at 50M and 2.04× at 100M. MFA remains valuable at very large limb counts, but the 100M row is noisy. BigMath's CRT NTT inner loop is still scalar 32-bit modular ops; the remaining high-risk/high-reward lever is a real CRT butterfly SIMD/assembly path (see [Future opportunities](#future-opportunities)).
+- **Skewed mults:** 500k×50k, 2M×200k, and 50M×5M are parity; 1M×100k is a BigMath win. Raising the MFA gate gives up the earlier 50M×5M early-MFA win but improves the balanced sweet spot.
 
 A historical view of the same benchmark (early 2026 vs current default stack):
 
 | op | early 2026 | CRT + threads | + radix-4+8 (now) | total improvement |
 |---|---|---|---|---|
-| mul 100 000 × 100 000 | 6.2 × | 1.74 × | **1.57 ×** | **4.0 ×** |
-| mul 1 000 000 × 1 000 000 | 4.2 × | 1.41 × | **1.11 ×** | **3.8 ×** |
-| mul 5 000 000 × 5 000 000 | ~3 × | 0.92 × | **0.72 ×** | **4.2 ×** |
-| mul 10 000 000 × 10 000 000 | ~3 × | 0.73 × | **0.48 ×** | **6.3 ×** |
-| mul 20 000 000 × 20 000 000 | — | 1.61 × | **0.99 ×** | **1.6 ×** (vs CRT) |
+| mul 100 000 × 100 000 | 6.2 × | 1.74 × | **1.72 ×** | **3.6 ×** |
+| mul 1 000 000 × 1 000 000 | 4.2 × | 1.41 × | **1.16 ×** | **3.6 ×** |
+| mul 5 000 000 × 5 000 000 | ~3 × | 0.92 × | **0.73 ×** | **4.1 ×** |
+| mul 10 000 000 × 10 000 000 | ~3 × | 0.73 × | **0.50 ×** | **6.0 ×** |
+| mul 20 000 000 × 20 000 000 | — | 1.61 × | **1.00 ×** | **1.6 ×** (vs CRT) |
 | mul 50 000 000 × 50 000 000 | — | 3.58 × | **1.86 ×** | **1.9 ×** (vs CRT) |
 | mul (skewed) 1M / 100k | 3.5 × | 1.02 × | **0.95 ×** | **3.7 ×** |
 
@@ -532,7 +547,7 @@ The threaded gain is smaller because normal CRT multiplication already runs the 
 
 ### Matrix Fourier Algorithm (MFA) / Bailey 6-step for CRT NTT (2026-05-27)
 
-Recursive 2D layout for each per-prime NTT once length exceeds `BIGMATH_NTT_MFA_THRESHOLD` (default 2^21 ≈ 2M coefficients). For length `N = N1·N2`:
+Recursive 2D layout for each per-prime NTT once length reaches `BIGMATH_NTT_MFA_THRESHOLD` (default 2^24 coefficients). The threshold is in NTT coefficients, not source limbs. For Base2_64 balanced multiplication with `L` limbs per operand, the CRT coefficient count is roughly `4L`, so the current gate starts around 2M limbs per operand (≈40M decimal digits). For length `N = N1·N2`:
 
 1. Transpose `N2×N1 → N1×N2`
 2. `N1` forward sub-FFTs of length `N2` along rows
@@ -550,18 +565,21 @@ The landed design separates the two:
 - The six forward transforms (and three inverses) dispatch as `ParallelDo(6)` / `ParallelDo(3)` with `parallel=false` passed to `ForwardMFA` / `InverseMFA` to suppress *internal* `ParallelFor` calls. Each task is one full per-prime MFA running serially in its own thread.
 - Six per-task scratch buffers are allocated on the caller stack (NOT `thread_local`) before dispatch so the capturing pointers cross threads safely.
 
-`mul_xl_bench` on M1 Max, Base2_64, CRT default, threaded:
+`mul_xl_bench` on M1 Max, Base2_64, CRT default, threaded, refreshed after the `2^24` threshold retune:
 
-| limbs | MFA off (ms) | MFA on (ms) | speedup |
-|------:|-------------:|------------:|--------:|
-|    1M |          266 |         247 |  1.07×  |
-|    2M |          710 |         596 |  1.19×  |
-|    5M |         3217 |        2670 |  1.20×  |
-|   10M |         6980 |        5524 |  1.26×  |
+| limbs per operand | transform length | active path | ms |
+|------:|------:|---|---:|
+| 200k | 2^20 | non-MFA | 39.942 |
+| 300k | 2^21 | non-MFA | 90.660 |
+| 500k | 2^21 | non-MFA | 92.290 |
+| 1M | 2^22 | non-MFA | 255.832 |
+| 2M | 2^23 | non-MFA | 704.094 |
+| **3M** | **2^24** | **MFA** | **1 269.304** |
+| **5M** | **2^25** | **MFA** | **2 620.899** |
 
-Translated to BM/GMP at the target regime: 50M went 2.05× → 1.86×, 100M went 2.22× → 1.86×. MFA narrowed the gap but did not close it; the remaining lever is NEON on the CRT inner loop ([Future opportunities](#future-opportunities)).
+This retune keeps the radix-8 CRT path through the measured regression band and enables MFA at `2^24+`, where the earlier on/off sweep showed wins. The main tradeoff is skewed `50M×5M`: it no longer trips MFA and moves from a clear BigMath win to parity, while balanced `10M×10M` improves by about 8%.
 
-Gate via `BIGMATH_NTT_MFA` (default 1) and `BIGMATH_NTT_MFA_THRESHOLD` (default 2^21). Leaf size `BIGMATH_NTT_MFA_LEAF` (default 2^13) controls the recursion stopping point — sub-FFTs at or below the leaf size hit the existing radix-4/8 chain via `ForwardPtr`.
+Gate via `BIGMATH_NTT_MFA` (default 1) and `BIGMATH_NTT_MFA_THRESHOLD` (default 2^24). Leaf size `BIGMATH_NTT_MFA_LEAF` (default 2^13) controls the recursion stopping point — sub-FFTs at or below the leaf size hit the existing radix-4/8 chain via `ForwardPtr`.
 
 ### Karatsuba pointer-based workspace
 
@@ -599,11 +617,11 @@ The profile that motivated this change showed `MultiplyClassicPtr` at 39% of `To
 
 `ClassicSquare`, `KaratsubaSquare` (pointer-based with 8n workspace), `NTTSquare` (single forward FFT instead of two), and `Square` dispatcher. Wired into `Pow10` even-d branch. Microbenchmark shows uniform 1.4–1.6× over `Multiply(a, a)` across all sizes. Real-world steady-state benefit on `Pow10`-driven ToString/Parse is ~2–3% (limited by `Pow10`'s thread-local cache being warm after the first iteration).
 
-### Toom-Cook 3 rewrite (correct but not dispatched)
+### Toom-Cook 3 rewrite and dispatch band
 
 Pre-2026 the `ToomCookMultiplication` class had an early `return KaratsubaMultiplication::Multiply(...)` in its recursive entry, making the Toom-3 evaluation/interpolation code unreachable. The dispatcher cross-checked against this dead implementation in `mult_correctness.cpp` and saw apparent correctness, but Toom-3 had never actually run.
 
-The 2026-05 rewrite implements correct Toom-3 with eval points {0, 1, −1, 2, ∞}, signed interpolation, and recursion bottoming to Karatsuba below `BIGMATH_TOOM3_THRESHOLD = 256`. Validated against `mult_correctness`. Not in dispatch — see [explored but rejected](#explored-but-rejected).
+The 2026-05 rewrite implements correct Toom-3 with eval points {0, 1, −1, 2, ∞}, signed interpolation, and recursion bottoming to Karatsuba below `BIGMATH_TOOM3_THRESHOLD = 256`. Validated against `mult_correctness`. A later focused dispatch scan found a narrow production band, so top-level `Multiply` now uses Toom-3 for total limb size `[2560, 5120)`.
 
 ### 64-bit limb refactor (2026-05, PRs #18–#30)
 
@@ -658,9 +676,13 @@ Ranked by expected ROI per unit of effort.
 
 The NTT butterfly is 95–97% of cost for large mults (confirmed via profile at 100M digits: 59.5% in 6 forwards + 36.6% in 3 inverses = 96.1% NTT). Radix-4 + radix-8 fused butterflies (PRs #59, #60) extracted **~1.6× wall-clock** at ≥2M limbs without leaving C++ — cutting memory-pass count from log₂(n) to log₈(n). The remaining gap is per-butterfly throughput. Replacing the inner loop with hand-tuned ARM64 assembly using paired loads, optimal `MUL`/`UMULH` scheduling, and explicit `CSEL` for the branchless reduce could plausibly recover further at large sizes. Cost: significant — needs a per-platform asm file with care taken for register allocation, plus a fallback C++ path for non-ARM64 targets. Maintenance burden high.
 
-### NEON SIMD on CRT primes (re-opened)
+### CRT butterfly SIMD or assembly
 
-CRT NTT (default ≥5000 limbs sum) operates on 30-bit primes with 32-bit coefficients — these fit `uint32x4_t` lanes naturally, sidestepping the 64×64→128 issue that blocked NEON for the Goldilocks butterfly. Theoretical 4× throughput per butterfly. Earlier rejection was Goldilocks-specific; the CRT path makes this a fresh opportunity. Profile evidence (see `memory: ssa-rejection-2026-05-26`) ranks this as the highest-ROI next lever for closing the ≥50M gap to GMP. Cost: NEON intrinsics path + scalar fallback, ~300-500 LOC.
+CRT NTT (default ≥5000 limbs sum) operates on 30-bit primes with 32-bit coefficients — these fit `uint32x4_t` lanes naturally, sidestepping the 64×64→128 issue that blocked NEON for the Goldilocks butterfly. The useful target is the **butterfly inner loop**, not pointwise multiplication or inverse scaling; those are too small a fraction of end-to-end time to justify a platform path. Cost: NEON intrinsics path + scalar fallback, ~300-500 LOC plus careful benchmarking.
+
+### Revisit MFA shape-aware gating
+
+The `2^24` threshold fixes balanced multiplication's early-MFA regression, but skewed `50M×5M` now falls back to the non-MFA path and lands at parity instead of the earlier early-MFA win. A future improvement would make the gate shape-aware rather than using only transform length, but that needs more shape data to avoid reintroducing the balanced regression.
 
 ### MFA recursion below the leaf
 
@@ -676,7 +698,7 @@ Each rejection has a concrete reason. Don't re-propose without new evidence over
 
 [Schönhage–Strassen](https://en.wikipedia.org/wiki/Sch%C3%B6nhage%E2%80%93Strassen_algorithm) multiplies in O(n · log n · log log n) using nested FFTs over a Fermat number ring `Z / (2^N + 1) Z`. The `log log n` factor is asymptotically better than NTT's effective `log n`, but the constant factors are dominated by the inner mod-2^N+1 arithmetic.
 
-**Updated assessment after radix-4+8 and MFA landed.** GMP's lead at ≥50M digits has now been roughly halved twice (3.58× → 2.05× via radix-4+8, then → 1.86× via MFA at 50M; analogous trajectory at 100M). SSA remains a structural lever GMP uses there. A profile probe + parameter sweep for single-level SSA at 100M digits had found:
+**Updated assessment after radix-4+8 and MFA landed.** GMP's lead at ≥50M digits remains structural. The latest local rerun measured 1.86× at 50M and 2.04× at 100M after the MFA threshold retune. SSA remains the algorithmic lever GMP uses there. A profile probe + parameter sweep for single-level SSA at 100M digits had found:
 
 - Profile: 95.5% of CRT NTT time in forwards + inverses; SSA targets exactly this.
 - Parameter sweep: single-level SSA has **no winning band** at our sizes. For M = 2¹⁶ chunks, pointwise sub-mul cost dominates (~32 sec). For M = 2²⁰, per-element N grows so large the FFT cost explodes. Sweet spot only exists with recursive sub-multiplications + MFA layout (GMP's approach).
@@ -712,20 +734,19 @@ Building the bit-reversed index map once and reusing it. Implemented during expl
 
 [Montgomery multiplication](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication) avoids division by replacing it with shifts and a precomputed inverse. For general primes this is a significant win. For Goldilocks specifically, the closed-form `Reduce` is already minimal (subtraction, shift, conditional add), and Montgomery would add a forward/backward transform per multiplication with no win.
 
-### Toom-Cook 3 in dispatch (rewritten, then declined)
+### Toom-Cook 3 dispatch band
 
-The 2026-05 rewrite verified Toom-3 is correct. The current portable C++ dispatch sweep across the Karatsuba/NTT boundary is:
+The 2026-05 rewrite verified Toom-3 is correct. A later focused band scan found a narrow useful dispatch band around the Karatsuba/NTT boundary:
 
-| limbs | Karatsuba ms | NTT ms | winner |
-|---|---:|---:|---|
-| 128 | 0.0039 | 0.0161 | K |
-| 256 | 0.0133 | 0.0351 | K |
-| 512 | 0.0418 | 0.0762 | K |
-| 1 024 | 0.1258 | 0.1933 | K |
-| 2 048 | 0.4596 | 0.4174 | N |
-| 4 096 | 1.3077 | 0.8010 | N |
+| total limbs | per-operand | Karatsuba ms | Toom-3 ms | NTT ms | winner |
+|---:|---:|---:|---:|---:|---|
+| 2 560 | 1 280 | 0.42 | 0.41 | 0.77 | Toom-3 / tie |
+| 3 584 | 1 792 | 0.64 | 0.60 | 0.78 | Toom-3 |
+| 4 096 | 2 048 | 0.83 | 0.75 | 0.78 | Toom-3 |
+| 4 608 | 2 304 | 1.06 | 1.10 | 1.65 | Karatsuba / Toom-3 |
+| 5 120 | 2 560 | 1.31 | 1.24 | 0.59 | NTT |
 
-Toom-3 has no operand-size band where it has proven useful in production dispatch. Adding it to dispatch caused a 3.3× regression on `mul 5k × 5k` in earlier trials. Kept as a cross-check reference, not as a production path.
+The default dispatcher now uses Toom-3 for total limb size `[2560, 5120)` and raises the NTT threshold to 5120. Earlier broad Toom-3 dispatch attempts regressed small decimal benchmarks; the current band is intentionally narrow.
 
 ### Toom-5 in dispatch
 
@@ -743,7 +764,7 @@ The apparent wins below 512 limbs are not real Toom-5 wins because `Toom5Multipl
 
 ### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 4096
 
-Direct algorithm microbenchmarks can make NTT look attractive too early. End-to-end dispatcher sweeps tell a different story: NTT-via-dispatcher below total size ~4096 is slower than Karatsuba-via-dispatcher because the path has setup overhead (coefficient packing, twiddle cache lookup, and buffer preparation) that algorithm-direct benchmarks do not fully capture. The 2026-05 portable C++ NTT plan/cache/finalization pass retuned `NTT_THRESHOLD` to 4096 total limbs. Lesson: don't tune dispatch from microbenchmarks alone.
+Direct algorithm microbenchmarks can make NTT look attractive too early. End-to-end dispatcher sweeps tell a different story: NTT-via-dispatcher below the measured crossover is slower because the path has setup overhead (coefficient packing, twiddle cache lookup, and buffer preparation) that algorithm-direct benchmarks do not fully capture. The current dispatcher keeps NTT at total size 5120+, after the Toom-3 band absorbed the old 4096-5120 boundary regression. Lesson: don't tune dispatch from microbenchmarks alone.
 
 ### Blockwise skew multiplication in dispatch
 
@@ -799,7 +820,7 @@ Implemented exactly (two-step recursive decomposition with carry tracking) on br
 - `biginteger/algorithms/Multiplication.h` — top-level dispatcher.
 - `biginteger/algorithms/multiplication/ClassicMultiplication.h` — schoolbook.
 - `biginteger/algorithms/multiplication/KaratsubaMultiplication.h` — Karatsuba with 64-bit hybrid leaf.
-- `biginteger/algorithms/multiplication/ToomCookMultiplication.h` — Toom-3 (not in dispatch).
+- `biginteger/algorithms/multiplication/ToomCookMultiplication.h` — Toom-3 dispatch band.
 - `biginteger/algorithms/multiplication/NTTMultiplication.h` — Goldilocks NTT.
 - `biginteger/algorithms/Squaring.h` — square dispatcher.
 - `biginteger/algorithms/multiplication/{Classic,Karatsuba,NTT}Square.h` — square implementations.

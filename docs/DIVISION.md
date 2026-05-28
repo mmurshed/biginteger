@@ -62,11 +62,14 @@ flowchart TD
     C -- no --> D{Compare&#40;a, b&#41;}
     D -- a == b --> Eq[return &#123;1, 0&#125;]
     D -- a &lt; b --> Less[return &#123;0, a&#125;]
-    D -- a &gt; b --> E{Newton medium-skew<br/>or high-skew band?}
+    D -- a &gt; b --> E{Newton band?<br/>b ≥ 4096 and a ≥ 3b<br/>OR b ≥ 2048 and a ≥ 8b}
     E -- yes --> N[NewtonDivision]
-    E -- no --> F{Power-of-two base<br/>AND b.size &gt; BZ_THRESHOLD<br/>AND BZ band fits?}
+    E -- no --> F{Power-of-two base<br/>AND b.size &gt; 512<br/>AND BZ shape fits?}
     F -- yes --> BZ[BurnikelZieglerDivision]
     F -- no --> FD[FastDivision]
+    FD --> S{b is single limb?}
+    S -- yes --> CD[ClassicDivision]
+    S -- no --> KD[Knuth-style FastDivision]
 ```
 
 Single-limb divisor (`b.size() == 1`) is handled inside `FastDivision` itself, which short-circuits to `ClassicDivision::DivModTo`.
@@ -90,7 +93,7 @@ The current dispatch logic, paraphrased:
 1. (b.size ≥ 4096 AND a.size ≥ 3·b.size)
    OR (b.size ≥ 2048 AND a.size ≥ 8·b.size)                               → Newton
 2. (Base2_32 OR Base2_64)  AND  b.size > 512  AND
-   ( (b.size ≥ 1024 AND a.size ≤ 3·b.size)
+   ( (b.size ≥ 1024 AND a.size ≥ b.size + 32 AND a.size ≤ 3·b.size)
      OR (a.size > 2048 AND a.size > 3·b.size) )                           → Burnikel–Ziegler
 3. else                                                                   → FastDivision
 4. (b.size == 1 inside FastDivision)                                      → ClassicDivision
@@ -298,11 +301,12 @@ This is the foundation of the divide-and-conquer ToString optimization. `Parser.
 Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
 
 ```
-c++ -std=c++20 -O3 -march=native -I/opt/homebrew/include -L/opt/homebrew/lib \
-    tests/performance/bench_vs_gmp.cpp -o bench_vs_gmp -lgmp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8 --target bench_vs_gmp
+./build/bench_vs_gmp
 ```
 
-Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). `min` over a small iteration count.
+Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Refreshed 2026-05-27.
 
 ### Balanced division
 
@@ -314,30 +318,30 @@ Numbers below are with the full default stack: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT
 
 | sizes (digits) | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
-| `a=40 000, b=10 000` | 0.761 | 0.225 | **3.38 ×** |
-| `a=100 000, b=10 000` | 2.194 | 0.454 | **4.83 ×** |
-| `a=200 000, b=50 000` | 11.292 | 1.674 | **6.74 ×** |
-| `a=500 000, b=100 000` | 18.243 | 4.755 | **3.84 ×** |
-| `a=1 000 000, b=200 000` | 35.215 | 10.677 | **3.30 ×** |
-| `a=2 000 000, b=500 000` | 81.141 | 25.526 | **3.18 ×** |
-| `a=5 000 000, b=1 000 000` | 191.291 | 68.730 | **2.78 ×** |
-| `a=10 000 000, b=2 000 000` | 412.358 | 156.831 | **2.63 ×** |
-| `a=20 000 000, b=4 000 000` | 909.693 | 343.664 | **2.65 ×** |
-| `a=50 000 000, b=10 000 000` | 2 355.601 | 1 312.316 | **1.79 ×** |
+| `a=40 000, b=10 000` | 0.729 | 0.218 | **3.35 ×** |
+| `a=100 000, b=10 000` | 2.188 | 0.455 | **4.81 ×** |
+| `a=200 000, b=50 000` | 10.965 | 1.733 | **6.33 ×** |
+| `a=500 000, b=100 000` | 17.987 | 4.627 | **3.89 ×** |
+| `a=1 000 000, b=200 000` | 33.438 | 10.117 | **3.31 ×** |
+| `a=2 000 000, b=500 000` | 81.815 | 23.975 | **3.41 ×** |
+| `a=5 000 000, b=1 000 000` | 200.808 | 67.367 | **2.98 ×** |
+| `a=10 000 000, b=2 000 000` | 426.945 | 153.584 | **2.78 ×** |
+| `a=20 000 000, b=4 000 000` | 963.159 | 347.665 | **2.77 ×** |
+| `a=50 000 000, b=10 000 000` | 2 499.998 | 1 298.707 | **1.92 ×** |
 
 All cases route to Newton. The dominant cost is NTT multiplication inside the Newton reciprocal iteration and inside each `DivideChunk`'s high-half mult. The large cases see the biggest wins from the threaded CRT NTT + radix-4+8 fused butterflies.
 
-**Trend at large sizes.** As operands grow into the multi-million-digit range, the ratio to GMP closes — from 4-6× at the 100k-divisor band down to **1.79× at 50M/10M**. This is because BigMath's NTT-based mult beats GMP across the 2M-20M band (see [MULTIPLICATION.md §Benchmark](MULTIPLICATION.md#benchmark-results-vs-gmp)), and Newton's internal mults inherit that win. The residual gap at the largest sizes is the structural overhead of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` — a single recursive divide rather than reciprocal-then-chunk.
+**Trend at large sizes.** As operands grow into the multi-million-digit range, the ratio to GMP closes — from 4-6× at the 100k-divisor band down to **1.92× at 50M/10M**. This is because BigMath's NTT-based mult beats GMP across the 5M-20M band (see [MULTIPLICATION.md §Benchmark](MULTIPLICATION.md#benchmark-results-vs-gmp)), and Newton's internal mults inherit that win. The residual gap at the largest sizes is the structural overhead of Newton's chunked iteration vs GMP's `mpn_dcpi1_div_q` — a single recursive divide rather than reciprocal-then-chunk.
 
 **Historical view** of the same skewed sizes:
 
 | sizes (digits) | early 2026 | LIMB_64 | + CRT + threads | + radix-4+8 (now) |
 |---|---|---|---|---|
-| 40 000 / 10 000 | 23 × | 4.8 × | 4.77 × | **3.38 ×** |
-| 100 000 / 10 000 | 34 × | 6.9 × | 6.91 × | **4.83 ×** |
-| 200 000 / 50 000 | 72 × | 12.4 × | 5.21 × | **6.74 ×** ⁂ |
-| 500 000 / 100 000 | 12 × | 11.6 × | 4.09 × | **3.84 ×** |
-| 10 000 000 / 2 000 000 | — | — | 3.06 × | **2.63 ×** |
+| 40 000 / 10 000 | 23 × | 4.8 × | 4.77 × | **3.35 ×** |
+| 100 000 / 10 000 | 34 × | 6.9 × | 6.91 × | **4.81 ×** |
+| 200 000 / 50 000 | 72 × | 12.4 × | 5.21 × | **6.33 ×** ⁂ |
+| 500 000 / 100 000 | 12 × | 11.6 × | 4.09 × | **3.89 ×** |
+| 10 000 000 / 2 000 000 | — | — | 3.06 × | **2.78 ×** |
 | 50 000 000 / 10 000 000 | — | — | — | **1.79 ×** |
 
 ⁂ The 200k/50k case fluctuates with measurement noise (divisor sits below the Newton band at 2596 limbs and routes through BZ, which has lower NTT density per limb than Newton). The other cases all benefit monotonically from the radix-4+8 NTT speedup flowing through Newton's per-chunk multiplications.
