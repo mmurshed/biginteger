@@ -81,7 +81,6 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NEWTON_HIGH_SKEW_B` | `2048` | limbs | lower bound for very-high-skew Newton |
 | `BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR` | `8` | — | high-skew Newton requires `a.size() ≥ 8·b.size() / 1` |
 | `BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR` | `1` | — | |
-| `BIGMATH_NEWTON_LARGE_B` | `24576` | limbs | declared but **unused** in current dispatch — historical |
 | `BIGMATH_BZ_DIVISOR_THRESHOLD` | `512` | limbs | BZ entry guard |
 | `BIGMATH_BZ_RECURSION_THRESHOLD` | `512` | limbs | BZ base-case cutoff (inside `BurnikelZieglerDivision.h`) |
 
