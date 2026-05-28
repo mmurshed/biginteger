@@ -105,6 +105,23 @@ The default threaded gain is modest because regular CRT multiplication already o
 
 The blockwise-skew prototype wins some `min=64` microbenchmarks but loses at larger smaller-operand sizes, so it remains benchmark-only. A Barrett modular multiply experiment for CRT NTT primes was slower than the existing `% P` lowering and was rejected.
 
+### Toom-3 dispatch band (2026-05-27)
+
+Focused band scan around the Karatsuba → NTT crossover found a narrow Toom-3 window:
+
+| total limbs | per-operand | kara ms | toom3 ms | ntt ms |
+|---:|---:|---:|---:|---:|
+| 2 560 | 1 280 | 0.42 | 0.41 | 0.77 |
+| 3 072 | 1 536 | 0.55 | 0.55 | 0.78 |
+| 3 584 | 1 792 | 0.64 | 0.60 | 0.78 |
+| 4 096 | 2 048 | 0.83 | 0.75 | 0.78 |
+| **4 608** | **2 304** | **1.06** | **1.10** | **1.65** ← NTT-length boundary regression |
+| 5 120 | 2 560 | 1.31 | 1.24 | 0.59 |
+
+Toom-3 ties Karatsuba below total 3 584 and beats both Karatsuba and NTT in [3 584, 4 608]. At total 4 608 NTT pays a length-boundary penalty (next pow-2 NTT size is wasteful here); Toom-3 sidesteps it cleanly. Dispatch now uses Toom-3 for total ∈ [2 560, 5 120), bumping `NTT_MULTIPLICATION_THRESHOLD` from 4 096 → 5 120. The total-4 608 case improved from NTT 1.65 ms → Toom-3 1.10 ms (33% faster) end-to-end through the `Multiply()` entry point.
+
+Toom-5 was checked in the same scan and never wins decisively — it ties Karatsuba in 64-256 limbs per-operand and degrades sharply above 256. It stays excluded from dispatch.
+
 ---
 
 ## Division
@@ -298,7 +315,8 @@ PR #65 added MFA / Bailey 6-step routing inside `NTTMultiplicationCrt` for NTT l
 | Knob | Current | Tuner suggestion | Verdict |
 |---|---:|---:|---|
 | `CLASSIC_MULTIPLICATION_THRESHOLD` (total limbs) | 96 | 96 (= 48 per-operand × 2) | Match |
-| `NTT_MULTIPLICATION_THRESHOLD` (total limbs) | 4096 | 4096 | Match |
+| `TOOM3_MULTIPLICATION_THRESHOLD` (total limbs) | 2560 | (added 2026-05-27 from focused band scan) | New |
+| `NTT_MULTIPLICATION_THRESHOLD` (total limbs) | 5120 | (raised from 4096 by focused scan) | Updated |
 | `CLASSIC_MIN_LIMB_THRESHOLD` | 0 | 0 | Match |
 | `NTT_SQUARE_THRESHOLD` (per limb, LIMB_64) | 2048 | 2048 (NTT wins by < 5% but does win) | Keep — current is valid |
 | `BZ_DIVISOR_THRESHOLD` | 512 | 768 | Keep — current 512 already correct (BZ activates at b > 512; the 1024/512 tie is FastDiv noise) |
@@ -306,6 +324,4 @@ PR #65 added MFA / Bailey 6-step routing inside `NTTMultiplicationCrt` for NTT l
 | `NEWTON_SKEW_NUMERATOR/DENOMINATOR` | 3/1 | 4/1 | Keep — bench rows from 5M×1M onward confirm Newton wins at ratio 5 (BigMath path) |
 | `NEWTON_HIGH_SKEW_*` | 2048 / 8/1 | (n/a, no rows) | Keep |
 
-**Pre-existing observation (not MFA-related):** tuner shows Toom-Cook 3/5 wins by 25-40% over Karatsuba in the 64-256 per-operand band, but Toom is excluded from dispatch on grounds that "Karatsuba dominates below 256, NTT above" — the data partially contradicts that justification. Investigation deferred; opening it would risk re-litigating a rejected algorithm and is out of scope for the MFA validation pass.
-
-**Dead constant noted:** `NEWTON_LARGE_B` is declared in `Division.h` / `.cpp` but never referenced by the dispatch logic. Safe to leave for now; remove in a future cleanup if no caller surfaces.
+**Toom-3 added to dispatch (2026-05-27):** focused band scan (above, **Toom-3 dispatch band**) found Toom-3 wins by 4-10% in total ∈ [3 584, 4 096] and avoids a 33% NTT-length boundary regression at total 4 608. Dispatch now slots Toom-3 between Karatsuba and NTT for total ∈ [2 560, 5 120); `NTT_MULTIPLICATION_THRESHOLD` raised 4 096 → 5 120. Toom-5 still has no productive band — ties Karatsuba in 64-256 per-operand limbs and degrades sharply above 256, so stays excluded.

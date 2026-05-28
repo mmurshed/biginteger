@@ -313,7 +313,6 @@ namespace
     mt19937_64 gen(0xD1715100);
     SizeT suggestedBzDivisor = 0;
     SizeT suggestedNewtonMedium = 0;
-    SizeT suggestedNewtonLarge = 0;
     SizeT suggestedNewtonSkewNumerator = 0;
     SizeT suggestedNewtonSkewDenominator = 1;
 
@@ -351,8 +350,6 @@ namespace
         suggestedBzDivisor = divisorLimbs;
       if (suggestedNewtonMedium == 0 && divisorLimbs >= 8192 && ratio >= 2.0 && newtonMs < min(fastMs, bzMs))
         suggestedNewtonMedium = divisorLimbs;
-      if (suggestedNewtonLarge == 0 && divisorLimbs >= 8192 && ratio < 2.0 && newtonMs < min(fastMs, bzMs))
-        suggestedNewtonLarge = divisorLimbs;
       if (suggestedNewtonSkewNumerator == 0 && divisorLimbs >= 8192 && newtonMs < min(fastMs, bzMs))
       {
         suggestedNewtonSkewNumerator = (SizeT)(ratio * 4.0 + 0.5);
@@ -378,9 +375,6 @@ namespace
     cout << "suggested NEWTON_MEDIUM_B ~= "
          << (suggestedNewtonMedium ? suggestedNewtonMedium : NEWTON_MEDIUM_B)
          << '\n';
-    cout << "suggested NEWTON_LARGE_B ~= "
-         << (suggestedNewtonLarge ? suggestedNewtonLarge : NEWTON_LARGE_B)
-         << '\n';
     cout << "suggested NEWTON skew ratio ~= "
          << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewNumerator : NEWTON_SKEW_NUMERATOR)
          << '/'
@@ -390,8 +384,6 @@ namespace
          << (suggestedBzDivisor ? suggestedBzDivisor : BZ_DIVISOR_THRESHOLD)
          << " -DBIGMATH_NEWTON_MEDIUM_B="
          << (suggestedNewtonMedium ? suggestedNewtonMedium : NEWTON_MEDIUM_B)
-         << " -DBIGMATH_NEWTON_LARGE_B="
-         << (suggestedNewtonLarge ? suggestedNewtonLarge : NEWTON_LARGE_B)
          << " -DBIGMATH_NEWTON_SKEW_NUMERATOR="
          << (suggestedNewtonSkewNumerator ? suggestedNewtonSkewNumerator : NEWTON_SKEW_NUMERATOR)
          << " -DBIGMATH_NEWTON_SKEW_DENOMINATOR="

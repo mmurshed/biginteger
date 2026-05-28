@@ -29,10 +29,6 @@
 
 namespace BigMath
 {
-#ifndef BIGMATH_NEWTON_LARGE_B
-#define BIGMATH_NEWTON_LARGE_B 24576
-#endif
-
 #ifndef BIGMATH_NEWTON_MEDIUM_B
 #define BIGMATH_NEWTON_MEDIUM_B 4096
 #endif
@@ -61,7 +57,6 @@ namespace BigMath
 #define BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR 1
 #endif
 
-  extern const SizeT NEWTON_LARGE_B;
   extern const SizeT NEWTON_MEDIUM_B;
   extern const SizeT BZ_DIVISOR_THRESHOLD;
   extern const SizeT NEWTON_SKEW_NUMERATOR;

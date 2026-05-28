@@ -5,12 +5,15 @@
  *   - single-limb operand                          → ClassicMultiplication (scalar)
  *   - sum ≤ CLASSIC_MULTIPLICATION_THRESHOLD OR
  *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD             → ClassicMultiplication
- *   - sum < NTT_MULTIPLICATION_THRESHOLD           → KaratsubaMultiplication
+ *   - sum < TOOM3_MULTIPLICATION_THRESHOLD         → KaratsubaMultiplication
+ *   - sum < NTT_MULTIPLICATION_THRESHOLD           → ToomCookMultiplication (Toom-3)
  *   - otherwise                                    → NTTMultiplication
  *
- * Toom-Cook 3 is implemented and correctness-checked but excluded from
- * dispatch — NTT dominates above ~256 limbs and Karatsuba dominates below,
- * leaving no productive band. See MULTIPLICATION.md for details.
+ * Toom-3 covers a narrow but real window (total ≈ 2560-5120 limbs) where it
+ * beats Karatsuba by 8-15% and avoids an NTT-length boundary regression
+ * around total 4608. See MULTIPLICATION.md for the focused band measurement.
+ * Toom-5 has no productive band — it ties Karatsuba below 256 per-operand
+ * limbs and degrades fast above, so it stays excluded from dispatch.
  *
  * Thresholds are tunable at compile time via -DBIGMATH_*=N.
  *
@@ -39,8 +42,18 @@ namespace BigMath
 #endif
 #endif
 
+#ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
+// Toom-3 wins over Karatsuba once the per-operand size grows past ~1280
+// limbs (total ≥ 2560). Measured 2026-05-27; see BENCHMARK.md "Toom-3
+// dispatch band" for the focused scan.
+#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 2560
+#endif
+
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
-#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 4096
+// NTT crossover. Bumped from 4096 to 5120 (2026-05-27) after measurement
+// showed NTT regresses around total 4608 due to NTT-length boundary effect
+// (NTT 1.65 ms vs Toom3 1.10 ms); NTT becomes a clean win again at 5120+.
+#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 5120
 #endif
 
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
@@ -56,6 +69,7 @@ namespace BigMath
 #endif
 
   extern const SizeT CLASSIC_MULTIPLICATION_THRESHOLD;
+  extern const SizeT TOOM3_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
