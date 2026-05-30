@@ -424,7 +424,7 @@ int main()
     // ===== Multiplication =====
     cout << "\n[multiplication, balanced]\n";
     PrintHeader();
-    for (int d : {1000, 5000, 10000, 50000, 100000, 500000, 1000000, 2000000, 5000000, 10000000, 20000000, 50000000, 100000000})
+    for (int d : {1000, 5000, 10000, 50000, 100000, 500000, 1000000, 2000000, 5000000, 10000000, 20000000, 50000000, 100000000, 200000000})
         BenchMul(d, d, rows);
 
     cout << "\n[multiplication, skewed]\n";
@@ -438,6 +438,7 @@ int main()
     BenchMul(20000000, 2000000, rows);
     BenchMul(50000000, 5000000, rows);
     BenchMul(100000000, 10000000, rows);
+    BenchMul(200000000, 20000000, rows);
 
     // ===== Division =====
     cout << "\n[division, balanced]\n";
@@ -457,6 +458,8 @@ int main()
     BenchDiv(10000000, 2000000, rows);
     BenchDiv(20000000, 4000000, rows);
     BenchDiv(50000000, 10000000, rows);
+    BenchDiv(100000000, 20000000, rows);
+    BenchDiv(200000000, 40000000, rows);
 
     // ===== Decimal Parse =====
     cout << "\n[decimal parse]\n";

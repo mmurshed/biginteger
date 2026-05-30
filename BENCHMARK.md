@@ -25,7 +25,7 @@ This file is the **raw numbers**, all five subsystems in one place, kept for hea
 
 Harnesses:
 
-- `tests/performance/bench_vs_gmp.cpp` — canonical bench. Mul covers ≤100M digits (balanced + skewed), div ≤50M×10M skewed, parse ≤50M, ToString ≤20M, plus BigDecimal arithmetic + I/O. Single-iter timing for digits ≥100k; multi-iter best-of below that. Per-row `[op size] setup...` log to stderr so long setup phases don't look stuck.
+- `tests/performance/bench_vs_gmp.cpp` — canonical bench. Mul covers ≤200M digits (balanced + skewed), div ≤200M×40M skewed, parse ≤50M, ToString ≤20M, plus BigDecimal arithmetic + I/O. Single-iter timing for digits ≥100k; multi-iter best-of below that. Per-row `[op size] setup...` log to stderr so long setup phases don't look stuck.
 
 ---
 
@@ -35,40 +35,42 @@ Balanced (`a.size() == b.size()`):
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | 0.002 | 0.001 | 1.92× |
-| 5 000 × 5 000 | 0.030 | 0.011 | 2.66× |
-| 10 000 × 10 000 | 0.283 | 0.086 | 3.31× |
-| 50 000 × 50 000 | 1.022 | 0.578 | 1.77× |
-| 100 000 × 100 000 | 1.053 | 0.609 | 1.73× |
-| 500 000 × 500 000 | 5.218 | 4.217 | 1.24× |
-| 1 000 000 × 1 000 000 | 10.499 | 9.061 | 1.16× |
-| **2 000 000 × 2 000 000** | **21.893** | **20.555** | **1.07×** ← near parity |
-| **5 000 000 × 5 000 000** | **46.470** | **63.450** | **0.73×** ← BigMath faster |
-| **10 000 000 × 10 000 000** | **105.381** | **211.825** | **0.50×** ← BigMath 2.01× faster |
-| **20 000 000 × 20 000 000** | **278.550** | **277.598** | **1.00×** ← parity |
-| **50 000 000 × 50 000 000** | **1 231.492** | **660.410** | **1.86×** ← GMP faster |
-| **100 000 000 × 100 000 000** | **2 831.516** | **1 390.974** | **2.04×** ← GMP faster |
+| 1 000 × 1 000 | 0.002 | 0.001 | 2.27× |
+| 5 000 × 5 000 | 0.030 | 0.011 | 2.64× |
+| 10 000 × 10 000 | 0.101 | 0.046 | 2.20× |
+| 50 000 × 50 000 | 0.698 | 0.398 | 1.76× |
+| 100 000 × 100 000 | 1.144 | 0.709 | 1.61× |
+| 500 000 × 500 000 | 5.120 | 4.322 | 1.18× |
+| 1 000 000 × 1 000 000 | 10.176 | 8.845 | 1.15× |
+| **2 000 000 × 2 000 000** | **21.570** | **20.994** | **1.03×** ← near parity |
+| **5 000 000 × 5 000 000** | **48.947** | **65.245** | **0.75×** ← BigMath faster |
+| **10 000 000 × 10 000 000** | **106.856** | **209.888** | **0.51×** ← BigMath 1.96× faster |
+| **20 000 000 × 20 000 000** | **275.252** | **278.298** | **0.99×** ← parity |
+| **50 000 000 × 50 000 000** | **1 248.374** | **674.945** | **1.85×** ← GMP faster |
+| **100 000 000 × 100 000 000** | **2 617.801** | **1 453.331** | **1.80×** ← GMP faster |
+| **200 000 000 × 200 000 000** | **6 578.614** | **3 049.051** | **2.16×** ← GMP faster |
 
 Skewed (`a.size() >> b.size()`):
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 000 × 10 000 | 0.540 | 0.306 | 1.77× |
-| 500 000 × 50 000 | 2.133 | 2.132 | 1.00× |
-| **1 000 000 × 100 000** | **4.470** | **4.786** | **0.93×** ← BigMath faster |
-| **2 000 000 × 200 000** | **9.432** | **9.454** | **1.00×** ← parity |
-| 5 000 000 × 500 000 | 38.982 | 30.610 | 1.27× |
-| 10 000 000 × 1 000 000 | 88.435 | 70.513 | 1.25× |
-| 20 000 000 × 2 000 000 | 259.758 | 161.113 | 1.61× |
-| **50 000 000 × 5 000 000** | **666.753** | **666.405** | **1.00×** ← parity |
-| 100 000 000 × 10 000 000 | 1 154.909 | 1 003.655 | 1.15× |
+| 100 000 × 10 000 | 0.640 | 0.303 | 2.11× |
+| 500 000 × 50 000 | 2.168 | 2.135 | 1.02× |
+| **1 000 000 × 100 000** | **4.541** | **4.576** | **0.99×** ← BigMath faster |
+| **2 000 000 × 200 000** | **9.238** | **9.479** | **0.97×** ← BigMath faster |
+| 5 000 000 × 500 000 | 39.149 | 30.829 | 1.27× |
+| 10 000 000 × 1 000 000 | 90.079 | 70.716 | 1.27× |
+| 20 000 000 × 2 000 000 | 239.615 | 162.845 | 1.47× |
+| **50 000 000 × 5 000 000** | **615.801** | **684.121** | **0.90×** ← BigMath faster |
+| 100 000 000 × 10 000 000 | 1 159.229 | 1 011.270 | 1.15× |
+| 200 000 000 × 20 000 000 | 2 446.578 | 1 952.674 | 1.25× |
 
 **Observations:**
 
-- **BigMath beats GMP on balanced multiplication across the 5M-10M band and is near parity at 20M.** Radix-4 + radix-8 fused NTT butterflies (PRs #59, #60) added 1.5-1.6× wall-clock vs prior. The 2026-05-27 MFA retune moved the gate from `2^21` to `2^24`, and the current 10M balanced row sits at **105.381 ms**.
+- **BigMath beats GMP on balanced multiplication across the 5M-10M band and is near parity at 20M.** Radix-4 + radix-8 fused NTT butterflies (PRs #59, #60) added 1.5-1.6× wall-clock vs prior. The 2026-05-27 MFA retune moved the gate from `2^21` to `2^24`, and the current 10M balanced row sits at **106.856 ms**.
 - **MFA / Bailey 6-step CRT NTT (PR #65) is now reserved for the very-large regime.** The default gate is `2^24` transform coefficients. Focused limb benchmarks show this avoids the 300k-2M limb regression band while preserving MFA wins at 3M+ limbs.
 - Below 500k, GMP's hand-tuned basecase keeps a 1.5-3.3× lead.
-- **Skewed mults: BigMath is at parity around 500k×50k, 2M×200k, and 50M×5M.** The 1M×100k row is now slightly in BigMath's favor, while 100M×10M is still 1.15× on this snapshot.
+- **Skewed mults: BigMath is around parity at 500k×50k and 1M×100k, with a slight BigMath lead at 2M×200k.** BigMath falls back behind GMP at 50M×5M and 100M×10M, and is 1.25× at the new 200M×20M row.
 
 ### MFA focused threshold check
 
@@ -202,22 +204,24 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 40 000 × 10 000 | 0.729 | 0.218 | 3.35× |
-| 100 000 × 10 000 | 2.188 | 0.455 | 4.81× |
-| 200 000 × 50 000 | 10.965 | 1.733 | 6.33× |
-| 500 000 × 100 000 | 17.987 | 4.627 | 3.89× |
-| 1 000 000 × 200 000 | 33.438 | 10.117 | 3.31× |
-| 2 000 000 × 500 000 | 81.815 | 23.975 | 3.41× |
-| 5 000 000 × 1 000 000 | 200.808 | 67.367 | 2.98× |
-| 10 000 000 × 2 000 000 | 426.945 | 153.584 | 2.78× |
-| 20 000 000 × 4 000 000 | 963.159 | 347.665 | 2.77× |
-| **50 000 000 × 10 000 000** | **2 499.998** | **1 298.707** | **1.92×** ← MFA flowing through Newton |
+| 40 000 × 10 000 | 0.732 | 0.218 | 3.36× |
+| 100 000 × 10 000 | 2.178 | 0.450 | 4.84× |
+| 200 000 × 50 000 | 11.088 | 1.704 | 6.51× |
+| 500 000 × 100 000 | 17.742 | 4.608 | 3.85× |
+| 1 000 000 × 200 000 | 33.632 | 10.022 | 3.36× |
+| 2 000 000 × 500 000 | 82.969 | 24.724 | 3.36× |
+| 5 000 000 × 1 000 000 | 200.641 | 69.900 | 2.87× |
+| 10 000 000 × 2 000 000 | 432.299 | 154.709 | 2.79× |
+| 20 000 000 × 4 000 000 | 982.906 | 353.134 | 2.78× |
+| 50 000 000 × 10 000 000 | 2 464.018 | 1 324.260 | 1.86× |
+| 100 000 000 × 20 000 000 | 6 119.817 | 2 594.778 | 2.36× |
+| **200 000 000 × 40 000 000** | **12 979.547** | **4 550.205** | **2.85×** ← MFA flowing through Newton |
 
 **Observations:**
 
-- **Skewed division ratio narrows from ~6.3× at 200k×50k peak to 1.92× at 50M×10M.** Newton inherits the multiplication wins in the large regime, including MFA once the internal products cross the useful MFA band. The residual gap is still division-structure overhead, not decimal I/O.
-- 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.6× to GMP's `mpn_dcpi1_div_q` at this size.
-- Residual 2.6-3.4× gap in the 1M-20M skewed band is the structural cost of Newton's chunked iteration vs GMP's single recursive divide with precomputed inverse.
+- **Skewed division ratio narrows from ~6.5× at 200k×50k peak to 1.86× at 50M×10M, then rises back to 2.85× at 200M×40M.** Newton inherits the multiplication wins in the large regime, including MFA once the internal products cross the useful MFA band. The residual gap is still division-structure overhead, not decimal I/O.
+- 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.5× to GMP's `mpn_dcpi1_div_q` at this size.
+- Residual 2.8-3.9× gap in the 1M-20M skewed band is the structural cost of Newton's chunked iteration vs GMP's single recursive divide with precomputed inverse.
 - Balanced cases route through FastDivision short-circuits and aren't algorithmically meaningful at this size profile. The 5M×5M balanced case was regressing 27.03× before PR #56 fix (BZ misroute on degenerate quotient); now 7.20× via FastDivision short-circuit.
 
 ### Shape-focused division dispatch
@@ -240,19 +244,19 @@ Representative Base2_64 results:
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.003 | 0.002 | 1.70× |
-| 10 000 | 0.115 | 0.038 | 3.05× |
-| 50 000 | 1.354 | 0.387 | 3.50× |
-| 100 000 | 3.241 | 1.047 | 3.10× |
-| 500 000 | 22.259 | 8.835 | 2.52× |
-| 1 000 000 | 49.118 | 20.963 | 2.34× |
-| 2 000 000 | 106.923 | 47.888 | 2.23× |
-| 5 000 000 | 270.726 | 149.720 | 1.81× |
-| 10 000 000 | 583.249 | 346.704 | 1.68× |
-| 20 000 000 | 1 271.178 | 808.667 | 1.57× |
-| 50 000 000 | 5 178.593 | 2 681.597 | 1.93× |
+| 1 000 | 0.002 | 0.002 | 1.50× |
+| 10 000 | 0.115 | 0.038 | 3.01× |
+| 50 000 | 1.375 | 0.387 | 3.43× |
+| 100 000 | 3.263 | 1.047 | 3.10× |
+| 500 000 | 22.262 | 9.270 | 2.40× |
+| 1 000 000 | 49.037 | 21.071 | 2.33× |
+| 2 000 000 | 106.786 | 48.047 | 2.22× |
+| 5 000 000 | 269.753 | 150.835 | 1.79× |
+| 10 000 000 | 585.600 | 350.776 | 1.67× |
+| 20 000 000 | 1 270.039 | 814.355 | 1.56× |
+| 50 000 000 | 5 168.943 | 2 689.193 | 1.92× |
 
-**Observation:** ratio narrows through the 10M-20M sweet spot (3.2× at 100k → **1.57× at 20M**) where BigMath's NTT overtakes GMP's basecase. It widens back to 1.93× at 50M as GMP's SSA activates.
+**Observation:** ratio narrows through the 10M-20M sweet spot (3.2× at 100k → **1.56× at 20M**) where BigMath's NTT overtakes GMP's basecase. It widens back to 1.92× at 50M as GMP's SSA activates.
 
 ---
 
@@ -260,17 +264,17 @@ Representative Base2_64 results:
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.007 | 0.004 | 1.90× |
-| 10 000 | 0.268 | 0.077 | 3.49× |
-| 50 000 | 3.941 | 0.876 | 4.50× |
-| 100 000 | 19.616 | 2.425 | 8.09× |
-| 200 000 | 39.964 | 6.263 | 6.38× |
-| 500 000 | 105.868 | 20.807 | 5.09× |
-| 1 000 000 | 222.532 | 49.638 | 4.48× |
-| 2 000 000 | 474.208 | 120.460 | 3.94× |
-| 5 000 000 | 1 102.449 | 380.485 | 2.90× |
-| 10 000 000 | 2 439.093 | 902.362 | 2.70× |
-| 20 000 000 | 5 432.300 | 2 116.423 | 2.57× |
+| 1 000 | 0.007 | 0.004 | 1.82× |
+| 10 000 | 0.274 | 0.078 | 3.50× |
+| 50 000 | 4.044 | 0.861 | 4.70× |
+| 100 000 | 19.803 | 2.357 | 8.40× |
+| 200 000 | 40.760 | 6.417 | 6.35× |
+| 500 000 | 106.486 | 20.667 | 5.15× |
+| 1 000 000 | 224.755 | 50.174 | 4.48× |
+| 2 000 000 | 481.526 | 119.342 | 4.03× |
+| 5 000 000 | 1 104.781 | 386.146 | 2.86× |
+| 10 000 000 | 2 416.172 | 913.741 | 2.64× |
+| 20 000 000 | 5 432.991 | 2 155.828 | 2.52× |
 
 **Observation:** narrowest gap at 1k (the linear leaf, where GM div2by1 already runs); peaks at 100k (D&C overhead + Newton recip setup not yet amortized); narrows again from 200k onward as D&C asymptotic + NTT inheriting from multiplication's overtake compound — **8.09× at 100k → 2.57× at 20M**.
 
@@ -303,30 +307,30 @@ Balanced operands (e.g. `100.10` = 100 integer + 10 fractional digits):
 
 | op | size (int.frac) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---|---:|---:|---:|
-| Add | 100.10 | <0.001 | <0.001 | — |
-| Add | 1000.100 | <0.001 | <0.001 | — |
-| Add | 5000.500 | 0.001 | <0.001 | 5.66× |
-| Add | 20000.2000 | 0.002 | 0.001 | 4.58× |
+| Add | 100.10 | 0.000 | 0.000 | 0.00× |
+| Add | 1000.100 | 0.000 | 0.000 | 0.00× |
+| Add | 5000.500 | 0.001 | 0.000 | 5.66× |
+| Add | 20000.2000 | 0.003 | 0.001 | 5.00× |
 |---|---|---|---|---|
-| Mul | 100.10 | <0.001 | <0.001 | 4.05× |
-| Mul | 1000.100 | 0.003 | 0.001 | 2.36× |
-| Mul | 5000.500 | 0.037 | 0.017 | 2.81× |
-| Mul | 20000.2000 | 0.370 | 0.096 | 3.85× |
+| Mul | 100.10 | 0.000 | 0.000 | 3.95× |
+| Mul | 1000.100 | 0.003 | 0.001 | 2.33× |
+| Mul | 5000.500 | 0.038 | 0.018 | 2.12× |
+| Mul | 20000.2000 | 0.345 | 0.091 | 3.78× |
 |---|---|---|---|---|
-| Div | 100.10 (10 dp) | 0.001 | <0.001 | 7.66× |
-| Div | 1000.100 (100 dp) | 0.003 | 0.002 | 1.48× |
-| Div | **5000.500 (500 dp)** | **0.024** | **0.026** | **0.92×** ← BigMath faster |
-| Div | 20000.2000 (2000 dp) | 0.232 | 0.202 | 1.12× |
+| Div | 100.10 (10 dp) | 0.001 | 0.000 | 6.53× |
+| Div | 1000.100 (100 dp) | 0.003 | 0.002 | 1.41× |
+| Div | **5000.500 (500 dp)** | **0.023** | **0.026** | **0.89×** ← BigMath faster |
+| Div | 20000.2000 (2000 dp) | 0.233 | 0.198 | 1.18× |
 
 Division at varying target scales (operand = 2000 integer + 200 fractional digits):
 
 | scale (dp) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---:|---:|---:|
 | **0** | **0.001** | **0.005** | **0.20×** ← BigMath faster |
-| **10** | **0.003** | **0.005** | **0.60×** ← BigMath faster |
-| **100** | **0.005** | **0.005** | **1.00×** ← parity |
-| 1000 | 0.015 | 0.010 | 1.56× |
-| 5000 | 0.060 | 0.034 | 1.76× |
+| **10** | **0.003** | **0.005** | **0.61×** ← BigMath faster |
+| **100** | **0.005** | **0.005** | **0.85×** ← BigMath faster |
+| 1000 | 0.015 | 0.010 | 1.57× |
+| 5000 | 0.061 | 0.034 | 1.79× |
 
 ### Parse and ToString
 
@@ -334,22 +338,22 @@ Parse (`string → BigDecimal`):
 
 | size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 | 0.001 | 0.001 | 1.09× |
-| 1 000 | 0.005 | 0.004 | 1.06× |
-| 10 000 | 0.137 | 0.109 | 1.26× |
-| 50 000 | 1.476 | 1.029 | 1.48× |
+| 100 | 0.001 | 0.001 | 1.00× |
+| 1 000 | 0.005 | 0.005 | 1.10× |
+| 10 000 | 0.138 | 0.107 | 1.29× |
+| 50 000 | 1.504 | 1.017 | 1.48× |
 
 ToString (`BigDecimal → string`):
 
 | size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 | <0.001 | <0.001 | 0.64× |
-| 1 000 | 0.006 | 0.005 | 1.38× |
-| 10 000 | 0.280 | 0.106 | 2.63× |
-| 50 000 | 3.961 | 1.122 | 3.63× |
+| 100 | 0.000 | 0.000 | 0.64× |
+| 1 000 | 0.006 | 0.004 | 1.41× |
+| 10 000 | 0.269 | 0.102 | 2.63× |
+| 50 000 | 4.003 | 1.094 | 3.66× |
 
 **Observations:**
-- BigDecimal division beats GMP at 5000.500 to 500 dp (0.024 vs 0.026 ms).
+- BigDecimal division beats GMP at 5000.500 to 500 dp (0.023 vs 0.026 ms).
 - Scale-aware division avoids unnecessary high-precision work; up to **5× faster** than `mpf_div` at small target scales.
 - Parse stays within 1.0-1.5× of GMP across 100-50k digits; ToString stays within 0.7-3.7×.
 
@@ -357,14 +361,14 @@ ToString (`BigDecimal → string`):
 
 ## Headline summary
 
-- **Multiplication 5M-20M balanced:** BigMath faster than GMP at 5M and 10M, and still near parity at 20M. The current 10M balanced row is **105.381 ms vs 211.825 ms**, or 0.50×.
-- **Multiplication ≥50M balanced:** GMP still wins via SSA. MFA remains active at 50M+ balanced, and 100M is still measured at 2.04× on this snapshot.
-- **Multiplication skewed:** parity around 500k×50k, 2M×200k, and 50M×5M. 1M×100k is now slightly in BigMath's favor, while 100M×10M is 1.15×. Mid-band 5M-20M skewed sits between 1.25×-1.61×.
-- **Division skewed:** 1.92×-6.33× behind GMP. Worst at 200k×50k (BZ band). Best at **50M×10M (1.92×)** — the large-multiplication speedups partially flow through Newton.
+- **Multiplication 5M-20M balanced:** BigMath is faster at 5M and 10M, then slips back to parity at 20M. The current 10M balanced row is **106.856 ms vs 209.888 ms**, or 0.51×.
+- **Multiplication ≥50M balanced:** GMP still wins via SSA. At 200M the gap widens again to 2.16× on this snapshot.
+- **Multiplication skewed:** parity around 500k×50k and 1M×100k, with a slight BigMath lead at 2M×200k. BigMath falls behind at 50M×5M, 100M×10M, and 200M×20M.
+- **Division skewed:** 1.86×-6.51× behind GMP in the main band, with the new 200M×40M row at 2.85×. Worst remains 200k×50k (BZ band). The large-multiplication speedups still flow through Newton, but the structure overhead never disappears.
 - **Division balanced 5M×5M:** PR #56 fix routes degenerate-quotient cases to FastDivision; 27.03× → 7.20×.
-- **Parse:** **1.57× at 20M** (best), widens to 1.93× at 50M as GMP's SSA path dominates.
-- **ToString:** 2.57× at 20M, narrowing from an 8.35× peak at 100k.
-- **BigDecimal division:** beats GMP at small target scales (0.20-1.00×) and at the 500 dp parity point (0.92×).
+- **Parse:** **1.56× at 20M** (best), widens to 1.92× at 50M as GMP's SSA path dominates.
+- **ToString:** 2.52× at 20M, narrowing from an 8.40× peak at 100k.
+- **BigDecimal division:** beats GMP at small target scales (0.20-1.00×) and at the 500 dp near-parity point (0.89×).
 
 For optimizations considered and rejected with measurement evidence, see the **Explored but rejected** sections of each subsystem doc. The 2026-05 optimization stack (LIMB_64 + CRT NTT + threading + M-G reciprocals + BZ Knuth fix + degenerate-quotient guard + radix-4/radix-8 fused butterflies + MFA) closed the GMP gap by 3-5× across every band up to the 20M crossover; past 20M, GMP's SSA still wins but the loss factor halved.
 
