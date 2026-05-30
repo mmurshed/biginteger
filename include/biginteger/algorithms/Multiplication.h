@@ -6,7 +6,9 @@
  *   - sum ≤ CLASSIC_MULTIPLICATION_THRESHOLD OR
  *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD             → ClassicMultiplication
  *   - sum < TOOM3_MULTIPLICATION_THRESHOLD         → KaratsubaMultiplication
- *   - sum < NTT_MULTIPLICATION_THRESHOLD           → ToomCookMultiplication (Toom-3)
+ *   - sum < NTT_MULTIPLICATION_THRESHOLD and
+ *     max < TOOM3_SKEW_RATIO · min                 → ToomCookMultiplication (Toom-3)
+ *   - sum < NTT_MULTIPLICATION_THRESHOLD           → KaratsubaMultiplication
  *   - otherwise                                    → NTTMultiplication
  *
  * Toom-3 covers a narrow but real window (total ≈ 2560-5120 limbs) where it
@@ -56,6 +58,12 @@ namespace BigMath
 #define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 5120
 #endif
 
+#ifndef BIGMATH_TOOM3_SKEW_RATIO
+// Toom-3 is a balanced-product win. For 2:1+ skew inside the Toom window,
+// Karatsuba is consistently faster on the measured AppleClang/native build.
+#define BIGMATH_TOOM3_SKEW_RATIO 2
+#endif
+
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
 #define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 0
 #endif
@@ -71,6 +79,7 @@ namespace BigMath
   extern const SizeT CLASSIC_MULTIPLICATION_THRESHOLD;
   extern const SizeT TOOM3_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
+  extern const SizeT TOOM3_SKEW_RATIO;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_RATIO;
