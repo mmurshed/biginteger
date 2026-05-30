@@ -1004,48 +1004,53 @@ namespace BigMath
       return n >= BIGMATH_NTT_MFA_THRESHOLD;
     }
 
-    // Cross-twiddle for the forward (forwardRoots) or inverse (inverseRoots)
-    // pass. After a leaf DIF sub-FFT on each row, storage position k2_br
-    // holds the value for *logical* k2 = br(k2_br). The correct factor at
-    // storage [i, k2_br] is therefore ω_N^{±i·br(k2_br)}.
+    // Cross-twiddle for one MFA row. After a leaf DIF sub-FFT, storage
+    // position k2_br holds the value for logical k2 = br(k2_br). The correct
+    // factor at storage [rowIndex, k2_br] is therefore ω_N^{±rowIndex·br(k2_br)}.
     //
-    // Iterate logical k2_nat naturally and write to storage br_table[k2_nat]:
-    // the exponent i·k2_nat stays monotone and bounded by i·(n2−1) < n, so no
-    // wrap is needed. The leaf inverse DIT consumes the same bit-reversed
-    // layout, so the inverse twiddle pass uses the identical addressing.
+    // The caller applies this immediately after the row FFT so the twiddle
+    // pass is fused into step 2 / step 5 instead of costing a separate plane
+    // sweep.
     template <typename F>
-    inline void MfaTwiddleApply(UInt *plane, Int n1, Int n2, Int nFull, const UInt *roots, bool parallel)
+    inline void MfaTwiddleApplyRow(UInt *row, Int rowIndex, Int n2, Int nFull, const UInt *roots, const Int *br)
     {
       Int half = nFull >> 1;
       UInt P = F::Prime;
+      if (rowIndex == 0) return;
+
+      Int posCount = (half + rowIndex - 1) / rowIndex;
+      if (posCount > n2) posCount = n2;
+
+      Int idx = 0;
+      for (Int k2 = 0; k2 < posCount; ++k2)
+      {
+        Int pos = br[k2];
+        row[pos] = F::Mul(row[pos], roots[idx]);
+        idx += rowIndex;
+      }
+
+      if (posCount < n2)
+      {
+        Int negIdx = idx - half;
+        for (Int k2 = posCount; k2 < n2; ++k2)
+        {
+          Int pos = br[k2];
+          row[pos] = F::Mul(row[pos], (UInt)(P - roots[negIdx]));
+          negIdx += rowIndex;
+        }
+      }
+    }
+
+    template <typename F>
+    inline void MfaTwiddleApply(UInt *plane, Int n1, Int n2, Int nFull, const UInt *roots, bool parallel)
+    {
       const std::vector<Int> &brTable = GetBitReverseTable(n2);
       const Int *br = brTable.data();
-      auto body = [plane, n2, half, roots, P, br](Int iStart, Int iEnd) {
+      auto body = [plane, n2, nFull, roots, br](Int iStart, Int iEnd) {
         for (Int i = iStart; i < iEnd; ++i)
         {
-          if (i == 0) continue;
           UInt *row = plane + (SizeT)i * n2;
-          Int posCount = (half + i - 1) / i;
-          if (posCount > n2) posCount = n2;
-
-          Int idx = 0;
-          for (Int k2 = 0; k2 < posCount; ++k2)
-          {
-            Int pos = br[k2];
-            row[pos] = F::Mul(row[pos], roots[idx]);
-            idx += i;
-          }
-
-          if (posCount < n2)
-          {
-            Int negIdx = idx - half;
-            for (Int k2 = posCount; k2 < n2; ++k2)
-            {
-              Int pos = br[k2];
-              row[pos] = F::Mul(row[pos], (UInt)(P - roots[negIdx]));
-              negIdx += i;
-            }
-          }
+          MfaTwiddleApplyRow<F>(row, i, n2, nFull, roots, br);
         }
       };
 #if BIGMATH_USE_THREADS
@@ -1074,8 +1079,11 @@ namespace BigMath
 
       // Step 2: n1 forward sub-FFTs of length n2 on rows of scratch.
       // Each sub-call uses the matching slice of `a` as its own scratch.
+      const Plan<F> &planN = tree.Get(n);
       const Plan<F> &planN2 = tree.Get(n2);
-      auto step2 = [scratch, a, n2, parallel, &planN2, &tree](Int rStart, Int rEnd) {
+      const std::vector<Int> &brTable = GetBitReverseTable(n2);
+      const Int *br = brTable.data();
+      auto step2 = [scratch, a, n2, parallel, &planN, &planN2, &tree, br, n](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = scratch + (SizeT)r * n2;
@@ -1083,6 +1091,7 @@ namespace BigMath
             ForwardPtr<F>(row, n2, planN2);
           else
             ForwardMFA<F>(row, n2, a + (SizeT)r * n2, parallel, tree);
+          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.forwardRoots.data(), br);
         }
       };
 #if BIGMATH_USE_THREADS
@@ -1091,10 +1100,6 @@ namespace BigMath
 #else
       step2(0, n1);
 #endif
-
-      // Step 3: cross-twiddle in scratch using length-n forward roots.
-      const Plan<F> &planN = tree.Get(n);
-      MfaTwiddleApply<F>(scratch, n1, n2, n, planN.forwardRoots.data(), parallel);
 
       // Step 4: scratch (n1×n2) → a (n2×n1)
       Transpose(scratch, a, n1, n2);
@@ -1154,13 +1159,12 @@ namespace BigMath
       // Reverse step 4: a (n2×n1) → scratch (n1×n2)
       Transpose(a, scratch, n2, n1);
 
-      // Reverse step 3: inverse cross-twiddle in scratch.
-      const Plan<F> &planN = tree.Get(n);
-      MfaTwiddleApply<F>(scratch, n1, n2, n, planN.inverseRoots.data(), parallel);
-
       // Reverse step 2: n1 inverse sub-FFTs of length n2 on rows of scratch.
+      const Plan<F> &planN = tree.Get(n);
       const Plan<F> &planN2 = tree.Get(n2);
-      auto invStep2 = [scratch, a, n2, parallel, &planN2, &tree](Int rStart, Int rEnd) {
+      const std::vector<Int> &brTable = GetBitReverseTable(n2);
+      const Int *br = brTable.data();
+      auto invStep2 = [scratch, a, n2, parallel, &planN, &planN2, &tree, br, n](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = scratch + (SizeT)r * n2;
@@ -1168,6 +1172,7 @@ namespace BigMath
             InversePtr<F>(row, n2, planN2, /*scale=*/ true);
           else
             InverseMFA<F>(row, n2, a + (SizeT)r * n2, parallel, tree);
+          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.inverseRoots.data(), br);
         }
       };
 #if BIGMATH_USE_THREADS
