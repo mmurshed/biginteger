@@ -13,6 +13,7 @@ namespace BigMath
   const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
   const SizeT TOOM3_MULTIPLICATION_THRESHOLD = BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD;
   const SizeT NTT_MULTIPLICATION_THRESHOLD = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
+  const SizeT TOOM3_SKEW_RATIO = BIGMATH_TOOM3_SKEW_RATIO;
   const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_RATIO = BIGMATH_CLASSIC_SKEW_RATIO;
@@ -42,8 +43,11 @@ namespace BigMath
     if (size < TOOM3_MULTIPLICATION_THRESHOLD)
       return KaratsubaMultiplication::Multiply(a, b, base);
 
-    if (size < NTT_MULTIPLICATION_THRESHOLD)
+    if (size < NTT_MULTIPLICATION_THRESHOLD && maxSize < TOOM3_SKEW_RATIO * minSize)
       return ToomCookMultiplication::Multiply(a, b, base);
+
+    if (size < NTT_MULTIPLICATION_THRESHOLD)
+      return KaratsubaMultiplication::Multiply(a, b, base);
 
     return NTTMultiplication::Multiply(a, b, base);
   }
