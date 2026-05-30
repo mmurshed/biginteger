@@ -117,26 +117,26 @@ Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LI
 |---|---|---:|---:|---:|
 | mul | 100 000 × 100 000 | 1.35 ms | 0.78 ms | 1.72× |
 | mul | 1 000 000 × 1 000 000 | 10.5 ms | 9.06 ms | 1.16× |
-| mul | 2 000 000 × 2 000 000 | 21.9 ms | 20.6 ms | 1.07× |
-| mul | **5 000 000 × 5 000 000** | **46.5 ms** | **63.5 ms** | **0.73×** ← BigMath faster |
-| mul | **10 000 000 × 10 000 000** | **105 ms** | **212 ms** | **0.50×** ← BigMath 2.01× faster |
-| mul | 20 000 000 × 20 000 000 | 279 ms | 278 ms | 1.00× ← parity |
-| mul | 50 000 000 × 50 000 000 | 1 231 ms | 660 ms | 1.86× ← GMP SSA recovers |
-| mul | 100 000 000 × 100 000 000 | 2 832 ms | 1 391 ms | 2.04× |
-| mul (skewed) | **1 000 000 / 100 000** | **4.47 ms** | **4.79 ms** | **0.93×** ← BigMath faster |
-| mul (skewed) | 2 000 000 / 200 000 | 9.43 ms | 9.45 ms | 1.00× ← parity |
-| mul (skewed) | 10 000 000 / 1 000 000 | 88.4 ms | 70.5 ms | 1.25× |
-| mul (skewed) | 50 000 000 / 5 000 000 | 667 ms | 666 ms | 1.00× ← parity |
-| div (skewed) | 500 000 / 100 000 | 18.0 ms | 4.63 ms | 3.89× |
-| div (skewed) | 10 000 000 / 2 000 000 | 427 ms | 154 ms | 2.78× |
-| div (skewed) | 50 000 000 / 10 000 000 | 2 500 ms | 1 299 ms | **1.92×** |
-| parse | 1 000 000 digits | 48.7 ms | 20.3 ms | 2.40× |
-| parse | 20 000 000 digits | 1 252 ms | 803 ms | **1.56×** |
-| ToString | 100 000 digits | 19.5 ms | 2.33 ms | 8.35× |
-| ToString | 1 000 000 digits | 224 ms | 49.8 ms | 4.50× |
-| ToString | 20 000 000 digits | 5 437 ms | 2 116 ms | **2.57×** |
+| mul | 2 000 000 × 2 000 000 | 21.3 ms | 20.5 ms | 1.04× |
+| mul | **5 000 000 × 5 000 000** | **47.2 ms** | **62.9 ms** | **0.75×** ← BigMath faster |
+| mul | **10 000 000 × 10 000 000** | **102 ms** | **209 ms** | **0.49×** ← BigMath 2.05× faster |
+| mul | 20 000 000 × 20 000 000 | 306 ms | 272 ms | 1.12× ← GMP faster |
+| mul | 50 000 000 × 50 000 000 | 1 239 ms | 669 ms | 1.85× ← GMP SSA recovers |
+| mul | 100 000 000 × 100 000 000 | 2 818 ms | 1 481 ms | 1.90× |
+| mul (skewed) | **1 000 000 / 100 000** | **4.30 ms** | **4.52 ms** | **0.95×** ← BigMath faster |
+| mul (skewed) | 2 000 000 / 200 000 | 9.37 ms | 9.36 ms | 1.00× ← parity |
+| mul (skewed) | 10 000 000 / 1 000 000 | 97.7 ms | 70.0 ms | 1.40× |
+| mul (skewed) | 50 000 000 / 5 000 000 | 543 ms | 699 ms | **0.78×** ← BigMath faster |
+| div (skewed) | 500 000 / 100 000 | 17.4 ms | 4.55 ms | 3.82× |
+| div (skewed) | 10 000 000 / 2 000 000 | 424 ms | 153 ms | 2.77× |
+| div (skewed) | 50 000 000 / 10 000 000 | 2 482 ms | 1 300 ms | **1.91×** |
+| parse | 1 000 000 digits | 49.0 ms | 20.7 ms | 2.36× |
+| parse | 20 000 000 digits | 1 264 ms | 804 ms | **1.57×** |
+| ToString | 100 000 digits | 20.0 ms | 2.40 ms | 8.31× |
+| ToString | 1 000 000 digits | 227 ms | 49.7 ms | 4.57× |
+| ToString | 20 000 000 digits | 5 529 ms | 2 133 ms | **2.59×** |
 
-**BigMath beats GMP on balanced multiplication across the 5M–10M digit band** and is roughly parity at 20M. The current peak is **10M balanced at 2.01× faster than GMP** (105 ms vs 212 ms). The MFA threshold retune improved that row by avoiding early MFA; at ≥50M GMP's Schönhage-Strassen still recovers. Skewed multiplication is a BigMath win around 1M×100k and parity at 2M×200k and 50M×5M, with the dispatcher now avoiding Toom-3 on 2:1+ skewed inputs in the pre-NTT band. Skewed division at 50M×10M is **1.92×** as Newton inherits the large-multiplication speedups. ToString narrows from 8.35× at 100k to 2.57× at 20M; parse to 1.56× at 20M. See [BENCHMARK.md](BENCHMARK.md) for the full table or the per-doc ratio tables for the breakdown.
+**BigMath beats GMP on balanced multiplication across the 5M–10M digit band** and is roughly parity at 20M. The current peak is **10M balanced at 2.05× faster than GMP** (102 ms vs 209 ms). The MFA threshold retune improved that row by avoiding early MFA; at ≥50M GMP's Schönhage-Strassen still recovers. Skewed multiplication is a BigMath win around 1M×100k and parity at 2M×200k, with BigMath also ahead again at 50M×5M. Skewed division at 50M×10M is **1.91×** as Newton inherits the large-multiplication speedups. ToString narrows from 8.31× at 100k to 2.59× at 20M; parse to 1.57× at 20M. See [BENCHMARK.md](BENCHMARK.md) for the full table or the per-doc ratio tables for the breakdown.
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
