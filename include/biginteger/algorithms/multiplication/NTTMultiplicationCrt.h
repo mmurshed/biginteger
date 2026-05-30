@@ -1023,14 +1023,28 @@ namespace BigMath
       auto body = [plane, n2, half, roots, P, br](Int iStart, Int iEnd) {
         for (Int i = iStart; i < iEnd; ++i)
         {
+          if (i == 0) continue;
           UInt *row = plane + (SizeT)i * n2;
+          Int posCount = (half + i - 1) / i;
+          if (posCount > n2) posCount = n2;
+
           Int idx = 0;
-          for (Int k2 = 0; k2 < n2; ++k2)
+          for (Int k2 = 0; k2 < posCount; ++k2)
           {
-            UInt w = (idx < half) ? roots[idx] : (UInt)(P - roots[idx - half]);
             Int pos = br[k2];
-            row[pos] = F::Mul(row[pos], w);
+            row[pos] = F::Mul(row[pos], roots[idx]);
             idx += i;
+          }
+
+          if (posCount < n2)
+          {
+            Int negIdx = idx - half;
+            for (Int k2 = posCount; k2 < n2; ++k2)
+            {
+              Int pos = br[k2];
+              row[pos] = F::Mul(row[pos], (UInt)(P - roots[negIdx]));
+              negIdx += i;
+            }
           }
         }
       };
