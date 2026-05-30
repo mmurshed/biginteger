@@ -106,9 +106,24 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(divperf_simple tests/divperf_simple.cpp)
     target_link_libraries(divperf_simple PRIVATE bigmath::bigmath)
 
+    add_executable(regression_bench tests/performance/regression_bench.cpp)
+    target_link_libraries(regression_bench PRIVATE bigmath::bigmath)
+
     # BigDecimal performance bench
     add_executable(bigdecimal_perf tests/bigdecimal_perf.cpp)
     target_link_libraries(bigdecimal_perf PRIVATE bigmath::bigmath)
+
+    # Split benchmark suite — dataset gen + BigMath run (GMP run added below).
+    # Primary interface is tests/performance/benchsuite/run_benchmark.sh, which
+    # compiles these standalone; these targets exist for IDE/CI parity.
+    set(BENCHSUITE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests/performance/benchsuite)
+    add_executable(bench_gen_dataset ${BENCHSUITE_DIR}/gen_dataset.cpp)
+    target_link_libraries(bench_gen_dataset PRIVATE bigmath::bigmath)
+    target_include_directories(bench_gen_dataset PRIVATE ${BENCHSUITE_DIR})
+
+    add_executable(bench_run_bigmath ${BENCHSUITE_DIR}/run_bigmath.cpp)
+    target_link_libraries(bench_run_bigmath PRIVATE bigmath::bigmath)
+    target_include_directories(bench_run_bigmath PRIVATE ${BENCHSUITE_DIR})
 
     # GMP-comparison bench (requires libgmp)
     find_library(GMP_LIBRARY gmp)
@@ -121,6 +136,10 @@ if(BIGMATH_BUILD_TESTS)
         target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})
         target_include_directories(bench_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
+
+        add_executable(bench_run_gmp ${BENCHSUITE_DIR}/run_gmp.cpp)
+        target_link_libraries(bench_run_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(bench_run_gmp PRIVATE ${BENCHSUITE_DIR} ${GMP_INCLUDE_DIR})
     else()
         message(STATUS "GMP not found; bench_vs_gmp target skipped")
     endif()
