@@ -989,6 +989,21 @@ namespace BigMath
       n2 = (Int)1 << logN2;
     }
 
+    inline bool UseMfaForShape(SizeT lhsLimbs, SizeT rhsLimbs, Int n)
+    {
+      SizeT minLimbs = std::min(lhsLimbs, rhsLimbs);
+      SizeT maxLimbs = std::max(lhsLimbs, rhsLimbs);
+
+      // Very skewed products were the shape that lost the earlier early-MFA
+      // win when the global threshold was raised to protect the balanced
+      // 10M-20M band. Give those shapes a lower cutover without touching the
+      // balanced path.
+      bool highSkew = (minLimbs > 0) && (maxLimbs / minLimbs >= 8);
+      if (highSkew)
+        return n >= (BIGMATH_NTT_MFA_THRESHOLD >> 1);
+      return n >= BIGMATH_NTT_MFA_THRESHOLD;
+    }
+
     // Cross-twiddle for the forward (forwardRoots) or inverse (inverseRoots)
     // pass. After a leaf DIF sub-FFT on each row, storage position k2_br
     // holds the value for *logical* k2 = br(k2_br). The correct factor at
@@ -1187,7 +1202,7 @@ namespace BigMath
       const auto &plan3 = GetPlan<F3, G3>(n);
 
 #if BIGMATH_NTT_MFA
-      const bool useMfa = (n >= BIGMATH_NTT_MFA_THRESHOLD);
+      const bool useMfa = UseMfaForShape(a.size(), b.size(), n);
       // Six per-task scratch buffers, reused across calls on the invoking
       // thread. The worker tasks only touch the raw pointers captured below,
       // so persisting the vectors here does not change the parallel behavior.
