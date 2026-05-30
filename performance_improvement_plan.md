@@ -74,7 +74,7 @@ Success criteria:
 
 ## 3. Auto-Tune Dispatch Thresholds Per Build
 
-Status: proposed.
+Status: completed.
 
 The current thresholds are reasonable on the machine they were measured on, but the best cutoffs can move with compiler, CPU, and limb layout. The library already has benchmark harnesses that make this feasible.
 
@@ -98,6 +98,12 @@ Success criteria:
 - threshold suggestions are derived from measurements, not hand-tuned guesswork
 - the defaults remain sensible for general users
 - local builds on different machines can be tuned without code changes
+
+Implemented as a build-local threshold profile in `include/biginteger/build/DispatchThresholds.h`, plus an emission mode in `tests/performance/dispatch_tuner.cpp`:
+
+- the dispatcher now includes a single shared threshold header before the algorithm-specific fallbacks
+- `dispatch_tuner --emit-header [path]` writes a build-specific override file after measuring the current machine
+- the checked-in header keeps conservative defaults, while local tuning can regenerate it for the active build
 
 ## 4. Revisit Extreme Skew Multiplication
 

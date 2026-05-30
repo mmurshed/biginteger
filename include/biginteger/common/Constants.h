@@ -42,6 +42,8 @@
 #define BIGMATH_MAX_THREADS 8
 #endif
 
+#include "../build/DispatchThresholds.h"
+
 namespace BigMath
 {
   typedef int64_t Long;
