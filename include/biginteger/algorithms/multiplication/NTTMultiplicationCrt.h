@@ -1188,13 +1188,10 @@ namespace BigMath
 
 #if BIGMATH_NTT_MFA
       const bool useMfa = (n >= BIGMATH_NTT_MFA_THRESHOLD);
-      // Six per-task scratch buffers, scoped over forward + pointwise + inverse
-      // so the first three can be reused for the three inverse transforms.
-      // NOT thread_local: ParallelDo dispatches lambdas to worker threads, and
-      // thread_local storage in workers is distinct from the main thread that
-      // would have to assign() the buffer. Stack-local vectors with captured
-      // pointers cross threads safely.
-      std::vector<UInt> mfaScratch[6];
+      // Six per-task scratch buffers, reused across calls on the invoking
+      // thread. The worker tasks only touch the raw pointers captured below,
+      // so persisting the vectors here does not change the parallel behavior.
+      static thread_local std::vector<UInt> mfaScratch[6];
       MfaPlanTree<F1> tree1;
       MfaPlanTree<F2> tree2;
       MfaPlanTree<F3> tree3;
