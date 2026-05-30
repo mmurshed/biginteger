@@ -28,6 +28,24 @@ namespace BigMath
   class NewtonDivision
   {
   private:
+    struct ScratchBuffers
+    {
+      vector<DataT> v0;
+      vector<DataT> v1;
+      vector<DataT> v2;
+      vector<DataT> v3;
+      vector<DataT> v4;
+      vector<DataT> v5;
+      vector<DataT> v6;
+      vector<vector<DataT>> qPieces;
+    };
+
+    static ScratchBuffers &Scratch()
+    {
+      static thread_local ScratchBuffers scratch;
+      return scratch;
+    }
+
     // Bit-shift left by `bits` in [0, LimbBits-1].
     static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int bits)
     {
@@ -86,6 +104,13 @@ namespace BigMath
     static vector<DataT> ApproxReciprocal(vector<DataT> const &D, bool high_precision = false)
     {
       SizeT n = (SizeT)D.size();
+      auto &scratch = Scratch();
+      vector<DataT> &R_pad = scratch.v0;
+      vector<DataT> &D_new = scratch.v1;
+      vector<DataT> &T = scratch.v2;
+      vector<DataT> &two_S = scratch.v3;
+      vector<DataT> &diff = scratch.v4;
+      vector<DataT> &RD = scratch.v5;
 
       // n == 1 base case: R ≈ B^2 / D[0].
       if (n == 1)
@@ -160,20 +185,19 @@ namespace BigMath
         }
 
         // Pad R as seed at new_n precision: shift up by (new_n - cur_n) limbs.
-        vector<DataT> R_pad(R.size() + extend, 0);
+        R_pad.assign(R.size() + extend, 0);
         std::memcpy(R_pad.data() + extend, R.data(), R.size() * sizeof(DataT));
 
         // D_new = top new_n limbs of D.
-        vector<DataT> D_new(D.begin() + (n - new_n), D.end());
+        D_new.assign(D.begin() + (n - new_n), D.end());
 
         // T = D_new * R_pad
-        vector<DataT> T = Multiply(D_new, R_pad, CurrentBase);
+        T = Multiply(D_new, R_pad, CurrentBase);
 
         // diff = 2*B^(2*new_n) - T  (should be ≥ 0 for valid seeds).
-        vector<DataT> two_S(2 * new_n + 1, 0);
+        two_S.assign(2 * new_n + 1, 0);
         two_S[2 * new_n] = 2;
 
-        vector<DataT> diff;
         if (Compare(two_S, T) >= 0)
         {
           diff = Subtract(two_S, T, CurrentBase);
@@ -181,11 +205,11 @@ namespace BigMath
         else
         {
           // R was over-estimate; shouldn't normally trigger. Clamp to 0.
-          diff = vector<DataT>{0};
+          diff.assign(1, 0);
         }
 
         // R_new = (R_pad * diff) >> (32 * 2 * new_n)
-        vector<DataT> RD = Multiply(R_pad, diff, CurrentBase);
+        RD = Multiply(R_pad, diff, CurrentBase);
         if (RD.size() > 2 * new_n)
         {
           R.assign(RD.begin() + 2 * new_n, RD.end());
@@ -218,20 +242,23 @@ namespace BigMath
         vector<DataT> const &R)
     {
       SizeT n = (SizeT)b_norm.size();
+      auto &scratch = Scratch();
+      vector<DataT> &CR = scratch.v0;
+      vector<DataT> &Q = scratch.v1;
+      vector<DataT> &QB = scratch.v2;
 
       // Q ≈ (chunk * R) >> (2n limbs)
-      vector<DataT> CR = Multiply(chunk, R, CurrentBase);
-      vector<DataT> Q;
+      CR = Multiply(chunk, R, CurrentBase);
       if (CR.size() > 2 * n)
         Q.assign(CR.begin() + 2 * n, CR.end());
       else
-        Q = vector<DataT>{0};
+        Q.assign(1, 0);
       TrimZerosToOne(Q);
 
-      vector<DataT> QB = Multiply(Q, b_norm, CurrentBase);
+      QB = Multiply(Q, b_norm, CurrentBase);
 
       const int FIXUP_LIMIT = 8;
-      vector<DataT> one{1};
+      static const vector<DataT> one{1};
 
       int iters = 0;
       while (Compare(QB, chunk) > 0)
@@ -274,6 +301,8 @@ namespace BigMath
       //   Single-block (na ≤ 2n+1): one reciprocal-divide on the whole a.
       //   Blockwise (na > 2n+1): top chunk ∈ [n+1, 2n] limbs, then slide.
       bool blockwise = (na > 2 * n + 1);
+      auto &scratch = Scratch();
+      vector<vector<DataT>> &q_pieces = scratch.qPieces;
 
       if (!blockwise)
       {
@@ -298,7 +327,8 @@ namespace BigMath
       vector<DataT> chunk(a_norm.begin() + pos_low, a_norm.end());
 
       // Collect Q pieces top-down; reverse-concat at end.
-      vector<vector<DataT>> q_pieces;
+      q_pieces.clear();
+      q_pieces.reserve((na + n - 1) / n);
       vector<DataT> rem;
       bool is_first = true;
 
@@ -332,7 +362,8 @@ namespace BigMath
         // Build next chunk: high = rem (≤ n limbs), low = a_norm[pos_low - n .. pos_low - 1].
         SizeT block_n = n; // by construction, remaining is a multiple of n.
         SizeT next_chunk_size = block_n + (SizeT)rem.size();
-        vector<DataT> next_chunk(next_chunk_size, 0);
+        vector<DataT> &next_chunk = scratch.v3;
+        next_chunk.assign(next_chunk_size, 0);
         std::memcpy(next_chunk.data(), a_norm.data() + pos_low - block_n, block_n * sizeof(DataT));
         std::memcpy(next_chunk.data() + block_n, rem.data(), rem.size() * sizeof(DataT));
         chunk = std::move(next_chunk);
