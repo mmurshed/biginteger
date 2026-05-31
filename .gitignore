@@ -8,3 +8,8 @@ build/
 *.gz.*
 .antigravitycli/
 .benchcache/
+
+# Track build-config headers + platform tuning profiles (the broad build
+# rule above also matches include/biginteger/build/).
+!include/biginteger/build/
+!include/biginteger/build/**

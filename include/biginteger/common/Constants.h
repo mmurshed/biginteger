@@ -42,6 +42,10 @@
 #define BIGMATH_MAX_THREADS 8
 #endif
 
+// Per-platform tuned thresholds (auto-selected if a profile exists), then the
+// generic defaults. Both define the same #ifndef-guarded macros, so the profile
+// wins where present and the defaults fill the rest.
+#include "../build/PlatformConfig.h"
 #include "../build/DispatchThresholds.h"
 
 namespace BigMath
