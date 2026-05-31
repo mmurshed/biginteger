@@ -40,12 +40,17 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Why no Schönhage-Strassen.** NTT here uses the Goldilocks prime `P = 2^64 - 2^32 + 1` with 16-bit input split. Convolution-accumulation overflow only at ~2^31 limbs (≈ 8 GB operands), so NTT covers every practical size. SSA's asymptotic edge is `log log n`; at any size below ~2^40 limbs the constant-factor cost of mod-2^N+1 arithmetic loses to NTT. The ~700+ lines of SSA aren't justified for this codebase — if you need more big-int wins, look at block-recursive Mulders division or Schönhage's subquadratic GCD instead.
 
-**Division dispatch** (`algorithms/Division.h`):
-- big-and-skewed (`a.size() > 2048 && a.size() > 3*b.size()`) → `BurnikelZieglerDivision`
-- Newton band → `NewtonDivision` — Newton-Raphson reciprocal, O(M(n)). Handles arbitrary `na/nb` via internal blockwise mode (top chunk in [n+1, 2n], slide down by n, thread the remainder). Two dispatch bands: `b ≥ 24576` at ratio ≥ 4/3, or `b ≥ 16384` at ratio ≥ 2. Wins range from 4× (ratio 2) to 20× (ratio 4 at large sizes) vs FD/BZ.
+**Division dispatch** (`algorithms/Division.h`, thresholds defined in `src/algorithms/Division.cpp`):
+- `NewtonDivision` (Newton-Raphson reciprocal, O(M(n)); handles arbitrary `na/nb` via blockwise mode — top chunk in [n+1, 2n], slide down by n, thread the remainder) when any skew band holds:
+  - `b ≥ 4096` at ratio ≥ 3 (`NEWTON_SKEW` 3/1), or
+  - `b ≥ 98304` at ratio ≥ 2 (`NEWTON_BALANCED` 2/1 — the near-balanced band, PR #79), or
+  - `b ≥ 2048` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1).
+- else `BurnikelZieglerDivision` for power-of-two base when `b > 512` and the BZ band fits (near-balanced `b ≥ 1024, b+32 ≤ a ≤ 3b`, or big-and-skewed `a > 2048 && a > 3b`).
 - otherwise multi-limb → `FastDivision` (Knuth Algorithm D variant)
 - single-limb divisor → `ClassicDivision`
 - `KnuthDivision` and `ReciprocalDivision` are alternates used by correctness tests for cross-checking.
+
+The balanced band exists because BZ's recursive 2n/n halving lands intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes, blowing up 5–60× vs Newton (worst at `n = 2^k+1`); Newton pads once and stays flat. **Known residual:** ratio ∈ (1, 2) at large `b` still routes to BZ and hits the same blowup (~2.7× slower than Newton would be at ratio 1.5) — the balanced band's `a ≥ 2b` lower bound doesn't cover it yet.
 
 When adding a new algorithm, slot the implementation under `algorithms/<op>/<Name>.h`, then update the dispatch in `algorithms/<Op>.h` — the thresholds there are the only place size cutoffs live.
 

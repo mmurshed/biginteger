@@ -57,6 +57,20 @@ Finding: Newton was entering too early for 1024-2048 limb divisors. The retune u
 - high-skew Newton: `b >= 2048` and `a >= 8b`
 - BZ: enabled for both `Base2_32` and `Base2_64`
 
+## 3b. Near-Balanced Newton Band + BZ Non-Power-of-2 Blowup (PR #79)
+
+Status: completed.
+
+Profiling near-balanced (ratio ≈ 2) division at large `b` found two compounding bugs:
+
+1. **Newton single-block pathology.** The single-block path (`na ≤ 2n+1`) ran a `2n+1`-limb chunk through the truncated `(chunk·R) >> 2n` estimate; the error scales with `chunk / B^(2n)` and reaches ~`B` once the chunk exceeds `2n` limbs (the `+1` comes from the Knuth normalize shift on `a ≈ 2n`), overflowing the fixup cap and bailing to quadratic FastDivision (23× spike at `nb = 50000`). Fixed by routing `na > 2n` through the blockwise path.
+
+2. **BZ non-power-of-2 blowup.** BZ's recursive 2n/n halving lands its intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes; the FFT length doubles and the constant factor compounds across recursion depth into a **5–60× slowdown vs Newton**, worst at `n = 2^k+1` (≈90 s for a 262145-limb divisor vs Newton ~0.9 s).
+
+Fix: new Newton balanced band — `b >= NEWTON_BALANCED_B (98304)` and `a >= 2b` → Newton. Measured 8.8× at 500k/250k, 5.6× at 2M/1M, 97.7× at the 2¹⁸+1 worst case; exact-pow2 sizes (BZ best case) regress ~4%. Harness: `tests/performance/division_balanced_bench.cpp`.
+
+**Residual / next step:** ratio ∈ (1, 2) at large `b` still routes to BZ and hits the same blowup (~2.7× slower than Newton at ratio 1.5). Extending the balanced band below ratio 2 needs a quotient-bulk lower bound so genuinely tiny-quotient `a ≈ b` cases (where a full reciprocal is wasteful) stay on FastDivision.
+
 ## 4. Prototype GMP-Style Pre-Inverted D&C Division
 
 Status: prototyped and rejected for now.
