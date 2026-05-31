@@ -31,10 +31,11 @@ string GenerateRandomDigits(int length)
     return s;
 }
 
-void RunBenchmarkForSize(int digits)
+void RunBenchmarkForSize(int digits, int k)
 {
     cout << "---------------------------------------------" << endl;
-    cout << "Benchmarking with two " << digits << "-digit random numbers" << endl;
+    cout << "Benchmarking with two " << digits << "-digit random numbers"
+         << " (avg of " << k << " runs)" << endl;
     cout << "---------------------------------------------" << endl;
 
     string s_a = GenerateRandomDigits(digits);
@@ -46,23 +47,33 @@ void RunBenchmarkForSize(int digits)
     const auto &vecA = a.GetInteger();
     const auto &vecB = b.GetInteger();
 
-    // 1. Classical Multiplication
-    auto start = chrono::high_resolution_clock::now();
-    vector<DataT> rClassic = ClassicMultiplication::Multiply(vecA, vecB, BigInteger::Base());
-    auto end = chrono::high_resolution_clock::now();
-    double timeClassic = chrono::duration<double, milli>(end - start).count();
+    double timeClassic = 0, timeKara = 0, timeNTT = 0;
+    vector<DataT> rClassic, rKara, rNTT;
 
-    // 2. Karatsuba Multiplication
-    start = chrono::high_resolution_clock::now();
-    vector<DataT> rKara = KaratsubaMultiplication::Multiply(vecA, vecB, BigInteger::Base());
-    end = chrono::high_resolution_clock::now();
-    double timeKara = chrono::duration<double, milli>(end - start).count();
+    for (int run = 0; run < k; ++run)
+    {
+        // 1. Classical Multiplication
+        auto start = chrono::high_resolution_clock::now();
+        rClassic = ClassicMultiplication::Multiply(vecA, vecB, BigInteger::Base());
+        auto end = chrono::high_resolution_clock::now();
+        timeClassic += chrono::duration<double, milli>(end - start).count();
 
-    // 3. NTT Multiplication
-    start = chrono::high_resolution_clock::now();
-    vector<DataT> rNTT = NTTMultiplication::Multiply(vecA, vecB, BigInteger::Base());
-    end = chrono::high_resolution_clock::now();
-    double timeNTT = chrono::duration<double, milli>(end - start).count();
+        // 2. Karatsuba Multiplication
+        start = chrono::high_resolution_clock::now();
+        rKara = KaratsubaMultiplication::Multiply(vecA, vecB, BigInteger::Base());
+        end = chrono::high_resolution_clock::now();
+        timeKara += chrono::duration<double, milli>(end - start).count();
+
+        // 3. NTT Multiplication
+        start = chrono::high_resolution_clock::now();
+        rNTT = NTTMultiplication::Multiply(vecA, vecB, BigInteger::Base());
+        end = chrono::high_resolution_clock::now();
+        timeNTT += chrono::duration<double, milli>(end - start).count();
+    }
+
+    timeClassic /= k;
+    timeKara /= k;
+    timeNTT /= k;
 
     // Validate correctness
     bool cmp_kara_ok = (Compare(rClassic, rKara) == 0);
@@ -85,16 +96,20 @@ void RunBenchmarkForSize(int digits)
     printf("NTT:        %8.3f ms (Speedup vs Classic: %4.1fx)\n", timeNTT, timeClassic / timeNTT);
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    int k = (argc > 1) ? atoi(argv[1]) : 3;
+    if (k < 1) k = 1;
+
     cout << "BigInteger Multiplication Performance Benchmark" << endl;
     cout << "Internal representation: Base 2^32 (" << BigInteger::Base() << ")" << endl;
+    cout << "Runs per size (k): " << k << endl;
     cout << "---------------------------------------------" << endl;
 
-    RunBenchmarkForSize(100);
-    RunBenchmarkForSize(10000);
-    RunBenchmarkForSize(100000);
-    RunBenchmarkForSize(500000);
+    RunBenchmarkForSize(100, k);
+    RunBenchmarkForSize(10000, k);
+    RunBenchmarkForSize(100000, k);
+    RunBenchmarkForSize(500000, k);
 
     return 0;
 }
