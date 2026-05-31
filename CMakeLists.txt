@@ -106,8 +106,12 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(divperf_simple tests/divperf_simple.cpp)
     target_link_libraries(divperf_simple PRIVATE bigmath::bigmath)
 
-    add_executable(regression_bench tests/performance/regression_bench.cpp)
-    target_link_libraries(regression_bench PRIVATE bigmath::bigmath)
+    # regression_bench.cpp is an ad-hoc, uncommitted scratch bench; only wire it
+    # up when it's actually present so a clean checkout (CI) still configures.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/performance/regression_bench.cpp")
+        add_executable(regression_bench tests/performance/regression_bench.cpp)
+        target_link_libraries(regression_bench PRIVATE bigmath::bigmath)
+    endif()
 
     # BigDecimal performance bench
     add_executable(bigdecimal_perf tests/bigdecimal_perf.cpp)

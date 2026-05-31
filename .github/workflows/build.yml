@@ -2,12 +2,20 @@ name: build
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
+  workflow_dispatch:
+
+# Builds and tests on Linux, macOS and Windows, each with a platform-specific
+# optimization baseline. Release builds pick up the committed per-platform
+# tuning profile (include/biginteger/build/platform/<os>-<arch>-<compiler>.h)
+# automatically via PlatformConfig.h. The library needs a GCC/Clang toolchain
+# (__int128, __builtin_*_overflow), so the Windows job uses MSYS2 + Clang, not
+# MSVC.
 
 jobs:
-  build:
+  unix:
     name: ${{ matrix.os }} / ${{ matrix.cc }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -57,5 +65,44 @@ jobs:
         run: ctest --output-on-failure --timeout 600
 
       - name: Smoke-test calculator
+        run: echo '2^256 - 1' | ./build/calculator
+
+  windows:
+    name: windows-latest / clang (msys2)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + Clang
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
         run: |
-          echo '2^256 - 1' | ./build/calculator
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -march=x86-64-v3 -DNDEBUG"
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure --timeout 600
+
+      - name: Smoke-test calculator
+        run: echo '2^256 - 1' | ./build/calculator.exe
