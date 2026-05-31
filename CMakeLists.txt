@@ -90,6 +90,9 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(mul_xl_bench tests/performance/mul_xl_bench.cpp)
     target_link_libraries(mul_xl_bench PRIVATE bigmath::bigmath)
 
+    add_executable(division_balanced_bench tests/performance/division_balanced_bench.cpp)
+    target_link_libraries(division_balanced_bench PRIVATE bigmath::bigmath)
+
     add_executable(mfa_correctness tests/performance/mfa_correctness.cpp)
     target_link_libraries(mfa_correctness PRIVATE bigmath::bigmath)
 

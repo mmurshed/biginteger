@@ -14,6 +14,9 @@ namespace BigMath
   const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
   const SizeT NEWTON_SKEW_NUMERATOR = BIGMATH_NEWTON_SKEW_NUMERATOR;
   const SizeT NEWTON_SKEW_DENOMINATOR = BIGMATH_NEWTON_SKEW_DENOMINATOR;
+  const SizeT NEWTON_BALANCED_B = BIGMATH_NEWTON_BALANCED_B;
+  const SizeT NEWTON_BALANCED_NUMERATOR = BIGMATH_NEWTON_BALANCED_NUMERATOR;
+  const SizeT NEWTON_BALANCED_DENOMINATOR = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
   const SizeT NEWTON_HIGH_SKEW_B = BIGMATH_NEWTON_HIGH_SKEW_B;
   const SizeT NEWTON_HIGH_SKEW_NUMERATOR = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
   const SizeT NEWTON_HIGH_SKEW_DENOMINATOR = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
@@ -44,10 +47,16 @@ namespace BigMath
     bool newton_medium_skew =
         b.size() >= NEWTON_MEDIUM_B &&
         NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
+    // Near-balanced (ratio ≥ 2) band: only above NEWTON_BALANCED_B, where BZ's
+    // near-balanced path degrades erratically (measured 2×–4.5× slower than
+    // Newton at b ≥ 100k limbs); below it BZ wins, so leave it alone.
+    bool newton_balanced =
+        b.size() >= NEWTON_BALANCED_B &&
+        NEWTON_BALANCED_DENOMINATOR * a.size() >= NEWTON_BALANCED_NUMERATOR * b.size();
     bool newton_high_skew =
         b.size() >= NEWTON_HIGH_SKEW_B &&
         NEWTON_HIGH_SKEW_DENOMINATOR * a.size() >= NEWTON_HIGH_SKEW_NUMERATOR * b.size();
-    bool newton_eligible = newton_medium_skew || newton_high_skew;
+    bool newton_eligible = newton_medium_skew || newton_balanced || newton_high_skew;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
