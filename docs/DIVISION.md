@@ -62,7 +62,7 @@ flowchart TD
     C -- no --> D{Compare&#40;a, b&#41;}
     D -- a == b --> Eq[return &#123;1, 0&#125;]
     D -- a &lt; b --> Less[return &#123;0, a&#125;]
-    D -- a &gt; b --> E{Newton band?<br/>b ≥ 4096 and a ≥ 3b<br/>OR b ≥ 2048 and a ≥ 8b}
+    D -- a &gt; b --> E{Newton band?<br/>b ≥ 4096 and a ≥ 3b<br/>OR b ≥ 98304 and a ≥ 2b<br/>OR b ≥ 2048 and a ≥ 8b}
     E -- yes --> N[NewtonDivision]
     E -- no --> F{Power-of-two base<br/>AND b.size &gt; 512<br/>AND BZ shape fits?}
     F -- yes --> BZ[BurnikelZieglerDivision]
@@ -81,6 +81,9 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NEWTON_MEDIUM_B` | `4096` | limbs | Newton lower bound for medium-skew division |
 | `BIGMATH_NEWTON_SKEW_NUMERATOR` | `3` | — | medium-skew Newton requires `a.size() ≥ 3·b.size() / 1` |
 | `BIGMATH_NEWTON_SKEW_DENOMINATOR` | `1` | — | |
+| `BIGMATH_NEWTON_BALANCED_B` | `98304` | limbs | Newton lower bound for the near-balanced band (PR #79) |
+| `BIGMATH_NEWTON_BALANCED_NUMERATOR` | `2` | — | balanced Newton requires `a.size() ≥ 2·b.size() / 1` |
+| `BIGMATH_NEWTON_BALANCED_DENOMINATOR` | `1` | — | |
 | `BIGMATH_NEWTON_HIGH_SKEW_B` | `2048` | limbs | lower bound for very-high-skew Newton |
 | `BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR` | `8` | — | high-skew Newton requires `a.size() ≥ 8·b.size() / 1` |
 | `BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR` | `1` | — | |
@@ -90,8 +93,9 @@ Default thresholds (overridable via `-D...`):
 The current dispatch logic, paraphrased:
 
 ```
-1. (b.size ≥ 4096 AND a.size ≥ 3·b.size)
-   OR (b.size ≥ 2048 AND a.size ≥ 8·b.size)                               → Newton
+1. (b.size ≥ 4096   AND a.size ≥ 3·b.size)
+   OR (b.size ≥ 98304 AND a.size ≥ 2·b.size)   ← near-balanced band (PR #79)
+   OR (b.size ≥ 2048  AND a.size ≥ 8·b.size)                              → Newton
 2. (Base2_32 OR Base2_64)  AND  b.size > 512  AND
    ( (b.size ≥ 1024 AND a.size ≥ b.size + 32 AND a.size ≤ 3·b.size)
      OR (a.size > 2048 AND a.size > 3·b.size) )                           → Burnikel–Ziegler
@@ -99,7 +103,9 @@ The current dispatch logic, paraphrased:
 4. (b.size == 1 inside FastDivision)                                      → ClassicDivision
 ```
 
-The ordering matters: Newton wins on **large skewed** problems because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **near-balanced and mid-size skewed** problems where its 2n/n recursion structure beats both FastDivision and Newton's setup cost. FastDivision is the default workhorse for everything else.
+The ordering matters: Newton wins on **large skewed** problems because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **mid-size near-balanced** problems where its 2n/n recursion structure beats both FastDivision and Newton's setup cost.
+
+**Near-balanced band (PR #79).** Above `NEWTON_BALANCED_B` (98304 limbs), ratio-≥2 division goes to Newton instead of BZ. BZ's recursive 2n/n halving lands its intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes — the FFT length doubles and the constant factor compounds across recursion depth into a **5–60× slowdown vs Newton**, worst at `n = 2^k + 1` (measured ~90 s for a 262145-limb divisor vs Newton's ~0.9 s). Newton pads once to the working size and stays flat. Exact-power-of-2 divisor sizes are BZ's best case (it ties Newton); they regress ~4 % under this band but are rare in practice. **Known residual:** ratio ∈ (1, 2) at large `b` still routes to BZ and hits the same blowup (~2.7× slower than Newton at ratio 1.5); the band's `a ≥ 2b` lower bound does not cover it. FastDivision is the default workhorse for everything else.
 
 `KnuthDivision` and `ReciprocalDivision` exist as alternate implementations used by correctness tests for cross-checking. They are not in the production dispatch path.
 
@@ -245,7 +251,7 @@ Once `R` is computed, a single division `a / D` becomes:
 
 The implementation calls this `DivideChunk`.
 
-**Blockwise mode for large dividends.** When `na > 2n + 1` (where `n = |b|`), the algorithm processes the dividend in chunks:
+**Blockwise mode for large dividends.** When `na > 2n` (where `n = |b|`), the algorithm processes the dividend in chunks:
 
 ```
                                                                  
@@ -265,9 +271,9 @@ Each chunk costs O(M(n)) and there are O(na / n) chunks, so total cost is O((na 
 1. The reciprocal `R` is computed once and reused across all chunks.
 2. Each chunk's `DivideChunk` is O(M(n)) thanks to NTT/Karatsuba in the high-half multiplication, not O(n · chunk_size).
 
-**High-precision reciprocal flag.** When `na ≥ 2n`, the implementation runs one **extra Newton iteration at full precision** after the main loop (`EXTRA_REFINE_ITERS = 1`). This is necessary because integer rounding in the standard iteration leaves `R` accurate to only ~half-bits at large `n`, which combined with a dividend window of size ≥ 2n produces a `Q_estimate` error of `O(n)` — too large for the `FIXUP_LIMIT = 8` correction loop to absorb. The extra refinement iteration drops the error to ≤ 1 quotient digit, which the fixup loop handles trivially.
+**Single-block boundary (PR #79).** The single-block path handles `na ≤ 2n`; `na > 2n` goes blockwise. The boundary is `2n`, not `2n+1`: with a `2n+1`-limb chunk the truncated `(chunk·R) >> 2n` quotient estimate underestimates `Q` by up to ~`B` steps (the error is `∝ chunk / B^(2n)`, which reaches `B` once the chunk exceeds `2n` limbs), overflowing the fixup cap and falling back to quadratic `FastDivision`. The `+1` limb routinely appears from the Knuth normalize shift on `a ≈ 2n`. Before this fix, `nb = 50000` spiked to ~5200 ms (vs ~360 ms at neighbouring sizes); routing `na > 2n` through the blockwise path keeps every chunk ≤ 2n and the fixup loop at 0–2 iterations.
 
-Without this flag, the fixup loop diverged at `n = 32768` in early testing, leading to a fallback path that hands off to `FastDivision` if iterations exhaust.
+**High-precision reciprocal flag.** When `na ≥ 2n`, the implementation also runs one **extra Newton iteration at full precision** after the main loop (`EXTRA_REFINE_ITERS = 1`), to drop integer-rounding error in `R` to ≤ 1 quotient digit. Without it the fixup loop diverged at `n = 32768` in early testing, handing off to `FastDivision`.
 
 **Why Newton, why bands.** The structural win of Newton over FastDivision is the O(M(n)) per-chunk cost versus FastDivision's O((m−n+1)·n) quadratic-in-quotient-size cost. The win materializes once the divisor is large enough that NTT/Karatsuba is faster than scalar multi-precision arithmetic, and once the ratio is skewed enough that reciprocal setup amortizes. The 2026-05 tuning lowered the dispatcher band from `b.size ≥ 8192` to `b.size ≥ 1024` with skew threshold `a ≥ 3b`, after a GMP-bench regression at `(a=200k, b=50k digits)` showed Newton was missing the band by 1–3 limbs at boundary cases.
 
