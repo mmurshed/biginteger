@@ -61,6 +61,27 @@
 #define BIGMATH_NTT_MFA_THRESHOLD (1 << 24)
 #endif
 
+// Fuse the MFA transpose into the adjacent row-FFT pass. The plain MFA writes a
+// full transposed copy to scratch and immediately reads it back for the row
+// FFTs — two full round-trips through DRAM per axis. Since large MFA is memory-
+// bandwidth bound on Apple silicon, that round-trip dominates. Fusing tiles the
+// transpose into an L2-resident buffer, runs the row FFT there, and writes the
+// result once: 8n -> 4n bytes of traffic per forward/inverse transform. The
+// per-row FFT math is identical to the unfused path, so results are bit-exact.
+// Only the single-level case (n1,n2 <= LEAF) is fused; that covers every
+// in-practice MFA length (2^24..2^26 all factor to sub-FFTs <= 2^13). Measured
+// ~11% wall-clock at 4M-10M limbs (40M-100M digits) on M1 Max. Opt out with
+// -DBIGMATH_NTT_MFA_FUSE=0.
+#ifndef BIGMATH_NTT_MFA_FUSE
+#define BIGMATH_NTT_MFA_FUSE 1
+#endif
+
+// Rows transposed per tile block. tile = TILE * maxSubFFT UInt must stay L2-
+// resident: 16 * 8192 * 4B = 512KB.
+#ifndef BIGMATH_NTT_MFA_FUSE_TILE
+#define BIGMATH_NTT_MFA_FUSE_TILE 16
+#endif
+
 #ifndef NTT_MULTIPLICATION_CRT
 #define NTT_MULTIPLICATION_CRT
 
@@ -1061,6 +1082,138 @@ namespace BigMath
 #endif
     }
 
+#if BIGMATH_NTT_MFA_FUSE
+    // ─── Fused MFA (single level, n1,n2 <= LEAF) ─────────────────────────────
+    // Collapses each (full transpose + full row-FFT) pair into one streaming
+    // pass. A block of TILE output rows is gathered into an L2-resident tile,
+    // FFT'd there, then written once — eliminating the scratch round-trip that
+    // dominates the bandwidth-bound regime. Per-row math is identical to the
+    // unfused step2/step5, so output is bit-exact.
+
+    // Forward stage A (step1+step2): for output rows r in [r0s,r0e), scratch row
+    // r = FFT_n2(column r of a viewed n2×n1) then cross-twiddle(r). Reads `a`,
+    // writes `scratch`.
+    template <typename F>
+    inline void FusedForwardA(const UInt *a, UInt *scratch, Int n, Int n1, Int n2,
+                              const Plan<F> &planN2, const UInt *fwdRoots,
+                              const Int *br, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n2);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        // Gather: tile[t*n2 + c] = a[c*n1 + (r0+t)], c in [0,n2).
+        for (Int c = 0; c < n2; ++c)
+        {
+          const UInt *s = a + (SizeT)c * n1 + r0;
+          UInt *d = tile + c;
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n2] = s[t];
+        }
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n2;
+          ForwardPtr<F>(row, n2, planN2);
+          MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, fwdRoots, br);
+          std::copy(row, row + n2, scratch + (SizeT)(r0 + t) * n2);
+        }
+      }
+    }
+
+    // Forward stage B (step4+step5): for output rows rr in [r0s,r0e), a row rr =
+    // FFT_n1(column rr of scratch viewed n1×n2). Reads `scratch`, writes `a`.
+    template <typename F>
+    inline void FusedForwardB(UInt *a, const UInt *scratch, Int n1, Int n2,
+                              const Plan<F> &planN1, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n1);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        // Gather: tile[t*n1 + j] = scratch[j*n2 + (r0+t)], j in [0,n1).
+        for (Int j = 0; j < n1; ++j)
+        {
+          const UInt *s = scratch + (SizeT)j * n2 + r0;
+          UInt *d = tile + j;
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n1] = s[t];
+        }
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n1;
+          ForwardPtr<F>(row, n1, planN1);
+          std::copy(row, row + n1, a + (SizeT)(r0 + t) * n1);
+        }
+      }
+    }
+
+    // Inverse stage A (invStep5+rev4): for input rows r in [r0s,r0e), inv-FFT
+    // a row r (length n1), scatter to scratch[c*n2 + r]. Reads `a`, writes
+    // `scratch`.
+    template <typename F>
+    inline void FusedInverseA(const UInt *a, UInt *scratch, Int n1, Int n2,
+                              const Plan<F> &planN1, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n1);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n1;
+          std::copy(a + (SizeT)(r0 + t) * n1, a + (SizeT)(r0 + t) * n1 + n1, row);
+          InversePtr<F>(row, n1, planN1, /*scale=*/ true);
+        }
+        // Scatter: scratch[c*n2 + (r0+t)] = tile[t*n1 + c], c in [0,n1).
+        for (Int c = 0; c < n1; ++c)
+        {
+          const UInt *s = tile + c;
+          UInt *d = scratch + (SizeT)c * n2 + r0;
+          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * n1];
+        }
+      }
+    }
+
+    // Inverse stage B (invStep2+rev1): for input rows r in [r0s,r0e), inv-FFT
+    // scratch row r (length n2) + cross-twiddle(r), scatter to a[c*n1 + r].
+    // Reads `scratch`, writes `a`.
+    template <typename F>
+    inline void FusedInverseB(UInt *a, const UInt *scratch, Int n, Int n1, Int n2,
+                              const Plan<F> &planN2, const UInt *invRoots,
+                              const Int *br, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n2);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n2;
+          std::copy(scratch + (SizeT)(r0 + t) * n2, scratch + (SizeT)(r0 + t) * n2 + n2, row);
+          InversePtr<F>(row, n2, planN2, /*scale=*/ true);
+          MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, invRoots, br);
+        }
+        // Scatter: a[c*n1 + (r0+t)] = tile[t*n2 + c], c in [0,n2).
+        for (Int c = 0; c < n2; ++c)
+        {
+          const UInt *s = tile + c;
+          UInt *d = a + (SizeT)c * n1 + r0;
+          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * n2];
+        }
+      }
+    }
+#endif // BIGMATH_NTT_MFA_FUSE
+
     template <typename F>
     inline void ForwardMFA(UInt *a, Int n, UInt *scratch, bool parallel,
                            const MfaPlanTree<F> &tree)
@@ -1073,6 +1226,31 @@ namespace BigMath
 
       Int n1, n2;
       MFAFactor(n, n1, n2);
+
+#if BIGMATH_NTT_MFA_FUSE
+      if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+      {
+        const Plan<F> &planN_f = tree.Get(n);
+        const Plan<F> &planN2_f = tree.Get(n2);
+        const Plan<F> &planN1_f = tree.Get(n1);
+        const UInt *fwdRoots_f = planN_f.forwardRoots.data();
+        const Int *br_f = GetBitReverseTable(n2).data();
+        auto fa = [a, scratch, n, n1, n2, &planN2_f, fwdRoots_f, br_f](Int s, Int e) {
+          FusedForwardA<F>(a, scratch, n, n1, n2, planN2_f, fwdRoots_f, br_f, s, e);
+        };
+        auto fb = [a, scratch, n1, n2, &planN1_f](Int s, Int e) {
+          FusedForwardB<F>(a, scratch, n1, n2, planN1_f, s, e);
+        };
+#if BIGMATH_USE_THREADS
+        if (parallel && (SizeT)n1 >= ParallelMinSize()) ParallelFor(n1, fa); else fa(0, n1);
+        if (parallel && (SizeT)n2 >= ParallelMinSize()) ParallelFor(n2, fb); else fb(0, n2);
+#else
+        fa(0, n1);
+        fb(0, n2);
+#endif
+        return;
+      }
+#endif
 
       // Step 1: a (n2×n1) → scratch (n1×n2)
       Transpose(a, scratch, n2, n1);
@@ -1136,6 +1314,31 @@ namespace BigMath
 
       Int n1, n2;
       MFAFactor(n, n1, n2);
+
+#if BIGMATH_NTT_MFA_FUSE
+      if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+      {
+        const Plan<F> &planN_f = tree.Get(n);
+        const Plan<F> &planN2_f = tree.Get(n2);
+        const Plan<F> &planN1_f = tree.Get(n1);
+        const UInt *invRoots_f = planN_f.inverseRoots.data();
+        const Int *br_f = GetBitReverseTable(n2).data();
+        auto ia = [a, scratch, n1, n2, &planN1_f](Int s, Int e) {
+          FusedInverseA<F>(a, scratch, n1, n2, planN1_f, s, e);
+        };
+        auto ib = [a, scratch, n, n1, n2, &planN2_f, invRoots_f, br_f](Int s, Int e) {
+          FusedInverseB<F>(a, scratch, n, n1, n2, planN2_f, invRoots_f, br_f, s, e);
+        };
+#if BIGMATH_USE_THREADS
+        if (parallel && (SizeT)n2 >= ParallelMinSize()) ParallelFor(n2, ia); else ia(0, n2);
+        if (parallel && (SizeT)n1 >= ParallelMinSize()) ParallelFor(n1, ib); else ib(0, n1);
+#else
+        ia(0, n2);
+        ib(0, n1);
+#endif
+        return;
+      }
+#endif
 
       // Reverse step 5: n2 inverse sub-FFTs of length n1 on rows of a.
       const Plan<F> &planN1 = tree.Get(n1);

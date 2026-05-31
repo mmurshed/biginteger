@@ -88,6 +88,32 @@ Skewed (`a.size() >> b.size()`):
 
 The retuned gate keeps the old MFA-off path through `2^23` and enables MFA at `2^24+`, matching the measured break-even region.
 
+### MFA transpose fusion (PR #78, 2026-05-31)
+
+The MFA forward/inverse transforms ran each axis as a full out-of-place transpose immediately followed by a full row-FFT sweep over the just-written scratch buffer — two extra round-trips through DRAM per axis. At MFA sizes that scratch is 64–256 MB per prime, and the large-MFA kernel is memory-bandwidth bound on this machine, so those round-trips dominate. Fusing the transpose into the adjacent row-FFT — gather a tile of rows into an L2-resident buffer, FFT (and cross-twiddle) there, write the result once — cuts transform traffic from `8n` to `4n` bytes per forward/inverse. The per-row FFT math is unchanged, so output is **bit-exact**: verified against the unfused path (FNV checksum of product limbs) at 2M–8M limbs, plus `mult_correctness` (18/0). Gated by `BIGMATH_NTT_MFA_FUSE` (default on), tile rows by `BIGMATH_NTT_MFA_FUSE_TILE` (default 16).
+
+![MFA transpose fusion — multiply speed and fusion speedup vs operand size](docs/images/mfa_fusion_speedup.png)
+
+Full sweep, balanced Base2_64, M1 Max, best-of-3 interleaved (fusion default vs `-DBIGMATH_NTT_MFA_FUSE=0`). `≈digits = limbs × 19.27`:
+
+| limbs/operand | ≈digits | path | baseline ms | fusion ms | speedup |
+|---:|---:|---|---:|---:|---:|
+| 3 000 | 58K | non-MFA | 0.51 | 0.54 | −5.0% |
+| 10 000 | 193K | non-MFA | 1.89 | 1.92 | −1.5% |
+| 50 000 | 963K | non-MFA | 8.69 | 9.08 | −4.2% |
+| 200 000 | 3.9M | non-MFA | 40.02 | 40.06 | −0.1% |
+| 700 000 | 13.5M | non-MFA | 250.91 | 241.81 | +3.8% |
+| 1 300 000 | 25M | non-MFA | 648.92 | 649.04 | −0.0% |
+| 2 000 000 | 38.5M | MFA (gate) | 689.23 | 678.93 | +1.5% |
+| **2 600 000** | **50M** | **MFA** | **1 121.25** | **1 011.62** | **+10.8%** |
+| **4 000 000** | **77M** | **MFA** | **1 159.97** | **1 046.13** | **+10.9%** |
+| **5 200 000** | **100M** | **MFA** | **2 379.93** | **2 163.77** | **+10.0%** |
+| **6 000 000** | **116M** | **MFA** | **2 393.66** | **2 181.19** | **+9.7%** |
+| **8 000 000** | **154M** | **MFA** | **2 473.24** | **2 231.99** | **+10.8%** |
+| **10 000 000** | **193M** | **MFA** | **4 978.10** | **4 636.81** | **+7.4%** |
+
+The win switches on exactly at the MFA gate (~2–2.6M limbs / ~40–50M digits) and holds **+7–11%** through 193M digits. Below the gate the fused code path is not reached, so those rows run byte-identical machine code — the ±5% scatter is sub-millisecond measurement noise, not a regression.
+
 ### Multithreaded NTT check
 
 `BIGMATH_USE_THREADS=1` is the default. A focused `mul_xl_bench` run on 2026-05-27 compared the default build against `-DBIGMATH_USE_THREADS=0`:
