@@ -311,6 +311,56 @@ limb-for-limb across `na ∈ {2n-1, 2n, 2n+1, 2n+2, 3n}` × `nb` near the bounda
 
 ---
 
+## In-tree simple harnesses (k-averaged, no GMP)
+
+`tests/multperf_simple.cpp` and `tests/divperf_simple.cpp` are the standalone
+in-tree harnesses (no GMP dependency). Each compares BigMath's own algorithms
+against each other and validates the results limb-for-limb. Both take an
+optional run-count `k` (default 3); every size is timed `k` times and the
+**arithmetic mean** is reported:
+
+```
+multperf_simple 5      # avg of 5 runs per size
+divperf_simple 5
+```
+
+Measured 2026-05-31, M1 Max, `-O2`, default stack (Base2_32 internal repr,
+`k = 5`).
+
+### Multiplication — `multperf_simple 5`
+
+Two random decimal numbers of equal digit length. Speedup is vs Classical.
+
+| digits | Classical ms | Karatsuba ms | Karatsuba× | NTT ms | NTT× |
+|---:|---:|---:|---:|---:|---:|
+| 100 | 0.000 | 0.000 | 0.5× | 0.007 | — |
+| 10 000 | 0.274 | 0.094 | 2.9× | 0.391 | 0.7× |
+| 100 000 | 28.917 | 4.147 | 7.0× | 1.143 | 25.3× |
+| 500 000 | 692.964 | 45.330 | 15.3× | 4.585 | 151.1× |
+
+At 100 digits both classical and Karatsuba are sub-microsecond (rounds to
+0.000 ms); NTT loses to schoolbook at that size, as expected. Karatsuba and NTT
+cross over between 10k and 100k digits — by 500k digits NTT is **151× faster**
+than schoolbook. All three products matched exactly.
+
+### Division — `divperf_simple 5`
+
+`FastDivision` (Knuth D variant) vs `BurnikelZieglerDivision`. Speedup is
+`fast / bz` (>1 means BZ faster). Results cross-checked limb-for-limb.
+
+| shape (limbs) | FastDivision ms | BurnikelZiegler ms | fast/bz |
+|---|---:|---:|---:|
+| 1024 × 512 | 0.845 | 0.864 | 0.98× |
+| 4096 × 2048 | 7.833 | 3.218 | 2.43× |
+| 8192 × 512 | 5.154 | 5.075 | 1.02× |
+| 16384 × 512 | 10.306 | 10.311 | 1.00× |
+
+BZ's recursive halving pays off on the near-balanced `4096 × 2048` shape
+(2.43× over FastDivision). On the skewed `n × 512` shapes the two are at parity
+— the divisor is small enough that FastDivision's quadratic inner loop is short.
+
+---
+
 ## Decimal parse (string → BigInteger)
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |

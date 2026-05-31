@@ -61,6 +61,15 @@ cd build && ctest --output-on-failure
 
 `mult_correctness` is fast; `div_correctness` runs a broad matrix and takes a few minutes; `unit_tests` is sub-second.
 
+The standalone perf harnesses `multperf_simple` and `divperf_simple` (BigMath-internal, no GMP) take an optional run-count `k` (default 3); each size is timed `k` times and the mean reported:
+
+```sh
+./build/multperf_simple 5   # average of 5 runs per size
+./build/divperf_simple 5
+```
+
+See [BENCHMARK.md](BENCHMARK.md#in-tree-simple-harnesses-k-averaged-no-gmp) for the latest k=5 numbers.
+
 ## Use
 
 ```cpp
