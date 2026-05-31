@@ -1207,25 +1207,11 @@ namespace BigMath
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
       Int n = (Int)std::bit_ceil(coeffCount);
 
-      // Three parallel transforms. PackOperand writes the coefficient head
-      // [0, *CoeffSize) of each buffer; only the zero-pad tail needs clearing.
-      // Using assign(n, 0) here would zero the whole buffer and then have
-      // PackOperand overwrite the head — double-writing ~aCoeffSize+bCoeffSize
-      // elements per call. On a bandwidth-bound kernel that waste is real, so
-      // resize (no fill at steady state, size already n) + tail-only fill.
+      // Three parallel transforms.
       static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
-      fa1.resize(n); fb1.resize(n);
-      fa2.resize(n); fb2.resize(n);
-      fa3.resize(n); fb3.resize(n);
-
-      const std::ptrdiff_t aHead = (std::ptrdiff_t)aCoeffSize;
-      const std::ptrdiff_t bHead = (std::ptrdiff_t)bCoeffSize;
-      std::fill(fa1.begin() + aHead, fa1.end(), 0u);
-      std::fill(fa2.begin() + aHead, fa2.end(), 0u);
-      std::fill(fa3.begin() + aHead, fa3.end(), 0u);
-      std::fill(fb1.begin() + bHead, fb1.end(), 0u);
-      std::fill(fb2.begin() + bHead, fb2.end(), 0u);
-      std::fill(fb3.begin() + bHead, fb3.end(), 0u);
+      fa1.assign(n, 0); fb1.assign(n, 0);
+      fa2.assign(n, 0); fb2.assign(n, 0);
+      fa3.assign(n, 0); fb3.assign(n, 0);
 
       PackOperand(a, base, fa1, fa2, fa3);
       PackOperand(b, base, fb1, fb2, fb3);
@@ -1245,10 +1231,7 @@ namespace BigMath
       MfaPlanTree<F3> tree3;
       if (useMfa)
       {
-        // No zero-fill: each scratch is fully written by the step-1 Transpose
-        // before any read (recursive sub-calls likewise write their slice
-        // before reading). assign(n, 0) here was ~6n wasted writes per call.
-        for (int i = 0; i < 6; ++i) mfaScratch[i].resize(n);
+        for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
         // Pre-warm all plans in main thread: worker threads cannot call
         // GetPlan() safely from inside ParallelDo (BuildRoots reenters pool).
         BuildMfaPlanTree<F1, G1>(n, tree1);
