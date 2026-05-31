@@ -20,8 +20,8 @@ namespace BigMath
 {
   // Newton-Raphson division.
   // Precomputes an n-limb approximate reciprocal R of the normalized divisor D
-  // such that R*D ≈ B^(2n). For na ≤ 2n+1: one Q = (a*R) >> 2n + small fixup.
-  // For na > 2n+1: blockwise — process top first_chunk ∈ [n+1, 2n] limbs, then slide down
+  // such that R*D ≈ B^(2n). For na ≤ 2n: one Q = (a*R) >> 2n + small fixup.
+  // For na > 2n: blockwise — process top first_chunk ∈ [n+1, 2n] limbs, then slide down
   // by n, threading the remainder as the high part of each next chunk. Cost stays O(M(n))
   // per block, so blockwise total = (na/n) · M(n) ≈ O(M(na)) — beats Knuth's O(na·n) and
   // BZ's O(M(na)·log) at sizes where M(n) is NTT-dominated.
@@ -298,9 +298,14 @@ namespace BigMath
       SizeT na = (SizeT)a_norm.size();
 
       // Two paths:
-      //   Single-block (na ≤ 2n+1): one reciprocal-divide on the whole a.
-      //   Blockwise (na > 2n+1): top chunk ∈ [n+1, 2n] limbs, then slide.
-      bool blockwise = (na > 2 * n + 1);
+      //   Single-block (na ≤ 2n): one reciprocal-divide on the whole a.
+      //   Blockwise (na > 2n): top chunk ∈ [n+1, 2n] limbs, then slide.
+      // The boundary is 2n, not 2n+1: with a 2n+1-limb chunk the truncated
+      // (chunk·R)>>2n quotient estimate underestimates Q by up to ~B steps
+      // (error ∝ chunk/B^2n, which reaches B once chunk exceeds 2n limbs),
+      // overflowing the fixup cap and falling back to quadratic FastDivision.
+      // The +1 limb routinely appears from the Knuth normalize shift on a≈2n.
+      bool blockwise = (na > 2 * n);
       auto &scratch = Scratch();
       vector<vector<DataT>> &q_pieces = scratch.qPieces;
 
