@@ -377,8 +377,7 @@ namespace BigMath
             Int stride = n / outerLen;
             Int stride4 = stride << 2;
             Int numBlocks = n / outerLen;
-            Int omega4_off = n / 4;
-            auto body = [a, halflen, qlen4, qlen8, outerLen, stride, stride4, omega4_off, roots](Int bStart, Int bEnd) {
+            auto body = [a, halflen, qlen4, qlen8, outerLen, stride, stride4, roots](Int bStart, Int bEnd) {
                 for (Int b = bStart; b < bEnd; ++b)
                 {
                     Int i = b * outerLen;

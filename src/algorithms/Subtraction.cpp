@@ -72,7 +72,10 @@ namespace BigMath
     aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
 
-    Int size = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
+    Int len = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
+    if (len <= 0)
+      return;
+    SizeT size = (SizeT)len;
 
     if (base == Base2_64)
     {
@@ -80,16 +83,16 @@ namespace BigMath
       // can't hold a 64-bit limb, so do unsigned arithmetic and detect borrow
       // via comparison.
       ULong borrow = 0;
-      for (Int i = 0; i < size; i++)
+      for (SizeT i = 0; i < size; i++)
       {
         ULong ai = 0;
-        Int aPos = aStart + i;
-        if (aPos <= aEnd && aPos < (Int)a.size())
+        SizeT aPos = aStart + i;
+        if (aPos <= aEnd && aPos < a.size())
           ai = a[aPos];
 
         ULong bi = 0;
-        Int bPos = bStart + i;
-        if (bPos <= bEnd && bPos < (Int)b.size())
+        SizeT bPos = bStart + i;
+        if (bPos <= bEnd && bPos < b.size())
           bi = b[bPos];
 
         // Compute ai - bi - borrow with two-step borrow detection.
@@ -99,26 +102,26 @@ namespace BigMath
         ULong borrow2 = (t1 < bi) ? 1 : 0;
         borrow = borrow1 + borrow2;
 
-        Int rPos = rStart + i;
-        if (rPos < (Int)result.size())
+        SizeT rPos = rStart + i;
+        if (rPos < result.size())
           result[rPos] = (DataT)diff;
       }
       return;
     }
 
     Long carry = 0;
-    for (Int i = 0; i < size; i++)
+    for (SizeT i = 0; i < size; i++)
     {
       Long digitOps = 0;
 
-      Int aPos = aStart + i;
-      if (aPos <= aEnd && aPos < (Int)a.size())
+      SizeT aPos = aStart + i;
+      if (aPos <= aEnd && aPos < a.size())
         digitOps = a[aPos];
 
       digitOps -= carry;
 
-      Int bPos = bStart + i;
-      if (bPos <= bEnd && bPos < (Int)b.size())
+      SizeT bPos = bStart + i;
+      if (bPos <= bEnd && bPos < b.size())
         digitOps -= b[bPos];
 
       carry = 0;
@@ -128,8 +131,8 @@ namespace BigMath
         carry = 1;
       }
 
-      Int rPos = rStart + i;
-      if (rPos < (Int)result.size())
+      SizeT rPos = rStart + i;
+      if (rPos < result.size())
         result[rPos] = (DataT)digitOps;
     }
   }
