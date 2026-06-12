@@ -1279,6 +1279,11 @@ namespace BigMath
       ULong maxOtherCoeffSize = (ULong)maxOtherLimbs * prepared.coeffsPerLimb;
       ULong maxCoeffCount = prepared.operandCoeffSize + maxOtherCoeffSize - 1;
       prepared.n = (Int)std::max<ULong>(2, std::bit_ceil(maxCoeffCount));
+      if (prepared.n > (1 << 26))
+        throw std::invalid_argument(
+            "NttCrt: operands exceed the CRT NTT length ceiling (2^26 coefficients, "
+            "~640M decimal digits) — P2/P3 have 2-adic order 2^26, so longer "
+            "transforms would silently compute with invalid roots");
 
       prepared.f1.assign(prepared.n, 0);
       prepared.f2.assign(prepared.n, 0);
@@ -2278,6 +2283,14 @@ namespace BigMath
       ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
       Int n = (Int)std::bit_ceil(coeffCount);
+      // CRT length ceiling: the primes' 2-adic order is 2^26 (see the prime
+      // table at the top of this file). Beyond it BuildRoots' (P-1)/n is no
+      // longer exact and the transform silently corrupts — fail loudly. The
+      // pre-guard behavior was undefined output at ≥ ~8 GB operand pairs.
+      if (n > (1 << 26))
+        throw std::invalid_argument(
+            "NttCrt: operands exceed the CRT NTT length ceiling (2^26 coefficients, "
+            "~640M decimal digits)");
 
       // Three parallel transforms. Buffer zero-fill + packing happen inside
       // the branch that needs them: the fused MFA path (F3) packs straight
@@ -2327,6 +2340,12 @@ namespace BigMath
         else
 #endif
         {
+          // F4 audit note (mem_pass_fusion.md): with LEAF = 2^13 the fused
+          // window covers every n ≤ 2^26 — the entire admissible CRT range
+          // under the ceiling guard above. This multi-level branch is
+          // therefore reachable ONLY in -DBIGMATH_NTT_MFA_FUSE=0 builds,
+          // where it (and ForwardMFA/InverseMFA's standalone Transpose
+          // sweeps) is the intended fallback. Kept, not dead code.
           for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
           fa1.assign(n, 0); fb1.assign(n, 0);
           fa2.assign(n, 0); fb2.assign(n, 0);
@@ -2336,9 +2355,8 @@ namespace BigMath
           UInt *bufs[6]   = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
           UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
                              mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
-          // Multi-level MFA (above the single-level fused window): original
-          // 6-unit forward batch; the pointwise sweep below handles the
-          // product.
+          // Multi-level MFA: original 6-unit forward batch; the pointwise
+          // sweep below handles the product.
           auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
             for (Int idx = s; idx < e; ++idx)
             {

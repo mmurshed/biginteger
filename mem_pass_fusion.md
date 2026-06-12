@@ -77,7 +77,14 @@ Warm-state raw-limb suite, best-of-3 × 3 interleaved rounds vs pre-#107
    2-5% across the band, 10.4M mul wash.
 3. F2 finalize chunking: FinalizeProduct serial but small (~0.4% in the
    old profile). Only if the probe shows saturation or its share grew.
-4. F4 transpose audit: unchanged.
+4. F4 transpose audit — **CLOSED (2026-06-12, accept-and-document)**:
+   with LEAF = 2^13 the single-level fused window covers every admissible
+   CRT length (n ≤ 2^26), so the multi-level/non-fused paths (standalone
+   Transpose sweeps, recursive ForwardMFA/InverseMFA) are reachable only
+   in -DBIGMATH_NTT_MFA_FUSE=0 builds — kept as that configuration's
+   fallback, marked in code. A hard guard now throws at n > 2^26 in
+   Multiply and PrepareOperand (previously: silent root corruption at
+   ~8 GB operand pairs; MultiplyMod2km1 already threw).
 Owner note: this is the last identified structural performance lever. Every
 band below 50M digits is at or better than GMP parity; the 50M–200M-digit
 band (balanced mul 1.28–1.33×, div 1.23–1.37× vs GMP) is
