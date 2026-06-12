@@ -198,3 +198,78 @@ REGISTER_TEST(Builder, VectorFromULong)
   ASSERT_EQ(v[1], 1u);
 }
 #endif
+
+REGISTER_TEST(Construction, MoveLimbVector)
+{
+  std::vector<DataT> limbs = {12345, 67890};
+  BigInteger x(std::move(limbs), true);
+  ASSERT_TRUE(x.IsNegative());
+  ASSERT_EQ(x.size(), 2u);
+  ASSERT_EQ(x[0], 12345u);
+  ASSERT_EQ(x[1], 67890u);
+  ASSERT_TRUE(limbs.empty()); // Check that vector was moved from
+}
+
+REGISTER_TEST(Construction, ReleaseInteger)
+{
+  BigInteger x(std::vector<DataT>{100, 200}, true);
+  std::vector<DataT> limbs = x.ReleaseInteger();
+  ASSERT_EQ(limbs.size(), 2u);
+  ASSERT_EQ(limbs[0], 100u);
+  ASSERT_EQ(limbs[1], 200u);
+  
+  // x should be left in a valid positive zero state
+  ASSERT_TRUE(x.Zero());
+  ASSERT_FALSE(x.IsNegative());
+  ASSERT_EQ(x.size(), 1u);
+  ASSERT_EQ(x[0], 0u);
+}
+
+REGISTER_TEST(Serialization, ByteArrays)
+{
+  // Test value 0
+  {
+    BigInteger z;
+    auto bytes = z.ToByteArray(true);
+    ASSERT_TRUE(bytes.empty());
+    
+    BigInteger z2 = BigInteger::FromByteArray(bytes, false, true);
+    ASSERT_TRUE(z2.Zero());
+    ASSERT_FALSE(z2.IsNegative());
+  }
+
+  // Test standard value, big-endian and little-endian
+  {
+    // 0x1234567890abcdef
+    ULong val = 0x1234567890abcdefULL;
+    BigInteger x = BigIntegerBuilder::From(val);
+    
+    // Big Endian bytes
+    std::vector<uint8_t> expectedBE = {
+      0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
+    };
+    auto bytesBE = x.ToByteArray(true);
+    ASSERT_EQ(bytesBE.size(), expectedBE.size());
+    for (size_t i = 0; i < bytesBE.size(); ++i) {
+      ASSERT_EQ(bytesBE[i], expectedBE[i]);
+    }
+    
+    BigInteger x2 = BigInteger::FromByteArray(bytesBE, true, true);
+    ASSERT_TRUE(x2.IsNegative());
+    ASSERT_EQ(x2, -x);
+    
+    // Little Endian bytes
+    std::vector<uint8_t> expectedLE = {
+      0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12
+    };
+    auto bytesLE = x.ToByteArray(false);
+    ASSERT_EQ(bytesLE.size(), expectedLE.size());
+    for (size_t i = 0; i < bytesLE.size(); ++i) {
+      ASSERT_EQ(bytesLE[i], expectedLE[i]);
+    }
+    
+    BigInteger x3 = BigInteger::FromByteArray(bytesLE, false, false);
+    ASSERT_FALSE(x3.IsNegative());
+    ASSERT_EQ(x3, x);
+  }
+}
