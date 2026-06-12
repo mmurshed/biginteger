@@ -2,6 +2,8 @@
 
 Measured 2026-05-30 (fresh local rerun). Single-run snapshot capturing the state of `master` after the 2026-05 optimization pass (LIMB_64 default, multi-prime CRT NTT default, multithreaded NTT default, M-G div2by1 in `ClassicDivision`, M-G 3/2 qhat in `FastDivision` Base2_64, BZ Knuth-normalize fix, radix-4 + radix-8 fused NTT butterflies (PRs #59, #60), **Matrix Fourier Algorithm / Bailey 6-step CRT NTT retuned to n ≥ 2^24 coefficients**).
 
+**Division, parse, and ToString tables re-measured 2026-06-11** after the division/dispatch session (PRs #82–#89: FastDivision bit-shift normalization, decimal D&C threshold retune, the wraparound-Newton family — cyclic QB remainder, top-limbs CR, invertappr reciprocal — plus the 4/3 balanced band and quotient-sized division). Multiplication tables are unchanged 2026-05-30 values (multiplication code untouched by that session). See the [2026-06-11 session section](#2026-06-11-division--decimal-io-session-prs-82-89) for the dispatch-shape wins the standard grids don't cover.
+
 For per-subsystem deep dives — algorithms, dispatch, optimization history, rejected approaches — see:
 
 - [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md)
@@ -217,38 +219,37 @@ Balanced (`a.size() == b.size()`) — quotient is 1-2 limbs, both libraries shor
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | <0.001 | <0.001 | 10.90× |
-| 5 000 × 5 000 | 0.001 | <0.001 | 6.41× |
-| 10 000 × 10 000 | 0.002 | <0.001 | 6.55× |
-| 50 000 × 50 000 | <0.001 | <0.001 | 0.43× |
-| 100 000 × 100 000 | <0.001 | 0.001 | 0.23× |
-| 500 000 × 500 000 | 0.001 | 0.005 | 0.18× |
-| 1 000 000 × 1 000 000 | 0.001 | 0.010 | 0.10× |
-| 5 000 000 × 5 000 000 | 1.367 | 0.189 | 7.23× |
+| 1 000 × 1 000 | <0.001 | <0.001 | — |
+| 5 000 × 5 000 | 0.001 | <0.001 | — |
+| 10 000 × 10 000 | <0.001 | <0.001 | — |
+| 50 000 × 50 000 | 0.001 | <0.001 | 2.33× |
+| 100 000 × 100 000 | 0.001 | 0.001 | 2.31× |
+| 500 000 × 500 000 | 0.007 | 0.004 | 1.59× |
+| 1 000 000 × 1 000 000 | 0.014 | 0.009 | 1.62× |
+| 5 000 000 × 5 000 000 | 1.355 | 0.162 | 8.39× |
 
 Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 
 | size | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 40 000 × 10 000 | 0.732 | 0.218 | 3.36× |
-| 100 000 × 10 000 | 2.178 | 0.450 | 4.84× |
-| 200 000 × 50 000 | 11.088 | 1.704 | 6.51× |
-| 500 000 × 100 000 | 17.742 | 4.608 | 3.85× |
-| 1 000 000 × 200 000 | 33.632 | 10.022 | 3.36× |
-| 2 000 000 × 500 000 | 82.969 | 24.724 | 3.36× |
-| 5 000 000 × 1 000 000 | 200.641 | 69.900 | 2.87× |
-| 10 000 000 × 2 000 000 | 432.299 | 154.709 | 2.79× |
-| 20 000 000 × 4 000 000 | 982.906 | 353.134 | 2.78× |
-| 50 000 000 × 10 000 000 | 2 464.018 | 1 324.260 | 1.86× |
-| 100 000 000 × 20 000 000 | 6 119.817 | 2 594.778 | 2.36× |
-| **200 000 000 × 40 000 000** | **12 979.547** | **4 550.205** | **2.85×** ← MFA flowing through Newton |
+| 40 000 × 10 000 | 0.727 | 0.215 | 3.38× |
+| 100 000 × 10 000 | 2.184 | 0.460 | 4.75× |
+| 200 000 × 50 000 | 10.867 | 1.635 | 6.65× |
+| **500 000 × 100 000** | **12.442** | **4.469** | **2.78×** ← was 3.85× |
+| **1 000 000 × 200 000** | **22.599** | **9.723** | **2.32×** ← was 3.36× |
+| **2 000 000 × 500 000** | **45.743** | **24.010** | **1.91×** ← was 3.36× |
+| **5 000 000 × 1 000 000** | **111.407** | **70.057** | **1.59×** ← was 2.87× |
+| **10 000 000 × 2 000 000** | **232.324** | **150.828** | **1.54×** ← was 2.79× |
+| **20 000 000 × 4 000 000** | **519.977** | **344.471** | **1.51×** ← was 2.78× |
+| **50 000 000 × 10 000 000** | **1 461.269** | **1 297.461** | **1.13×** ← was 1.86× |
+| 100 000 000 × 20 000 000 | 6 119.817 | 2 594.778 | 2.36× (2026-05-30, not re-measured) |
+| 200 000 000 × 40 000 000 | 12 979.547 | 4 550.205 | 2.85× (2026-05-30, not re-measured) |
 
-**Observations:**
+**Observations (updated 2026-06-11):**
 
-- **Skewed division ratio narrows from ~6.5× at 200k×50k peak to 1.86× at 50M×10M, then rises back to 2.85× at 200M×40M.** Newton inherits the multiplication wins in the large regime, including MFA once the internal products cross the useful MFA band. The residual gap is still division-structure overhead, not decimal I/O.
+- **The wraparound-Newton family (PRs #85–#87) cut the skewed band roughly in half: 500k×100k through 50M×10M now sit at 1.13–2.78× vs GMP, from 1.86–3.85× before.** 5M×1M went 200.6 → 111.4 ms; 50M×10M is at **1.13×, near parity**. The cuts shorten the serial transform chain (cyclic mod-B^L−1 products at half length, top-limbs quotient estimates), which is the lever that converts to wall-clock on the threaded stack.
 - 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.5× to GMP's `mpn_dcpi1_div_q` at this size.
-- Residual 2.8-3.9× gap in the 1M-20M skewed band is the structural cost of Newton's chunked iteration vs GMP's single recursive divide with precomputed inverse.
-- Balanced cases route through FastDivision short-circuits and aren't algorithmically meaningful at this size profile. The 5M×5M balanced case was regressing 27.03× before PR #56 fix (BZ misroute on degenerate quotient); now 7.20× via FastDivision short-circuit.
+- Balanced equal-size rows are degenerate (quotient 0–1 limbs, both libraries short-circuit; sub-15µs absolute through 1M digits). FastDivision's scalar-normalization fix (PR #82, bit-shift normalize, 3.5× on that path) shows up in driver benchmarks rather than these noise-level rows.
 
 ### Shape-focused division dispatch
 
@@ -311,6 +312,37 @@ limb-for-limb across `na ∈ {2n-1, 2n, 2n+1, 2n+2, 3n}` × `nb` near the bounda
 
 ---
 
+## 2026-06-11 division & decimal-IO session (PRs #82-#89)
+
+One-day profiling-driven pass over division and decimal I/O. Full analysis and rejection notes in
+[docs/DIVISION.md](docs/DIVISION.md) and [docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md);
+this is the headline summary. The refreshed division/parse/ToString tables above are the post-session state.
+
+| PR | change | headline win |
+|---|---|---|
+| #82 | FastDivision bit-shift normalization (replaces scalar-d normalize; kills per-limb `__udivmodti4` remainder denorm) | balanced div 1M digits 0.89 → 0.25 ms (3.5×) |
+| #83 | decimal D&C thresholds: parse 8192 → 2048, tostr 2048 → 1024 (May sweep inverted by the radix-8/MFA/Newton changes) | parse −12…−53% (4k–1M digits), tostr −19…−33% (1.5k–10k) |
+| #84 | doc-only: prepared-transform reuse in `DivideChunk` REJECTED — cut CPU 11% but wall-clock flat (the 6 forward transforms already run concurrently; only serial-chain cuts convert to wall-clock on the threaded stack) | — |
+| #85 | cyclic wrap-around remainder: `Q·b_norm` replaced by its residue mod `B^L−1` at half transform length | skewed div −10–11%, tostr −7% |
+| #86 | top-limbs quotient estimate (GMP `mu_divappr` style): multiply only top n+1 chunk limbs against R | skewed div −20% at transform-boundary sizes, tostr −11% |
+| #87 | invertappr-style wrapped Newton iteration in `ApproxReciprocal` (exact E from cyclic residue + top-slice correction) | one-shot skewed div −24–25%, `Divider` setup −29% |
+| #88 | Newton balanced band ratio 2/1 → 4/3 (post-#85–87 crossover re-measured) | nb=131073 limbs ratio 1.5: 10.7 s → 157 ms |
+| #89 | **quotient-sized division** (`QuotientSizedDivision.h`): divides operand tops for short quotients; cost scales with quotient, not divisor; balanced-band floor 98304 → 24576 limbs | 2^k+1 pathology ratios 1.05–1.25: 1.07–5.35 s → 28–71 ms (38–75×) |
+
+Cumulative on the standard grid: skewed div 5M×1M 200.6 → 111.4 ms (2.87× → 1.59× vs GMP),
+50M×10M at **1.13× — near parity**; tostr 1M 224.8 → 170.2 ms; parse 1M 49.0 → 43.3 ms.
+
+Division dispatch now has no known residual shape holes: ratio ∈ (1, 4/3) at b ≥ 24576 limbs routes to
+quotient-sized division (which also beats BZ at BZ's exact-power-of-2 best case), 4/3 ≤ ratio bands route
+to Newton, small/degenerate shapes keep FastDivision.
+
+Two recorded process lessons: profile-sample arithmetic overcounts parallel-overlapped work (CPU-time
+savings ≠ wall-clock savings — see PR #84's rejection), and the exact Newton tower drifts up to ~B^6 ulps,
+so any residue-window sizing needs ~B^16 headroom (a B^4 window caused an 8× ToString regression via
+silent FastDivision fallbacks before being caught with a `10^500000`-divisor repro).
+
+---
+
 ## In-tree simple harnesses (k-averaged, no GMP)
 
 `tests/multperf_simple.cpp` and `tests/divperf_simple.cpp` are the standalone
@@ -365,19 +397,19 @@ BZ's recursive halving pays off on the near-balanced `4096 × 2048` shape
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.002 | 0.002 | 1.50× |
-| 10 000 | 0.115 | 0.038 | 3.01× |
-| 50 000 | 1.375 | 0.387 | 3.43× |
-| 100 000 | 3.263 | 1.047 | 3.10× |
-| 500 000 | 22.262 | 9.270 | 2.40× |
-| 1 000 000 | 49.037 | 21.071 | 2.33× |
-| 2 000 000 | 106.786 | 48.047 | 2.22× |
-| 5 000 000 | 269.753 | 150.835 | 1.79× |
-| 10 000 000 | 585.600 | 350.776 | 1.67× |
-| 20 000 000 | 1 270.039 | 814.355 | 1.56× |
-| 50 000 000 | 5 168.943 | 2 689.193 | 1.92× |
+| 1 000 | 0.002 | 0.002 | 1.51× |
+| 10 000 | 0.085 | 0.038 | 2.24× |
+| 50 000 | 1.182 | 0.397 | 2.98× |
+| 100 000 | 2.867 | 1.051 | 2.73× |
+| 500 000 | 19.369 | 8.869 | 2.18× |
+| 1 000 000 | 43.339 | 20.552 | 2.11× |
+| 2 000 000 | 95.944 | 47.272 | 2.03× |
+| 5 000 000 | 253.822 | 148.577 | 1.71× |
+| 10 000 000 | 552.055 | 345.782 | 1.60× |
+| 20 000 000 | 1 223.549 | 813.621 | 1.50× |
+| 50 000 000 | 5 236.669 | 2 691.178 | 1.95× |
 
-**Observation:** ratio narrows through the 10M-20M sweet spot (3.2× at 100k → **1.56× at 20M**) where BigMath's NTT overtakes GMP's basecase. It widens back to 1.92× at 50M as GMP's SSA activates.
+**Observation (updated 2026-06-11):** the `DecimalDcThreshold` retune (8192 → 2048, PR #83) shaved 10–26% through the 10k–2M band; ratio narrows through the 10M-20M sweet spot (2.7× at 100k → **1.50× at 20M**) where BigMath's NTT overtakes GMP's basecase. It widens back to 1.95× at 50M as GMP's SSA activates.
 
 ---
 
@@ -385,19 +417,19 @@ BZ's recursive halving pays off on the near-balanced `4096 × 2048` shape
 
 | size (digits) | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.007 | 0.004 | 1.82× |
-| 10 000 | 0.274 | 0.078 | 3.50× |
-| 50 000 | 4.044 | 0.861 | 4.70× |
-| 100 000 | 19.803 | 2.357 | 8.40× |
-| 200 000 | 40.760 | 6.417 | 6.35× |
-| 500 000 | 106.486 | 20.667 | 5.15× |
-| 1 000 000 | 224.755 | 50.174 | 4.48× |
-| 2 000 000 | 481.526 | 119.342 | 4.03× |
-| 5 000 000 | 1 104.781 | 386.146 | 2.86× |
-| 10 000 000 | 2 416.172 | 913.741 | 2.64× |
-| 20 000 000 | 5 432.991 | 2 155.828 | 2.52× |
+| 1 000 | 0.006 | 0.003 | 1.82× |
+| 10 000 | 0.261 | 0.078 | 3.35× |
+| 50 000 | 3.916 | 0.860 | 4.56× |
+| **100 000** | **17.608** | **2.388** | **7.37×** ← was 8.40× |
+| **200 000** | **33.585** | **6.131** | **5.48×** ← was 6.35× |
+| **500 000** | **84.371** | **20.667** | **4.08×** ← was 5.15× |
+| **1 000 000** | **170.229** | **51.464** | **3.31×** ← was 4.48× |
+| **2 000 000** | **352.228** | **121.325** | **2.90×** ← was 4.03× |
+| **5 000 000** | **815.351** | **385.973** | **2.11×** ← was 2.86× |
+| **10 000 000** | **1 732.746** | **925.173** | **1.87×** ← was 2.64× |
+| **20 000 000** | **3 785.269** | **2 127.186** | **1.78×** ← was 2.52× |
 
-**Observation:** narrowest gap at 1k (the linear leaf, where GM div2by1 already runs); peaks at 100k (D&C overhead + Newton recip setup not yet amortized); narrows again from 200k onward as D&C asymptotic + NTT inheriting from multiplication's overtake compound — **8.09× at 100k → 2.57× at 20M**.
+**Observation (updated 2026-06-11):** ToString is divider-chain-bound, so it compounds the session's division wins (cyclic QB + top-limbs CR in `DivideChunk`, invertappr reciprocal in chain setup, `BIGMATH_TOSTR_DC_THRESHOLD` 2048 → 1024): 1M digits went 224.8 → 170.2 ms, 20M went 5 433 → 3 785 ms. Gap still peaks around 100k (D&C + chain setup not yet amortized) and narrows to **1.78× at 20M**. Methodology matches the original table: warm best-of-N below 100k, single cold run (chain build included) at 100k+.
 
 ### ToString focused warm benchmark
 
