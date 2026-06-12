@@ -1507,6 +1507,10 @@ namespace BigMath
     inline void InverseMFA(UInt *a, Int n, UInt *scratch, bool parallel,
                            const MfaPlanTree<F> &tree);
 
+    template <typename F>
+    inline void ForwardMFAMul(UInt *b, Int n, UInt *scratch, bool parallel,
+                              const MfaPlanTree<F> &tree, UInt *acc);
+
     // Backward-compat wrappers that build a fresh plan tree per call. Safe
     // only when called from a context that is NOT already inside ParallelDo.
     template <typename F, UInt G>
@@ -1515,6 +1519,14 @@ namespace BigMath
       MfaPlanTree<F> tree;
       BuildMfaPlanTree<F, G>(n, tree);
       ForwardMFA<F>(a, n, scratch, parallel, tree);
+    }
+
+    template <typename F, UInt G>
+    inline void ForwardMFAMul(UInt *b, Int n, UInt *scratch, UInt *acc, bool parallel = true)
+    {
+      MfaPlanTree<F> tree;
+      BuildMfaPlanTree<F, G>(n, tree);
+      ForwardMFAMul<F>(b, n, scratch, parallel, tree, acc);
     }
 
     template <typename F, UInt G>
@@ -1683,6 +1695,43 @@ namespace BigMath
       }
     }
 
+    // Forward stage B with the pointwise product fused into the scatter
+    // (mem_pass_fusion.md F1). Row math is identical to FusedForwardB, but
+    // instead of writing operand B's spectrum to its own plane, each finished
+    // row is multiplied into the already-transformed operand-A plane:
+    // acc[i] = acc[i] * Bhat[i]. B's spectrum never reaches DRAM and the
+    // separate full-plane pointwise sweep disappears.
+    // Precondition: acc already holds A's COMPLETE forward transform — the
+    // caller must order A's forward before this stage (per-prime pairing in
+    // NttCrt::Multiply's fwdBody).
+    template <typename F>
+    inline void FusedForwardBMul(UInt *acc, const UInt *scratch, Int n1, Int n2,
+                                 const Plan<F> &planN1, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n1);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        // Gather: tile[t*n1 + j] = scratch[j*n2 + (r0+t)], j in [0,n1).
+        for (Int j = 0; j < n1; ++j)
+        {
+          const UInt *s = scratch + (SizeT)j * n2 + r0;
+          UInt *d = tile + j;
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n1] = s[t];
+        }
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n1;
+          ForwardPtr<F>(row, n1, planN1);
+          UInt *d = acc + (SizeT)(r0 + t) * n1;
+          for (Int j = 0; j < n1; ++j) d[j] = F::Mul(d[j], row[j]);
+        }
+      }
+    }
+
     // Inverse stage A (invStep5+rev4): for input rows r in [r0s,r0e), inv-FFT
     // a row r (length n1), scatter to scratch[c*n2 + r]. Reads `a`, writes
     // `scratch`.
@@ -1838,6 +1887,49 @@ namespace BigMath
 #endif
     }
 
+    // Forward-transform `b` and multiply its spectrum into `acc` (operand A's
+    // already-transformed plane) in one pass — mem_pass_fusion.md F1. When the
+    // single-level fused path doesn't apply (n at/below the leaf, a recursive
+    // split, or FUSE disabled), falls back to the plain forward followed by a
+    // pointwise loop; the MFA gate keeps every in-practice length (2^24..2^26)
+    // on the fused branch.
+    template <typename F>
+    inline void ForwardMFAMul(UInt *b, Int n, UInt *scratch, bool parallel,
+                              const MfaPlanTree<F> &tree, UInt *acc)
+    {
+#if BIGMATH_NTT_MFA_FUSE
+      if (n > BIGMATH_NTT_MFA_LEAF)
+      {
+        Int n1, n2;
+        MFAFactor(n, n1, n2);
+        if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+        {
+          const Plan<F> &planN_f = tree.Get(n);
+          const Plan<F> &planN2_f = tree.Get(n2);
+          const Plan<F> &planN1_f = tree.Get(n1);
+          const UInt *fwdRoots_f = planN_f.forwardRoots.data();
+          const Int *br_f = GetBitReverseTable(n2).data();
+          auto fa = [b, scratch, n, n1, n2, &planN2_f, fwdRoots_f, br_f](Int s, Int e) {
+            FusedForwardA<F>(b, scratch, n, n1, n2, planN2_f, fwdRoots_f, br_f, s, e);
+          };
+          auto fb = [acc, scratch, n1, n2, &planN1_f](Int s, Int e) {
+            FusedForwardBMul<F>(acc, scratch, n1, n2, planN1_f, s, e);
+          };
+#if BIGMATH_USE_THREADS
+          if (parallel && (SizeT)n1 >= ParallelMinSize()) ParallelFor(n1, fa); else fa(0, n1);
+          if (parallel && (SizeT)n2 >= ParallelMinSize()) ParallelFor(n2, fb); else fb(0, n2);
+#else
+          fa(0, n1);
+          fb(0, n2);
+#endif
+          return;
+        }
+      }
+#endif
+      ForwardMFA<F>(b, n, scratch, parallel, tree);
+      for (Int i = 0; i < n; ++i) acc[i] = F::Mul(acc[i], b[i]);
+    }
+
     template <typename F>
     inline void InverseMFA(UInt *a, Int n, UInt *scratch, bool parallel,
                            const MfaPlanTree<F> &tree)
@@ -1975,6 +2067,7 @@ namespace BigMath
       MfaPlanTree<F1> tree1;
       MfaPlanTree<F2> tree2;
       MfaPlanTree<F3> tree3;
+      bool pointwiseFused = false;
       if (useMfa)
       {
         for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
@@ -1986,21 +2079,103 @@ namespace BigMath
         UInt *bufs[6]   = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
         UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
                            mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
-        auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
+
+        Int n1 = 0, n2 = 0;
+        MFAFactor(n, n1, n2);
+#if BIGMATH_NTT_MFA_FUSE
+        if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+        {
+          // Pass fusion F1 (mem_pass_fusion.md), parallelism-preserving form.
+          //   P1 — ParallelDo(6): stage A (gather + row FFT(n2) + cross-
+          //        twiddle) for all six operand×prime planes; independent.
+          //   P2 — ParallelDo(6): unit = (prime, half of the n2 output
+          //        rows). Each unit runs fa's stage B on its row range, then
+          //        fb's stage B over the same range with the pointwise
+          //        multiply fused into the scatter (FusedForwardBMul):
+          //        fa[i] = fa[i] · fb^[i]. fb's spectrum never reaches DRAM
+          //        and the standalone pointwise sweep below is skipped,
+          //        while the forward keeps six concurrent work units
+          //        throughout.
+          // A first cut paired fa/fb whole-prime in ParallelDo(3); warm-
+          // state benches showed a 1.47× regression — this band does NOT
+          // saturate bandwidth from 3 cores. Row-level ParallelFor inside
+          // the stages can't restore the parallelism either: MFA stage row
+          // counts (n1, n2 ≤ 2^13) sit below ParallelMinSize() = 65536, so
+          // the internal gate never fires. ParallelDo bypasses MinSize.
+          const UInt *fwd1 = tree1.Get(n).forwardRoots.data();
+          const UInt *fwd2 = tree2.Get(n).forwardRoots.data();
+          const UInt *fwd3 = tree3.Get(n).forwardRoots.data();
+          const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
+          const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
+          const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+          const Int *br = GetBitReverseTable(n2).data();
+
+          auto stageA = [bufs, scrs, n, n1, n2, fwd1, fwd2, fwd3,
+                         pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
             {
-              case 0: ForwardMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
-              case 1: ForwardMFA<F1>(bufs[1], n, scrs[1], /*parallel=*/false, tree1); break;
-              case 2: ForwardMFA<F2>(bufs[2], n, scrs[2], /*parallel=*/false, tree2); break;
-              case 3: ForwardMFA<F2>(bufs[3], n, scrs[3], /*parallel=*/false, tree2); break;
-              case 4: ForwardMFA<F3>(bufs[4], n, scrs[4], /*parallel=*/false, tree3); break;
-              case 5: ForwardMFA<F3>(bufs[5], n, scrs[5], /*parallel=*/false, tree3); break;
+              switch (idx)
+              {
+                case 0: FusedForwardA<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+                case 1: FusedForwardA<F1>(bufs[1], scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+                case 2: FusedForwardA<F2>(bufs[2], scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+                case 3: FusedForwardA<F2>(bufs[3], scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+                case 4: FusedForwardA<F3>(bufs[4], scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+                case 5: FusedForwardA<F3>(bufs[5], scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+              }
             }
-          }
-        };
-        ParallelDo(6, fwdBody);
+          };
+          ParallelDo(6, stageA);
+
+          const Int half = n2 >> 1;
+          auto stageB = [bufs, scrs, n1, n2, half,
+                         pn1_1, pn1_2, pn1_3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              Int r0s = (idx & 1) ? half : 0;
+              Int r0e = (idx & 1) ? n2 : half;
+              switch (idx >> 1)
+              {
+                case 0:
+                  FusedForwardB<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
+                  FusedForwardBMul<F1>(bufs[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
+                  break;
+                case 1:
+                  FusedForwardB<F2>(bufs[2], scrs[2], n1, n2, *pn1_2, r0s, r0e);
+                  FusedForwardBMul<F2>(bufs[2], scrs[3], n1, n2, *pn1_2, r0s, r0e);
+                  break;
+                case 2:
+                  FusedForwardB<F3>(bufs[4], scrs[4], n1, n2, *pn1_3, r0s, r0e);
+                  FusedForwardBMul<F3>(bufs[4], scrs[5], n1, n2, *pn1_3, r0s, r0e);
+                  break;
+              }
+            }
+          };
+          ParallelDo(6, stageB);
+          pointwiseFused = true;
+        }
+        else
+#endif
+        {
+          // Multi-level MFA (above the single-level fused window): original
+          // 6-unit forward batch; the pointwise sweep below handles the
+          // product.
+          auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              switch (idx)
+              {
+                case 0: ForwardMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
+                case 1: ForwardMFA<F1>(bufs[1], n, scrs[1], /*parallel=*/false, tree1); break;
+                case 2: ForwardMFA<F2>(bufs[2], n, scrs[2], /*parallel=*/false, tree2); break;
+                case 3: ForwardMFA<F2>(bufs[3], n, scrs[3], /*parallel=*/false, tree2); break;
+                case 4: ForwardMFA<F3>(bufs[4], n, scrs[4], /*parallel=*/false, tree3); break;
+                case 5: ForwardMFA<F3>(bufs[5], n, scrs[5], /*parallel=*/false, tree3); break;
+              }
+            }
+          };
+          ParallelDo(6, fwdBody);
+        }
       }
       else
 #endif
@@ -2033,6 +2208,11 @@ namespace BigMath
 #endif
       }
 
+      // The fused MFA path already multiplied fb into fa during forward
+      // stage B; the standalone pointwise sweep runs for every other path.
+#if BIGMATH_NTT_MFA
+      if (!pointwiseFused)
+#endif
       {
         UInt *p1a = fa1.data(), *p1b = fb1.data();
         UInt *p2a = fa2.data(), *p2b = fb2.data();
@@ -2052,22 +2232,80 @@ namespace BigMath
 #if BIGMATH_NTT_MFA
       if (useMfa)
       {
-        // Reuse the first three forward scratches; the other three are freed
-        // implicitly when the function returns. Each task gets its own.
+        // Reuse the per-prime forward scratches. Each task gets its own.
         UInt *bufs[3] = {fa1.data(), fa2.data(), fa3.data()};
         UInt *scrs[3] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data()};
-        auto invBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
+
+        Int n1 = 0, n2 = 0;
+        MFAFactor(n, n1, n2);
+#if BIGMATH_NTT_MFA_FUSE
+        if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+        {
+          // Row-chunked inverse: the 2-concurrent-process probe showed a
+          // single multiply uses only ~64% of DRAM bandwidth, so the old
+          // ParallelDo(3) (one whole per-prime inverse per unit, 3 cores
+          // busy) leaves wall-clock on the table. Split each fused inverse
+          // stage into (prime, half-row-range) units — 6 concurrent units
+          // per phase, same math, barrier between stages preserved (stage B
+          // row j reads scratch elements written by every stage A unit).
+          const UInt *inv1 = tree1.Get(n).inverseRoots.data();
+          const UInt *inv2 = tree2.Get(n).inverseRoots.data();
+          const UInt *inv3 = tree3.Get(n).inverseRoots.data();
+          const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
+          const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
+          const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+          const Int *br = GetBitReverseTable(n2).data();
+
+          const Int halfA = n2 >> 1; // stage A iterates n2 rows of length n1
+          auto invStageA = [bufs, scrs, n1, n2, halfA,
+                            pn1_1, pn1_2, pn1_3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
             {
-              case 0: InverseMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
-              case 1: InverseMFA<F2>(bufs[1], n, scrs[1], /*parallel=*/false, tree2); break;
-              case 2: InverseMFA<F3>(bufs[2], n, scrs[2], /*parallel=*/false, tree3); break;
+              Int r0s = (idx & 1) ? halfA : 0;
+              Int r0e = (idx & 1) ? n2 : halfA;
+              switch (idx >> 1)
+              {
+                case 0: FusedInverseA<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e); break;
+                case 1: FusedInverseA<F2>(bufs[1], scrs[1], n1, n2, *pn1_2, r0s, r0e); break;
+                case 2: FusedInverseA<F3>(bufs[2], scrs[2], n1, n2, *pn1_3, r0s, r0e); break;
+              }
             }
-          }
-        };
-        ParallelDo(3, invBody);
+          };
+          ParallelDo(6, invStageA);
+
+          const Int halfB = n1 >> 1; // stage B iterates n1 rows of length n2
+          auto invStageB = [bufs, scrs, n, n1, n2, halfB, inv1, inv2, inv3,
+                            pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              Int r0s = (idx & 1) ? halfB : 0;
+              Int r0e = (idx & 1) ? n1 : halfB;
+              switch (idx >> 1)
+              {
+                case 0: FusedInverseB<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, inv1, br, r0s, r0e); break;
+                case 1: FusedInverseB<F2>(bufs[1], scrs[1], n, n1, n2, *pn2_2, inv2, br, r0s, r0e); break;
+                case 2: FusedInverseB<F3>(bufs[2], scrs[2], n, n1, n2, *pn2_3, inv3, br, r0s, r0e); break;
+              }
+            }
+          };
+          ParallelDo(6, invStageB);
+        }
+        else
+#endif
+        {
+          auto invBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              switch (idx)
+              {
+                case 0: InverseMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
+                case 1: InverseMFA<F2>(bufs[1], n, scrs[1], /*parallel=*/false, tree2); break;
+                case 2: InverseMFA<F3>(bufs[2], n, scrs[2], /*parallel=*/false, tree3); break;
+              }
+            }
+          };
+          ParallelDo(3, invBody);
+        }
       }
       else
 #endif
