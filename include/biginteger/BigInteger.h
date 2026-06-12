@@ -8,7 +8,6 @@
 #define BIGINTEGER
 
 #include <vector>
-using namespace std;
 
 #include "common/Util.h"
 #include "common/Comparator.h"
@@ -20,7 +19,7 @@ namespace BigMath
     // Data
   private:
     // The Integer array to hold the number
-    vector<DataT> theInteger;
+    std::vector<DataT> theInteger;
     // True if the number is negative
     bool isNegative;
 
@@ -32,7 +31,7 @@ namespace BigMath
         isNegative = false;
     }
 
-    BigInteger(vector<DataT> const &aInt, bool negative) : theInteger(aInt), isNegative(negative)
+    BigInteger(std::vector<DataT> const &aInt, bool negative) : theInteger(aInt), isNegative(negative)
     {
       TrimZerosToOne(theInteger);
       if(negative && Zero())
@@ -50,26 +49,18 @@ namespace BigMath
         isNegative = false;
     }
 
-    // Copy constructor
-    BigInteger(BigInteger const &copy) : theInteger(copy.theInteger), isNegative(copy.isNegative) {}
-
-    // The Destructor
-    ~BigInteger() {}
-
-    // Assignment Operator
-    BigInteger &operator=(BigInteger const &arg)
-    {
-      if (this != &arg)
-      {
-        theInteger = arg.theInteger;
-        isNegative = arg.isNegative;
-      }
-      return *this;
-    }
+    // Rule of five, all defaulted. The previous user-declared copy members
+    // suppressed the implicit move operations, so std::move(BigInteger)
+    // deep-copied the limb vector.
+    BigInteger(BigInteger const &) = default;
+    BigInteger(BigInteger &&) noexcept = default;
+    BigInteger &operator=(BigInteger const &) = default;
+    BigInteger &operator=(BigInteger &&) noexcept = default;
+    ~BigInteger() = default;
 
     // Accessors
   public:
-    vector<DataT> const &GetInteger() const
+    std::vector<DataT> const &GetInteger() const
     {
       return theInteger;
     }

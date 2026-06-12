@@ -6,7 +6,6 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-using namespace std;
 
 #include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
@@ -40,7 +39,7 @@ namespace BigMath
       return (ULong)(value / base);
     }
 
-    static bool SubtractMul(vector<DataT> &u, vector<DataT> const &v, ULong qhat, SizeT j, BaseT base)
+    static bool SubtractMul(std::vector<DataT> &u, std::vector<DataT> const &v, ULong qhat, SizeT j, BaseT base)
     {
       ULong borrow = 0;
       SizeT n = (SizeT)v.size();
@@ -105,7 +104,7 @@ namespace BigMath
       return false;
     }
 
-    static void AddBack(vector<DataT> &u, vector<DataT> const &v, SizeT j, BaseT base)
+    static void AddBack(std::vector<DataT> &u, std::vector<DataT> const &v, SizeT j, BaseT base)
     {
       SizeT n = (SizeT)v.size();
 
@@ -244,12 +243,12 @@ namespace BigMath
       return q1;
     }
 
-    static vector<DataT> MultiplyByScalar(span<const DataT> a, DataT d, BaseT base)
+    static std::vector<DataT> MultiplyByScalar(std::span<const DataT> a, DataT d, BaseT base)
     {
       if (d == 0 || IsZero(a))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
 
-      vector<DataT> out(a.size() + 1, 0);
+      std::vector<DataT> out(a.size() + 1, 0);
       if (base == Base2_32)
       {
         ULong128 carry = 0;
@@ -288,12 +287,12 @@ namespace BigMath
       return out;
     }
 
-    static vector<DataT> DivideByScalar(span<const DataT> a, DataT d, BaseT base, DataT *remainder = nullptr)
+    static std::vector<DataT> DivideByScalar(std::span<const DataT> a, DataT d, BaseT base, DataT *remainder = nullptr)
     {
       if (d == 0)
-        throw invalid_argument("Division by zero");
+        throw std::invalid_argument("Division by zero");
 
-      vector<DataT> q(a.size(), 0);
+      std::vector<DataT> q(a.size(), 0);
 
       if (base == Base2_32)
       {
@@ -338,36 +337,36 @@ namespace BigMath
 
   public:
     // Span-based primary entry. Zero-copy for read-only inputs; internal u/v/q/r vectors hold mutable state.
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        span<const DataT> a,
-        span<const DataT> b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        std::span<const DataT> a,
+        std::span<const DataT> b,
         BaseT base,
         bool computeRemainder = true)
     {
       if (IsZero(b))
-        throw invalid_argument("Division by zero");
+        throw std::invalid_argument("Division by zero");
 
       if (IsZero(a))
-        return {vector<DataT>{0}, vector<DataT>{0}};
+        return {std::vector<DataT>{0}, std::vector<DataT>{0}};
 
       Int cmp = Compare(a, b);
       if (cmp < 0)
-        return {vector<DataT>{0}, computeRemainder ? vector<DataT>(a.begin(), a.end()) : vector<DataT>()};
+        return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end()) : std::vector<DataT>()};
       if (cmp == 0)
-        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+        return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
       if (b.size() == 1)
       {
         DataT rem = 0;
-        vector<DataT> q = DivideByScalar(a, b[0], base, computeRemainder ? &rem : nullptr);
-        return {q, computeRemainder ? vector<DataT>{rem} : vector<DataT>()};
+        std::vector<DataT> q = DivideByScalar(a, b[0], base, computeRemainder ? &rem : nullptr);
+        return {q, computeRemainder ? std::vector<DataT>{rem} : std::vector<DataT>()};
       }
 
       bool pow2base = (base == Base2_32 || base == Base2_64);
       int limbBits = (base == Base2_64) ? 64 : 32;
       int shift = 0;
       DataT d = 1;
-      vector<DataT> u, v;
+      std::vector<DataT> u, v;
       if (pow2base)
       {
         DataT btop = b[b.size() - 1];
@@ -380,9 +379,9 @@ namespace BigMath
       {
         d = (DataT)(base / (b[b.size() - 1] + 1));
         u = d > 1 ? MultiplyByScalar(a, d, base)
-                  : vector<DataT>(a.begin(), a.end());
+                  : std::vector<DataT>(a.begin(), a.end());
         v = d > 1 ? MultiplyByScalar(b, d, base)
-                  : vector<DataT>(b.begin(), b.end());
+                  : std::vector<DataT>(b.begin(), b.end());
       }
 
       TrimZeros(u);
@@ -391,7 +390,7 @@ namespace BigMath
       SizeT m = (SizeT)(u.size() - n);
       u.push_back(0);
 
-      vector<DataT> q(m + 1, 0);
+      std::vector<DataT> q(m + 1, 0);
 
       bool useMG32 = false;
       bool useMG64 = false;
@@ -497,7 +496,7 @@ namespace BigMath
 
       TrimZerosToOne(q);
 
-      vector<DataT> r;
+      std::vector<DataT> r;
       if (computeRemainder)
       {
         r.assign(u.begin(), u.begin() + n);
@@ -506,7 +505,7 @@ namespace BigMath
         else if (d > 1)
         {
           TrimZerosToOne(r);
-          r = DivideByScalar(span<const DataT>(r), d, base);
+          r = DivideByScalar(std::span<const DataT>(r), d, base);
         }
         TrimZerosToOne(r);
       }
@@ -514,22 +513,22 @@ namespace BigMath
       return {q, r};
     }
 
-    static vector<DataT> Divide(span<const DataT> a, span<const DataT> b, BaseT base)
+    static std::vector<DataT> Divide(std::span<const DataT> a, std::span<const DataT> b, BaseT base)
     {
       return DivideAndRemainder(a, b, base, false).first;
     }
 
     // Vector overloads — thin wrappers for backward compatibility.
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base,
         bool computeRemainder = true)
     {
-      return DivideAndRemainder(span<const DataT>(a), span<const DataT>(b), base, computeRemainder);
+      return DivideAndRemainder(std::span<const DataT>(a), std::span<const DataT>(b), base, computeRemainder);
     }
 
-    static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
+    static std::vector<DataT> Divide(std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base)
     {
       return DivideAndRemainder(a, b, base, false).first;
     }

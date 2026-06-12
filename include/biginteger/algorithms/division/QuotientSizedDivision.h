@@ -3,7 +3,6 @@
 
 #include <utility>
 #include <vector>
-using namespace std;
 
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
@@ -18,9 +17,9 @@ namespace BigMath
   // sub-division below routes through it so the recursion picks the right
   // strategy for its own size; its ratio is ~2, so it can never re-enter the
   // quotient-sized band (ratio < 4/3).
-  pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-      vector<DataT> const &a,
-      vector<DataT> const &b,
+  std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+      std::vector<DataT> const &a,
+      std::vector<DataT> const &b,
       BaseT base,
       bool computeRemainder);
 
@@ -41,9 +40,9 @@ namespace BigMath
   public:
     static constexpr SizeT GUARD = 4;
 
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base,
         bool computeRemainder = true)
     {
@@ -58,21 +57,21 @@ namespace BigMath
       SizeT t = delta + GUARD;
       SizeT s = nb - t;
 
-      vector<DataT> a_top(a.begin() + s, a.end());
-      vector<DataT> b_top(b.begin() + s, b.end());
+      std::vector<DataT> a_top(a.begin() + s, a.end());
+      std::vector<DataT> b_top(b.begin() + s, b.end());
 
       // Tops divide is ratio ~2. Post-#85-87 Newton beats BZ there from
       // ~6k limbs (measured: 12k limbs 13 vs 22 ms, 30k 40 vs 299 ms,
       // 65537 161 ms vs 5.3 s); below that the dispatcher's BZ/Fast pick
       // is near-tied.
-      vector<DataT> q = (t >= 6144)
+      std::vector<DataT> q = (t >= 6144)
                             ? NewtonDivision::DivideAndRemainder(a_top, b_top, base, false).first
                             : BigMath::DivideAndRemainder(a_top, b_top, base, false).first;
 
       // Reconstruct: r = a − q·b, fixing q's ±few-unit estimate error.
-      vector<DataT> qb = Multiply(q, b, base);
+      std::vector<DataT> qb = Multiply(q, b, base);
 
-      static const vector<DataT> one{1};
+      static const std::vector<DataT> one{1};
       const int FIXUP_LIMIT = 8;
 
       int iters = 0;
@@ -83,7 +82,7 @@ namespace BigMath
         q = Subtract(q, one, base);
         qb = Subtract(qb, b, base);
       }
-      vector<DataT> r = Subtract(a, qb, base);
+      std::vector<DataT> r = Subtract(a, qb, base);
 
       iters = 0;
       while (Compare(r, b) >= 0)
@@ -96,7 +95,7 @@ namespace BigMath
 
       TrimZerosToOne(q);
       if (!computeRemainder)
-        return {q, vector<DataT>()};
+        return {q, std::vector<DataT>()};
       TrimZerosToOne(r);
       return {q, r};
     }

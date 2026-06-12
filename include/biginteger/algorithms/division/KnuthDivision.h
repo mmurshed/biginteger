@@ -12,7 +12,6 @@
 #include <string>
 #include <stdexcept>
 #include <algorithm>
-using namespace std;
 
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
@@ -29,9 +28,9 @@ namespace BigMath
     // Returns a pair: (quotient, remainder)
     // See: D.E.Knuth 4.3.1
     // Runtime O(n^2), Space O(n)
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        const vector<DataT> &a,
-        const vector<DataT> &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        const std::vector<DataT> &a,
+        const std::vector<DataT> &b,
         BaseT base,
         bool computeRemainder = true)
     {
@@ -41,11 +40,11 @@ namespace BigMath
 
       // Check divisor nonzero
       if (IsZero(b))
-        throw runtime_error("Division by zero.");
+        throw std::runtime_error("Division by zero.");
 
       // If |a| < |b| then quotient = 0 and remainder = a.
       if (Compare(a, b) < 0)
-        return {vector<DataT>{0}, a};
+        return {std::vector<DataT>{0}, a};
 
       // Work on logically trimmed lengths: callers may pass vectors with
       // high zero limbs, and the algorithm needs b's true top digit for
@@ -73,13 +72,13 @@ namespace BigMath
       // Normalize u and v. Multiply trims trailing zero limbs, so restore
       // the fixed widths Knuth's loop indexes against: u as m+n+1 digits
       // (the extra top digit receives subtraction borrows), v as n digits.
-      vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
-      vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
+      std::vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
+      std::vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
       u.resize((size_t)m + n + 1, 0);
       v.resize(n, 0);
 
       // Initialize quotient.
-      vector<DataT> q(m + 1, 0);
+      std::vector<DataT> q(m + 1, 0);
 
       // All per-digit arithmetic runs in 128 bits so both Base2_32 and
       // Base2_64 (sentinel 0, i.e. B = 2^64) limbs are handled exactly.
@@ -114,7 +113,7 @@ namespace BigMath
         // then qhat was one too high; add back v and decrement qhat.
 
         // Propagate the borrow to the next digit.
-        pair<bool, DataT> sub = subtract(u, v, (DataT)qhat, j, B);
+        std::pair<bool, DataT> sub = subtract(u, v, (DataT)qhat, j, B);
         if (sub.first) // borrow produced
         {
           // Correction step: add back v.
@@ -126,7 +125,7 @@ namespace BigMath
 
       TrimZerosToOne(q);
 
-      vector<DataT> r;
+      std::vector<DataT> r;
 
       // Unnormalize the remainder.
       if (computeRemainder)
@@ -138,9 +137,9 @@ namespace BigMath
       return {q, r};
     }
 
-    static vector<DataT> Divide(
-        const vector<DataT> &a,
-        const vector<DataT> &b,
+    static std::vector<DataT> Divide(
+        const std::vector<DataT> &a,
+        const std::vector<DataT> &b,
         BaseT base)
     {
       return DivideAndRemainder(a, b, base, false).first;
@@ -151,7 +150,7 @@ namespace BigMath
     // value (2^64 for the Base2_64 sentinel), so all math is unsigned 128-bit
     // — the previous signed-Long version overflowed for qhat*v[i] >= 2^63.
     // Returns {true, borrow} if the subtraction went negative.
-    static pair<bool, DataT> subtract(vector<DataT> &u, vector<DataT> const &v, DataT qhat, SizeT j, ULong128 B)
+    static std::pair<bool, DataT> subtract(std::vector<DataT> &u, std::vector<DataT> const &v, DataT qhat, SizeT j, ULong128 B)
     {
       ULong128 borrow = 0;
       SizeT n = (SizeT)v.size();
@@ -179,7 +178,7 @@ namespace BigMath
     }
 
     // Adds v to u starting at index j (used to undo an oversubtraction).
-    static void add(vector<DataT> &u, const vector<DataT> &v, DataT borrow, SizeT j, ULong128 B)
+    static void add(std::vector<DataT> &u, const std::vector<DataT> &v, DataT borrow, SizeT j, ULong128 B)
     {
       DataT carry = 0;
       SizeT n = (SizeT)v.size();

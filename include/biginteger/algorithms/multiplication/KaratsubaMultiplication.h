@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
-using namespace std;
 
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
@@ -370,7 +369,7 @@ namespace BigMath
                 return;
             }
 
-            SizeT m = (max(la, lb) + 1) / 2;
+            SizeT m = (std::max(la, lb) + 1) / 2;
             if (m >= la) m = la - 1;
             if (m >= lb) m = lb - 1;
 
@@ -379,8 +378,8 @@ namespace BigMath
             SizeT lenBl = m;
             SizeT lenBh = lb - m;
 
-            SizeT lenWl = max(lenAl, lenAh) + 1;
-            SizeT lenWh = max(lenBl, lenBh) + 1;
+            SizeT lenWl = std::max(lenAl, lenAh) + 1;
+            SizeT lenWh = std::max(lenBl, lenBh) + 1;
             
             DataT* wl = w;
             DataT* wh = w + lenWl;
@@ -391,7 +390,7 @@ namespace BigMath
 
             // c = al*bl + B^m * ((al+ah)*(bl+bh) - al*bl - ah*bh) + B^2m * ah*bh
             //
-            // No memset(c) here — recursive calls fully overwrite c[0..la+lb-1]:
+            // No std::memset(c) here — recursive calls fully overwrite c[0..la+lb-1]:
             //   call 1 writes c[0..2m-1] (= T1)
             //   call 2 writes c[2m..la+lb-1] (= T2)
             // At leaf, MultiplyClassicPtr memsets its own output region.
@@ -410,7 +409,7 @@ namespace BigMath
             // Safe offset: place t3 at w + lenT1 + lenT2 to avoid any overlap with t1Copy/t2Copy
             DataT* t3 = w + lenT1 + lenT2;
             DataT* nextW2 = t3 + lenT3;
-            // No memset(t3) — recursive call fully overwrites t3[0..lenT3-1].
+            // No std::memset(t3) — recursive call fully overwrites t3[0..lenT3-1].
 
             MultiplyRecursive(wl, lenWl, wh, lenWh, t3, nextW2, base);
 
@@ -430,21 +429,21 @@ namespace BigMath
         }
 
     public:
-        static vector<DataT> Multiply(
-            vector<DataT> const &a,
-            vector<DataT> const &b,
+        static std::vector<DataT> Multiply(
+            std::vector<DataT> const &a,
+            std::vector<DataT> const &b,
             BaseT base)
         {
             if (IsZero(a) || IsZero(b))
-                return vector<DataT>();
+                return std::vector<DataT>();
 
             if (b.size() == 1)
                 return ClassicMultiplication::Multiply(a, b[0], base);
             if (a.size() == 1)
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
-            SizeT n = (SizeT)max(a.size(), b.size());
-            vector<DataT> c(a.size() + b.size(), 0);
+            SizeT n = (SizeT)std::max(a.size(), b.size());
+            std::vector<DataT> c(a.size() + b.size(), 0);
 
             // Workspace usage per recursion level: lenWl + lenWh (~n+2) for the
             // sum operands, then lenT1 + lenT2 + lenT3 (~3n) for the three sub-
@@ -459,7 +458,7 @@ namespace BigMath
             // 16n is a comfortable upper bound that keeps the workspace within
             // a single allocation and never triggers a heap-buffer-overflow
             // even on adversarially-skewed inputs (e.g. 1200×1024).
-            unique_ptr<DataT[]> w(new DataT[16 * n]);
+            std::unique_ptr<DataT[]> w(new DataT[16 * n]);
 
             MultiplyRecursive(
                 a.data(), a.size(),

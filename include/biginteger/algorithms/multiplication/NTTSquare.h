@@ -19,7 +19,6 @@
 #include "NTTFinalize.h"
 #include "ClassicSquare.h"
 
-using namespace std;
 
 namespace BigMath
 {
@@ -27,16 +26,16 @@ namespace BigMath
   {
   private:
   public:
-    static vector<DataT> Square(vector<DataT> const &a, BaseT base)
+    static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
     {
       if (IsZero(a))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
       if (a.size() == 1)
       {
         if (base == Base2_32)
         {
           ULong sq = (ULong)a[0] * (ULong)a[0];
-          vector<DataT> r;
+          std::vector<DataT> r;
           r.push_back((DataT)(sq & 0xFFFFFFFFULL));
           if (sq >> 32) r.push_back((DataT)(sq >> 32));
           return r;
@@ -44,13 +43,13 @@ namespace BigMath
         if (base == Base2_64)
         {
           ULong128 sq = (ULong128)a[0] * a[0];
-          vector<DataT> r;
+          std::vector<DataT> r;
           r.push_back((DataT)(sq & 0xFFFFFFFFFFFFFFFFULL));
           if ((ULong)(sq >> 64)) r.push_back((DataT)(sq >> 64));
           return r;
         }
         ULong sq = (ULong)a[0] * (ULong)a[0];
-        vector<DataT> r;
+        std::vector<DataT> r;
         r.push_back((DataT)(sq % base));
         if (sq / base) r.push_back((DataT)(sq / base));
         return r;
@@ -62,7 +61,7 @@ namespace BigMath
         ULong coeffCount = 2 * aCoeffSize - 1;
         DataT n = (DataT)std::bit_ceil(coeffCount);
 
-        static thread_local vector<ULong> fa;
+        static thread_local std::vector<ULong> fa;
         fa.assign(n, 0);
         for (SizeT i = 0; i < a.size(); ++i)
         {
@@ -96,7 +95,7 @@ namespace BigMath
         ULong coeffCount = 2 * aCoeffSize - 1;
         DataT n = (DataT)std::bit_ceil(coeffCount);
 
-        static thread_local vector<ULong> fa;
+        static thread_local std::vector<ULong> fa;
         fa.assign(n, 0);
         for (SizeT i = 0; i < a.size(); ++i)
         {
@@ -129,7 +128,7 @@ namespace BigMath
         ULong coeffCount = (ULong)(2 * a.size() - 1);
         DataT n = (DataT)std::bit_ceil(coeffCount);
 
-        static thread_local vector<ULong> fa;
+        static thread_local std::vector<ULong> fa;
         fa.assign(n, 0);
         for (SizeT i = 0; i < a.size(); i++)
           fa[i] = a[i];
@@ -149,7 +148,7 @@ namespace BigMath
         }
         NTTCore::Inverse(fa, plan);
 
-        vector<DataT> c;
+        std::vector<DataT> c;
         c.reserve((SizeT)coeffCount + 1);
         ULong carry = 0;
         for (SizeT i = 0; i < (SizeT)coeffCount; i++)

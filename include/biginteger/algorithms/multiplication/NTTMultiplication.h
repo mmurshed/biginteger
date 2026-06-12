@@ -12,7 +12,6 @@
 #include "NTTFinalize.h"
 #include "NTTMultiplicationCrt.h"
 
-using namespace std;
 
 namespace BigMath
 {
@@ -27,25 +26,25 @@ namespace BigMath
         // packing and forward transforms. This targets repeated same-operand
         // workloads; one-off Multiply(a,b) remains unchanged.
         static PreparedOperand PrepareOperand(
-            const vector<DataT> &operand,
+            const std::vector<DataT> &operand,
             SizeT maxOtherLimbs,
             BaseT base)
         {
             return NttCrt::PrepareOperand(operand, maxOtherLimbs, base);
         }
 
-        static vector<DataT> Multiply(
+        static std::vector<DataT> Multiply(
             const PreparedOperand &prepared,
-            const vector<DataT> &other)
+            const std::vector<DataT> &other)
         {
             return NttCrt::Multiply(prepared, other);
         }
 
         // (a · b) mod (B^L − 1) via a cyclic NTT of half the full-product
         // length. See NttCrt::MultiplyMod2km1 for the caller contract.
-        static vector<DataT> MultiplyMod2km1(
-            const vector<DataT> &a,
-            const vector<DataT> &b,
+        static std::vector<DataT> MultiplyMod2km1(
+            const std::vector<DataT> &a,
+            const std::vector<DataT> &b,
             SizeT L,
             BaseT base)
         {
@@ -53,10 +52,10 @@ namespace BigMath
         }
 
         // Multiply two vectors of digits using NTT-based convolution.
-        static vector<DataT> Multiply(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
+        static std::vector<DataT> Multiply(const std::vector<DataT> &a, const std::vector<DataT> &b, BaseT base)
         {
             if (IsZero(a) || IsZero(b)) // 0 times
-                return vector<DataT>();
+                return std::vector<DataT>();
 
             // If b is a single digit, use the scalar multiplication
             if (b.size() == 1)
@@ -87,8 +86,8 @@ namespace BigMath
                 ULong coeffCount = aCoeffSize + bCoeffSize - 1;
                 DataT n = (DataT)std::bit_ceil(coeffCount);
 
-                static thread_local vector<ULong> fa;
-                static thread_local vector<ULong> fb;
+                static thread_local std::vector<ULong> fa;
+                static thread_local std::vector<ULong> fb;
                 fa.assign(n, 0);
                 fb.assign(n, 0);
 
@@ -135,8 +134,8 @@ namespace BigMath
                 ULong coeffCount = aCoeffSize + bCoeffSize - 1;
                 DataT n = (DataT)std::bit_ceil(coeffCount);
 
-                static thread_local vector<ULong> fa;
-                static thread_local vector<ULong> fb;
+                static thread_local std::vector<ULong> fa;
+                static thread_local std::vector<ULong> fb;
                 fa.assign(n, 0);
                 fb.assign(n, 0);
 
@@ -181,8 +180,8 @@ namespace BigMath
                 ULong coeffCount = (ULong)(a.size() + b.size() - 1);
                 DataT n = (DataT)std::bit_ceil(coeffCount);
 
-                static thread_local vector<ULong> fa;
-                static thread_local vector<ULong> fb;
+                static thread_local std::vector<ULong> fa;
+                static thread_local std::vector<ULong> fb;
                 fa.assign(n, 0);
                 fb.assign(n, 0);
 
@@ -208,7 +207,7 @@ namespace BigMath
                 }
                 NTTCore::Inverse(fa, plan);
 
-                vector<DataT> c;
+                std::vector<DataT> c;
                 c.reserve((SizeT)coeffCount + 1);
                 ULong carry = 0;
                 for (SizeT i = 0; i < (SizeT)coeffCount; i++)

@@ -10,7 +10,6 @@
 
 #include <vector>
 #include <cstring>
-using namespace std;
 
 #include "../../common/Util.h"
 
@@ -120,12 +119,12 @@ namespace BigMath
       }
     }
 
-    static vector<DataT> Square(vector<DataT> const &a, BaseT base)
+    static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
     {
       if (IsZero(a))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
       SizeT n = (SizeT)a.size();
-      vector<DataT> r(2 * n, 0);
+      std::vector<DataT> r(2 * n, 0);
       SquarePtr(a.data(), n, r.data(), base);
       TrimZeros(r);
       return r;

@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
-using namespace std;
 
 #include "../../common/Util.h"
 #include "../../common/Comparator.h"
@@ -36,7 +35,7 @@ namespace BigMath
 
     struct Signed
     {
-      vector<DataT> mag;
+      std::vector<DataT> mag;
       int sign;
     };
 
@@ -71,7 +70,7 @@ namespace BigMath
       return f;
     }
 
-    static Signed MakePositive(vector<DataT> v)
+    static Signed MakePositive(std::vector<DataT> v)
     {
       TrimZeros(v);
       return {std::move(v), 1};
@@ -84,7 +83,7 @@ namespace BigMath
       if (a.sign == b.sign)
         return {Add(a.mag, b.mag, base), a.sign};
       Int c = Compare(a.mag, b.mag);
-      if (c == 0) return {vector<DataT>{0}, 1};
+      if (c == 0) return {std::vector<DataT>{0}, 1};
       if (c > 0) return {Subtract(a.mag, b.mag, base), a.sign};
       return {Subtract(b.mag, a.mag, base), b.sign};
     }
@@ -104,12 +103,12 @@ namespace BigMath
     static Signed MulSmall(Signed v, ULong m, BaseT base)
     {
       if (m == 0 || IsZero(v.mag))
-        return {vector<DataT>{0}, 1};
+        return {std::vector<DataT>{0}, 1};
       v.mag = ClassicMultiplication::Multiply(v.mag, m, base);
       return v;
     }
 
-    static bool DivSmallInPlace(vector<DataT> &a, ULong d, BaseT base)
+    static bool DivSmallInPlace(std::vector<DataT> &a, ULong d, BaseT base)
     {
       if (d == 1 || a.empty())
         return true;
@@ -155,7 +154,7 @@ namespace BigMath
       return v;
     }
 
-    static void Split5(vector<DataT> const &x, SizeT k, array<vector<DataT>, 5> &parts)
+    static void Split5(std::vector<DataT> const &x, SizeT k, std::array<std::vector<DataT>, 5> &parts)
     {
       SizeT s = x.size();
       for (SizeT p = 0; p < 5; ++p)
@@ -169,7 +168,7 @@ namespace BigMath
       }
     }
 
-    static Signed Evaluate(array<vector<DataT>, 5> const &parts, int x, BaseT base)
+    static Signed Evaluate(std::array<std::vector<DataT>, 5> const &parts, int x, BaseT base)
     {
       Signed acc = MakePositive(parts[4]);
       for (Int i = 3; i >= 0; --i)
@@ -183,9 +182,9 @@ namespace BigMath
       return acc;
     }
 
-    static const array<array<Fraction, 7>, 7> &InverseInterpolation()
+    static const std::array<std::array<Fraction, 7>, 7> &InverseInterpolation()
     {
-      static const array<array<Fraction, 7>, 7> inv = {{
+      static const std::array<std::array<Fraction, 7>, 7> inv = {{
         {{{1, 1}, {-3, 5}, {-3, 10}, {1, 10}, {1, 15}, {-1, 105}, {-1, 140}}},
         {{{3, 4}, {3, 4}, {-3, 40}, {-3, 40}, {1, 180}, {1, 180}, {0, 1}}},
         {{{-11, 18}, {1, 15}, {89, 240}, {-71, 720}, {-4, 45}, {1, 90}, {7, 720}}},
@@ -198,15 +197,15 @@ namespace BigMath
     }
 
     static Signed LinearCombination(
-        array<Signed, 7> const &ys,
-        array<Fraction, 7> const &weights,
+        std::array<Signed, 7> const &ys,
+        std::array<Fraction, 7> const &weights,
         BaseT base)
     {
       ULong common = 1;
       for (Fraction const &w : weights)
         common = std::lcm(common, (ULong)w.den);
 
-      Signed total = {vector<DataT>{0}, 1};
+      Signed total = {std::vector<DataT>{0}, 1};
       for (SizeT i = 0; i < 7; ++i)
       {
         if (weights[i].num == 0)
@@ -226,13 +225,13 @@ namespace BigMath
     }
 
   public:
-    static vector<DataT> Multiply(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::vector<DataT> Multiply(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base)
     {
       if (IsZero(a) || IsZero(b))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
       if (a.size() == 1)
         return ClassicMultiplication::Multiply(b, a[0], base);
       if (b.size() == 1)
@@ -243,22 +242,22 @@ namespace BigMath
         return KaratsubaMultiplication::Multiply(a, b, base);
 
       SizeT k = (n + 4) / 5;
-      array<vector<DataT>, 5> ap, bp;
+      std::array<std::vector<DataT>, 5> ap, bp;
       Split5(a, k, ap);
       Split5(b, k, bp);
 
-      vector<DataT> c0 = Multiply(ap[0], bp[0], base);
-      vector<DataT> c8 = Multiply(ap[4], bp[4], base);
+      std::vector<DataT> c0 = Multiply(ap[0], bp[0], base);
+      std::vector<DataT> c8 = Multiply(ap[4], bp[4], base);
 
       constexpr int X[7] = {1, -1, 2, -2, 3, -3, 4};
-      array<Signed, 7> y{};
+      std::array<Signed, 7> y{};
       Signed C0 = MakePositive(c0);
       Signed C8 = MakePositive(c8);
       for (SizeT i = 0; i < 7; ++i)
       {
         Signed ea = Evaluate(ap, X[i], base);
         Signed eb = Evaluate(bp, X[i], base);
-        vector<DataT> prod = Multiply(ea.mag, eb.mag, base);
+        std::vector<DataT> prod = Multiply(ea.mag, eb.mag, base);
         int prodSign = IsZero(prod) ? 1 : ea.sign * eb.sign;
         Signed value = {std::move(prod), prodSign};
 
@@ -266,10 +265,10 @@ namespace BigMath
         y[i] = SubSigned(SubSigned(value, C0, base), x8c8, base);
       }
 
-      array<Signed, 9> coeff{};
+      std::array<Signed, 9> coeff{};
       coeff[0] = C0;
       coeff[8] = C8;
-      const array<array<Fraction, 7>, 7> &inv = InverseInterpolation();
+      const std::array<std::array<Fraction, 7>, 7> &inv = InverseInterpolation();
       for (SizeT i = 0; i < 7; ++i)
       {
         try

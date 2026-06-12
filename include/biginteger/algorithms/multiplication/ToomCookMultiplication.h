@@ -11,7 +11,6 @@
 
 #include <vector>
 #include <algorithm>
-using namespace std;
 
 #include "../../common/Util.h"
 #include "../../common/Comparator.h"
@@ -33,20 +32,20 @@ namespace BigMath
 
     struct Signed
     {
-      vector<DataT> mag;
+      std::vector<DataT> mag;
       int sign;
     };
 
-    static Signed MakePositive(vector<DataT> v)
+    static Signed MakePositive(std::vector<DataT> v)
     {
       TrimZeros(v);
       return {std::move(v), 1};
     }
 
-    static Signed SubSigned(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
+    static Signed SubSigned(std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base)
     {
       Int c = Compare(a, b);
-      if (c == 0) return {vector<DataT>{0}, 1};
+      if (c == 0) return {std::vector<DataT>{0}, 1};
       if (c > 0) return {Subtract(a, b, base), 1};
       return {Subtract(b, a, base), -1};
     }
@@ -58,7 +57,7 @@ namespace BigMath
       if (a.sign == b.sign)
         return {Add(a.mag, b.mag, base), a.sign};
       Int c = Compare(a.mag, b.mag);
-      if (c == 0) return {vector<DataT>{0}, 1};
+      if (c == 0) return {std::vector<DataT>{0}, 1};
       if (c > 0) return {Subtract(a.mag, b.mag, base), a.sign};
       return {Subtract(b.mag, a.mag, base), b.sign};
     }
@@ -71,7 +70,7 @@ namespace BigMath
     }
 
     // In-place divisions used during interpolation.
-    static void HalveInPlace(vector<DataT> &a, BaseT base)
+    static void HalveInPlace(std::vector<DataT> &a, BaseT base)
     {
       if (a.empty()) return;
       if (base == Base2_32)
@@ -108,7 +107,7 @@ namespace BigMath
       TrimZeros(a);
     }
 
-    static void DivBy3InPlace(vector<DataT> &a, BaseT base)
+    static void DivBy3InPlace(std::vector<DataT> &a, BaseT base)
     {
       if (a.empty()) return;
       if (base == Base2_32)
@@ -146,8 +145,8 @@ namespace BigMath
     }
 
     // Split x into x0, x1, x2 of size k limbs each (last may be shorter / empty).
-    static void Split3(vector<DataT> const &x, SizeT k,
-                      vector<DataT> &x0, vector<DataT> &x1, vector<DataT> &x2)
+    static void Split3(std::vector<DataT> const &x, SizeT k,
+                      std::vector<DataT> &x0, std::vector<DataT> &x1, std::vector<DataT> &x2)
     {
       SizeT s = x.size();
       x0.assign(x.begin(), x.begin() + std::min(k, s));
@@ -165,13 +164,13 @@ namespace BigMath
     }
 
   public:
-    static vector<DataT> Multiply(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::vector<DataT> Multiply(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base)
     {
       if (IsZero(a) || IsZero(b))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
       if (a.size() == 1)
         return ClassicMultiplication::Multiply(b, a[0], base);
       if (b.size() == 1)
@@ -184,7 +183,7 @@ namespace BigMath
       // Split each into 3 parts of k = ceil(n/3) limbs.
       SizeT k = (n + 2) / 3;
 
-      vector<DataT> a0, a1, a2, b0, b1, b2;
+      std::vector<DataT> a0, a1, a2, b0, b1, b2;
       Split3(a, k, a0, a1, a2);
       Split3(b, k, b0, b1, b2);
 
@@ -193,28 +192,28 @@ namespace BigMath
       // p1 = a0 + a1 + a2
       // pm1 = (a0 + a2) - a1   (signed)
       // p2 = a0 + 2 a1 + 4 a2
-      vector<DataT> a0_plus_a2 = Add(a0, a2, base);
-      vector<DataT> A1 = Add(a0_plus_a2, a1, base);
+      std::vector<DataT> a0_plus_a2 = Add(a0, a2, base);
+      std::vector<DataT> A1 = Add(a0_plus_a2, a1, base);
       Signed Am1 = SubSigned(a0_plus_a2, a1, base);
-      vector<DataT> two_a1 = ClassicMultiplication::Multiply(a1, 2, base);
-      vector<DataT> four_a2 = ClassicMultiplication::Multiply(a2, 4, base);
-      vector<DataT> A2 = Add(a0, Add(two_a1, four_a2, base), base);
+      std::vector<DataT> two_a1 = ClassicMultiplication::Multiply(a1, 2, base);
+      std::vector<DataT> four_a2 = ClassicMultiplication::Multiply(a2, 4, base);
+      std::vector<DataT> A2 = Add(a0, Add(two_a1, four_a2, base), base);
 
-      vector<DataT> b0_plus_b2 = Add(b0, b2, base);
-      vector<DataT> B1 = Add(b0_plus_b2, b1, base);
+      std::vector<DataT> b0_plus_b2 = Add(b0, b2, base);
+      std::vector<DataT> B1 = Add(b0_plus_b2, b1, base);
       Signed Bm1 = SubSigned(b0_plus_b2, b1, base);
-      vector<DataT> two_b1 = ClassicMultiplication::Multiply(b1, 2, base);
-      vector<DataT> four_b2 = ClassicMultiplication::Multiply(b2, 4, base);
-      vector<DataT> B2 = Add(b0, Add(two_b1, four_b2, base), base);
+      std::vector<DataT> two_b1 = ClassicMultiplication::Multiply(b1, 2, base);
+      std::vector<DataT> four_b2 = ClassicMultiplication::Multiply(b2, 4, base);
+      std::vector<DataT> B2 = Add(b0, Add(two_b1, four_b2, base), base);
 
       // --- 5 pointwise products (recursive). ---
-      vector<DataT> r0   = Multiply(a0, b0, base);
-      vector<DataT> r1   = Multiply(A1, B1, base);
-      vector<DataT> rm1_mag = Multiply(Am1.mag, Bm1.mag, base);
+      std::vector<DataT> r0   = Multiply(a0, b0, base);
+      std::vector<DataT> r1   = Multiply(A1, B1, base);
+      std::vector<DataT> rm1_mag = Multiply(Am1.mag, Bm1.mag, base);
       int rm1_sign = (IsZero(rm1_mag)) ? 1 : (Am1.sign * Bm1.sign);
       Signed rm1 = {std::move(rm1_mag), rm1_sign};
-      vector<DataT> r2   = Multiply(A2, B2, base);
-      vector<DataT> rinf = Multiply(a2, b2, base);
+      std::vector<DataT> r2   = Multiply(A2, B2, base);
+      std::vector<DataT> rinf = Multiply(a2, b2, base);
 
       // --- Interpolate. ---
       // Final polynomial coefficients c0..c4 satisfy P(x)=sum ci x^i.
