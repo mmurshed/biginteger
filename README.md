@@ -2,18 +2,36 @@
 
 Arbitrary-precision integer library in C++20. Header-light with a thin static-library shell. 64-bit limbs, 3-prime CRT NTT multiplication (multithreaded by default), Newton–Raphson division with cached reciprocals, divide-and-conquer base conversion. Includes a REPL calculator built on top.
 
-Target: pure C++ that reaches parity or better than GMP in selected multiplication and BigDecimal division bands, while keeping portable scalar fallbacks instead of platform-specific assembly.
+Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks everywhere else) that reaches GMP parity or better across the large-operand bands — no hand-written assembly.
+
+## Performance
+
+BigMath vs GMP 6.3, Apple M1 Max, paired same-run measurements (2026-06-12). Below the dashed line BigMath is faster than GMP:
+
+![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
+
+- **Multiplication beats GMP by 1.5–2.4× across 500k–10M digits** (5M×5M: 26.2 vs 63.4 ms) and at skewed shapes 500k×50k – 5M×500k.
+- **Division reaches GMP parity from 5M digits** (10M×2M: 0.94× — BigMath faster).
+- **Decimal I/O near parity at scale**: parse 20M digits 1.09×, to-string 20M digits 1.16×.
+- Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase.
+
+The 2026-06-11/12 optimization run (PRs #82–#99: wraparound Newton division, dispatch band retunes, quotient-sized division, NEON Shoup NTT butterflies) produced most of the current margins:
+
+![Session before/after](docs/images/session_2026_06_11.png)
+
+Full tables, methodology, and per-PR history: [BENCHMARK.md](BENCHMARK.md).
 
 ---
 
 ## Features
 
 - **64-bit limb representation** (`BIGMATH_LIMB_64=1`, default). `DataT` stores true 64-bit values; every carry/borrow chain uses `__uint128_t` accumulators. Halves loop iteration counts in scalar paths vs the legacy 32-bit-in-64-bit layout. Opt out via `-DBIGMATH_LIMB_64=0`.
-- **Multiplication:** Classic schoolbook → Karatsuba (64-bit-hybrid leaf) → narrow Toom-3 pre-NTT band for balanced operands → NTT. Large products use a 3-prime CRT NTT (2013265921 / 469762049 / 1811939329, 32-bit coefficient splitting) gated above 5000 limbs sum; Goldilocks NTT handles smaller NTT cases. The dispatcher now keeps Toom-3 out of 2:1+ skewed products inside that band, where Karatsuba is faster.
-- **Radix-4 + radix-8 fused NTT butterflies** (PRs #59, #60). Adjacent radix-2 layers collapse into single load/store butterflies — radix-4 fuses 2 layers (4 elements), radix-8 fuses 3 layers (8 elements). Same modular op count; 3× fewer memory passes vs radix-2. ~1.6× wall-clock at ≥2M limbs.
+- **Multiplication:** Classic schoolbook → Karatsuba (64-bit-hybrid leaf) → 3-prime CRT NTT (2013265921 / 469762049 / 1811939329, 32-bit coefficient splitting) from 1280 total limbs (~13k digits). Toom-3 and the single-prime Goldilocks NTT remain as cross-check alternates; the NEON-accelerated CRT path beats both at every measured size.
+- **Radix-4 + radix-8 fused NTT butterflies** (PRs #59, #60): 3× fewer memory passes vs radix-2; ~1.6× wall-clock at ≥2M limbs.
+- **NEON Shoup butterflies on aarch64** (PRs #96–#99, `BIGMATH_NEON=1` default on Apple Silicon): the radix-8/4/2 layers and 1/n scaling run 4 lanes wide using Shoup's precomputed-reciprocal multiplication — `(w·x) mod P` from one widening multiply, one low multiply, one conditional subtract, with interleaved `(twiddle, w′)` tables keeping the strided gathers at one cache line per pair. Bit-exact with the scalar path; ~4× per butterfly pass, −26…40% end-to-end on NTT-bound ops. Scalar fallback everywhere else.
 - **MFA / Bailey 6-step CRT NTT** (`BIGMATH_NTT_MFA_THRESHOLD=2^24`, default). Very large CRT transforms switch to a cache-friendly matrix Fourier layout. The threshold was retuned upward from `2^21` to avoid regressions in the 300k-2M limb band while keeping wins at `2^24+` transform sizes.
 - **Multithreaded NTT** (`BIGMATH_USE_THREADS=1`, default). Small thread pool (size `min(hw_concurrency, BIGMATH_MAX_THREADS=8)`) parallelizes the CRT path: 6 forwards + 3 inverses as batched work units, one `ParallelDo` dispatch per phase. 2.3-3.4× speedup on large mul / skewed div / parse. Opt out via `-DBIGMATH_USE_THREADS=0` to drop pthread linkage.
-- **Division:** Classic short division → Knuth Algorithm D (`FastDivision` with Möller-Granlund 3-by-2 qhat for Base2_32) → Burnikel–Ziegler (mid-size near-balanced) → Newton–Raphson with reciprocal caching (skewed large, plus near-balanced ratio ≥ 2 above 98304 limbs where BZ blows up 5–60× on non-power-of-2 divisor sizes — PR #79). Identity `q·b + r == a` is cross-checked in `tests/div_correctness.cpp`.
+- **Division:** Classic short division → Knuth Algorithm D (`FastDivision`, Möller-Granlund qhat, bit-shift normalization) → Burnikel–Ziegler (small near-balanced) → Newton–Raphson with cached reciprocals and wrap-around cyclic products (half-length transforms for the remainder, quotient-estimate, and reciprocal-iteration steps — GMP `mu_div`/`invertappr` style) → quotient-sized division for short-quotient shapes (cost scales with the quotient, not the divisor). Dispatch bands use fractional ratios (5/2, 8/5, 4/3) to avoid one-limb knife-edge cliffs. Identity `q·b + r == a` is cross-checked in `tests/div_correctness.cpp`.
 - **Squaring:** Specialized Classic / Karatsuba / NTT squarers (1.4–1.6× over `Multiply(a,a)`).
 - **String I/O:** Linear chunked parser/formatter for small inputs, divide-and-conquer with cached Newton reciprocals at scale. Asymptotic `O(M(L) · log L)` both directions.
 - **BigDecimal:** Java-style fixed-point decimal (unscaled BigInteger + int scale) with exact +, −, \*; rounded division taking 8 rounding modes; parse/format covering plain and scientific notation.
