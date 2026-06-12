@@ -114,20 +114,6 @@ namespace BigMath
       return out;
     }
 
-    // Number of bits to shift left so that b's limb count becomes b.size()+1.
-    // Pushes b's MSB into a new high limb. Returns shift ∈ [1,LimbBits].
-    static Int BitsToBumpLimbCount(vector<DataT> const &b)
-    {
-      DataT top = b.back();
-#if BIGMATH_LIMB_64
-      Int bits_top = 64 - __builtin_clzll((unsigned long long)top);
-      return 65 - bits_top; // 1..64
-#else
-      Int bits_top = 32 - __builtin_clz((unsigned int)top);
-      return 33 - bits_top; // 1..32
-#endif
-    }
-
     static void Decrement(vector<DataT> &v, BaseT base)
     {
       // limbMax is base-1 for power-of-two bases. The BaseT sentinel for

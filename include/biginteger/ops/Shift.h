@@ -1,5 +1,6 @@
 /**
- * BigMath: BigInteger bit-shift operators.
+ * BigMath: BigInteger limb-shift operators — a << k multiplies by
+ * Base^k (whole limbs, not bits).
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */

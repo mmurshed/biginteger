@@ -8,7 +8,7 @@
  *     ParseUnsignedDivideConquer — D&C using cached Pow10, O(M(L) · log L)
  *
  *   Formatting:
- *     ToStringLinearAppend     — divmod-10^18 loop, O(L²)
+ *     ToStringLinearAppend     — divmod-10^19 loop, O(L²)
  *     ToStringDivConquer       — D&C using Newton-Divider chain, O(M(L) · log L)
  *
  * Thresholds:

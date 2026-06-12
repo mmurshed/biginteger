@@ -49,7 +49,11 @@ namespace BigMath
     {
       SizeT na = (SizeT)a.size();
       SizeT nb = (SizeT)b.size();
-      // Caller contract (dispatch): a > b, and delta + GUARD < nb.
+      // Caller contract (dispatch): a > b, and delta + GUARD < nb. The band
+      // macros are tunable (-DBIGMATH_*), so enforce it instead of letting
+      // `s` underflow below; fall back to Newton which handles any shape.
+      if (na <= nb || (na - nb) + GUARD >= nb)
+        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
       SizeT delta = na - nb;
       SizeT t = delta + GUARD;
       SizeT s = nb - t;

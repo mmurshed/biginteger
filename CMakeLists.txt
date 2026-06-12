@@ -180,3 +180,22 @@ install(TARGETS bigmath
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/biginteger DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/bigdecimal DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Export so `find_package(bigmath)` works against an installed prefix
+# (README/BUILDING document this consumption path).
+install(EXPORT bigmath-targets
+    FILE bigmath-targets.cmake
+    NAMESPACE bigmath::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bigmath)
+
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config-version.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config.cmake
+    "include(\"\${CMAKE_CURRENT_LIST_DIR}/bigmath-targets.cmake\")\n")
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config-version.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bigmath)

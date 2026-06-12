@@ -48,7 +48,6 @@ namespace BigMath
       vector<DataT> v3;
       vector<DataT> v4;
       vector<DataT> v5;
-      vector<DataT> v6;
       vector<vector<DataT>> qPieces;
     };
 

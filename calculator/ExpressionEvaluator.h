@@ -159,7 +159,7 @@ namespace BigMath
         ++cur_;
         BigInteger x = ParseUnary();
         if (!x.Zero())
-          -x;  // in-place negate
+          x = -x;
         return x;
       }
       return ParseAtom();

@@ -83,16 +83,6 @@ namespace BigMath
       carry = sum / base;
       aPos++;
     }
-
-    while (carry > 0)
-    {
-      if (aEnd >= aPos)
-        a[aPos] = (DataT)(carry % base);
-      else
-        a.push_back((DataT)(carry % base));
-      carry = carry / base;
-      aPos++;
-    }
   }
 
   // Paper-pencil add: result[rStart..rStart+size-1] = a[aStart..aEnd] + b[bStart..bEnd].
@@ -124,9 +114,17 @@ namespace BigMath
           result[rPos] = (DataT)(digitOps & 0xFFFFFFFFFFFFFFFFULL);
         carry = digitOps >> 64;
       }
+      // Propagate the final carry: a bare += can itself overflow the slot.
+      // (If the result window ends here the carry is dropped — this is a
+      // fixed-width window primitive; whole-vector AddTo grows `a` first.)
       Int rPos = rStart + size;
-      if (carry > 0 && rPos < (Int)result.size())
-        result[rPos] += (DataT)carry;
+      while (carry > 0 && rPos < (Int)result.size())
+      {
+        carry += result[rPos];
+        result[rPos] = (DataT)(carry & 0xFFFFFFFFFFFFFFFFULL);
+        carry >>= 64;
+        ++rPos;
+      }
       return;
     }
 
@@ -150,17 +148,29 @@ namespace BigMath
         result[rPos] = (DataT)(digitOps % base);
       carry = digitOps / base;
     }
+    // Propagate the final carry (see the Base2_64 branch above).
     Int rPos = rStart + size;
-    if (carry > 0 && rPos < (Int)result.size())
-      result[rPos] += carry;
+    while (carry > 0 && rPos < (Int)result.size())
+    {
+      Long digitOps = (Long)result[rPos] + carry;
+      result[rPos] = (DataT)(digitOps % base);
+      carry = digitOps / base;
+      ++rPos;
+    }
   }
 
   void AddTo(std::vector<DataT> &a, std::vector<DataT> const &b, BaseT base)
   {
-    Add(a, 0, a.size() - 1,
-        b, 0, b.size() - 1,
+    // a += b over the whole vectors: grow a so the final carry is never
+    // dropped (the windowed Add cannot extend its result).
+    if (a.size() < b.size())
+      a.resize(b.size(), 0);
+    a.push_back(0); // headroom for the final carry
+    Add(a, 0, (SizeT)(a.size() - 2),
+        b, 0, (SizeT)b.size() - 1,
         a, 0,
         base);
+    TrimZerosToOne(a);
   }
 
   void AddTo(std::vector<DataT> &a, SizeT aStart, SizeT aEnd,

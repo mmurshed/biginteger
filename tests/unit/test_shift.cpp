@@ -1,5 +1,6 @@
-// BigInteger << / >> operate at LIMB granularity (base-2^32), not bit.
-// So  a << k  ≡  a · (2^32)^k  and  a >> k ≡ a / (2^32)^k.
+// BigInteger << / >> operate at LIMB granularity, not bit:
+// a << k ≡ a · Base^k where Base is 2^64 by default (2^32 under
+// -DBIGMATH_LIMB_64=0).
 
 #include "unit_test_framework.h"
 

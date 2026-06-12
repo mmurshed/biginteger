@@ -90,18 +90,21 @@ REGISTER_TEST(Construction, UnaryNegationFlipsSign)
 {
   BigInteger a = BigIntegerBuilder::From("123456789012345678");
   ASSERT_FALSE(a.IsNegative());
-  -a;
-  ASSERT_TRUE(a.IsNegative());
-  -a;
+  BigInteger b = -a;
+  ASSERT_TRUE(b.IsNegative());
+  // Operand is unchanged: operator-() is value-returning, not in-place.
   ASSERT_FALSE(a.IsNegative());
+  BigInteger c = -b;
+  ASSERT_FALSE(c.IsNegative());
+  ASSERT_EQ(a, c);
 }
 
 REGISTER_TEST(Construction, UnaryNegationZeroStaysPositive)
 {
   BigInteger z;
-  -z;
-  ASSERT_FALSE(z.IsNegative());
-  ASSERT_TRUE(z.Zero());
+  BigInteger nz = -z;
+  ASSERT_FALSE(nz.IsNegative());
+  ASSERT_TRUE(nz.Zero());
 }
 
 REGISTER_TEST(Construction, SetSignZeroIgnored)

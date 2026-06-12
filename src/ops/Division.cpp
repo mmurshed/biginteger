@@ -12,7 +12,8 @@ namespace BigMath
   {
     auto [qv, rv] = DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
     BigInteger q(qv, a.IsNegative() != b.IsNegative());
-    BigInteger r(rv, a.IsNegative() || b.IsNegative());
+    // Truncated division: remainder takes the dividend's sign.
+    BigInteger r(rv, a.IsNegative());
     return {q, r};
   }
 

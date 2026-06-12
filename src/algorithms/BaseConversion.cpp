@@ -14,7 +14,8 @@ namespace BigMath
                                  BaseT base2)
   {
     if (base1 == base2)
-      return std::vector<DataT>(bigIntB1);
+      return std::vector<DataT>(bigIntB1.begin() + start,
+                                bigIntB1.begin() + end + 1);
 
     std::vector<DataT> bigIntB2(1, 0);
 

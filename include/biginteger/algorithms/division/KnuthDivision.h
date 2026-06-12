@@ -40,48 +40,72 @@ namespace BigMath
       // and the remainder u mod v = (r_n−1 . . . r_1 r_0)b.
 
       // Check divisor nonzero
-      if (b.empty() || (b.size() == 1 && b[0] == 0))
+      if (IsZero(b))
         throw runtime_error("Division by zero.");
 
       // If |a| < |b| then quotient = 0 and remainder = a.
       if (Compare(a, b) < 0)
         return {vector<DataT>{0}, a};
 
+      // Work on logically trimmed lengths: callers may pass vectors with
+      // high zero limbs, and the algorithm needs b's true top digit for
+      // normalization and a's true length for the digit count.
       SizeT n = (SizeT)b.size();
-      SizeT m = (SizeT)(a.size() - n); // m >= 0
+      while (n > 1 && b[n - 1] == 0)
+        --n;
+      SizeT aLen = (SizeT)a.size();
+      while (aLen > 1 && a[aLen - 1] == 0)
+        --aLen;
+      SizeT m = (SizeT)(aLen - n); // m >= 0 since |a| >= |b|
 
       // Normalization: choose d so that b[n-1] >= B/2.
       // (There is always such a digit multiplier d in [1, B).)
-      DataT d = base / (b.back() + 1);
+      // Base2_64 is the sentinel 0, so compute B/(b_top+1) in 128 bits.
+      DataT bTop = b[n - 1];
+      DataT d;
+      if (base == Base2_64)
+        d = (bTop == ~(DataT)0)
+                ? 1
+                : (DataT)(LimbBase / ((ULong128)bTop + 1));
+      else
+        d = base / (bTop + 1);
 
-      // Normalize u and v.
+      // Normalize u and v. Multiply trims trailing zero limbs, so restore
+      // the fixed widths Knuth's loop indexes against: u as m+n+1 digits
+      // (the extra top digit receives subtraction borrows), v as n digits.
       vector<DataT> u = ClassicMultiplication::Multiply(a, d, base);
       vector<DataT> v = ClassicMultiplication::Multiply(b, d, base);
-
-      // Append an extra digit to u (u[m+n] becomes available).
-      u.push_back(0);
+      u.resize((size_t)m + n + 1, 0);
+      v.resize(n, 0);
 
       // Initialize quotient.
       vector<DataT> q(m + 1, 0);
+
+      // All per-digit arithmetic runs in 128 bits so both Base2_32 and
+      // Base2_64 (sentinel 0, i.e. B = 2^64) limbs are handled exactly.
+      const ULong128 B = (base == Base2_64) ? LimbBase : (ULong128)base;
 
       // Main loop: compute each quotient digit starting at index m downto 0.
       for (Int j = m; j >= 0; j--)
       {
         // D3: Compute estimated quotient digit qhat.
         // We form a 2-digit value from u[j+n] and u[j+n-1].
-        ULong numerator = u[j + n] * base + u[j + n - 1];
-        ULong qhat = numerator / v[n - 1];
-        ULong rhat = numerator % v[n - 1];
+        ULong128 numerator = (ULong128)u[j + n] * B + u[j + n - 1];
+        ULong128 qhat = numerator / v[n - 1];
+        ULong128 rhat = numerator % v[n - 1];
 
         // IMPORTANT FIX: Correct qhat while it is too large.
         // In Knuth's algorithm, we must ensure that:
         //      qhat * v[n-2] <= (rhat * B + u[j+n-2])
         // (If n == 1, there is no v[n-2] so the loop does not run.)
-        while (qhat == base || (n > 1 && qhat * v[n - 2] > (rhat * base + u[j + n - 2])))
+        // qhat can initially be as large as B+1 (when u[j+n] == v[n-1]), so
+        // keep decrementing while qhat >= B; only early-exit on rhat >= B
+        // once qhat is a representable digit.
+        while (qhat >= B || (n > 1 && qhat * v[n - 2] > (rhat * B + u[j + n - 2])))
         {
           qhat -= 1;
           rhat += v[n - 1];
-          if (rhat >= base)
+          if (qhat < B && rhat >= B)
             break;
         }
 
@@ -90,17 +114,17 @@ namespace BigMath
         // then qhat was one too high; add back v and decrement qhat.
 
         // Propagate the borrow to the next digit.
-        pair<bool, Long> sub = subtract(u, v, qhat, j, base);
+        pair<bool, DataT> sub = subtract(u, v, (DataT)qhat, j, B);
         if (sub.first) // borrow produced
         {
           // Correction step: add back v.
-          add(u, v, sub.second, j, base);
+          add(u, v, sub.second, j, B);
           qhat -= 1;
         }
-        q[j] = qhat;
+        q[j] = (DataT)qhat;
       }
 
-      TrimZeros(q);
+      TrimZerosToOne(q);
 
       vector<DataT> r;
 
@@ -108,7 +132,7 @@ namespace BigMath
       if (computeRemainder)
       {
         r = ClassicDivision::Divide(u, d, base);
-        TrimZeros(r);
+        TrimZerosToOne(r);
       }
 
       return {q, r};
@@ -123,45 +147,50 @@ namespace BigMath
     }
 
   private:
-    // Subtracts qhat * v from u, starting at index j.
-    // Returns true if a borrow is produced (meaning the subtraction went negative).
-    static pair<bool, Long> subtract(vector<DataT> &u, vector<DataT> &v, DataT qhat, SizeT j, BaseT base)
+    // Subtracts qhat * v from u, starting at index j. B is the full base
+    // value (2^64 for the Base2_64 sentinel), so all math is unsigned 128-bit
+    // — the previous signed-Long version overflowed for qhat*v[i] >= 2^63.
+    // Returns {true, borrow} if the subtraction went negative.
+    static pair<bool, DataT> subtract(vector<DataT> &u, vector<DataT> const &v, DataT qhat, SizeT j, ULong128 B)
     {
-      Long borrow = 0;
-      SizeT n = v.size();
+      ULong128 borrow = 0;
+      SizeT n = (SizeT)v.size();
       for (SizeT i = 0; i < n; i++)
       {
-        // Multiply v[i] by qhat and subtract along with the borrow.
-        Long p = (Long)(qhat * v[i]);
-        Long sub = (Long)u[i + j] - p - (Long)borrow;
-        borrow = 0;
-        if (sub < 0)
+        ULong128 p = (ULong128)qhat * v[i] + borrow; // <= (B-1)^2 + (B-1) < 2^128
+        DataT pd = (DataT)(p % B);
+        borrow = p / B;
+        DataT ud = u[i + j];
+        if (ud < pd)
         {
-          Long t = (-sub + base - 1) / base; // Compute how many times we need to add base.
-          sub += t * base;                   // Adjust sub in one go.
-          borrow += t;                       // Increase borrow by that number.
+          u[i + j] = (DataT)((ULong128)ud + B - pd);
+          borrow += 1;
         }
-        u[i + j] = sub;
+        else
+          u[i + j] = ud - pd;
       }
 
-      Long sub1 = (Long)u[j + n] - (Long)borrow;
-      if (sub1 >= 0)
-        u[j + n] = sub1;
+      // borrow < B at this point, so it fits a DataT.
+      bool negative = (ULong128)u[j + n] < borrow;
+      if (!negative)
+        u[j + n] -= (DataT)borrow;
 
-      return {sub1 < 0, borrow};
+      return {negative, (DataT)borrow};
     }
 
     // Adds v to u starting at index j (used to undo an oversubtraction).
-    static void add(vector<DataT> &u, const vector<DataT> &v, Long borrow, SizeT j, BaseT base)
+    static void add(vector<DataT> &u, const vector<DataT> &v, DataT borrow, SizeT j, ULong128 B)
     {
       DataT carry = 0;
-      SizeT n = v.size();
+      SizeT n = (SizeT)v.size();
       for (SizeT i = 0; i < n; i++)
       {
-        ULong sum = (ULong)u[i + j] + (ULong)v[i] + (ULong)carry;
-        u[i + j] = sum % base;
-        carry = sum / base;
+        ULong128 sum = (ULong128)u[i + j] + v[i] + carry;
+        u[i + j] = (DataT)(sum % B);
+        carry = (DataT)(sum / B);
       }
+      // qhat was exactly one too high, so carry - borrow nets out mod B;
+      // wrapping DataT arithmetic is intentional here.
       u[j + n] = u[j + n] + carry - borrow;
     }
   };

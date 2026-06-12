@@ -179,14 +179,10 @@ namespace BigMath
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
 #if BIGMATH_NTT_CRT
-            // Size-gated hybrid. Crossover measured via direct NTT-vs-CRT
-            // sweep (min of 7 iters per case, M1 Max, -O3 -march=native):
-            //   sum=4000   Goldilocks wins big (0.76 vs 1.24 ms = 1.6× faster)
-            //   sum=6000   CRT wins (2.12 vs 1.70 ms = 1.24×)
-            //   sum=8000   CRT wins (1.73 vs 1.49 ms = 1.16×)
-            //   sum≥10000  tie within 1-2%
-            // Threshold 5000 catches the 6000-8000 wins without admitting
-            // the sum=4000 regression. Override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
+            // Size-gated hybrid. The NEON Shoup butterflies (2026-06-12)
+            // made CRT faster than single-prime Goldilocks at every measured
+            // size, so the gate sits at 256 limbs sum — effectively always.
+            // Override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
 #ifndef BIGMATH_NTT_CRT_THRESHOLD
 #define BIGMATH_NTT_CRT_THRESHOLD 256
 #endif

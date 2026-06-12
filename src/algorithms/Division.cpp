@@ -64,7 +64,7 @@ namespace BigMath
     bool newton_medium_skew =
         b.size() >= NEWTON_MEDIUM_B &&
         NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
-    // Ratio ≥ 7/2 from 1024: Newton wins ratio ≥ 4 across [1024, 1280).
+    // Ratio ≥ 7/2 from 1280: Newton wins ratio 4-5 at 1280-1408; 1024 stays BZ.
     bool newton_ratio35 =
         b.size() >= NEWTON_RATIO35_B &&
         NEWTON_RATIO35_DENOMINATOR * a.size() >= NEWTON_RATIO35_NUMERATOR * b.size();

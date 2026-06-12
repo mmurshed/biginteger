@@ -63,8 +63,10 @@ namespace BigMath
       c = buf->sgetc();
     }
 
+    bool sawZero = false;
     while (c == '0')
     {
+      sawZero = true;
       buf->sbumpc();
       c = buf->sgetc();
     }
@@ -103,7 +105,15 @@ namespace BigMath
     if (c == EOF)
       stream.setstate(std::ios::eofbit);
 
-    in = anyDigit ? BigInteger(r, isNegative) : BigInteger();
+    if (anyDigit || sawZero)
+      in = anyDigit ? BigInteger(r, isNegative) : BigInteger();
+    else
+    {
+      // No digits consumed ("abc", lone "-"): standard extraction semantics —
+      // value-initialize the target and set failbit.
+      in = BigInteger();
+      stream.setstate(std::ios::failbit);
+    }
     return stream;
   }
 }

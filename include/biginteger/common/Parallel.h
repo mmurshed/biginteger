@@ -1,8 +1,9 @@
 /**
  * BigMath: Internal parallel-for helper for NTT-bound ops.
  *
- * Gated on BIGMATH_USE_THREADS=1. When unset (default), all calls reduce to
- * the serial body inline — zero overhead.
+ * Gated on BIGMATH_USE_THREADS (default ON, see Constants.h). When disabled
+ * via -DBIGMATH_USE_THREADS=0, all calls reduce to the serial body inline —
+ * zero overhead.
  *
  * Implementation uses a small persistent thread pool defined in
  * src/common/Parallel.cpp. The pool is created on first use (lazy init),
@@ -79,6 +80,20 @@ namespace BigMath
   // Stubs for the single-threaded build. Always returns 1 / runs serially.
   inline SizeT ParallelNumThreads() { return 1; }
   inline SizeT ParallelMinSize() { return 0; }
+
+  // Function-pointer forms, mirroring the threaded branch so call sites
+  // compile identically under either configuration.
+  inline void ParallelFor(Int total, void (*body)(Int start, Int end, void *ctx), void *ctx)
+  {
+    if (total > 0)
+      body(Int{0}, total, ctx);
+  }
+
+  inline void ParallelDo(Int numTasks, void (*body)(Int start, Int end, void *ctx), void *ctx)
+  {
+    if (numTasks > 0)
+      body(Int{0}, numTasks, ctx);
+  }
 
   template <typename F>
   inline void ParallelFor(Int total, F &&body)

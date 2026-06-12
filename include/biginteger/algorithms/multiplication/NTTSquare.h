@@ -25,8 +25,6 @@ namespace BigMath
   class NTTSquare
   {
   private:
-    friend class NTTMultiplication;
-
     static vector<DataT> FinalizeBase2_32(const vector<ULong> &coeffs, SizeT coeffCount)
     {
       vector<DataT> result;
