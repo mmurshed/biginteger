@@ -1252,6 +1252,116 @@ namespace BigMath
       return result;
     }
 
+
+    // ─── Shared whole-transform batch orchestration ─────────────────────────
+    // The plain (non-MFA) forward/pointwise/inverse ParallelDo blocks were
+    // duplicated across Multiply, MultiplyMod2km1 and the prepared-operand
+    // path; any future edit must happen here once.
+
+    // Forward transforms: always the three a-side buffers; the three b-side
+    // buffers too when fb1 != nullptr (one 6-unit batch). Squaring and the
+    // prepared paths pass fb1 == nullptr for a 3-unit batch.
+    inline void CrtForwardBatch(std::vector<UInt> &fa1, std::vector<UInt> &fa2, std::vector<UInt> &fa3,
+                                std::vector<UInt> *fb1, std::vector<UInt> *fb2, std::vector<UInt> *fb3,
+                                const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
+    {
+#if BIGMATH_USE_THREADS
+      std::vector<UInt> *bufs[6] = {&fa1, fb1, &fa2, fb2, &fa3, fb3};
+      const Plan<F1> *p1 = &plan1;
+      const Plan<F2> *p2 = &plan2;
+      const Plan<F3> *p3 = &plan3;
+      if (fb1 == nullptr)
+      {
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(*bufs[0], *p1); break;
+              case 1: Forward<F2>(*bufs[2], *p2); break;
+              case 2: Forward<F3>(*bufs[4], *p3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+      else
+      {
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(*bufs[0], *p1); break;
+              case 1: Forward<F1>(*bufs[1], *p1); break;
+              case 2: Forward<F2>(*bufs[2], *p2); break;
+              case 3: Forward<F2>(*bufs[3], *p2); break;
+              case 4: Forward<F3>(*bufs[4], *p3); break;
+              case 5: Forward<F3>(*bufs[5], *p3); break;
+            }
+          }
+        };
+        ParallelDo(6, body);
+      }
+#else
+      Forward<F1>(fa1, plan1);
+      Forward<F2>(fa2, plan2);
+      Forward<F3>(fa3, plan3);
+      if (fb1 != nullptr)
+      {
+        Forward<F1>(*fb1, plan1);
+        Forward<F2>(*fb2, plan2);
+        Forward<F3>(*fb3, plan3);
+      }
+#endif
+    }
+
+    // Pointwise product into the a-side buffers. Pass the a-side pointers as
+    // the b-side to square in place.
+    inline void CrtPointwiseMulInto(UInt *p1a, UInt *p2a, UInt *p3a,
+                                    const UInt *p1b, const UInt *p2b, const UInt *p3b,
+                                    Int n)
+    {
+      auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
+        for (Int i = s; i < e; ++i)
+        {
+          p1a[i] = F1::Mul(p1a[i], p1b[i]);
+          p2a[i] = F2::Mul(p2a[i], p2b[i]);
+          p3a[i] = F3::Mul(p3a[i], p3b[i]);
+        }
+      };
+      if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
+      else body(0, n);
+    }
+
+    // Inverse transforms of the three (already pointwise-multiplied) buffers.
+    inline void CrtInverseBatch(std::vector<UInt> &f1, std::vector<UInt> &f2, std::vector<UInt> &f3,
+                                const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
+    {
+#if BIGMATH_USE_THREADS
+      std::vector<UInt> *bufs[3] = {&f1, &f2, &f3};
+      const Plan<F1> *p1 = &plan1;
+      const Plan<F2> *p2 = &plan2;
+      const Plan<F3> *p3 = &plan3;
+      auto body = [bufs, p1, p2, p3](Int s, Int e) {
+        for (Int idx = s; idx < e; ++idx)
+        {
+          switch (idx)
+          {
+            case 0: Inverse<F1>(*bufs[0], *p1); break;
+            case 1: Inverse<F2>(*bufs[1], *p2); break;
+            case 2: Inverse<F3>(*bufs[2], *p3); break;
+          }
+        }
+      };
+      ParallelDo(3, body);
+#else
+      Inverse<F1>(f1, plan1);
+      Inverse<F2>(f2, plan2);
+      Inverse<F3>(f3, plan3);
+#endif
+    }
+
     struct PreparedOperand
     {
       BaseT base = Base2_32;
@@ -1304,30 +1414,8 @@ namespace BigMath
       const auto &plan2 = GetPlan<F2, G2>(prepared.n);
       const auto &plan3 = GetPlan<F3, G3>(prepared.n);
 
-#if BIGMATH_USE_THREADS
-      {
-        PreparedOperand *p = &prepared;
-        const Plan<F1> *pl1 = &plan1;
-        const Plan<F2> *pl2 = &plan2;
-        const Plan<F3> *pl3 = &plan3;
-        auto body = [p, pl1, pl2, pl3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
-            {
-              case 0: Forward<F1>(p->f1, *pl1); break;
-              case 1: Forward<F2>(p->f2, *pl2); break;
-              case 2: Forward<F3>(p->f3, *pl3); break;
-            }
-          }
-        };
-        ParallelDo(3, body);
-      }
-#else
-      Forward<F1>(prepared.f1, plan1);
-      Forward<F2>(prepared.f2, plan2);
-      Forward<F3>(prepared.f3, plan3);
-#endif
+      CrtForwardBatch(prepared.f1, prepared.f2, prepared.f3,
+                      nullptr, nullptr, nullptr, plan1, plan2, plan3);
 
       return prepared;
     }
@@ -1353,72 +1441,13 @@ namespace BigMath
       const auto &plan2 = GetPlan<F2, G2>(prepared.n);
       const auto &plan3 = GetPlan<F3, G3>(prepared.n);
 
-#if BIGMATH_USE_THREADS
-      {
-        std::vector<UInt> *bufs[3] = {&fb1, &fb2, &fb3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
-            {
-              case 0: Forward<F1>(*bufs[0], *p1); break;
-              case 1: Forward<F2>(*bufs[1], *p2); break;
-              case 2: Forward<F3>(*bufs[2], *p3); break;
-            }
-          }
-        };
-        ParallelDo(3, body);
-      }
-#else
-      Forward<F1>(fb1, plan1);
-      Forward<F2>(fb2, plan2);
-      Forward<F3>(fb3, plan3);
-#endif
+      CrtForwardBatch(fb1, fb2, fb3, nullptr, nullptr, nullptr, plan1, plan2, plan3);
 
-      {
-        UInt *p1a = fb1.data(), *p2a = fb2.data(), *p3a = fb3.data();
-        const UInt *p1b = prepared.f1.data();
-        const UInt *p2b = prepared.f2.data();
-        const UInt *p3b = prepared.f3.data();
-        auto body = [p1a, p2a, p3a, p1b, p2b, p3b](Int s, Int e) {
-          for (Int i = s; i < e; ++i)
-          {
-            p1a[i] = F1::Mul(p1a[i], p1b[i]);
-            p2a[i] = F2::Mul(p2a[i], p2b[i]);
-            p3a[i] = F3::Mul(p3a[i], p3b[i]);
-          }
-        };
-        if ((SizeT)prepared.n >= ParallelMinSize()) ParallelFor(prepared.n, body);
-        else body(0, prepared.n);
-      }
+      CrtPointwiseMulInto(fb1.data(), fb2.data(), fb3.data(),
+                          prepared.f1.data(), prepared.f2.data(), prepared.f3.data(),
+                          prepared.n);
 
-#if BIGMATH_USE_THREADS
-      {
-        std::vector<UInt> *bufs[3] = {&fb1, &fb2, &fb3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
-            {
-              case 0: Inverse<F1>(*bufs[0], *p1); break;
-              case 1: Inverse<F2>(*bufs[1], *p2); break;
-              case 2: Inverse<F3>(*bufs[2], *p3); break;
-            }
-          }
-        };
-        ParallelDo(3, body);
-      }
-#else
-      Inverse<F1>(fb1, plan1);
-      Inverse<F2>(fb2, plan2);
-      Inverse<F3>(fb3, plan3);
-#endif
+      CrtInverseBatch(fb1, fb2, fb3, plan1, plan2, plan3);
 
       return FinalizeProduct(
           fb1, fb2, fb3, coeffCount, prepared.base, prepared.operandLimbs + other.size() + 2);
@@ -2409,56 +2438,12 @@ namespace BigMath
           fb1.assign(n, 0); fb2.assign(n, 0); fb3.assign(n, 0);
           PackOperand(b, base, fb1, fb2, fb3);
         }
-#if BIGMATH_USE_THREADS
         // Cross-prime parallelism: 6 forwards as one batch (3 when squaring).
-        std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        if (sameOperand)
-        {
-          auto body = [bufs, p1, p2, p3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
-              {
-                case 0: Forward<F1>(*bufs[0], *p1); break;
-                case 1: Forward<F2>(*bufs[2], *p2); break;
-                case 2: Forward<F3>(*bufs[4], *p3); break;
-              }
-            }
-          };
-          ParallelDo(3, body);
-        }
-        else
-        {
-          auto body = [bufs, p1, p2, p3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
-              {
-                case 0: Forward<F1>(*bufs[0], *p1); break;
-                case 1: Forward<F1>(*bufs[1], *p1); break;
-                case 2: Forward<F2>(*bufs[2], *p2); break;
-                case 3: Forward<F2>(*bufs[3], *p2); break;
-                case 4: Forward<F3>(*bufs[4], *p3); break;
-                case 5: Forward<F3>(*bufs[5], *p3); break;
-              }
-            }
-          };
-          ParallelDo(6, body);
-        }
-#else
-        Forward<F1>(fa1, plan1);
-        Forward<F2>(fa2, plan2);
-        Forward<F3>(fa3, plan3);
-        if (!sameOperand)
-        {
-          Forward<F1>(fb1, plan1);
-          Forward<F2>(fb2, plan2);
-          Forward<F3>(fb3, plan3);
-        }
-#endif
+        CrtForwardBatch(fa1, fa2, fa3,
+                        sameOperand ? nullptr : &fb1,
+                        sameOperand ? nullptr : &fb2,
+                        sameOperand ? nullptr : &fb3,
+                        plan1, plan2, plan3);
       }
 
       // The fused MFA path already multiplied fb into fa during forward
@@ -2468,19 +2453,11 @@ namespace BigMath
       if (!pointwiseFused)
 #endif
       {
-        UInt *p1a = fa1.data(), *p1b = sameOperand ? fa1.data() : fb1.data();
-        UInt *p2a = fa2.data(), *p2b = sameOperand ? fa2.data() : fb2.data();
-        UInt *p3a = fa3.data(), *p3b = sameOperand ? fa3.data() : fb3.data();
-        auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
-          for (Int i = s; i < e; ++i)
-          {
-            p1a[i] = F1::Mul(p1a[i], p1b[i]);
-            p2a[i] = F2::Mul(p2a[i], p2b[i]);
-            p3a[i] = F3::Mul(p3a[i], p3b[i]);
-          }
-        };
-        if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
-        else body(0, n);
+        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
+                            sameOperand ? fa1.data() : fb1.data(),
+                            sameOperand ? fa2.data() : fb2.data(),
+                            sameOperand ? fa3.data() : fb3.data(),
+                            n);
       }
 
 #if BIGMATH_NTT_MFA
@@ -2516,28 +2493,7 @@ namespace BigMath
       else
 #endif
       {
-#if BIGMATH_USE_THREADS
-        std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
-            {
-              case 0: Inverse<F1>(*bufs[0], *p1); break;
-              case 1: Inverse<F2>(*bufs[1], *p2); break;
-              case 2: Inverse<F3>(*bufs[2], *p3); break;
-            }
-          }
-        };
-        ParallelDo(3, body);
-#else
-        Inverse<F1>(fa1, plan1);
-        Inverse<F2>(fa2, plan2);
-        Inverse<F3>(fa3, plan3);
-#endif
+        CrtInverseBatch(fa1, fa2, fa3, plan1, plan2, plan3);
       }
 
       return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
@@ -2618,74 +2574,12 @@ namespace BigMath
         fa3.assign(n, 0); fb3.assign(n, 0);
         PackOperand(a, base, fa1, fa2, fa3);
         PackOperand(b, base, fb1, fb2, fb3);
-#if BIGMATH_USE_THREADS
-        {
-          std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
-          const Plan<F1> *p1 = &plan1;
-          const Plan<F2> *p2 = &plan2;
-          const Plan<F3> *p3 = &plan3;
-          auto body = [bufs, p1, p2, p3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
-              {
-                case 0: Forward<F1>(*bufs[0], *p1); break;
-                case 1: Forward<F1>(*bufs[1], *p1); break;
-                case 2: Forward<F2>(*bufs[2], *p2); break;
-                case 3: Forward<F2>(*bufs[3], *p2); break;
-                case 4: Forward<F3>(*bufs[4], *p3); break;
-                case 5: Forward<F3>(*bufs[5], *p3); break;
-              }
-            }
-          };
-          ParallelDo(6, body);
-        }
-#else
-        Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
-        Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
-        Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
-#endif
+        CrtForwardBatch(fa1, fa2, fa3, &fb1, &fb2, &fb3, plan1, plan2, plan3);
 
-        {
-          UInt *p1a = fa1.data(), *p1b = fb1.data();
-          UInt *p2a = fa2.data(), *p2b = fb2.data();
-          UInt *p3a = fa3.data(), *p3b = fb3.data();
-          auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
-            for (Int i = s; i < e; ++i)
-            {
-              p1a[i] = F1::Mul(p1a[i], p1b[i]);
-              p2a[i] = F2::Mul(p2a[i], p2b[i]);
-              p3a[i] = F3::Mul(p3a[i], p3b[i]);
-            }
-          };
-          if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
-          else body(0, n);
-        }
+        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
+                            fb1.data(), fb2.data(), fb3.data(), n);
 
-#if BIGMATH_USE_THREADS
-        {
-          std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
-          const Plan<F1> *p1 = &plan1;
-          const Plan<F2> *p2 = &plan2;
-          const Plan<F3> *p3 = &plan3;
-          auto body = [bufs, p1, p2, p3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
-              {
-                case 0: Inverse<F1>(*bufs[0], *p1); break;
-                case 1: Inverse<F2>(*bufs[1], *p2); break;
-                case 2: Inverse<F3>(*bufs[2], *p3); break;
-              }
-            }
-          };
-          ParallelDo(3, body);
-        }
-#else
-        Inverse<F1>(fa1, plan1);
-        Inverse<F2>(fa2, plan2);
-        Inverse<F3>(fa3, plan3);
-#endif
+        CrtInverseBatch(fa1, fa2, fa3, plan1, plan2, plan3);
       }
 
       // Garner-recombine and carry across exactly N coefficients (L limbs);

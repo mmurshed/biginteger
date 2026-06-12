@@ -9,6 +9,7 @@
 #include <vector>
 using namespace std;
 
+#include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
 #include "../Addition.h"
@@ -55,52 +56,6 @@ namespace BigMath
     {
       static thread_local ScratchBuffers scratch;
       return scratch;
-    }
-
-    // Bit-shift left by `bits` in [0, LimbBits-1].
-    static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int bits)
-    {
-      if (bits == 0 || IsZero(v))
-        return v;
-      vector<DataT> out(v.size() + 1, 0);
-      for (SizeT i = 0; i < v.size(); ++i)
-      {
-#if BIGMATH_LIMB_64
-        ULong128 cur = (ULong128)v[i] << bits;
-        out[i] |= (DataT)(cur & 0xFFFFFFFFFFFFFFFFULL);
-        out[i + 1] |= (DataT)(cur >> 64);
-#else
-        ULong cur = (ULong)v[i] << bits;
-        out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
-        out[i + 1] |= (DataT)(cur >> 32);
-#endif
-      }
-      TrimZerosToOne(out);
-      return out;
-    }
-
-    // Bit-shift right by `bits` in [0, LimbBits-1].
-    static vector<DataT> ShiftRightBits(vector<DataT> const &v, Int bits)
-    {
-      if (bits == 0 || IsZero(v))
-        return v;
-      vector<DataT> out(v.size(), 0);
-      for (Int i = 0; i < (Int)v.size(); ++i)
-      {
-#if BIGMATH_LIMB_64
-        ULong128 cur = (ULong128)v[i];
-        if (i + 1 < (Int)v.size())
-          cur |= ((ULong128)v[i + 1]) << 64;
-        out[i] = (DataT)((cur >> bits) & 0xFFFFFFFFFFFFFFFFULL);
-#else
-        ULong cur = v[i];
-        if (i + 1 < (Int)v.size())
-          cur |= ((ULong)v[i + 1]) << 32;
-        out[i] = (DataT)((cur >> bits) & 0xFFFFFFFFULL);
-#endif
-      }
-      TrimZerosToOne(out);
-      return out;
     }
 
     // ApproxReciprocal: given n-limb normalized D (top bit of D[n-1] set),
@@ -580,7 +535,7 @@ namespace BigMath
         vector<DataT> rem_final;
         if (computeRemainder)
         {
-          rem_final = (shift > 0) ? ShiftRightBits(res.rem, shift) : res.rem;
+          rem_final = (shift > 0) ? ShiftRightBits(res.rem, shift, LimbBitsFor(base)) : res.rem;
           TrimZerosToOne(rem_final);
         }
         return {res.q, rem_final};
@@ -650,7 +605,7 @@ namespace BigMath
       vector<DataT> rem_final;
       if (computeRemainder)
       {
-        rem_final = (shift > 0) ? ShiftRightBits(rem, shift) : rem;
+        rem_final = (shift > 0) ? ShiftRightBits(rem, shift, LimbBitsFor(base)) : rem;
         TrimZerosToOne(rem_final);
       }
 
@@ -678,19 +633,9 @@ namespace BigMath
         if ((base != Base2_32 && base != Base2_64) || divisor.size() <= 1)
           return;
 
-        DataT b_top = divisor.back();
-#if BIGMATH_LIMB_64
-        const DataT topBitMask = 0x8000000000000000ULL;
-#else
-        const DataT topBitMask = 0x80000000U;
-#endif
-        while ((b_top & topBitMask) == 0)
-        {
-          b_top <<= 1;
-          ++shift;
-        }
+        shift = NormalizationShiftBits(divisor.back(), LimbBitsFor(base));
 
-        b_norm = (shift > 0) ? ShiftLeftBits(divisor, shift) : divisor;
+        b_norm = (shift > 0) ? ShiftLeftBits(divisor, shift, LimbBitsFor(base)) : divisor;
         TrimZeros(b_norm);
 
         // Precompute the high-precision reciprocal once. It is valid for both single-block
@@ -716,7 +661,7 @@ namespace BigMath
         if (!can_use_newton)
           return FastDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
 
-        vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift) : a;
+        vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift, LimbBitsFor(base)) : a;
         TrimZeros(a_norm);
 
         return DivideNormalizedWithReciprocal(
@@ -775,21 +720,11 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       // Normalize: shift so top bit of b's top limb is set.
-      DataT b_top = b.back();
-      Int shift = 0;
-#if BIGMATH_LIMB_64
-      const DataT topBitMask = 0x8000000000000000ULL;
-#else
-      const DataT topBitMask = 0x80000000U;
-#endif
-      while ((b_top & topBitMask) == 0)
-      {
-        b_top <<= 1;
-        ++shift;
-      }
+      const int limbBits = LimbBitsFor(base);
+      Int shift = NormalizationShiftBits(b.back(), limbBits);
 
-      vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift) : a;
-      vector<DataT> b_norm = (shift > 0) ? ShiftLeftBits(b, shift) : b;
+      vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift, limbBits) : a;
+      vector<DataT> b_norm = (shift > 0) ? ShiftLeftBits(b, shift, limbBits) : b;
       TrimZeros(a_norm);
       TrimZeros(b_norm);
 

@@ -8,6 +8,7 @@
 #include <vector>
 using namespace std;
 
+#include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
@@ -241,42 +242,6 @@ namespace BigMath
         ++q1;
 
       return q1;
-    }
-
-    // Bit-shift normalization for power-of-two bases. Shifting left by s
-    // (s < limbBits) sets the divisor's top bit; denormalizing the remainder
-    // is a right shift — no per-limb 128/64 division like the scalar-d path.
-    static vector<DataT> ShiftLeftBits(span<const DataT> a, int s, int limbBits)
-    {
-      vector<DataT> out(a.size() + 1, 0);
-      if (s == 0)
-      {
-        std::copy(a.begin(), a.end(), out.begin());
-        return out;
-      }
-      DataT mask = limbBits == 64 ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
-      DataT carry = 0;
-      for (SizeT i = 0; i < a.size(); ++i)
-      {
-        DataT cur = a[i];
-        out[i] = ((cur << s) | carry) & mask;
-        carry = cur >> (limbBits - s);
-      }
-      out[a.size()] = carry;
-      return out;
-    }
-
-    static void ShiftRightBitsInPlace(vector<DataT> &r, int s, int limbBits)
-    {
-      if (s == 0)
-        return;
-      DataT mask = limbBits == 64 ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
-      SizeT n = (SizeT)r.size();
-      for (SizeT i = 0; i < n; ++i)
-      {
-        DataT hi = (i + 1 < n) ? r[i + 1] : 0;
-        r[i] = ((r[i] >> s) | (hi << (limbBits - s))) & mask;
-      }
     }
 
     static vector<DataT> MultiplyByScalar(span<const DataT> a, DataT d, BaseT base)

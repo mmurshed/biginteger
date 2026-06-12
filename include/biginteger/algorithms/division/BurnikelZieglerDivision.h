@@ -8,6 +8,7 @@
 #include <vector>
 using namespace std;
 
+#include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
 #include "../Addition.h"
@@ -66,52 +67,6 @@ namespace BigMath
         v.clear();
       while (v.size() < limbs)
         v.push_back(0);
-    }
-
-    // Bit-shift left by [1..LimbBits] bits. Caller ensures shift ∈ [0,LimbBits].
-    static vector<DataT> ShiftLeftBits(vector<DataT> const &v, Int shift)
-    {
-      if (shift == 0 || IsZero(v))
-        return v;
-      vector<DataT> out(v.size() + 1, 0);
-      for (SizeT i = 0; i < v.size(); ++i)
-      {
-#if BIGMATH_LIMB_64
-        ULong128 cur = (ULong128)v[i] << shift;
-        out[i] |= (DataT)(cur & 0xFFFFFFFFFFFFFFFFULL);
-        out[i + 1] |= (DataT)(cur >> 64);
-#else
-        ULong cur = (ULong)v[i] << shift;
-        out[i] |= (DataT)(cur & 0xFFFFFFFFULL);
-        out[i + 1] |= (DataT)(cur >> 32);
-#endif
-      }
-      TrimZerosToOne(out);
-      return out;
-    }
-
-    // Bit-shift right by [0..LimbBits] bits.
-    static vector<DataT> ShiftRightBits(vector<DataT> const &v, Int shift)
-    {
-      if (shift == 0 || IsZero(v))
-        return v;
-      vector<DataT> out(v.size(), 0);
-      for (Int i = 0; i < (Int)v.size(); ++i)
-      {
-#if BIGMATH_LIMB_64
-        ULong128 cur = (ULong128)v[i];
-        if (i + 1 < (Int)v.size())
-          cur |= ((ULong128)v[i + 1]) << 64;
-        out[i] = (DataT)((cur >> shift) & 0xFFFFFFFFFFFFFFFFULL);
-#else
-        ULong cur = v[i];
-        if (i + 1 < (Int)v.size())
-          cur |= ((ULong)v[i + 1]) << 32;
-        out[i] = (DataT)((cur >> shift) & 0xFFFFFFFFULL);
-#endif
-      }
-      TrimZerosToOne(out);
-      return out;
     }
 
     static void Decrement(vector<DataT> &v, BaseT base)
@@ -360,25 +315,11 @@ namespace BigMath
       // 3n/2n correction-loop bound of 2 iterations; without it the loop runs O(B)
       // times when the recursive q-estimate is wildly off (PR #30 LIMB_64 sparse-input
       // hang was here — divisor.back() = 1 forced ~2^64 correction iters).
-      DataT b_top = b[b.size() - 1];
-      Int shift = 0;
-#if BIGMATH_LIMB_64
-      const DataT topBitMask = 0x8000000000000000ULL;
-#else
-      const DataT topBitMask = 0x80000000U;
-#endif
-      while ((b_top & topBitMask) == 0)
-      {
-        b_top <<= 1;
-        ++shift;
-      }
+      const int limbBits = LimbBitsFor(base);
+      Int shift = NormalizationShiftBits(b[b.size() - 1], limbBits);
 
-      vector<DataT> aNorm = (shift > 0)
-                                ? ShiftLeftBits(vector<DataT>(a.begin(), a.end()), shift)
-                                : vector<DataT>(a.begin(), a.end());
-      vector<DataT> bNorm = (shift > 0)
-                                ? ShiftLeftBits(vector<DataT>(b.begin(), b.end()), shift)
-                                : vector<DataT>(b.begin(), b.end());
+      vector<DataT> aNorm = ShiftLeftBits(a, shift, limbBits);
+      vector<DataT> bNorm = ShiftLeftBits(b, shift, limbBits);
 
       // BZ recursion needs the divisor size divisible by 2 at every level of
       // the 2n-by-n split until the basecase; any odd size on the way down
@@ -415,7 +356,7 @@ namespace BigMath
           qr.second.assign(1, 0);
       }
       if (computeRemainder && shift > 0)
-        qr.second = ShiftRightBits(qr.second, shift);
+        qr.second = ShiftRightBits(qr.second, shift, limbBits);
       return qr;
     }
 
