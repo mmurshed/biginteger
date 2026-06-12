@@ -1697,6 +1697,75 @@ namespace BigMath
       }
     }
 
+    // Zero-copy view of an operand's limbs as CRT coefficients (pass fusion
+    // F3, mem_pass_fusion.md). PackOperand materialized each prime's
+    // coefficient plane in a separate serial sweep (plus a full-plane zero
+    // fill for the padding); the fused stage A can instead pack each
+    // gathered element on the fly — the limb array IS the input plane.
+    // Eliminates, per operand per prime, one plane zero-fill and one packed
+    // plane write+read, and moves the % P work into the parallel gather.
+    struct PackedOperandView
+    {
+      const DataT *v = nullptr;
+      SizeT limbs = 0;
+      ULong coeffCount = 0; // limbs * coeffsPerLimb
+      bool base64 = false;
+
+      PackedOperandView(const std::vector<DataT> &op, BaseT base)
+          : v(op.data()),
+            limbs((SizeT)op.size()),
+            coeffCount((ULong)op.size() * CoeffsPerLimb(base)),
+            base64(base == Base2_64)
+      {
+      }
+
+      template <typename F>
+      inline UInt Coeff(SizeT idx) const
+      {
+        if ((ULong)idx >= coeffCount) return 0;
+        UInt raw;
+        if (base64)
+          raw = (UInt)(v[idx >> 1] >> ((idx & 1) * 32));
+        else
+          raw = (UInt)v[idx];
+        return raw % F::Prime;
+      }
+    };
+
+    // Forward stage A reading straight from the operand's limbs via a
+    // PackedOperandView instead of a pre-packed coefficient plane. Identical
+    // math: source element for tile slot (t, c) is coefficient c*n1+(r0+t),
+    // exactly what the plane-based gather read.
+    template <typename F>
+    inline void FusedForwardAPack(const PackedOperandView &src, UInt *scratch,
+                                  Int n, Int n1, Int n2,
+                                  const Plan<F> &planN2, const UInt *fwdRoots,
+                                  const Int *br, Int r0s, Int r0e)
+    {
+      constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
+      static thread_local std::vector<UInt> tilebuf;
+      tilebuf.resize((SizeT)TILE * n2);
+      UInt *tile = tilebuf.data();
+      for (Int r0 = r0s; r0 < r0e; r0 += TILE)
+      {
+        Int tr = std::min<Int>(TILE, r0e - r0);
+        // Gather: tile[t*n2 + c] = coeff(c*n1 + (r0+t)), c in [0,n2).
+        for (Int c = 0; c < n2; ++c)
+        {
+          SizeT base = (SizeT)c * n1 + r0;
+          UInt *d = tile + c;
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n2] = src.Coeff<F>(base + t);
+        }
+        for (Int t = 0; t < tr; ++t)
+        {
+          UInt *row = tile + (SizeT)t * n2;
+          ForwardPtr<F>(row, n2, planN2);
+          MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, fwdRoots, br);
+          std::copy(row, row + n2, scratch + (SizeT)(r0 + t) * n2);
+        }
+      }
+    }
+
     // Forward stage B with the pointwise product fused into the scatter
     // (mem_pass_fusion.md F1). Row math is identical to FusedForwardB, but
     // instead of writing operand B's spectrum to its own plane, each finished
@@ -2061,10 +2130,16 @@ namespace BigMath
     // restore the parallelism either: MFA stage row counts (n1, n2 ≤ 2^13)
     // sit below ParallelMinSize() = 65536, so the internal gate never
     // fires. ParallelDo bypasses MinSize.
-    // bufs = {fa1, fb1, fa2, fb2, fa3, fb3}; scrs = six scratch planes.
-    // Caller must pre-build the plan trees in the dispatching thread and
-    // guarantee MfaFusedWindow(n).
-    inline void MfaFusedForwardPointwise(UInt *const bufs[6], UInt *const scrs[6], Int n,
+    // a/b are zero-copy limb views (pass fusion F3 — stage A packs each
+    // gathered element on the fly; no pre-packed input planes, no zero
+    // fills). fa = {fa1, fa2, fa3} output planes — written in full by stage
+    // B before anything reads them, so the caller only needs capacity, not
+    // zeroed contents. scrs = six scratch planes (same: fully written by
+    // stage A before stage B reads). Caller must pre-build the plan trees
+    // in the dispatching thread and guarantee MfaFusedWindow(n).
+    inline void MfaFusedForwardPointwise(const PackedOperandView &a,
+                                         const PackedOperandView &b,
+                                         UInt *const fa[3], UInt *const scrs[6], Int n,
                                          const MfaPlanTree<F1> &tree1,
                                          const MfaPlanTree<F2> &tree2,
                                          const MfaPlanTree<F3> &tree3)
@@ -2079,25 +2154,25 @@ namespace BigMath
       const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
       const Int *br = GetBitReverseTable(n2).data();
 
-      auto stageA = [bufs, scrs, n, n1, n2, fwd1, fwd2, fwd3,
+      auto stageA = [&a, &b, scrs, n, n1, n2, fwd1, fwd2, fwd3,
                      pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
         for (Int idx = s; idx < e; ++idx)
         {
           switch (idx)
           {
-            case 0: FusedForwardA<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-            case 1: FusedForwardA<F1>(bufs[1], scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-            case 2: FusedForwardA<F2>(bufs[2], scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-            case 3: FusedForwardA<F2>(bufs[3], scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-            case 4: FusedForwardA<F3>(bufs[4], scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
-            case 5: FusedForwardA<F3>(bufs[5], scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+            case 0: FusedForwardAPack<F1>(a, scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+            case 1: FusedForwardAPack<F1>(b, scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+            case 2: FusedForwardAPack<F2>(a, scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+            case 3: FusedForwardAPack<F2>(b, scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+            case 4: FusedForwardAPack<F3>(a, scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+            case 5: FusedForwardAPack<F3>(b, scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
           }
         }
       };
       ParallelDo(6, stageA);
 
       const Int half = n2 >> 1;
-      auto stageB = [bufs, scrs, n1, n2, half,
+      auto stageB = [fa, scrs, n1, n2, half,
                      pn1_1, pn1_2, pn1_3](Int s, Int e) {
         for (Int idx = s; idx < e; ++idx)
         {
@@ -2106,16 +2181,16 @@ namespace BigMath
           switch (idx >> 1)
           {
             case 0:
-              FusedForwardB<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
-              FusedForwardBMul<F1>(bufs[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
+              FusedForwardB<F1>(fa[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
+              FusedForwardBMul<F1>(fa[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
               break;
             case 1:
-              FusedForwardB<F2>(bufs[2], scrs[2], n1, n2, *pn1_2, r0s, r0e);
-              FusedForwardBMul<F2>(bufs[2], scrs[3], n1, n2, *pn1_2, r0s, r0e);
+              FusedForwardB<F2>(fa[1], scrs[2], n1, n2, *pn1_2, r0s, r0e);
+              FusedForwardBMul<F2>(fa[1], scrs[3], n1, n2, *pn1_2, r0s, r0e);
               break;
             case 2:
-              FusedForwardB<F3>(bufs[4], scrs[4], n1, n2, *pn1_3, r0s, r0e);
-              FusedForwardBMul<F3>(bufs[4], scrs[5], n1, n2, *pn1_3, r0s, r0e);
+              FusedForwardB<F3>(fa[2], scrs[4], n1, n2, *pn1_3, r0s, r0e);
+              FusedForwardBMul<F3>(fa[2], scrs[5], n1, n2, *pn1_3, r0s, r0e);
               break;
           }
         }
@@ -2204,14 +2279,10 @@ namespace BigMath
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
       Int n = (Int)std::bit_ceil(coeffCount);
 
-      // Three parallel transforms.
+      // Three parallel transforms. Buffer zero-fill + packing happen inside
+      // the branch that needs them: the fused MFA path (F3) packs straight
+      // from the limb arrays and never touches fb at all.
       static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
-      fa1.assign(n, 0); fb1.assign(n, 0);
-      fa2.assign(n, 0); fb2.assign(n, 0);
-      fa3.assign(n, 0); fb3.assign(n, 0);
-
-      PackOperand(a, base, fa1, fa2, fa3);
-      PackOperand(b, base, fb1, fb2, fb3);
 
       const auto &plan1 = GetPlan<F1, G1>(n);
       const auto &plan2 = GetPlan<F2, G2>(n);
@@ -2229,26 +2300,42 @@ namespace BigMath
       bool pointwiseFused = false;
       if (useMfa)
       {
-        for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
         // Pre-warm all plans in main thread: worker threads cannot call
         // GetPlan() safely from inside ParallelDo (BuildRoots reenters pool).
         BuildMfaPlanTree<F1, G1>(n, tree1);
         BuildMfaPlanTree<F2, G2>(n, tree2);
         BuildMfaPlanTree<F3, G3>(n, tree3);
-        UInt *bufs[6]   = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
-        UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
-                           mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
 
 #if BIGMATH_NTT_MFA_FUSE
         if (MfaFusedWindow(n))
         {
-          // Pass fusion F1 + row-chunked stages — see MfaFusedForwardPointwise.
-          MfaFusedForwardPointwise(bufs, scrs, n, tree1, tree2, tree3);
+          // Pass fusion F1 + F3 + row-chunked stages — see
+          // MfaFusedForwardPointwise. Stage A packs straight from the limb
+          // arrays (no input planes), so fa/fb were never packed or zeroed
+          // above; fa and the scratches are fully written before first read,
+          // so resize (no zero fill) suffices — on warm thread_local reuse
+          // that skips 9 serial plane writes.
+          for (int i = 0; i < 6; ++i) mfaScratch[i].resize(n);
+          fa1.resize(n); fa2.resize(n); fa3.resize(n);
+          UInt *fap[3] = {fa1.data(), fa2.data(), fa3.data()};
+          UInt *scrs[6] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
+                           mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
+          PackedOperandView va(a, base), vb(b, base);
+          MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
           pointwiseFused = true;
         }
         else
 #endif
         {
+          for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
+          fa1.assign(n, 0); fb1.assign(n, 0);
+          fa2.assign(n, 0); fb2.assign(n, 0);
+          fa3.assign(n, 0); fb3.assign(n, 0);
+          PackOperand(a, base, fa1, fa2, fa3);
+          PackOperand(b, base, fb1, fb2, fb3);
+          UInt *bufs[6]   = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
+          UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
+                             mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
           // Multi-level MFA (above the single-level fused window): original
           // 6-unit forward batch; the pointwise sweep below handles the
           // product.
@@ -2272,6 +2359,11 @@ namespace BigMath
       else
 #endif
       {
+        fa1.assign(n, 0); fb1.assign(n, 0);
+        fa2.assign(n, 0); fb2.assign(n, 0);
+        fa3.assign(n, 0); fb3.assign(n, 0);
+        PackOperand(a, base, fa1, fa2, fa3);
+        PackOperand(b, base, fb1, fb2, fb3);
 #if BIGMATH_USE_THREADS
         // Cross-prime parallelism: 6 forwards as one batch.
         std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
@@ -2416,12 +2508,6 @@ namespace BigMath
         throw std::invalid_argument("MultiplyMod2km1: operand exceeds L limbs");
 
       static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
-      fa1.assign(n, 0); fb1.assign(n, 0);
-      fa2.assign(n, 0); fb2.assign(n, 0);
-      fa3.assign(n, 0); fb3.assign(n, 0);
-
-      PackOperand(a, base, fa1, fa2, fa3);
-      PackOperand(b, base, fb1, fb2, fb3);
 
       const auto &plan1 = GetPlan<F1, G1>(n);
       const auto &plan2 = GetPlan<F2, G2>(n);
@@ -2429,32 +2515,39 @@ namespace BigMath
 
 #if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
       // Same fused MFA pipeline as the linear path (forward + fused
-      // pointwise, row-chunked inverse). The MFA permutation cancels in the
-      // pointwise product and the inverse returns natural order, so the
-      // Garner walk below is unchanged. This is what makes the 2^26 cap
-      // usable: large cyclic transforms previously ran whole-transform
-      // ParallelDo(6/3) units that idle cores (the pre-#109 division
-      // profile: ~88% of compute in plain butterfly layers).
+      // pointwise via on-the-fly packing, row-chunked inverse). The MFA
+      // permutation cancels in the pointwise product and the inverse
+      // returns natural order, so the Garner walk below is unchanged. This
+      // is what makes the 2^26 cap usable: large cyclic transforms
+      // previously ran whole-transform ParallelDo(6/3) units that idle
+      // cores (the pre-#109 division profile: ~88% of compute in plain
+      // butterfly layers).
       if (n >= BIGMATH_NTT_MFA_THRESHOLD && MfaFusedWindow(n))
       {
         static thread_local std::vector<UInt> cycScratch[6];
-        for (int i = 0; i < 6; ++i) cycScratch[i].assign(n, 0);
+        for (int i = 0; i < 6; ++i) cycScratch[i].resize(n);
         MfaPlanTree<F1> tree1;
         MfaPlanTree<F2> tree2;
         MfaPlanTree<F3> tree3;
         BuildMfaPlanTree<F1, G1>(n, tree1);
         BuildMfaPlanTree<F2, G2>(n, tree2);
         BuildMfaPlanTree<F3, G3>(n, tree3);
-        UInt *bufs[6] = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
+        fa1.resize(n); fa2.resize(n); fa3.resize(n);
+        UInt *fap[3] = {fa1.data(), fa2.data(), fa3.data()};
         UInt *scrs[6] = {cycScratch[0].data(), cycScratch[1].data(), cycScratch[2].data(),
                          cycScratch[3].data(), cycScratch[4].data(), cycScratch[5].data()};
-        MfaFusedForwardPointwise(bufs, scrs, n, tree1, tree2, tree3);
-        UInt *ibufs[3] = {fa1.data(), fa2.data(), fa3.data()};
-        MfaFusedInverse(ibufs, scrs, n, tree1, tree2, tree3);
+        PackedOperandView va(a, base), vb(b, base);
+        MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
+        MfaFusedInverse(fap, scrs, n, tree1, tree2, tree3);
       }
       else
 #endif
       {
+        fa1.assign(n, 0); fb1.assign(n, 0);
+        fa2.assign(n, 0); fb2.assign(n, 0);
+        fa3.assign(n, 0); fb3.assign(n, 0);
+        PackOperand(a, base, fa1, fa2, fa3);
+        PackOperand(b, base, fb1, fb2, fb3);
 #if BIGMATH_USE_THREADS
         {
           std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};

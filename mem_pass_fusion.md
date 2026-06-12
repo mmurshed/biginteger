@@ -68,9 +68,13 @@ Warm-state raw-limb suite, best-of-3 × 3 interleaved rounds vs pre-#107
    GMP at every measured size ≥20M-digit dividends.**
    The prepared-operand path still has no MFA (matters for
    ops/Multiplication.h repeated-multiply users, not Newton).
-2. F3 pack fusion (parallelism-first): PackOperand is a serial sweep
-   writing 6 planes, plus 12 serial plane zero-fills (assign(n,0)) —
-   ~1.6 GB serial at 10M limbs. Fold into stage A's ParallelDo(6) gather.
+2. F3 pack fusion — **DONE (2026-06-12)**: PackedOperandView packs each
+   gathered element on the fly inside FusedForwardAPack; fa/fb input
+   planes and their zero-fills are gone from the fused path (fb planes
+   not even touched), scratches and fa switch to resize (fully written
+   before first read). Linear + cyclic both. Measured: mul 1M limbs
+   −4.4%, div 100M÷20M digits −4.6% (0.53×), 200M÷40M −3.8% (0.66×),
+   2-5% across the band, 10.4M mul wash.
 3. F2 finalize chunking: FinalizeProduct serial but small (~0.4% in the
    old profile). Only if the probe shows saturation or its share grew.
 4. F4 transpose audit: unchanged.
