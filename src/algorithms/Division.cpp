@@ -12,6 +12,9 @@
 namespace BigMath
 {
   const SizeT NEWTON_MEDIUM_B = BIGMATH_NEWTON_MEDIUM_B;
+  const SizeT NEWTON_RATIO2_B = BIGMATH_NEWTON_RATIO2_B;
+  const SizeT NEWTON_RATIO2_NUMERATOR = BIGMATH_NEWTON_RATIO2_NUMERATOR;
+  const SizeT NEWTON_RATIO2_DENOMINATOR = BIGMATH_NEWTON_RATIO2_DENOMINATOR;
   const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
   const SizeT NEWTON_SKEW_NUMERATOR = BIGMATH_NEWTON_SKEW_NUMERATOR;
   const SizeT NEWTON_SKEW_DENOMINATOR = BIGMATH_NEWTON_SKEW_DENOMINATOR;
@@ -58,7 +61,11 @@ namespace BigMath
     bool newton_high_skew =
         b.size() >= NEWTON_HIGH_SKEW_B &&
         NEWTON_HIGH_SKEW_DENOMINATOR * a.size() >= NEWTON_HIGH_SKEW_NUMERATOR * b.size();
-    bool newton_eligible = newton_medium_skew || newton_balanced || newton_high_skew;
+    // Ratio-≥8/5 band between medium (3/1 @ 2560) and balanced (4/3 @ 24576).
+    bool newton_ratio2 =
+        b.size() >= NEWTON_RATIO2_B &&
+        NEWTON_RATIO2_DENOMINATOR * a.size() >= NEWTON_RATIO2_NUMERATOR * b.size();
+    bool newton_eligible = newton_medium_skew || newton_balanced || newton_high_skew || newton_ratio2;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 

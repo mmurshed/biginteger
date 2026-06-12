@@ -62,7 +62,7 @@ flowchart TD
     C -- no --> D{Compare&#40;a, b&#41;}
     D -- a == b --> Eq[return &#123;1, 0&#125;]
     D -- a &lt; b --> Less[return &#123;0, a&#125;]
-    D -- a &gt; b --> E{Newton band?<br/>b ≥ 4096 and a ≥ 3b<br/>OR b ≥ 24576 and 3a ≥ 4b<br/>OR b ≥ 2048 and a ≥ 8b}
+    D -- a &gt; b --> E{Newton band?<br/>b ≥ 2560 and 2a ≥ 5b<br/>OR b ≥ 6144 and 5a ≥ 8b<br/>OR b ≥ 24576 and 3a ≥ 4b<br/>OR b ≥ 2048 and a ≥ 8b}
     E -- yes --> N[NewtonDivision]
     E -- no --> F{Power-of-two base<br/>AND b.size &gt; 512<br/>AND BZ shape fits?}
     F -- yes --> BZ[BurnikelZieglerDivision]
@@ -106,6 +106,18 @@ The current dispatch logic, paraphrased:
 The ordering matters: Newton wins on **large skewed** problems because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **mid-size near-balanced** problems where its 2n/n recursion structure beats both FastDivision and Newton's setup cost.
 
 **Near-balanced band (PR #79; ratio lowered to 4/3 and floor to 24576 limbs on 2026-06-11).** Above `NEWTON_BALANCED_B` (24576 limbs), ratio-≥-4/3 division goes to Newton instead of BZ. BZ's recursive 2n/n halving lands its intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes — the FFT length doubles and the constant factor compounds across recursion depth into a **5–60× slowdown vs Newton**, worst at `n = 2^k + 1` (measured ~90 s for a 262145-limb divisor vs Newton's ~0.9 s). Newton pads once to the working size and stays flat. Exact-power-of-2 divisor sizes are BZ's best case (it ties Newton); they regress ~4 % under this band but are rare in practice. **Band re-measured 2026-06-11** after the wraparound-Newton PRs (#85–#87) cut Newton's constant: the generic BZ/Newton crossover moved from ratio ~2 down to ~1.3 at large b, and the size floor from ~100k down to ~24k limbs (ratio-1.4 crossover ≈ 24k limbs; ratio-2 crossover ≈ 6k). Band lowered `2/1 → 4/3` and `NEWTON_BALANCED_B` `98304 → 24576`. The former ratio ∈ (1, 4/3) residual is closed by **QuotientSizedDivision** (see below). FastDivision is the default workhorse for everything else.
+
+**Medium/ratio-2 band retune (2026-06-11, follow-up to the 4/3 band).** Post-#85–#87 re-measurement
+moved the Newton/BZ crossovers down across the board: `NEWTON_MEDIUM_B` 4096 → 2560 with ratio
+3/1 → **5/2**, plus a new `NEWTON_RATIO2` band (`b ≥ 6144`, ratio ≥ **8/5**). The fractional
+ratios are deliberate cliff-avoidance: digit-derived operands land at limb ratios like
+2.0000 ± 1 limb or 3.0000 ± 1 limb, and the BZ side of a knife-edge `2/1` or `3/1` predicate
+blows up 8–12× on non-power-of-2 divisor sizes (measured: 15578×5193 limbs BZ 69 ms vs Newton
+9 ms; 20785×10393 BZ 139 ms vs Newton 12 ms — both shapes sat one limb below the old bands).
+End-to-end: 200k×50k digits 6.65× → 3.36× vs GMP; 300k×100k 24.6× → 3.07×; 400k×200k
+20.7× → 3.57×. Known residual: ratio ∈ (1, 8/5) at `b ∈ (512, 24576)` stays BZ — generically
+correct (BZ wins those crossovers) but non-pow2 pathology there remains; fixing it needs the
+quotient-sized band extended below 24576 with fresh crossover data.
 
 **Short-quotient band (`QuotientSizedDivision`, 2026-06-11).** For `b ≥ NEWTON_BALANCED_B`, `a ≥ b + 64`, ratio < 4/3: with Δ = a.size − b.size and t = Δ+4, the (Δ+1)-limb quotient is determined to ±a few units by the operand TOPS — `q_est = floor((a >> B^(nb−t)) / (b >> B^(nb−t)))` (truncating b perturbs q by ≤ ~B^(2−GUARD), sub-ulp). The tops divide (ratio ~2, size ~2Δ/Δ) goes to Newton directly at t ≥ 6144 (measured: Newton beats BZ at ratio 2 from ~6k limbs — 13 vs 22 ms at 12k, 40 vs 299 ms at 30k, 0.16 s vs 5.3 s at 65537); the exact remainder then costs one Δ×nb back-multiply plus ±few fixups (cap 8, fallback Newton). Cost scales with the **quotient**, not the divisor. Measured (nb=131073, the 2^k+1 pathology): ratios 1.05/1.10/1.25 went from 1.07 s / 2.16 s / 5.35 s (BZ) to **28 / 43 / 71 ms** (38–75×). Generic nb=120000: 37/56/116 ms → 30/39/66 ms. It also beats BZ at BZ's exact-power-of-2 best case (131072 @1.25: 65 vs 88 ms) — no regression band.
 

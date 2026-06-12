@@ -4,7 +4,8 @@
  * Dispatch order:
  *   1. NewtonDivision (blockwise handles arbitrary ratio via reciprocal cache),
  *      when any of these skew bands hold:
- *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (3/1)          · b
+ *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (5/2)          · b
+ *        - b ≥ NEWTON_RATIO2_B    AND  a ≥ NEWTON_RATIO2 (8/5)        · b
  *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (4/3)      · b
  *        - b ≥ NEWTON_HIGH_SKEW_B AND  a ≥ NEWTON_HIGH_SKEW (8/1)     · b
  *      The balanced (ratio ≥ 4/3) band starts at 24k limbs — the generic
@@ -41,7 +42,23 @@
 namespace BigMath
 {
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 4096
+#define BIGMATH_NEWTON_MEDIUM_B 2560
+#endif
+
+// Ratio-≥8/5 band. Sits between the medium (3/1) and balanced (4/3) bands:
+// post-#85-87 Newton beats BZ at ratio 2 from ~6k limbs (measured 9.0 vs
+// 9.9 ms at 6000, 13 vs 22 ms at 12000, 24 vs 49 ms at 24000) and ties from
+// ratio ~1.6. 8/5 rather than 2/1 because digit-derived operands sit at limb
+// ratios like 2.0000 ± 1 limb and BZ blows up 8-12× on non-pow2 divisor
+// sizes right across that edge.
+#ifndef BIGMATH_NEWTON_RATIO2_B
+#define BIGMATH_NEWTON_RATIO2_B 6144
+#endif
+#ifndef BIGMATH_NEWTON_RATIO2_NUMERATOR
+#define BIGMATH_NEWTON_RATIO2_NUMERATOR 8
+#endif
+#ifndef BIGMATH_NEWTON_RATIO2_DENOMINATOR
+#define BIGMATH_NEWTON_RATIO2_DENOMINATOR 5
 #endif
 
 #ifndef BIGMATH_BZ_DIVISOR_THRESHOLD
@@ -49,11 +66,11 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
-#define BIGMATH_NEWTON_SKEW_NUMERATOR 3
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 5
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
-#define BIGMATH_NEWTON_SKEW_DENOMINATOR 1
+#define BIGMATH_NEWTON_SKEW_DENOMINATOR 2
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_B
@@ -85,6 +102,9 @@ namespace BigMath
 #endif
 
   extern const SizeT NEWTON_MEDIUM_B;
+  extern const SizeT NEWTON_RATIO2_B;
+  extern const SizeT NEWTON_RATIO2_NUMERATOR;
+  extern const SizeT NEWTON_RATIO2_DENOMINATOR;
   extern const SizeT BZ_DIVISOR_THRESHOLD;
   extern const SizeT NEWTON_SKEW_NUMERATOR;
   extern const SizeT NEWTON_SKEW_DENOMINATOR;
