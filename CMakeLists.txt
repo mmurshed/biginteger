@@ -147,6 +147,12 @@ if(BIGMATH_BUILD_TESTS)
         add_executable(mfa_vs_gmp_check tests/performance/mfa_vs_gmp_check.cpp)
         target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})
+
+        # Raw-limb (mpz_import/export) MFA-band probe; pre-merge gate for any
+        # change touching the MFA pipeline (mem_pass_fusion.md protocol).
+        add_executable(mfa_mul_gmp_probe tests/performance/mfa_mul_gmp_probe.cpp)
+        target_link_libraries(mfa_mul_gmp_probe PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(mfa_mul_gmp_probe PRIVATE ${GMP_INCLUDE_DIR})
         target_include_directories(bench_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
 
         add_executable(bench_run_gmp ${BENCHSUITE_DIR}/run_gmp.cpp)

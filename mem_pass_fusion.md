@@ -1,6 +1,34 @@
 # MFA Memory-Pass Fusion Plan
 
-Status: PLANNED (written 2026-06-12, post PR #82–#105 optimization run).
+Status: F1 IMPLEMENTED (2026-06-12, `FusedForwardBMul` + row-chunked
+ParallelDo(6) stage phases in NTTMultiplicationCrt.h). Measured 1.20×
+warm-state at 3M–10M limbs — but read the revised analysis below before
+starting F2/F3.
+
+## REVISED PREMISE (2026-06-12, post-F1 measurement)
+
+The "fully memory-bandwidth-bound" premise below is WRONG post-NEON
+(PRs #96–#99 shifted the balance). Direct probe on M1 Max: two concurrent
+multiplies run at +28% per-process (1.56× aggregate) — a single multiply
+draws only ~64% of DRAM bandwidth. Consequences, measured warm-state
+(first call discarded; cold-inclusive runs mask everything under plan
+build + page faults):
+
+- Pure pass-cutting (F1 fusion alone, with forward work units dropping
+  6→3): **1.47× regression**. Concurrency loss outweighs byte savings.
+- Pass-cutting with concurrency preserved (row-chunked ParallelDo(6)
+  phases): parity only.
+- Concurrency raised on the inverse too (old code: ParallelDo(3) whole
+  transforms — 3 cores busy for a third of the multiply): **1.20× win**.
+  This is where the F1 PR's gain actually comes from.
+
+F2 (Garner fusion) re-scoped: its single-threaded-stitch prototype would
+repeat the F1 mistake. The winning direction is the opposite — chunk
+FinalizeProduct (serial today!) into per-range Garner with carry fix-up,
+i.e. F2's tiling for PARALLELISM first, byte savings second. F3 likewise:
+fold pack into stage A only if it keeps ≥6 concurrent units.
+Re-run the 2-process probe after each step; once a single multiply
+saturates bandwidth, byte-cutting resumes being the lever.
 Owner note: this is the last identified structural performance lever. Every
 band below 50M digits is at or better than GMP parity; the 50M–200M-digit
 band (balanced mul 1.28–1.33×, div 1.23–1.37× vs GMP) is

@@ -86,6 +86,41 @@ namespace
 
     return fa == ga;
   }
+
+  // The F1 pass fusion (ForwardMFAMul, mem_pass_fusion.md) must produce the
+  // exact spectrum product the unfused pipeline does: forward A, then
+  // forward B with the pointwise multiply fused into B's scatter, must equal
+  // forward A + forward B + separate pointwise sweep. Verified through the
+  // full inverse so a fused-path bug can't hide in the MFA permutation.
+  template <typename F, UInt G>
+  bool FusedPointwiseMatchesUnfusedOk(Int n, uint64_t seed)
+  {
+    std::mt19937_64 gen(seed);
+    std::uniform_int_distribution<uint32_t> dis(0, F::Prime - 1);
+
+    std::vector<UInt> a(n), b(n);
+    for (Int i = 0; i < n; ++i)
+    {
+      a[i] = dis(gen);
+      b[i] = dis(gen);
+    }
+
+    // Unfused reference pipeline.
+    std::vector<UInt> ra = a, rb = b, scratch(n);
+    ForwardMFA<F, G>(ra.data(), n, scratch.data(), /*parallel=*/false);
+    ForwardMFA<F, G>(rb.data(), n, scratch.data(), /*parallel=*/false);
+    for (Int i = 0; i < n; ++i)
+      ra[i] = F::Mul(ra[i], rb[i]);
+    InverseMFA<F, G>(ra.data(), n, scratch.data(), /*parallel=*/false);
+
+    // Fused pipeline: B's forward multiplies into A's plane at scatter time.
+    std::vector<UInt> fa = a, fb = b;
+    ForwardMFA<F, G>(fa.data(), n, scratch.data(), /*parallel=*/false);
+    ForwardMFAMul<F, G>(fb.data(), n, scratch.data(), fa.data(), /*parallel=*/false);
+    InverseMFA<F, G>(fa.data(), n, scratch.data(), /*parallel=*/false);
+
+    return fa == ra;
+  }
 }
 
 // n must exceed BIGMATH_NTT_MFA_LEAF (2^13) for the MFA decomposition (and
@@ -120,4 +155,25 @@ REGISTER_TEST(MfaTransform, ConvolutionMatchesPlainP1)
 REGISTER_TEST(MfaTransform, ConvolutionMatchesPlainP2)
 {
   ASSERT_TRUE((ConvolutionMatchesPlainOk<F2, G2>(1 << 14, 0xEE1)));
+}
+
+// 2^14/2^15/2^17 hit the single-level fused-mul scatter (even and uneven
+// n1/n2 factorizations); 2^12 sits at/below the leaf, exercising
+// ForwardMFAMul's plain-forward + pointwise fallback branch.
+REGISTER_TEST(MfaTransform, FusedPointwiseMatchesUnfusedP1)
+{
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F1, G1>(1 << 12, 0xFF0)));
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F1, G1>(1 << 14, 0xFF1)));
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F1, G1>(1 << 15, 0xFF2)));
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F1, G1>(1 << 17, 0xFF3)));
+}
+
+REGISTER_TEST(MfaTransform, FusedPointwiseMatchesUnfusedP2)
+{
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F2, G2>(1 << 14, 0xFF4)));
+}
+
+REGISTER_TEST(MfaTransform, FusedPointwiseMatchesUnfusedP3)
+{
+  ASSERT_TRUE((FusedPointwiseMatchesUnfusedOk<F3, G3>(1 << 14, 0xFF5)));
 }

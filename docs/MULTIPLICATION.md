@@ -562,8 +562,17 @@ The win is **cache locality**. At 100M digits (n ≈ 33M per prime ≈ 134 MB pe
 The landed design separates the two:
 
 - Plans are pre-built in the main thread via `BuildMfaPlanTree<F, G>(n, tree)` for each prime before any dispatch. The tree is then passed by `const &` capture into the worker lambda. Workers never call `GetPlan` and therefore never reenter the pool.
-- The six forward transforms (and three inverses) dispatch as `ParallelDo(6)` / `ParallelDo(3)` with `parallel=false` passed to `ForwardMFA` / `InverseMFA` to suppress *internal* `ParallelFor` calls. Each task is one full per-prime MFA running serially in its own thread.
-- Six per-task scratch buffers are allocated on the caller stack (NOT `thread_local`) before dispatch so the capturing pointers cross threads safely.
+- In the single-level fused window (`n1, n2 ≤ LEAF` — every in-practice MFA length), the forward runs as two `ParallelDo(6)` phases: stage A for all six operand×prime planes (independent units), then stage B as `(prime, half-row-range)` units. The multi-level fallback and the three inverses keep the original whole-transform batching, with `parallel=false` suppressing *internal* `ParallelFor` calls.
+- Six per-task scratch buffers are sized before dispatch; the worker lambdas capture only the raw pointers so the buffers cross threads safely.
+
+**Pointwise fusion + row-chunked stages (F1, mem_pass_fusion.md, 2026-06-12).** In the single-level window, each forward stage-B unit runs `fa`'s stage B on its row range and then `fb`'s stage B on the same range with the pointwise multiply fused into the scatter: `FusedForwardBMul` performs the same gather + row-FFT as `FusedForwardB`, but multiplies each finished row into operand A's already-transformed plane (`fa[i] = fa[i] · f̂b[i]`) instead of writing `fb`'s plane. `fb`'s spectrum never reaches DRAM and the standalone pointwise sweep disappears. The inverse is likewise split into two `ParallelDo(6)` phases of `(prime, half-range)` units (the inter-stage barrier is load-bearing: stage B rows read scatter output from *every* stage A unit).
+
+Two failed shapes informed this design, both measured warm-state (first call discarded — plan build and first-touch faults otherwise mask everything):
+
+- Pairing `fa`/`fb` whole-prime in `ParallelDo(3)` lost **1.47×**: a single multiply only draws ~64% of the M1 Max's DRAM bandwidth (2-process probe: +28% per-process, 1.56× aggregate), so halving the concurrent work units is not free — the "fully bandwidth-bound" premise does not hold post-NEON.
+- Sequential primes with `parallel=true` inside the stages lost **2×**: MFA stage row counts (`n1, n2 ≤ 2^13`) sit below `ParallelMinSize()` = 65536, so the internal `ParallelFor` gate never fires and everything ran serial. `ParallelDo` bypasses MinSize; that is why the row chunking is expressed through it.
+
+Landed result (warm best-of-3 ×3 interleaved rounds vs pre-fusion baseline, M1 Max): **−16.2% / −17.1% / −17.0%** at 3M/5M/10M limbs (≈1.20× wall-clock) — most of it from the 6-unit inverse phases (the old inverse batched whole transforms in `ParallelDo(3)`, leaving cores idle for a third of the multiply), the remainder from the eliminated pointwise/`fb`-write passes.
 
 `mul_xl_bench` on M1 Max, Base2_64, CRT default, threaded, refreshed after the `2^24` threshold retune:
 
