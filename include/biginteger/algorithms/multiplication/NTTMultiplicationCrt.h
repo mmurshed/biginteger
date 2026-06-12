@@ -1728,8 +1728,12 @@ namespace BigMath
         {
           UInt *row = tile + (SizeT)t * n2;
           std::copy(scratch + (SizeT)(r0 + t) * n2, scratch + (SizeT)(r0 + t) * n2 + n2, row);
-          InversePtr<F>(row, n2, planN2, /*scale=*/ true);
+          // Inverse cross-twiddle must precede the inverse row FFT (adjoint
+          // of the forward fusion order; the bit-reversed addressing refers
+          // to the pre-DIT layout). Same daaf3f4 ordering bug as the
+          // non-tiled inverse step.
           MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, invRoots, br);
+          InversePtr<F>(row, n2, planN2, /*scale=*/ true);
         }
         // Scatter: a[c*n1 + (r0+t)] = tile[t*n2 + c], c in [0,n2).
         for (Int c = 0; c < n2; ++c)
@@ -1899,11 +1903,18 @@ namespace BigMath
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = scratch + (SizeT)r * n2;
+          // The inverse cross-twiddle must PRECEDE the inverse row FFT: it is
+          // the adjoint of the forward order (row FFT, then twiddle), and
+          // MfaTwiddleApplyRow's bit-reversed addressing refers to the
+          // pre-DIT layout. The fusion commit (daaf3f4, PR #72) applied it
+          // after the row inverse, breaking forward·inverse identity at every
+          // MFA size — latent because the 2^24 gate sits above all routine
+          // correctness tests.
+          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.inverseRoots.data(), br);
           if (n2 <= BIGMATH_NTT_MFA_LEAF)
             InversePtr<F>(row, n2, planN2, /*scale=*/ true);
           else
             InverseMFA<F>(row, n2, a + (SizeT)r * n2, parallel, tree);
-          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.inverseRoots.data(), br);
         }
       };
 #if BIGMATH_USE_THREADS
