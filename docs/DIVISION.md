@@ -623,11 +623,48 @@ Verified with the same stress harness as the cyclic-QB change (gate-active divis
 adversarial patterns, blockwise/single-block boundaries) plus `div_correctness`, 246 unit
 tests, and ToString round-trips at 100k/1M/5M digits.
 
-Remaining wraparound headroom (not yet taken): the `T = D·R` / `RD = R·diff` products inside
-`ApproxReciprocal` (`invertappr`-style). These need sharper error analysis (the residue's
-"known high part" comes from the Newton invariant rather than an explicit `rem < b` bound),
-and the reciprocal is computed once per `Divider` — amortized away in ToString workloads, so
-the win is confined to one-shot dispatch divides.
+### Wrapped Newton iteration in `ApproxReciprocal` — invertappr style (LANDED 2026-06-11)
+
+The third wraparound lever, closing the family: the reciprocal's own doubling iterations.
+Algebra: with `E = B^(2m) − D_new·R_pad`, the exact step
+`R_new = (R_pad·(2B^(2m) − D_new·R_pad)) >> 2m` decomposes exactly into
+`R_new = R_pad + floor(R_pad·E / B^(2m))`. The seed is accurate to ~`cur` limbs, so `|E|` is
+known-small — which buys two structural cuts per iteration:
+
+1. **E recovered exactly from a cyclic residue.** `(D_new·R_pad) mod (B^L − 1)` at
+   `L ≈ 2m − cur` instead of the full `2m+1`-limb product (`T`). At the high-precision
+   extra-refine iteration (`cur = m`) the cyclic transform is **half** the linear length.
+   Sign read from residue magnitude, same window argument as `WrappedRemainder`.
+2. **Correction from top slices only.** `floor(R_pad·E / B^(2m))` has only `m − cur`
+   significant limbs; top slices of `R_pad` and `E` (20-limb guards) replace the full
+   `(m+1)×(2m+1)` `RD` product with a `(m−cur)`-sized one. Dropped tails stay sub-ulp.
+
+**The bug that cost a debugging round:** the sign/validity window was first sized at
+`B^4` headroom over the theoretical `|E| < ε·B^(2m−cur)` bound, assuming `ε` (the seed's
+ulp error) stays at a few units. It does not — **the exact-path tower itself leaves R off
+by up to ~`B^6` ulps** (integer-rounding drift accumulating through the doublings; the same
+slack the `high_precision` extra iteration exists to heal). The too-tight window
+misclassified E's sign at the second wrapped step, the then-clamp froze R at stale
+precision, and every downstream `DivideChunk` blew its fixup budget → FastDivision fallback
+on every ToString chain divide (8× regression, reproduced with a `10^500000` divisor).
+Fixes: window headroom `B^16`, slice guards widened to match (20 limbs), and out-of-window
+now falls back to the exact iteration for that step instead of clamping.
+
+Measured (M1 Max, paired runs, on top of the two levers above; one-shot divides are where
+the reciprocal isn't amortized):
+
+| case | before | after | delta |
+|---|---:|---:|---:|
+| div 1M / 200k digits | 30.7 ms | 23.4 ms | **−24%** |
+| div 3M / 600k digits | 71.7 ms | 54.6 ms | **−24%** |
+| div 5M / 1M digits | 148.2 ms | 110.7 ms | **−25%** |
+| tostr 1M digits | 122.0 ms | 117.3 ms | −4% (Divider reciprocal mostly amortized) |
+| `Divider` ctor, 10^500000 divisor | 38.9 ms | 27.8 ms | −29% |
+
+Session cumulative on div 5M/1M: 206 → 111 ms (**−46%**). Verified: 246 unit tests,
+`div_correctness`, ToString round-trips (100k/1M/5M digits), the gate-active stress harness,
+plus a dedicated Pow10-divisor suite (10^60k…10^800k at ratios 1.7/2.0/3.1 — the shape that
+exposed the window bug) cross-checked against FastDivision.
 
 ### Parallelize NTT — multithreading (LANDED, PR #32/#38/#39)
 
