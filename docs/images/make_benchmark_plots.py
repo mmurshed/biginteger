@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Generate the BENCHMARK.md / README.md performance figures.
 
-Data: 2026-06-12 evening canonical run, post PR #107-#114 (M1 Max, paired same-run
-BigMath vs GMP 6.3, quiet machine; 50M-200M mul rows use warm steady-state ratios,
-see BENCHMARK.md methodology notes). Regenerate by rerunning bench_vs_gmp and
-updating the tables below, then: python3 docs/images/make_benchmark_plots.py
+Data: 2026-06-12 afternoon canonical run, post PR #116-#119 (BZ odd-size padding
++ basecase 128 + frontier re-sweep; parallel ToString/parse fan-outs). M1 Max,
+paired same-run BigMath vs GMP 6.3, quiet machine; 50M-200M mul rows and 5M/10M
+ToString rows use warm steady-state ratios, see BENCHMARK.md methodology notes.
+Regenerate by rerunning bench_vs_gmp and updating the tables below, then:
+python3 docs/images/make_benchmark_plots.py
 """
 import matplotlib
 
@@ -13,34 +15,34 @@ import matplotlib.pyplot as plt
 
 # digits -> BigMath/GMP wall-clock ratio (lower is better; < 1 = BigMath faster)
 MUL_BAL = {
-    1e3: 2.17, 5e3: 2.55, 1e4: 3.19, 5e4: 1.20, 1e5: 1.08, 5e5: 0.93,
-    1e6: 0.81, 2e6: 0.79, 5e6: 0.51, 1e7: 0.32, 2e7: 0.47,
+    1e3: 2.17, 5e3: 2.55, 1e4: 3.15, 5e4: 1.15, 1e5: 1.01, 5e5: 0.92,
+    1e6: 0.88, 2e6: 0.77, 5e6: 0.52, 1e7: 0.32, 2e7: 0.48,
     5e7: 0.90, 1e8: 0.94, 2e8: 0.97,  # 50M+ warm steady-state
 }
 DIV_SKEW = {  # a = 5b shapes, keyed by dividend digits
-    4e4: 3.35, 1e5: 4.84, 2e5: 2.26, 5e5: 1.65, 1e6: 1.46, 2e6: 1.15,
-    5e6: 1.01, 1e7: 1.14, 2e7: 0.82, 5e7: 0.45, 1e8: 0.49, 2e8: 0.67,
+    4e4: 2.61, 1e5: 3.81, 2e5: 2.29, 5e5: 1.66, 1e6: 1.43, 2e6: 1.16,
+    5e6: 1.01, 1e7: 1.16, 2e7: 0.82, 5e7: 0.44, 1e8: 0.49, 2e8: 0.66,
 }
 PARSE = {
-    1e3: 1.60, 1e4: 2.26, 5e4: 2.75, 1e5: 2.31, 5e5: 1.69, 1e6: 1.58,
-    2e6: 1.46, 5e6: 1.19, 1e7: 1.10, 2e7: 1.01, 5e7: 1.04,
+    1e3: 1.53, 1e4: 2.23, 5e4: 2.56, 1e5: 1.57, 5e5: 0.71, 1e6: 0.60,
+    2e6: 0.57, 5e6: 0.45, 1e7: 0.41, 2e7: 0.38, 5e7: 0.46,
 }
 TOSTR = {
-    1e3: 1.84, 1e4: 3.38, 5e4: 2.80, 1e5: 4.01, 2e5: 3.27, 5e5: 2.57,
-    1e6: 2.16, 2e6: 1.85, 5e6: 1.28, 1e7: 1.17, 2e7: 1.47,  # 5M/10M warm
+    1e3: 1.82, 1e4: 3.43, 5e4: 2.75, 1e5: 2.94, 2e5: 2.37, 5e5: 1.71,
+    1e6: 1.31, 2e6: 1.12, 5e6: 0.58, 1e7: 0.52, 2e7: 0.93,  # 5M/10M warm
 }
 
 # Session progress: BigMath/GMP ratio at the 2026-05-30 baseline vs after the
-# two 2026-06 runs (PRs #82-#99, then #107-#114).
+# 2026-06 runs (PRs #82-#99, #107-#114, then #116-#119).
 BEFORE_AFTER = [
-    ("mul 1M×1M", 1.15, 0.81),
+    ("mul 1M×1M", 1.15, 0.88),
     ("mul 10M×10M", 1.05, 0.32),
     ("mul 100M×100M", 1.80, 0.94),
-    ("div 1M×200k", 3.36, 1.46),
-    ("div 10M×2M", 2.79, 1.14),
+    ("div 1M×200k", 3.36, 1.43),
+    ("div 10M×2M", 2.79, 1.16),
     ("div 100M×20M", 2.85, 0.49),
-    ("tostr 1M", 4.48, 2.16),
-    ("parse 20M", 2.33, 1.01),
+    ("tostr 1M", 4.48, 1.31),
+    ("parse 20M", 2.33, 0.38),
 ]
 
 
@@ -83,13 +85,13 @@ def progress_plot(path):
     w = 0.38
     ax.bar([i - w / 2 for i in x], before, w, label="2026-05-30 baseline",
            color="#bbbbbb")
-    ax.bar([i + w / 2 for i in x], after, w, label="after PRs #82–#114",
+    ax.bar([i + w / 2 for i in x], after, w, label="after PRs #82–#119",
            color="#1f77b4")
     ax.axhline(1.0, color="black", linewidth=1.0, linestyle="--", alpha=0.7)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=9)
     ax.set_ylabel("BigMath / GMP ratio  (lower is better)")
-    ax.set_title("The 2026-06 optimization runs: PRs #82–#99 + #107–#114",
+    ax.set_title("The 2026-06 optimization runs: PRs #82–#99 + #107–#114 + #116–#119",
                  fontsize=11)
     ax.grid(True, axis="y", alpha=0.25)
     ax.legend(fontsize=9)
