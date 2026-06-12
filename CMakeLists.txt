@@ -99,6 +99,9 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(division_floor_probe tests/performance/division_floor_probe.cpp)
     target_link_libraries(division_floor_probe PRIVATE bigmath::bigmath)
 
+    add_executable(tostring_bench tests/performance/tostring_bench.cpp)
+    target_link_libraries(tostring_bench PRIVATE bigmath::bigmath)
+
     add_executable(mfa_correctness tests/performance/mfa_correctness.cpp)
     target_link_libraries(mfa_correctness PRIVATE bigmath::bigmath)
 

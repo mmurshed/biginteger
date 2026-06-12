@@ -1,13 +1,19 @@
 // Focused ToString benchmark for decimal conversion experiments.
+// Reports cold (first call at a size — includes the divider-chain build)
+// and warm (best-of-3 with the chain cached) separately; single-iteration
+// chain rows vary ±20-60% with process state, so the split is mandatory
+// (PR #112 lesson, tostring_chain_plan.md methodology).
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/common/Parser.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -28,63 +34,70 @@ static std::string GenerateDigits(int digits, std::uint64_t seed)
 }
 
 template <class F>
-static double TimeMs(F &&fn, int iters)
+static double OnceMs(F &&fn)
 {
   auto start = std::chrono::steady_clock::now();
-  for (int i = 0; i < iters; ++i)
-    fn();
+  fn();
   auto end = std::chrono::steady_clock::now();
-  return std::chrono::duration<double, std::milli>(end - start).count() / iters;
+  return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+template <class F>
+static double BestMs(F &&fn, int iters)
+{
+  double best = std::numeric_limits<double>::max();
+  for (int i = 0; i < iters; ++i)
+    best = std::min(best, OnceMs(fn));
+  return best;
 }
 
 static int Iterations(int digits)
 {
-  if (digits <= 1000) return 80;
   if (digits <= 10000) return 20;
-  if (digits <= 50000) return 6;
-  if (digits <= 100000) return 3;
-  return 1;
+  if (digits <= 100000) return 7;
+  if (digits <= 1000000) return 5;
+  return 3;
 }
 
 int main(int argc, char **argv)
 {
   std::vector<int> sizes;
-  if (argc > 1)
-  {
-    for (int i = 1; i < argc; ++i)
-      sizes.push_back(std::atoi(argv[i]));
-  }
-  else
-  {
-    sizes = {1000, 10000, 50000, 100000, 200000};
-  }
+  for (int i = 1; i < argc; ++i)
+    sizes.push_back(std::atoi(argv[i]));
+  if (sizes.empty())
+    sizes = {100000, 500000, 1000000, 2000000};
 
-  std::cout << "digits,iters,parse_ms,tostring_ms\n";
+  std::cout << "digits,tostring_cold_ms,tostring_warm_ms,parse_cold_ms,parse_warm_ms\n";
   for (int digits : sizes)
   {
     std::string input = GenerateDigits(digits, 0xB16B00B5ULL ^ (std::uint64_t)digits);
-    BigInteger value = Parse(input.c_str());
-    std::string warm = ToString(value);
-    if (warm != input)
+
+    BigInteger value;
+    double parseCold = OnceMs([&]() { value = Parse(input.c_str()); });
+
+    std::string out;
+    double toStringCold = OnceMs([&]() { out = ToString(value); });
+    if (out != input)
     {
       std::cerr << "round trip failed at " << digits << " digits\n";
       return 1;
     }
 
     int iters = Iterations(digits);
-    double parseMs = TimeMs([&]() {
+    double parseWarm = BestMs([&]() {
       BigInteger parsed = Parse(input.c_str());
       if (parsed.size() == 0) std::abort();
     }, iters);
-
-    double toStringMs = TimeMs([&]() {
-      std::string out = ToString(value);
-      if (out.size() != input.size()) std::abort();
+    double toStringWarm = BestMs([&]() {
+      std::string s = ToString(value);
+      if (s.size() != input.size()) std::abort();
     }, iters);
 
-    std::cout << digits << ',' << iters << ','
-              << std::fixed << std::setprecision(4)
-              << parseMs << ',' << toStringMs << '\n';
+    std::cout << digits << ','
+              << std::fixed << std::setprecision(3)
+              << toStringCold << ',' << toStringWarm << ','
+              << parseCold << ',' << parseWarm << '\n'
+              << std::flush;
   }
   return 0;
 }

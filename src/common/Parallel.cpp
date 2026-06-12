@@ -23,6 +23,15 @@ namespace BigMath
 {
   namespace
   {
+    // Nesting guard: the pool has a single work slot (curBody/remaining), so a
+    // ParallelDo issued from inside a chunk body — worker thread or the caller
+    // thread running chunk 0 — would overwrite in-flight work and corrupt the
+    // outer dispatch's completion count. Any nested call runs inline serially
+    // instead. This makes ParallelDo safely reentrant, which top-level
+    // orchestration (e.g. the ToString subtree fan-out) relies on: subtree
+    // workers call Newton/NTT code that itself uses ParallelDo.
+    thread_local int tl_chunkDepth = 0;
+
     class ThreadPool
     {
     public:
@@ -60,7 +69,7 @@ namespace BigMath
       // until all chunks complete.
       void RunChunks(Int numChunks, Int total, void (*body)(Int, Int, void *), void *ctx)
       {
-        if (numChunks <= 1)
+        if (numChunks <= 1 || tl_chunkDepth > 0)
         {
           body(0, total, ctx);
           return;
@@ -83,7 +92,9 @@ namespace BigMath
         Int chunkSize = (total + numChunks - 1) / numChunks;
         Int s0 = 0;
         Int e0 = std::min(total, chunkSize);
+        ++tl_chunkDepth;
         body(s0, e0, ctx);
+        --tl_chunkDepth;
 
         // Wait for workers.
         std::unique_lock<std::mutex> lk(m);
@@ -116,7 +127,12 @@ namespace BigMath
             Int chunkSize = (total + chunks - 1) / chunks;
             Int s = workerId * chunkSize;
             Int e = std::min(total, s + chunkSize);
-            if (s < e) body(s, e, ctx);
+            if (s < e)
+            {
+              ++tl_chunkDepth;
+              body(s, e, ctx);
+              --tl_chunkDepth;
+            }
           }
 
           {
