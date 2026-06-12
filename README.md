@@ -12,8 +12,8 @@ BigMath vs GMP 6.3, Apple M1 Max, paired same-run measurements (2026-06-12). Bel
 
 - **Multiplication beats GMP at every balanced size from 500k digits up** — peaking at 3.2× faster (10M×10M: 65 vs 206 ms) and staying at or below GMP through 200M digits (warm steady state) — and at **every measured skewed shape ≥500k×50k** (0.40–0.77×).
 - **Division beats GMP from 20M-digit dividends (0.45–0.82×)** and reaches parity from 5M (200M÷40M: 3.0 s vs GMP's 4.5 s).
-- **Decimal I/O at parity at scale**: parse 20M digits 1.01×, 50M 1.04×; to-string 10M digits 1.17× warm.
-- Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase, and ToString below ~2M digits is the largest remaining gap (1.9–4×; see `tostring_chain_plan.md`).
+- **ToString beats GMP from 500k digits up** (0.50–0.69× warm; 1M digits: 28 vs 49 ms) after the parallel subtree fan-out (PR #118); 100k digits at 1.25×. Parse at parity at scale: 20M digits 1.01×, 50M 1.04×.
+- Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase — the documented portable-C++ wall.
 
 Two 2026-06 optimization runs produced the current margins — PRs #82–#99 (wraparound Newton division, dispatch band retunes, quotient-sized division, NEON Shoup NTT butterflies) and PRs #107–#112 (fused-MFA pass fusion, row-chunked stage parallelism, MFA gate 2^24→2^20, cyclic products on the fused pipeline, on-the-fly operand packing). PR #116 then fixed a long-standing Burnikel–Ziegler blind spot: odd divisor limb counts silently fell back to quadratic Knuth D, costing 1.3–10× on ~half of real division shapes in the 1k–25k-limb band (12289-limb divisor at ratio 1.5: 95 → 8 ms) — the prior benchmark tables, whose digit-derived shapes mostly landed on even sizes, never sampled it.
 
@@ -157,11 +157,11 @@ Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LI
 | div (skewed) | **200 000 000 / 40 000 000** | **3 010 ms** | **4 492 ms** | **0.67×** ← BigMath faster |
 | parse | 1 000 000 digits | 32 ms | 21 ms | 1.58× |
 | parse | **20 000 000 digits** | **814 ms** | **804 ms** | **1.01×** ← parity |
-| ToString | 100 000 digits | 9.7 ms | 2.4 ms | 4.01× |
-| ToString | 1 000 000 digits | 106 ms | 49 ms | 2.16× |
-| ToString | 10 000 000 digits | 1 062 ms (warm) | 908 ms | **1.17×** ← near parity |
+| ToString | 100 000 digits | 3.0 ms | 2.4 ms | 1.25× |
+| ToString | **1 000 000 digits** | **28 ms** | **49 ms** | **0.57×** ← BigMath faster |
+| ToString | **10 000 000 digits** | **481 ms (warm)** | **908 ms** | **0.53×** ← BigMath faster |
 
-**BigMath beats GMP on balanced multiplication at every size from 500k digits up** — the former ≥50M-digit losses ("GMP SSA recovers") closed once the fused-MFA pipeline landed: 50M–200M digits run at 0.90–0.97× warm. **Skewed division flipped from a 1.9–2.8× loss to a 0.45–0.67× win at ≥20M-digit dividends** as Newton inherits the fused multiplies and runs its wrap-around products on the same pipeline. ToString narrows from 8.35× (session start) to 4.0× at 100k and near-parity at 10M+ digits; the sub-2M-digit ToString band is the largest remaining gap, with an implementation plan in `tostring_chain_plan.md`. The 10k–2M-digit division plan (`smallskew_div_plan.md`) is executed: its sweep surfaced the Burnikel–Ziegler odd-size fallback fixed in PR #116, and what remains of the sub-50k-digit division gap is the documented portable-C++ basecase wall, accepted there. See [BENCHMARK.md](BENCHMARK.md) for full tables, warm/cold methodology, and per-PR history.
+**BigMath beats GMP on balanced multiplication at every size from 500k digits up** — the former ≥50M-digit losses ("GMP SSA recovers") closed once the fused-MFA pipeline landed: 50M–200M digits run at 0.90–0.97× warm. **Skewed division flipped from a 1.9–2.8× loss to a 0.45–0.67× win at ≥20M-digit dividends** as Newton inherits the fused multiplies and runs its wrap-around products on the same pipeline. **ToString flipped from the largest remaining gap to a 0.50–0.69× win at ≥500k digits** (PR #118: the D&C formatter's subtrees are fixed-width fields at precomputable offsets — one ParallelDo over 8 of them; `tostring_chain_plan.md` records the outcome and the deferred cold-chain lever). The 10k–2M-digit division plan (`smallskew_div_plan.md`) is executed: its sweep surfaced the Burnikel–Ziegler odd-size fallback fixed in PR #116, and what remains of the sub-50k-digit division gap is the documented portable-C++ basecase wall, accepted there. See [BENCHMARK.md](BENCHMARK.md) for full tables, warm/cold methodology, and per-PR history.
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
