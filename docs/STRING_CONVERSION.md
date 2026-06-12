@@ -629,6 +629,19 @@ Paired sweep (cold ToString, BM/GMP ratio, machine under load so ratios not abso
 100k digits 7.3–7.4× → **4.6–5.2×**, 200k −33%, 500k+ neutral, 640 regresses. The win flows to
 every Newton divide with sub-5120-limb internals, not just ToString.
 
+### Chain-top rounding — shared chains across nearby sizes (2026-06-12)
+
+The divider-chain cache key was the EXACT estimated digit count: a workload
+converting many values of slightly different lengths (~100k ± a few hundred
+digits) rebuilt the entire chain — the dominant cold cost — on every call.
+`ToString` now rounds the chain top up to a 1/16-octave grid
+(`grid = 2^(bit_width(d)-5)`), so all sizes in a grid slice share one cached
+chain. The first split becomes at worst ~56/44 instead of exactly half —
+benign (the rejected power-of-2 tower below failed at 73/27). Measured: a
+200-conversion mixed-size ~100k-digit workload dropped 2 714 → 1 801 ms
+(−34%); single-size cold and warm behavior unchanged within noise.
+Round-trips verified at grid edges (±1 around 2^k boundaries, 1024–1M digits).
+
 ### True scratch-buffer reuse inside Newton division
 
 The current `NewtonDivision::Divider::DivideAndRemainderInto` boundary API avoids rebuilding the divisor reciprocal, but it still delegates to internals that allocate temporary quotient, remainder, normalization, and multiplication vectors. A deeper scratch-aware Newton path could reduce allocation churn in `ToStringDivConquer`. Expected win is small, probably low single digits, because profiling shows the dominant cost is still NTT multiplication. This is not a first-choice optimization unless allocation profiles show otherwise.
