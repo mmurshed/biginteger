@@ -441,15 +441,19 @@ namespace BigMath
       uint32x4_t ws;
     };
 
+    // Loads use vld1_u32 on the UInt elements directly — never a
+    // reinterpret_cast<const uint64_t*> over the uint32_t table, which would
+    // be a strict-aliasing violation (works under today's AppleClang, but
+    // this header must not depend on a compiler shrugging at UB; see the
+    // PR #103 post-mortem for what silent miscompilation costs here).
     static inline NeonPair NeonGatherPair(const UInt *il, Int base, Int step)
     {
-      const uint64_t *q = reinterpret_cast<const uint64_t *>(il);
-      uint64x2_t p01 = vdupq_n_u64(q[base]);
-      p01 = vsetq_lane_u64(q[base + step], p01, 1);
-      uint64x2_t p23 = vdupq_n_u64(q[base + 2 * step]);
-      p23 = vsetq_lane_u64(q[base + 3 * step], p23, 1);
-      uint32x4_t a = vreinterpretq_u32_u64(p01);
-      uint32x4_t b = vreinterpretq_u32_u64(p23);
+      uint32x2_t d0 = vld1_u32(il + 2 * base);
+      uint32x2_t d1 = vld1_u32(il + 2 * (base + step));
+      uint32x2_t d2 = vld1_u32(il + 2 * (base + 2 * step));
+      uint32x2_t d3 = vld1_u32(il + 2 * (base + 3 * step));
+      uint32x4_t a = vcombine_u32(d0, d1);
+      uint32x4_t b = vcombine_u32(d2, d3);
       NeonPair r;
       r.w = vuzp1q_u32(a, b);
       r.ws = vuzp2q_u32(a, b);
