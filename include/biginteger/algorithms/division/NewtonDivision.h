@@ -192,34 +192,131 @@ namespace BigMath
         // D_new = top new_n limbs of D.
         D_new.assign(D.begin() + (n - new_n), D.end());
 
-        // T = D_new * R_pad
-        T = Multiply(D_new, R_pad, CurrentBase);
+        // Wrapped iteration (invertappr style). Algebra: with
+        // E = B^(2m) − D_new·R_pad, the exact step
+        //   R_new = (R_pad · (2·B^(2m) − D_new·R_pad)) >> 2m
+        // decomposes EXACTLY into R_new = R_pad + floor(R_pad·E / B^(2m)).
+        // The seed is accurate to cur_n limbs, so |E| < ~B^(2m − cur_n + 1):
+        //   (1) E is recovered exactly from the residue (D_new·R_pad) mod
+        //       (B^L − 1) at L ≈ 2m − cur_n — a cyclic transform SHORTER than
+        //       the full 2m+1-limb product (half at the extra-refine iter,
+        //       where cur_n = m). Sign read from residue magnitude, same
+        //       window argument as WrappedRemainder.
+        //   (2) the correction floor(R_pad·E / B^(2m)) has only m − cur_n + 1
+        //       significant limbs, so only the top limbs of R_pad and E
+        //       contribute — a (m−cur)×(m−cur)-ish product instead of the
+        //       (m+1)×(2m+1) full RD. Truncation costs ≤ ~3 ulp, absorbed by
+        //       Newton's quadratic self-correction (non-final iters) or the
+        //       DivideChunk fixup budget (final iter).
+        bool wrappedIter = false;
+#if BIGMATH_NTT_CRT
+        if (CurrentBase == Base2_32 || CurrentBase == Base2_64)
+        {
+          SizeT m = new_n;
+          SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
+          SizeT Lmin = 2 * m - cur_n + 16;
+          ULong nCyc = std::bit_ceil((ULong)(Lmin + 1) * c);
+          ULong nLin = std::bit_ceil(((ULong)D_new.size() + R_pad.size()) * c);
+          SizeT L = (SizeT)(nCyc / c);
+          if (D_new.size() + R_pad.size() >= NTT_MULTIPLICATION_THRESHOLD &&
+              nCyc < nLin && nCyc <= (1u << 22) &&
+              D_new.size() <= L && R_pad.size() <= L)
+          {
+            wrappedIter = true;
 
-        // diff = 2*B^(2*new_n) - T  (should be ≥ 0 for valid seeds).
-        two_S.assign(2 * new_n + 1, 0);
-        two_S[2 * new_n] = 2;
+            vector<DataT> W = NTTMultiplication::MultiplyMod2km1(D_new, R_pad, L, CurrentBase);
 
-        if (Compare(two_S, T) >= 0)
-        {
-          diff = Subtract(two_S, T, CurrentBase);
-        }
-        else
-        {
-          // R was over-estimate; shouldn't normally trigger. Clamp to 0.
-          diff.assign(1, 0);
-        }
+            const DataT maxLimb = (CurrentBase == Base2_64) ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
+            const vector<DataT> M(L, maxLimb); // B^L − 1
 
-        // R_new = (R_pad * diff) >> (32 * 2 * new_n)
-        RD = Multiply(R_pad, diff, CurrentBase);
-        if (RD.size() > 2 * new_n)
-        {
-          R.assign(RD.begin() + 2 * new_n, RD.end());
+            // E = (B^(2m) − W) mod M; B^(2m) ≡ B^(2m mod L).
+            SizeT r_exp = (SizeT)((2 * (ULong)m) % L);
+            vector<DataT> Br(r_exp + 1, 0);
+            Br[r_exp] = 1;
+            vector<DataT> E = (Compare(Br, W) >= 0)
+                                  ? Subtract(Br, W, CurrentBase)
+                                  : Subtract(Add(Br, M, CurrentBase), W, CurrentBase);
+
+            // Sign window: E ≥ 0 lands below B^Lmin, E < 0 lands within
+            // B^Lmin of M. (L ≥ Lmin + 1 by construction of nCyc.)
+            bool eNeg = (TrimmedSize(E) > Lmin);
+            if (eNeg)
+              E = Subtract(M, E, CurrentBase); // |E|
+            if (TrimmedSize(E) > Lmin)
+            {
+              // Seed drift exceeds the window — can't trust the sign read.
+              // Run this step through the exact path instead.
+              wrappedIter = false;
+            }
+
+            if (wrappedIter)
+            {
+              // C = floor(R_pad·E / B^(2m)) from top slices only. Slice
+              // guards (20 limbs) sized to the B^16 drift window so the
+              // dropped tails stay sub-ulp.
+              SizeT xl = (cur_n > 20 && cur_n - 20 < (SizeT)R_pad.size()) ? cur_n - 20 : 0;
+              SizeT el = (m > 20) ? m - 20 : 0;
+              vector<DataT> C{0};
+              if (!IsZero(E) && TrimmedSize(E) > el)
+              {
+                vector<DataT> Xt(R_pad.begin() + xl, R_pad.end());
+                vector<DataT> Et(E.begin() + el, E.end());
+                vector<DataT> P = Multiply(Xt, Et, CurrentBase);
+                SizeT back = 2 * m - xl - el;
+                if (P.size() > back)
+                  C.assign(P.begin() + back, P.end());
+              }
+
+              if (!eNeg)
+              {
+                R = Add(R_pad, C, CurrentBase);
+              }
+              else
+              {
+                // Subtract with a +2 guard so R keeps the underestimate
+                // invariant despite the truncated (under-counted) correction.
+                static const vector<DataT> two{2};
+                vector<DataT> adj = Add(C, two, CurrentBase);
+                R = (Compare(R_pad, adj) >= 0) ? Subtract(R_pad, adj, CurrentBase)
+                                               : vector<DataT>{0};
+              }
+              TrimZerosToOne(R);
+            }
+          }
         }
-        else
+#endif
+
+        if (!wrappedIter)
         {
-          R = vector<DataT>{0};
+          // T = D_new * R_pad
+          T = Multiply(D_new, R_pad, CurrentBase);
+
+          // diff = 2*B^(2*new_n) - T  (should be ≥ 0 for valid seeds).
+          two_S.assign(2 * new_n + 1, 0);
+          two_S[2 * new_n] = 2;
+
+          if (Compare(two_S, T) >= 0)
+          {
+            diff = Subtract(two_S, T, CurrentBase);
+          }
+          else
+          {
+            // R was over-estimate; shouldn't normally trigger. Clamp to 0.
+            diff.assign(1, 0);
+          }
+
+          // R_new = (R_pad * diff) >> (32 * 2 * new_n)
+          RD = Multiply(R_pad, diff, CurrentBase);
+          if (RD.size() > 2 * new_n)
+          {
+            R.assign(RD.begin() + 2 * new_n, RD.end());
+          }
+          else
+          {
+            R = vector<DataT>{0};
+          }
+          TrimZerosToOne(R);
         }
-        TrimZerosToOne(R);
 
         cur_n = new_n;
       }
