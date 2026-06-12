@@ -389,18 +389,40 @@ namespace BigMath
                                 ? ShiftLeftBits(vector<DataT>(b.begin(), b.end()), shift)
                                 : vector<DataT>(b.begin(), b.end());
 
-      // BZ recursion needs even divisor size for the 2n-by-n split. If post-normalize
-      // size is odd, fall to FastDivision — which has its own internal normalization
-      // and isn't sensitive to BZ's correction-loop bound.
-      if (bNorm.size() % 2 != 0)
+      // BZ recursion needs the divisor size divisible by 2 at every level of
+      // the 2n-by-n split until the basecase; any odd size on the way down
+      // used to fall back to FastDivision wholesale — O(n·Δ) at full size, the
+      // root cause of the "2^k+1 family" pathology (97.7× at 2^18+1) and a
+      // 1.3-10× loss on ~half of real divisor sizes (odd limb counts).
+      // Instead pad both operands by k zero limbs at the bottom so the divisor
+      // size becomes ceil(n/2^d)·2^d with d = halvings to reach the basecase:
+      // a·B^k = q·(b·B^k) + r·B^k, so the quotient is unchanged and the
+      // remainder's bottom k limbs are exactly zero. k < 2^d ≈ n/BZ_THRESHOLD,
+      // so the padding overhead is bounded by ~1/BZ_THRESHOLD (≈0.2%).
+      SizeT n = (SizeT)bNorm.size();
+      SizeT levels = 0;
+      SizeT basecase = n;
+      while (basecase > BZ_THRESHOLD)
       {
-        auto qr = FastDivision::DivideAndRemainder(aNorm, bNorm, base, computeRemainder);
-        if (computeRemainder && shift > 0)
-          qr.second = ShiftRightBits(qr.second, shift);
-        return qr;
+        basecase = (basecase + 1) / 2;
+        ++levels;
+      }
+      SizeT padded = basecase << levels;
+      SizeT k = padded - n;
+      if (k > 0)
+      {
+        aNorm.insert(aNorm.begin(), k, 0);
+        bNorm.insert(bNorm.begin(), k, 0);
       }
 
       auto qr = DivideRecursive(aNorm, bNorm, base, computeRemainder);
+      if (computeRemainder && k > 0)
+      {
+        if (qr.second.size() > k)
+          qr.second.erase(qr.second.begin(), qr.second.begin() + k);
+        else
+          qr.second.assign(1, 0);
+      }
       if (computeRemainder && shift > 0)
         qr.second = ShiftRightBits(qr.second, shift);
       return qr;

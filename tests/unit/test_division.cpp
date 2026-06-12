@@ -10,6 +10,8 @@
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/algorithms/Division.h"
+#include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
 #include "biginteger/common/Builder.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Parser.h"
@@ -178,6 +180,44 @@ REGISTER_TEST(DivDispatch, NewtonBand_Skewed)
 }
 REGISTER_TEST(DivDispatch, NewtonBand_VeryLarge)  { CheckRawIdentity(8192, 2048, 0x14); }
 REGISTER_TEST(DivDispatch, BZBand_AlmostBalanced) { CheckRawIdentity(1200, 1024, 0x15); }
+
+// Odd / 2^k+1-family divisor sizes: BZ pads operands so its recursion never
+// falls back to FastDivision at full size. The padding math (q unchanged,
+// remainder's bottom k limbs zero) is what these pin down — sizes chosen so
+// every level of the recursion would have hit the old odd-size fallback.
+REGISTER_TEST(DivDispatch, BZBand_OddDivisor)        { CheckRawIdentity(2582, 1291, 0x16); }
+REGISTER_TEST(DivDispatch, BZBand_Pow2Plus1_1025)    { CheckRawIdentity(1540, 1025, 0x17); }
+REGISTER_TEST(DivDispatch, BZBand_Pow2Plus1_4097)    { CheckRawIdentity(6145, 4097, 0x18); }
+REGISTER_TEST(DivDispatch, BZBand_OddSkewed)         { CheckRawIdentity(4098, 2049, 0x19); }
+REGISTER_TEST(DivDispatch, BZ_Direct_OddSizes)
+{
+  // Direct BZ calls (not via dispatch) across odd sizes and band edges,
+  // including remainder == 0 and tiny remainders that exercise the
+  // padded-limb stripping.
+  std::mt19937_64 gen(0x1A);
+  std::uniform_int_distribution<uint64_t> digit(0, 0xFFFFFFFFULL);
+  for (SizeT bLimbs : {513u, 641u, 1025u, 1791u, 2049u})
+  {
+    SizeT aLimbs = bLimbs + bLimbs / 2 + 1;
+    std::vector<DataT> a(aLimbs), b(bLimbs);
+    for (auto &x : a) x = digit(gen);
+    for (auto &x : b) x = digit(gen);
+    if (a.back() == 0) a.back() = 1;
+    if (b.back() == 0) b.back() = 1;
+
+    auto qr = BurnikelZieglerDivision::DivideAndRemainder(a, b, BigInteger::Base(), true);
+    std::vector<DataT> qb = Multiply(qr.first, b, BigInteger::Base());
+    std::vector<DataT> back = Add(qb, qr.second, BigInteger::Base());
+    ASSERT_EQ(Compare(back, a), 0);
+    ASSERT_LT(Compare(qr.second, b), 0);
+
+    // Exact division: remainder must come back as zero through the
+    // padded path.
+    auto qr2 = BurnikelZieglerDivision::DivideAndRemainder(qb, b, BigInteger::Base(), true);
+    ASSERT_EQ(Compare(qr2.first, qr.first), 0);
+    ASSERT_TRUE(IsZero(qr2.second));
+  }
+}
 
 // ─── multiplicative round-trip on the public API ─────────────────────────────
 

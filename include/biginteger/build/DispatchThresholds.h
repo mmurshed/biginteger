@@ -77,16 +77,21 @@
 #endif
 
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 1024
+#define BIGMATH_NEWTON_MEDIUM_B 1280
 #endif
 
-// Floors re-swept 2026-06-12 after the NEON NTT pass made Newton's internal
-// multiplies ~40% faster: high-skew (8/1) 2048 -> 768, medium (5/2)
-// 2560 -> 1024, ratio-8/5 6144 -> 4096. Below those, BZ/FastDivision win.
-// Ratio-≥8/5 Newton band between the medium (5/2) and balanced (4/3) bands.
+// Newton floors re-swept 2026-06-12 (smallskew_div_plan.md S1) AFTER fixing
+// the BZ odd-size FastDivision fallback (operand padding in
+// BurnikelZieglerDivision.h). That fix changed every crossover: BZ used to
+// collapse to O(n·Δ) on odd divisor sizes (1.3-10× losses), which had pushed
+// the Newton floors artificially low as insurance. With padded BZ
+// well-behaved on all sizes the floors are data-driven again — the Newton
+// frontier is now (640, 8/1), (1024, 7/2), (1280, 14/5), (1792, 5/2),
+// (4096, 8/5), (24576, 4/3); ratio-8/5@4096 re-confirmed unchanged.
+// Ratio-≥8/5 Newton band between the mid (5/2) and balanced (4/3) bands.
 // 8/5 instead of a knife-edge 2/1: digit-derived operands land at limb ratios
-// like 2.0000 ± 1 limb, and the BZ side of the edge blows up 8-12× on
-// non-power-of-2 divisor sizes; Newton generic-ties BZ from ratio ~1.6 here.
+// like 2.0000 ± 1 limb; Newton near-ties padded BZ from ratio ~1.6 at 4096
+// (at ratio 1.6 BZ wins 18-22% at b=2048-3072, Newton from 4096).
 #ifndef BIGMATH_NEWTON_RATIO2_B
 #define BIGMATH_NEWTON_RATIO2_B 4096
 #endif
@@ -97,16 +102,45 @@
 #define BIGMATH_NEWTON_RATIO2_DENOMINATOR 5
 #endif
 
-// 5/2 rather than 3/1: digit-derived operands land at limb ratios like
-// 3.0000 ± 1 limb, and BZ blows up ~7× on non-pow2 divisor sizes across
-// that edge (15578×5193 limbs: BZ 69 ms vs Newton 9 ms). Newton wins from
-// ratio ~2.5 at b ≥ 2560 (near-tie at 2600, clear by 4096).
+// 14/5 rather than 3/1: digit-derived operands land at limb ratios like
+// 3.0000 ± 1 limb; 2.8 keeps that edge on the Newton side (Newton is still
+// 2.3× better than even padded BZ at 15579×5193). Not 5/2: at exactly
+// ratio 2.5, padded BZ beats Newton up to b≈1792 (06-12 probe: 7-34% at
+// 1024-1543), so 2.5 has its own band below with a higher floor. Floor
+// 1280: BZ wins ratio 2.8-3.0 at 1037-1163, Newton from 1291.
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
-#define BIGMATH_NEWTON_SKEW_NUMERATOR 5
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 14
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
-#define BIGMATH_NEWTON_SKEW_DENOMINATOR 2
+#define BIGMATH_NEWTON_SKEW_DENOMINATOR 5
+#endif
+
+// Ratio ≥ 7/2 from 1024: Newton wins ratio 4-6 across all of [1024, 1280)
+// (3-45%, growing with ratio); 7/2 rather than 4/1 keeps the ratio-4.0000
+// ± 1 limb knife-edge (40k÷10k-digit class) on the Newton side, and 3.5
+// itself is a measured tie. Below 3.2, BZ wins — that segment belongs to
+// the 14/5@1280 band above.
+#ifndef BIGMATH_NEWTON_RATIO35_B
+#define BIGMATH_NEWTON_RATIO35_B 1024
+#endif
+#ifndef BIGMATH_NEWTON_RATIO35_NUMERATOR
+#define BIGMATH_NEWTON_RATIO35_NUMERATOR 7
+#endif
+#ifndef BIGMATH_NEWTON_RATIO35_DENOMINATOR
+#define BIGMATH_NEWTON_RATIO35_DENOMINATOR 2
+#endif
+
+// Exactly-2.5 shapes (digit-derived 2.5000 ± 1 limb): Newton from 1792
+// (14% win at 1791, 6% at 2049, 29% at 2600); below, padded BZ wins.
+#ifndef BIGMATH_NEWTON_MID_B
+#define BIGMATH_NEWTON_MID_B 1792
+#endif
+#ifndef BIGMATH_NEWTON_MID_NUMERATOR
+#define BIGMATH_NEWTON_MID_NUMERATOR 5
+#endif
+#ifndef BIGMATH_NEWTON_MID_DENOMINATOR
+#define BIGMATH_NEWTON_MID_DENOMINATOR 2
 #endif
 
 // Thin-quotient extension of the quotient-sized band below the balanced
@@ -120,8 +154,11 @@
 #define BIGMATH_QSIZED_SMALL_DELTA_DIV 8
 #endif
 
+// 640 (06-12 probe): ratio 8 ties BZ at 640 and wins 16% at 704; ratio 10
+// wins 12% at 640. 576 stays BZ (16% better) and Newton degrades sharply
+// at b ≈ 520, so the floor must not go below 640.
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
-#define BIGMATH_NEWTON_HIGH_SKEW_B 768
+#define BIGMATH_NEWTON_HIGH_SKEW_B 640
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR

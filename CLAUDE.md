@@ -42,13 +42,15 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Division dispatch** (`algorithms/Division.h`, thresholds defined in `src/algorithms/Division.cpp`):
 - `NewtonDivision` (Newton-Raphson reciprocal, O(M(n)); handles arbitrary `na/nb` via blockwise mode — top chunk in [n+1, 2n], slide down by n, thread the remainder) when any skew band holds:
-  - `b ≥ 1024` at ratio ≥ 5/2 (`NEWTON_SKEW`), or
+  - `b ≥ 640` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1), or
+  - `b ≥ 1024` at ratio ≥ 7/2 (`NEWTON_RATIO35`), or
+  - `b ≥ 1280` at ratio ≥ 14/5 (`NEWTON_SKEW` — 2.8 keeps the ratio-3.0000±1-limb knife on the Newton side), or
+  - `b ≥ 1792` at ratio ≥ 5/2 (`NEWTON_MID`), or
   - `b ≥ 4096` at ratio ≥ 8/5 (`NEWTON_RATIO2`), or
-  - `b ≥ 24576` at ratio ≥ 4/3 (`NEWTON_BALANCED` — near-balanced band; ratio lowered from 2/1 and floor from 98304 on 2026-06-11), or
-  - `b ≥ 768` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1).
-  (Floors re-swept twice on 2026-06-11/12 as the wraparound + NEON work made Newton's internal multiplies cheaper; `include/biginteger/build/DispatchThresholds.h` is the canonical place these live — its `#define`s win over the `#ifndef` fallbacks in `algorithms/*.h`.)
+  - `b ≥ 24576` at ratio ≥ 4/3 (`NEWTON_BALANCED` — near-balanced band; ratio lowered from 2/1 and floor from 98304 on 2026-06-11).
+  (Frontier re-swept 2026-06-12 after the BZ odd-size padding fix — see below — changed every Newton/BZ crossover; `include/biginteger/build/DispatchThresholds.h` is the canonical place these live — its `#define`s win over the `#ifndef` fallbacks in `algorithms/*.h`.)
 - `QuotientSizedDivision` when (`b ≥ 24576`, `a ≥ b + 64`, ratio < 4/3) OR (thin-quotient: `b ≥ 8192`, `64 ≤ Δ ≤ b/8`): divides the operand TOPS (`t = Δ+4` limbs of b, `Δ+t` of a) for the (Δ+1)-limb quotient, then one Δ×nb back-multiply for the remainder — cost scales with the quotient, not the divisor.
-- else `BurnikelZieglerDivision` for power-of-two base when `b > 512` and the BZ band fits (near-balanced `b ≥ 1024, b+32 ≤ a ≤ 3b`, or big-and-skewed `a > 2048 && a > 3b`).
+- else `BurnikelZieglerDivision` for power-of-two base when `b > 512` and the BZ band fits (near-balanced `b ≥ 1024, b+32 ≤ a ≤ 3b`, or big-and-skewed `a > 2048 && a > 3b`). BZ pads both operands with bottom zero limbs so the divisor size divides by 2 at every recursion level (quotient unchanged, remainder's bottom pad limbs are zero); before 2026-06-12 any odd size on the way down fell back to FastDivision at full size — the root cause of the "2^k+1 family" pathology and 1.3-10× losses on odd-limb-count divisors at ratio < 2.8.
 - otherwise multi-limb → `FastDivision` (Knuth Algorithm D variant)
 - single-limb divisor → `ClassicDivision`
 - `KnuthDivision` and `ReciprocalDivision` are alternates used by correctness tests for cross-checking.

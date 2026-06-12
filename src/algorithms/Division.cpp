@@ -18,6 +18,12 @@ namespace BigMath
   const SizeT BZ_DIVISOR_THRESHOLD = BIGMATH_BZ_DIVISOR_THRESHOLD;
   const SizeT NEWTON_SKEW_NUMERATOR = BIGMATH_NEWTON_SKEW_NUMERATOR;
   const SizeT NEWTON_SKEW_DENOMINATOR = BIGMATH_NEWTON_SKEW_DENOMINATOR;
+  const SizeT NEWTON_RATIO35_B = BIGMATH_NEWTON_RATIO35_B;
+  const SizeT NEWTON_RATIO35_NUMERATOR = BIGMATH_NEWTON_RATIO35_NUMERATOR;
+  const SizeT NEWTON_RATIO35_DENOMINATOR = BIGMATH_NEWTON_RATIO35_DENOMINATOR;
+  const SizeT NEWTON_MID_B = BIGMATH_NEWTON_MID_B;
+  const SizeT NEWTON_MID_NUMERATOR = BIGMATH_NEWTON_MID_NUMERATOR;
+  const SizeT NEWTON_MID_DENOMINATOR = BIGMATH_NEWTON_MID_DENOMINATOR;
   const SizeT NEWTON_BALANCED_B = BIGMATH_NEWTON_BALANCED_B;
   const SizeT NEWTON_BALANCED_NUMERATOR = BIGMATH_NEWTON_BALANCED_NUMERATOR;
   const SizeT NEWTON_BALANCED_DENOMINATOR = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
@@ -54,6 +60,15 @@ namespace BigMath
     bool newton_medium_skew =
         b.size() >= NEWTON_MEDIUM_B &&
         NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
+    // Ratio ≥ 7/2 from 1024: Newton wins ratio ≥ 4 across [1024, 1280).
+    bool newton_ratio35 =
+        b.size() >= NEWTON_RATIO35_B &&
+        NEWTON_RATIO35_DENOMINATOR * a.size() >= NEWTON_RATIO35_NUMERATOR * b.size();
+    // Exactly-2.5 band: padded BZ beats Newton below NEWTON_MID_B at ratio
+    // 2.5, while the medium band's 14/5 keeps the ratio-3 knife-edge.
+    bool newton_mid_skew =
+        b.size() >= NEWTON_MID_B &&
+        NEWTON_MID_DENOMINATOR * a.size() >= NEWTON_MID_NUMERATOR * b.size();
     // Near-balanced (ratio ≥ 4/3) band: only above NEWTON_BALANCED_B, where BZ's
     // near-balanced path degrades erratically (measured 2×–4.5× slower than
     // Newton at b ≥ 100k limbs); below it BZ wins, so leave it alone.
@@ -67,7 +82,7 @@ namespace BigMath
     bool newton_ratio2 =
         b.size() >= NEWTON_RATIO2_B &&
         NEWTON_RATIO2_DENOMINATOR * a.size() >= NEWTON_RATIO2_NUMERATOR * b.size();
-    bool newton_eligible = newton_medium_skew || newton_balanced || newton_high_skew || newton_ratio2;
+    bool newton_eligible = newton_medium_skew || newton_ratio35 || newton_mid_skew || newton_balanced || newton_high_skew || newton_ratio2;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
