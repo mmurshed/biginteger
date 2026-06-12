@@ -5,7 +5,7 @@
  *   1. NewtonDivision (blockwise handles arbitrary ratio via reciprocal cache),
  *      when any of these skew bands hold:
  *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (3/1)          · b
- *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (2/1)      · b
+ *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (4/3)      · b
  *        - b ≥ NEWTON_HIGH_SKEW_B AND  a ≥ NEWTON_HIGH_SKEW (8/1)     · b
  *      The balanced (ratio ≥ 2) band starts higher (96k limbs) because BZ wins
  *      near-balanced below that; above it BZ degrades erratically (measured
@@ -56,11 +56,11 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_NUMERATOR
-#define BIGMATH_NEWTON_BALANCED_NUMERATOR 2
+#define BIGMATH_NEWTON_BALANCED_NUMERATOR 4
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_DENOMINATOR
-#define BIGMATH_NEWTON_BALANCED_DENOMINATOR 1
+#define BIGMATH_NEWTON_BALANCED_DENOMINATOR 3
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
