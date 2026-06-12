@@ -12,6 +12,9 @@
 namespace BigMath
 {
   const SizeT NEWTON_MEDIUM_B = BIGMATH_NEWTON_MEDIUM_B;
+  const SizeT NEWTON_RATIO20_B = BIGMATH_NEWTON_RATIO20_B;
+  const SizeT NEWTON_RATIO20_NUMERATOR = BIGMATH_NEWTON_RATIO20_NUMERATOR;
+  const SizeT NEWTON_RATIO20_DENOMINATOR = BIGMATH_NEWTON_RATIO20_DENOMINATOR;
   const SizeT NEWTON_RATIO2_B = BIGMATH_NEWTON_RATIO2_B;
   const SizeT NEWTON_RATIO2_NUMERATOR = BIGMATH_NEWTON_RATIO2_NUMERATOR;
   const SizeT NEWTON_RATIO2_DENOMINATOR = BIGMATH_NEWTON_RATIO2_DENOMINATOR;
@@ -27,6 +30,7 @@ namespace BigMath
   const SizeT NEWTON_BALANCED_B = BIGMATH_NEWTON_BALANCED_B;
   const SizeT NEWTON_BALANCED_NUMERATOR = BIGMATH_NEWTON_BALANCED_NUMERATOR;
   const SizeT NEWTON_BALANCED_DENOMINATOR = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
+  const SizeT QSIZED_MAIN_B = BIGMATH_QSIZED_MAIN_B;
   const SizeT QSIZED_MIN_DELTA = BIGMATH_QSIZED_MIN_DELTA;
   const SizeT QSIZED_SMALL_B = BIGMATH_QSIZED_SMALL_B;
   const SizeT QSIZED_SMALL_DELTA_DIV = BIGMATH_QSIZED_SMALL_DELTA_DIV;
@@ -78,11 +82,15 @@ namespace BigMath
     bool newton_high_skew =
         b.size() >= NEWTON_HIGH_SKEW_B &&
         NEWTON_HIGH_SKEW_DENOMINATOR * a.size() >= NEWTON_HIGH_SKEW_NUMERATOR * b.size();
-    // Ratio-≥8/5 band between medium (3/1 @ 2560) and balanced (4/3 @ 24576).
+    // Ratio-≥2 band between the mid (5/2) and ratio-8/5 bands.
+    bool newton_ratio20 =
+        b.size() >= NEWTON_RATIO20_B &&
+        NEWTON_RATIO20_DENOMINATOR * a.size() >= NEWTON_RATIO20_NUMERATOR * b.size();
+    // Ratio-≥8/5 band between the ratio-2 and balanced (4/3) bands.
     bool newton_ratio2 =
         b.size() >= NEWTON_RATIO2_B &&
         NEWTON_RATIO2_DENOMINATOR * a.size() >= NEWTON_RATIO2_NUMERATOR * b.size();
-    bool newton_eligible = newton_medium_skew || newton_ratio35 || newton_mid_skew || newton_balanced || newton_high_skew || newton_ratio2;
+    bool newton_eligible = newton_medium_skew || newton_ratio35 || newton_mid_skew || newton_balanced || newton_high_skew || newton_ratio20 || newton_ratio2;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
@@ -91,7 +99,7 @@ namespace BigMath
     // loses. BZ's near-balanced path blows up 7-128x on 2^k+1-family divisor
     // sizes here; quotient-sized division scales with the quotient instead.
     bool qsized_main =
-        b.size() >= NEWTON_BALANCED_B &&
+        b.size() >= QSIZED_MAIN_B &&
         a.size() >= b.size() + QSIZED_MIN_DELTA &&
         NEWTON_BALANCED_DENOMINATOR * a.size() < NEWTON_BALANCED_NUMERATOR * b.size();
     // Thin-quotient extension below the balanced floor: delta <= b/8. Generic

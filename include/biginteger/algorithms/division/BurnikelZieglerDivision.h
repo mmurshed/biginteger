@@ -17,8 +17,13 @@ using namespace std;
 
 namespace BigMath
 {
+// Basecase floor for the 2n-by-n recursion. Swept 2026-06-12 after the
+// odd-size padding fix made recursion depth size-independent: 128 beats the
+// old 512 by 1.2-1.5× across the whole BZ band (the 512-limb Knuth-D
+// basecase calls were the bottleneck — Karatsuba-backed multiplies win the
+// 128-512 range). Flat 64-128, worse at 48 and above 128.
 #ifndef BIGMATH_BZ_RECURSION_THRESHOLD
-#define BIGMATH_BZ_RECURSION_THRESHOLD 512
+#define BIGMATH_BZ_RECURSION_THRESHOLD 128
 #endif
 
   class BurnikelZieglerDivision
