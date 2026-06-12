@@ -234,7 +234,7 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 |---|---:|---:|---:|
 | 40 000 × 10 000 | 0.727 | 0.215 | 3.38× |
 | 100 000 × 10 000 | 2.184 | 0.460 | 4.75× |
-| 200 000 × 50 000 | 10.867 | 1.635 | 6.65× |
+| **200 000 × 50 000** | **6.309** | **1.677** | **3.76×** ← was 6.65× (PR #92) |
 | **500 000 × 100 000** | **12.442** | **4.469** | **2.78×** ← was 3.85× |
 | **1 000 000 × 200 000** | **22.599** | **9.723** | **2.32×** ← was 3.36× |
 | **2 000 000 × 500 000** | **45.743** | **24.010** | **1.91×** ← was 3.36× |
@@ -242,13 +242,13 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 | **10 000 000 × 2 000 000** | **232.324** | **150.828** | **1.54×** ← was 2.79× |
 | **20 000 000 × 4 000 000** | **519.977** | **344.471** | **1.51×** ← was 2.78× |
 | **50 000 000 × 10 000 000** | **1 461.269** | **1 297.461** | **1.13×** ← was 1.86× |
-| 100 000 000 × 20 000 000 | 6 119.817 | 2 594.778 | 2.36× (2026-05-30, not re-measured) |
+| **100 000 000 × 20 000 000** | **3 165.678** | **2 581.199** | **1.23×** ← was 2.36× |
 | 200 000 000 × 40 000 000 | 12 979.547 | 4 550.205 | 2.85× (2026-05-30, not re-measured) |
 
 **Observations (updated 2026-06-11):**
 
-- **The wraparound-Newton family (PRs #85–#87) cut the skewed band roughly in half: 500k×100k through 50M×10M now sit at 1.13–2.78× vs GMP, from 1.86–3.85× before.** 5M×1M went 200.6 → 111.4 ms; 50M×10M is at **1.13×, near parity**. The cuts shorten the serial transform chain (cyclic mod-B^L−1 products at half length, top-limbs quotient estimates), which is the lever that converts to wall-clock on the threaded stack.
-- 200k×50k stays the worst point: divisor sits below the Newton band (2596 limbs), goes through BZ which loses ~6.5× to GMP's `mpn_dcpi1_div_q` at this size.
+- **The wraparound-Newton family (PRs #85–#87) cut the skewed band roughly in half: 500k×100k through 50M×10M now sit at 1.13–2.78× vs GMP, from 1.86–3.85× before.** 5M×1M went 200.6 → 111.4 ms; 50M×10M is at **1.13×** and 100M×20M at **1.23×, near parity**. The cuts shorten the serial transform chain (cyclic mod-B^L−1 products at half length, top-limbs quotient estimates), which is the lever that converts to wall-clock on the threaded stack.
+- The former 200k×50k worst point (6.65×, BZ below the old Newton bands) was retired by PR #92's band retune (`NEWTON_MEDIUM` 5/2 @ 2560 limbs + the 8/5 ratio band @ 6144): now 3.76×. The same retune removed 8–25× knife-edge cliffs at digit-derived ratio-2/ratio-3 shapes one limb below the old `2/1`/`3/1` predicates.
 - Balanced equal-size rows are degenerate (quotient 0–1 limbs, both libraries short-circuit; sub-15µs absolute through 1M digits). FastDivision's scalar-normalization fix (PR #82, bit-shift normalize, 3.5× on that path) shows up in driver benchmarks rather than these noise-level rows.
 
 ### Shape-focused division dispatch
@@ -328,6 +328,7 @@ this is the headline summary. The refreshed division/parse/ToString tables above
 | #87 | invertappr-style wrapped Newton iteration in `ApproxReciprocal` (exact E from cyclic residue + top-slice correction) | one-shot skewed div −24–25%, `Divider` setup −29% |
 | #88 | Newton balanced band ratio 2/1 → 4/3 (post-#85–87 crossover re-measured) | nb=131073 limbs ratio 1.5: 10.7 s → 157 ms |
 | #89 | **quotient-sized division** (`QuotientSizedDivision.h`): divides operand tops for short quotients; cost scales with quotient, not divisor; balanced-band floor 98304 → 24576 limbs | 2^k+1 pathology ratios 1.05–1.25: 1.07–5.35 s → 28–71 ms (38–75×) |
+| #92 | medium band 3/1 @ 4096 → **5/2 @ 2560** + new **8/5 band @ 6144** (fractional ratios kill the one-limb knife-edges where digit-derived operands fall off the band onto BZ's non-pow2 blowups) | 200k×50k digits 6.65× → 3.76×; cliff shapes 300k×100k 24.6× → 3.07×, 400k×200k 20.7× → 3.57× |
 
 Cumulative on the standard grid: skewed div 5M×1M 200.6 → 111.4 ms (2.87× → 1.59× vs GMP),
 50M×10M at **1.13× — near parity**; tostr 1M 224.8 → 170.2 ms; parse 1M 49.0 → 43.3 ms.
