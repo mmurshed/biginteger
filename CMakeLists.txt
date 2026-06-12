@@ -98,6 +98,11 @@ if(BIGMATH_BUILD_TESTS)
 
     add_executable(mfa_roundtrip tests/performance/mfa_roundtrip.cpp)
     target_link_libraries(mfa_roundtrip PRIVATE bigmath::bigmath)
+    # Registered as a test: the MFA band sits above every other correctness
+    # harness's sizes, so an MFA-only bug is invisible without this (the
+    # daaf3f4 inverse-twiddle ordering bug shipped and stayed latent for 12
+    # days exactly this way).
+    add_test(NAME mfa_roundtrip COMMAND mfa_roundtrip)
 
     add_executable(mfa_dft_check tests/performance/mfa_dft_check.cpp)
     target_link_libraries(mfa_dft_check PRIVATE bigmath::bigmath)
