@@ -255,13 +255,15 @@ namespace BigMath
     // t < 0 lands in (M − 9·B^n, M) (≥ n+2 limbs). L ≥ n+2 by construction.
     //
     // Returns false if a fixup cap blows; caller falls back to FastDivision
-    // exactly like the plain path.
+    // exactly like the plain path. `fixupLimit` must stay ≪ B so the
+    // magnitude window (|t| < (fixupLimit+1)·b_norm < B^(n+1)) holds.
     static bool WrappedRemainder(
         vector<DataT> const &chunk,
         vector<DataT> const &b_norm,
         SizeT L,
         vector<DataT> &Q,
-        vector<DataT> &rem)
+        vector<DataT> &rem,
+        int fixupLimit)
     {
       SizeT n = (SizeT)b_norm.size();
       const DataT maxLimb = (CurrentBase == Base2_64) ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
@@ -284,14 +286,13 @@ namespace BigMath
                                 ? Subtract(cm, W, CurrentBase)
                                 : Subtract(Add(cm, M, CurrentBase), W, CurrentBase);
 
-      const int FIXUP_LIMIT = 8;
       static const vector<DataT> one{1};
 
       // t < 0 (Q overestimated): rem_m ≈ M − |t|, which needs > n+1 limbs.
       int iters = 0;
       while (TrimmedSize(rem_m) > n + 1)
       {
-        if (++iters > FIXUP_LIMIT)
+        if (++iters > fixupLimit)
           return false;
         Q = Subtract(Q, one, CurrentBase);
         rem_m = Add(rem_m, b_norm, CurrentBase);
@@ -303,7 +304,7 @@ namespace BigMath
       iters = 0;
       while (Compare(rem_m, b_norm) >= 0)
       {
-        if (++iters > FIXUP_LIMIT)
+        if (++iters > fixupLimit)
           return false;
         rem_m = Subtract(rem_m, b_norm, CurrentBase);
         Q = Add(Q, one, CurrentBase);
@@ -311,6 +312,61 @@ namespace BigMath
 
       rem = std::move(rem_m);
       TrimZerosToOne(rem);
+      return true;
+    }
+
+    // Remainder + quotient fixups for one chunk: computes rem = chunk − Q·b_norm,
+    // adjusting Q until 0 ≤ rem < b_norm. Routes through the half-length cyclic
+    // product when the full Q·b_norm would be CRT-NTT-routed and the cyclic
+    // transform is strictly shorter; plain full product otherwise. Returns
+    // false when the fixup budget blows.
+    static bool RemainderAndFixups(
+        vector<DataT> const &chunk,
+        vector<DataT> const &b_norm,
+        vector<DataT> &Q,
+        vector<DataT> &rem,
+        int fixupLimit)
+    {
+      SizeT n = (SizeT)b_norm.size();
+
+#if BIGMATH_NTT_CRT
+      if ((CurrentBase == Base2_32 || CurrentBase == Base2_64) && !IsZero(Q))
+      {
+        SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
+        ULong nCyc = std::bit_ceil((ULong)(n + 2) * c);
+        ULong nLinear = std::bit_ceil(((ULong)Q.size() + n) * c);
+        SizeT L = (SizeT)(nCyc / c);
+        if (Q.size() + n >= NTT_MULTIPLICATION_THRESHOLD &&
+            nCyc < nLinear && nCyc <= (1u << 22) &&
+            Q.size() <= L)
+          return WrappedRemainder(chunk, b_norm, L, Q, rem, fixupLimit);
+      }
+#endif
+
+      vector<DataT> &QB = Scratch().v2;
+      QB = Multiply(Q, b_norm, CurrentBase);
+
+      static const vector<DataT> one{1};
+
+      int iters = 0;
+      while (Compare(QB, chunk) > 0)
+      {
+        if (++iters > fixupLimit)
+          return false;
+        Q = Subtract(Q, one, CurrentBase);
+        QB = Subtract(QB, b_norm, CurrentBase);
+      }
+      rem = Subtract(chunk, QB, CurrentBase);
+
+      iters = 0;
+      while (Compare(rem, b_norm) >= 0)
+      {
+        if (++iters > fixupLimit)
+          return false;
+        rem = Subtract(rem, b_norm, CurrentBase);
+        Q = Add(Q, one, CurrentBase);
+      }
+
       return true;
     }
 
@@ -325,65 +381,62 @@ namespace BigMath
       auto &scratch = Scratch();
       vector<DataT> &CR = scratch.v0;
       vector<DataT> &Q = scratch.v1;
-      vector<DataT> &QB = scratch.v2;
 
-      // Q ≈ (chunk * R) >> (2n limbs)
-      CR = Multiply(chunk, R, CurrentBase);
-      if (CR.size() > 2 * n)
-        Q.assign(CR.begin() + 2 * n, CR.end());
-      else
-        Q.assign(1, 0);
-      TrimZerosToOne(Q);
-
-      // Remainder via half-length cyclic product when the full Q·b_norm would
-      // be CRT-NTT-routed and the cyclic transform is strictly shorter.
+      // Approximate quotient estimate from the TOP n+1 limbs of the chunk
+      // (GMP mu_divappr style). b_norm is normalized (top bit set, so
+      // b ≥ B^n/2), which bounds the dropped low limbs' contribution to Q by
+      // c_lo / b < 2·B^(sh−n) ≤ 2/B — under 1 ulp; with the floor truncations
+      // the estimate underestimates Q by ≤ ~3 extra steps, absorbed by the
+      // fixup loop. The product shrinks from (chunk + R) to (n+1 + R) limbs;
+      // gated on the smaller transform actually being shorter. If the relaxed
+      // fixup budget ever blows, retry once with the exact full product before
+      // falling back to FastDivision.
+      bool tryApprox = false;
 #if BIGMATH_NTT_CRT
-      if ((CurrentBase == Base2_32 || CurrentBase == Base2_64) && !IsZero(Q))
+      if ((CurrentBase == Base2_32 || CurrentBase == Base2_64) &&
+          chunk.size() > n + 1)
       {
         SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
-        ULong nCyc = std::bit_ceil((ULong)(n + 2) * c);
-        ULong nLinear = std::bit_ceil(((ULong)Q.size() + n) * c);
-        SizeT L = (SizeT)(nCyc / c);
-        if (Q.size() + n >= NTT_MULTIPLICATION_THRESHOLD &&
-            nCyc < nLinear && nCyc <= (1u << 22) &&
-            Q.size() <= L)
-        {
-          vector<DataT> rem;
-          if (!WrappedRemainder(chunk, b_norm, L, Q, rem))
-            return {{}, {}, false};
-          TrimZerosToOne(Q);
-          return {Q, rem, true};
-        }
+        ULong nFull = std::bit_ceil(((ULong)chunk.size() + R.size()) * c);
+        ULong nTop = std::bit_ceil(((ULong)n + 1 + R.size()) * c);
+        tryApprox = (chunk.size() + R.size() >= NTT_MULTIPLICATION_THRESHOLD) &&
+                    nTop < nFull;
       }
 #endif
 
-      QB = Multiply(Q, b_norm, CurrentBase);
-
-      const int FIXUP_LIMIT = 8;
-      static const vector<DataT> one{1};
-
-      int iters = 0;
-      while (Compare(QB, chunk) > 0)
+      for (int attempt = tryApprox ? 0 : 1; attempt < 2; ++attempt)
       {
-        if (++iters > FIXUP_LIMIT)
-          return {{}, {}, false};
-        Q = Subtract(Q, one, CurrentBase);
-        QB = Subtract(QB, b_norm, CurrentBase);
+        SizeT drop = 2 * n;
+        if (attempt == 0)
+        {
+          SizeT sh = (SizeT)chunk.size() - (n + 1);
+          vector<DataT> c_top(chunk.begin() + sh, chunk.end());
+          CR = Multiply(c_top, R, CurrentBase);
+          drop = 2 * n - sh;
+        }
+        else
+        {
+          // Q ≈ (chunk * R) >> (2n limbs)
+          CR = Multiply(chunk, R, CurrentBase);
+        }
+
+        if (CR.size() > drop)
+          Q.assign(CR.begin() + drop, CR.end());
+        else
+          Q.assign(1, 0);
+        TrimZerosToOne(Q);
+
+        vector<DataT> rem;
+        if (RemainderAndFixups(chunk, b_norm, Q, rem, attempt == 0 ? 12 : 8))
+        {
+          TrimZerosToOne(Q);
+          TrimZerosToOne(rem);
+          return {Q, rem, true};
+        }
+        // Approx attempt blew its budget — retry once with the exact product.
       }
-      vector<DataT> rem = Subtract(chunk, QB, CurrentBase);
 
-      iters = 0;
-      while (Compare(rem, b_norm) >= 0)
-      {
-        if (++iters > FIXUP_LIMIT)
-          return {{}, {}, false};
-        rem = Subtract(rem, b_norm, CurrentBase);
-        Q = Add(Q, one, CurrentBase);
-      }
-
-      TrimZerosToOne(Q);
-
-      return {Q, rem, true};
+      return {{}, {}, false};
     }
 
     static pair<vector<DataT>, vector<DataT>> DivideNormalizedWithReciprocal(
