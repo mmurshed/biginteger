@@ -70,15 +70,18 @@
 #endif
 
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 2560
+#define BIGMATH_NEWTON_MEDIUM_B 1024
 #endif
 
-// Ratio-≥8/5 Newton band between the medium (3/1) and balanced (4/3) bands.
+// Floors re-swept 2026-06-12 after the NEON NTT pass made Newton's internal
+// multiplies ~40% faster: high-skew (8/1) 2048 -> 768, medium (5/2)
+// 2560 -> 1024, ratio-8/5 6144 -> 4096. Below those, BZ/FastDivision win.
+// Ratio-≥8/5 Newton band between the medium (5/2) and balanced (4/3) bands.
 // 8/5 instead of a knife-edge 2/1: digit-derived operands land at limb ratios
 // like 2.0000 ± 1 limb, and the BZ side of the edge blows up 8-12× on
 // non-power-of-2 divisor sizes; Newton generic-ties BZ from ratio ~1.6 here.
 #ifndef BIGMATH_NEWTON_RATIO2_B
-#define BIGMATH_NEWTON_RATIO2_B 6144
+#define BIGMATH_NEWTON_RATIO2_B 4096
 #endif
 #ifndef BIGMATH_NEWTON_RATIO2_NUMERATOR
 #define BIGMATH_NEWTON_RATIO2_NUMERATOR 8
@@ -111,7 +114,7 @@
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
-#define BIGMATH_NEWTON_HIGH_SKEW_B 2048
+#define BIGMATH_NEWTON_HIGH_SKEW_B 768
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR

@@ -42,7 +42,7 @@
 namespace BigMath
 {
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 2560
+#define BIGMATH_NEWTON_MEDIUM_B 1024
 #endif
 
 // Ratio-≥8/5 band. Sits between the medium (3/1) and balanced (4/3) bands:
@@ -52,7 +52,7 @@ namespace BigMath
 // ratios like 2.0000 ± 1 limb and BZ blows up 8-12× on non-pow2 divisor
 // sizes right across that edge.
 #ifndef BIGMATH_NEWTON_RATIO2_B
-#define BIGMATH_NEWTON_RATIO2_B 6144
+#define BIGMATH_NEWTON_RATIO2_B 4096
 #endif
 #ifndef BIGMATH_NEWTON_RATIO2_NUMERATOR
 #define BIGMATH_NEWTON_RATIO2_NUMERATOR 8
@@ -97,7 +97,7 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
-#define BIGMATH_NEWTON_HIGH_SKEW_B 2048
+#define BIGMATH_NEWTON_HIGH_SKEW_B 768
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR
