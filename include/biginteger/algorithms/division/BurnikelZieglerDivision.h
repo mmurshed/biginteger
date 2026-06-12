@@ -6,7 +6,6 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-using namespace std;
 
 #include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
@@ -32,36 +31,36 @@ namespace BigMath
   private:
     static const SizeT BZ_THRESHOLD = BIGMATH_BZ_RECURSION_THRESHOLD;
 
-    static vector<DataT> NormalizeZero(vector<DataT> v)
+    static std::vector<DataT> NormalizeZero(std::vector<DataT> v)
     {
       TrimZerosToOne(v);
       return v;
     }
 
-    static vector<DataT> Slice(vector<DataT> const &v, SizeT start, SizeT count)
+    static std::vector<DataT> Slice(std::vector<DataT> const &v, SizeT start, SizeT count)
     {
       if (start >= v.size() || count == 0)
-        return vector<DataT>{0};
-      SizeT end = min((SizeT)v.size(), (SizeT)(start + count));
-      return NormalizeZero(vector<DataT>(v.begin() + start, v.begin() + end));
+        return std::vector<DataT>{0};
+      SizeT end = std::min((SizeT)v.size(), (SizeT)(start + count));
+      return NormalizeZero(std::vector<DataT>(v.begin() + start, v.begin() + end));
     }
 
-    static vector<DataT> FromSpan(span<const DataT> v)
+    static std::vector<DataT> FromSpan(std::span<const DataT> v)
     {
-      return NormalizeZero(vector<DataT>(v.begin(), v.end()));
+      return NormalizeZero(std::vector<DataT>(v.begin(), v.end()));
     }
 
-    static vector<DataT> MaxBlock(SizeT limbs, BaseT base)
+    static std::vector<DataT> MaxBlock(SizeT limbs, BaseT base)
     {
       if (limbs == 0)
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
       // base - 1 underflows when base == Base2_64 sentinel (0); use LimbMask.
       const DataT limbMax = (base == Base2_64) ? (DataT)0xFFFFFFFFFFFFFFFFULL
                                                 : (DataT)(base - 1);
-      return vector<DataT>(limbs, limbMax);
+      return std::vector<DataT>(limbs, limbMax);
     }
 
-    static void PadTo(vector<DataT> &v, SizeT limbs)
+    static void PadTo(std::vector<DataT> &v, SizeT limbs)
     {
       if (IsZero(v))
         v.clear();
@@ -69,7 +68,7 @@ namespace BigMath
         v.push_back(0);
     }
 
-    static void Decrement(vector<DataT> &v, BaseT base)
+    static void Decrement(std::vector<DataT> &v, BaseT base)
     {
       // limbMax is base-1 for power-of-two bases. The BaseT sentinel for
       // Base2_64 is 0, so (base - 1) would underflow — use LimbMask.
@@ -90,13 +89,13 @@ namespace BigMath
     }
 
     // out = (high << shift_limbs) + low. One allocation.
-    static vector<DataT> AddShifted(
-        vector<DataT> const &high, SizeT shift,
+    static std::vector<DataT> AddShifted(
+        std::vector<DataT> const &high, SizeT shift,
         const DataT *lowData, SizeT lowSize,
         BaseT base)
     {
-      SizeT outSize = max(high.size() + shift, (size_t)lowSize) + 1;
-      vector<DataT> out(outSize, 0);
+      SizeT outSize = std::max(high.size() + shift, (size_t)lowSize) + 1;
+      std::vector<DataT> out(outSize, 0);
 
       std::memcpy(out.data(), lowData, lowSize * sizeof(DataT));
 
@@ -160,32 +159,32 @@ namespace BigMath
       return out;
     }
 
-    static vector<DataT> CombineShifted(
-        vector<DataT> const &high,
+    static std::vector<DataT> CombineShifted(
+        std::vector<DataT> const &high,
         SizeT shift,
-        vector<DataT> const &low,
+        std::vector<DataT> const &low,
         BaseT base)
     {
-      vector<DataT> out = AddShifted(high, shift, low.data(), (SizeT)low.size(), base);
+      std::vector<DataT> out = AddShifted(high, shift, low.data(), (SizeT)low.size(), base);
       return NormalizeZero(std::move(out));
     }
 
     // Full Burnikel-Ziegler 2n-by-n division. For n = 2m, split the dividend
     // into four m-limb blocks and the divisor into two m-limb blocks, then use
     // two 3n-by-2n divisions.
-    static pair<vector<DataT>, vector<DataT>> Divide2nByN(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> Divide2nByN(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base,
         bool computeRemainder)
     {
       if (IsZero(b))
-        throw invalid_argument("Division by zero");
+        throw std::invalid_argument("Division by zero");
 
       if (Compare(a, b) < 0)
-        return {vector<DataT>{0}, computeRemainder ? a : vector<DataT>()};
+        return {std::vector<DataT>{0}, computeRemainder ? a : std::vector<DataT>()};
       if (Compare(a, b) == 0)
-        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+        return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
       SizeT n = (SizeT)b.size();
       if (n <= BZ_THRESHOLD || n % 2 != 0 || a.size() <= BZ_THRESHOLD)
@@ -195,21 +194,21 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       SizeT m = n / 2;
-      vector<DataT> a0 = Slice(a, 0, m);
-      vector<DataT> a1 = Slice(a, m, m);
-      vector<DataT> a2 = Slice(a, 2 * m, m);
-      vector<DataT> a3 = Slice(a, 3 * m, m);
-      vector<DataT> b0 = Slice(b, 0, m);
-      vector<DataT> b1 = Slice(b, m, m);
+      std::vector<DataT> a0 = Slice(a, 0, m);
+      std::vector<DataT> a1 = Slice(a, m, m);
+      std::vector<DataT> a2 = Slice(a, 2 * m, m);
+      std::vector<DataT> a3 = Slice(a, 3 * m, m);
+      std::vector<DataT> b0 = Slice(b, 0, m);
+      std::vector<DataT> b1 = Slice(b, m, m);
 
       // Divide A = x2*B^(2m) + x1*B^m + x0 by
       // D = b1*B^m + b0, returning Q < B^m and R < D.
-      auto divide3nBy2n = [&](vector<DataT> const &x2,
-                              vector<DataT> const &x1,
-                              vector<DataT> const &x0) {
-        vector<DataT> top = CombineShifted(x2, m, x1, base);
-        vector<DataT> q;
-        vector<DataT> r;
+      auto divide3nBy2n = [&](std::vector<DataT> const &x2,
+                              std::vector<DataT> const &x1,
+                              std::vector<DataT> const &x0) {
+        std::vector<DataT> top = CombineShifted(x2, m, x1, base);
+        std::vector<DataT> q;
+        std::vector<DataT> r;
 
         if (Compare(x2, b1) < 0)
         {
@@ -220,13 +219,13 @@ namespace BigMath
         else
         {
           q = MaxBlock(m, base);
-          vector<DataT> product = Multiply(q, b1, base);
+          std::vector<DataT> product = Multiply(q, b1, base);
           r = Subtract(top, product, base);
         }
 
-        vector<DataT> d = Multiply(q, b0, base);
+        std::vector<DataT> d = Multiply(q, b0, base);
         r = CombineShifted(r, m, x0, base);
-        vector<DataT> divisor = CombineShifted(b1, m, b0, base);
+        std::vector<DataT> divisor = CombineShifted(b1, m, b0, base);
 
         while (Compare(r, d) < 0)
         {
@@ -235,28 +234,28 @@ namespace BigMath
         }
 
         r = Subtract(r, d, base);
-        return pair<vector<DataT>, vector<DataT>>{
+        return std::pair<std::vector<DataT>, std::vector<DataT>>{
             NormalizeZero(std::move(q)),
             NormalizeZero(std::move(r))};
       };
 
       auto high = divide3nBy2n(a3, a2, a1);
-      vector<DataT> r1Low = Slice(high.second, 0, m);
-      vector<DataT> r1High = Slice(high.second, m, m);
+      std::vector<DataT> r1Low = Slice(high.second, 0, m);
+      std::vector<DataT> r1High = Slice(high.second, m, m);
       auto low = divide3nBy2n(r1High, r1Low, a0);
 
       PadTo(low.first, m);
-      vector<DataT> q = CombineShifted(high.first, m, low.first, base);
+      std::vector<DataT> q = CombineShifted(high.first, m, low.first, base);
       TrimZerosToOne(q);
 
-      return {q, computeRemainder ? low.second : vector<DataT>()};
+      return {q, computeRemainder ? low.second : std::vector<DataT>()};
     }
 
     // Arbitrary-size wrapper: process the dividend in base B^n blocks and use
     // the balanced 2n-by-n primitive for each combined remainder/block step.
-    static pair<vector<DataT>, vector<DataT>> DivideRecursive(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideRecursive(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base,
         bool computeRemainder)
     {
@@ -265,17 +264,17 @@ namespace BigMath
 
       SizeT n = (SizeT)b.size();
       SizeT blocks = (a.size() + n - 1) / n;
-      vector<DataT> rem{0};
-      vector<DataT> quotient(blocks * n, 0);
+      std::vector<DataT> rem{0};
+      std::vector<DataT> quotient(blocks * n, 0);
 
       for (SizeT block = blocks; block > 0; --block)
       {
         SizeT start = (block - 1) * n;
-        vector<DataT> low = Slice(a, start, n);
-        vector<DataT> combined = CombineShifted(rem, n, low, base);
+        std::vector<DataT> low = Slice(a, start, n);
+        std::vector<DataT> combined = CombineShifted(rem, n, low, base);
 
         auto qr = Divide2nByN(combined, b, base, true);
-        vector<DataT> qBlock = std::move(qr.first);
+        std::vector<DataT> qBlock = std::move(qr.first);
         rem = std::move(qr.second);
 
         if (qBlock.size() > n)
@@ -286,27 +285,27 @@ namespace BigMath
 
       TrimZerosToOne(quotient);
 
-      return {quotient, computeRemainder ? NormalizeZero(std::move(rem)) : vector<DataT>()};
+      return {quotient, computeRemainder ? NormalizeZero(std::move(rem)) : std::vector<DataT>()};
     }
 
   public:
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        span<const DataT> a,
-        span<const DataT> b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        std::span<const DataT> a,
+        std::span<const DataT> b,
         BaseT base,
         bool computeRemainder = true)
     {
       if (IsZero(b))
-        throw invalid_argument("Division by zero");
+        throw std::invalid_argument("Division by zero");
 
       if (IsZero(a))
-        return {vector<DataT>{0}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+        return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
       Int cmp = Compare(a, b);
       if (cmp < 0)
-        return {vector<DataT>{0}, computeRemainder ? vector<DataT>(a.begin(), a.end()) : vector<DataT>()};
+        return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end()) : std::vector<DataT>()};
       if (cmp == 0)
-        return {vector<DataT>{1}, computeRemainder ? vector<DataT>{0} : vector<DataT>()};
+        return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
       if (a.size() <= BZ_THRESHOLD || b.size() <= BZ_THRESHOLD)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
@@ -318,8 +317,8 @@ namespace BigMath
       const int limbBits = LimbBitsFor(base);
       Int shift = NormalizationShiftBits(b[b.size() - 1], limbBits);
 
-      vector<DataT> aNorm = ShiftLeftBits(a, shift, limbBits);
-      vector<DataT> bNorm = ShiftLeftBits(b, shift, limbBits);
+      std::vector<DataT> aNorm = ShiftLeftBits(a, shift, limbBits);
+      std::vector<DataT> bNorm = ShiftLeftBits(b, shift, limbBits);
 
       // BZ recursion needs the divisor size divisible by 2 at every level of
       // the 2n-by-n split until the basecase; any odd size on the way down
@@ -360,22 +359,22 @@ namespace BigMath
       return qr;
     }
 
-    static vector<DataT> Divide(span<const DataT> a, span<const DataT> b, BaseT base)
+    static std::vector<DataT> Divide(std::span<const DataT> a, std::span<const DataT> b, BaseT base)
     {
       return DivideAndRemainder(a, b, base, false).first;
     }
 
     // Vector overloads — backward compat.
-    static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base,
         bool computeRemainder = true)
     {
-      return DivideAndRemainder(span<const DataT>(a), span<const DataT>(b), base, computeRemainder);
+      return DivideAndRemainder(std::span<const DataT>(a), std::span<const DataT>(b), base, computeRemainder);
     }
 
-    static vector<DataT> Divide(vector<DataT> const &a, vector<DataT> const &b, BaseT base)
+    static std::vector<DataT> Divide(std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base)
     {
       return DivideAndRemainder(a, b, base, false).first;
     }

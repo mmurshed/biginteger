@@ -54,6 +54,31 @@ namespace
     SizeT newtonHighB = BIGMATH_NEWTON_HIGH_SKEW_B;
     SizeT newtonHighSkewNumerator = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
     SizeT newtonHighSkewDenominator = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
+    // Post-2026-06 division bands. Not auto-tuned by this harness yet —
+    // carried through from the build's values so a regenerated profile
+    // keeps the complete band set instead of silently dropping them
+    // (use tests/performance/division_floor_probe.cpp for manual sweeps).
+    SizeT newtonRatio20B = BIGMATH_NEWTON_RATIO20_B;
+    SizeT newtonRatio20Numerator = BIGMATH_NEWTON_RATIO20_NUMERATOR;
+    SizeT newtonRatio20Denominator = BIGMATH_NEWTON_RATIO20_DENOMINATOR;
+    SizeT newtonRatio2B = BIGMATH_NEWTON_RATIO2_B;
+    SizeT newtonRatio2Numerator = BIGMATH_NEWTON_RATIO2_NUMERATOR;
+    SizeT newtonRatio2Denominator = BIGMATH_NEWTON_RATIO2_DENOMINATOR;
+    SizeT newtonRatio35B = BIGMATH_NEWTON_RATIO35_B;
+    SizeT newtonRatio35Numerator = BIGMATH_NEWTON_RATIO35_NUMERATOR;
+    SizeT newtonRatio35Denominator = BIGMATH_NEWTON_RATIO35_DENOMINATOR;
+    SizeT newtonMidB = BIGMATH_NEWTON_MID_B;
+    SizeT newtonMidNumerator = BIGMATH_NEWTON_MID_NUMERATOR;
+    SizeT newtonMidDenominator = BIGMATH_NEWTON_MID_DENOMINATOR;
+    SizeT newtonBalancedB = BIGMATH_NEWTON_BALANCED_B;
+    SizeT newtonBalancedNumerator = BIGMATH_NEWTON_BALANCED_NUMERATOR;
+    SizeT newtonBalancedDenominator = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
+    SizeT qsizedMainB = BIGMATH_QSIZED_MAIN_B;
+    SizeT qsizedMinDelta = BIGMATH_QSIZED_MIN_DELTA;
+    SizeT qsizedSmallB = BIGMATH_QSIZED_SMALL_B;
+    SizeT qsizedSmallDeltaDiv = BIGMATH_QSIZED_SMALL_DELTA_DIV;
+    SizeT bzRecursion = BIGMATH_BZ_RECURSION_THRESHOLD;
+    SizeT cyclicNtt = BIGMATH_CYCLIC_NTT_THRESHOLD;
   };
 
   vector<DataT> RandomNumber(SizeT limbs, mt19937_64 &gen)
@@ -194,7 +219,36 @@ namespace
 
     out << "#ifndef BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR\n";
     out << "#define BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR " << s.newtonHighSkewDenominator << '\n';
-    out << "#endif\n";
+    out << "#endif\n\n";
+
+    out << "// Post-2026-06 division bands: not auto-tuned by dispatch_tuner yet;\n";
+    out << "// values carried from the build this profile was generated with.\n";
+    auto emit = [&out](const char *name, SizeT value) {
+      out << "#ifndef " << name << '\n';
+      out << "#define " << name << ' ' << value << '\n';
+      out << "#endif\n\n";
+    };
+    emit("BIGMATH_NEWTON_RATIO20_B", s.newtonRatio20B);
+    emit("BIGMATH_NEWTON_RATIO20_NUMERATOR", s.newtonRatio20Numerator);
+    emit("BIGMATH_NEWTON_RATIO20_DENOMINATOR", s.newtonRatio20Denominator);
+    emit("BIGMATH_NEWTON_RATIO2_B", s.newtonRatio2B);
+    emit("BIGMATH_NEWTON_RATIO2_NUMERATOR", s.newtonRatio2Numerator);
+    emit("BIGMATH_NEWTON_RATIO2_DENOMINATOR", s.newtonRatio2Denominator);
+    emit("BIGMATH_NEWTON_RATIO35_B", s.newtonRatio35B);
+    emit("BIGMATH_NEWTON_RATIO35_NUMERATOR", s.newtonRatio35Numerator);
+    emit("BIGMATH_NEWTON_RATIO35_DENOMINATOR", s.newtonRatio35Denominator);
+    emit("BIGMATH_NEWTON_MID_B", s.newtonMidB);
+    emit("BIGMATH_NEWTON_MID_NUMERATOR", s.newtonMidNumerator);
+    emit("BIGMATH_NEWTON_MID_DENOMINATOR", s.newtonMidDenominator);
+    emit("BIGMATH_NEWTON_BALANCED_B", s.newtonBalancedB);
+    emit("BIGMATH_NEWTON_BALANCED_NUMERATOR", s.newtonBalancedNumerator);
+    emit("BIGMATH_NEWTON_BALANCED_DENOMINATOR", s.newtonBalancedDenominator);
+    emit("BIGMATH_QSIZED_MAIN_B", s.qsizedMainB);
+    emit("BIGMATH_QSIZED_MIN_DELTA", s.qsizedMinDelta);
+    emit("BIGMATH_QSIZED_SMALL_B", s.qsizedSmallB);
+    emit("BIGMATH_QSIZED_SMALL_DELTA_DIV", s.qsizedSmallDeltaDiv);
+    emit("BIGMATH_BZ_RECURSION_THRESHOLD", s.bzRecursion);
+    emit("BIGMATH_CYCLIC_NTT_THRESHOLD", s.cyclicNtt);
   }
 
   void TuneMultiplication(bool full, ThresholdSuggestions &s)

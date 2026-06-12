@@ -9,7 +9,6 @@
 
 #include <utility>
 #include <vector>
-using namespace std;
 
 #include "Addition.h"
 #include "Subtraction.h"

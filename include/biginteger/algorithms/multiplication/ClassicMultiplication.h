@@ -10,7 +10,6 @@
 #include <vector>
 #include <span>
 #include <string>
-using namespace std;
 
 #include "../../common/Util.h"
 
@@ -42,7 +41,7 @@ namespace BigMath
       return (ULong)(value >> 64);
     }
 
-    static void SetOrPush(vector<DataT> &a, SizeT pos, DataT value)
+    static void SetOrPush(std::vector<DataT> &a, SizeT pos, DataT value)
     {
       if (pos < a.size())
         a[pos] = value;
@@ -52,7 +51,7 @@ namespace BigMath
 
   public:
     static void MultiplyTo(
-        vector<DataT> &a,
+        std::vector<DataT> &a,
         DataT b,
         BaseT base)
     {
@@ -63,7 +62,7 @@ namespace BigMath
     }
 
     static SizeT MultiplyTo(
-        vector<DataT> &a, SizeT aStart, SizeT aEnd,
+        std::vector<DataT> &a, SizeT aStart, SizeT aEnd,
         DataT b,
         BaseT base)
     {
@@ -139,12 +138,12 @@ namespace BigMath
       return j;
     }
 
-    static vector<DataT> Multiply(
-        vector<DataT> const &a,
+    static std::vector<DataT> Multiply(
+        std::vector<DataT> const &a,
         DataT b,
         BaseT base)
     {
-      vector<DataT> w(a.size());
+      std::vector<DataT> w(a.size());
       Multiply(
           a, 0, a.size() - 1,
           b,
@@ -158,14 +157,14 @@ namespace BigMath
     // Mirrors the vector-input fast path (ULong accumulator).
     // Caller responsible for ensuring b is small enough to avoid uint64 overflow
     // in a[i] * b + carry (true for normalization scalars in FastDivision).
-    static vector<DataT> Multiply(
-        span<const DataT> a,
+    static std::vector<DataT> Multiply(
+        std::span<const DataT> a,
         DataT b,
         BaseT base)
     {
       if (b == 0 || a.empty())
-        return vector<DataT>();
-      vector<DataT> w(a.size());
+        return std::vector<DataT>();
+      std::vector<DataT> w(a.size());
 
       if (base == Base2_64)
       {
@@ -201,9 +200,9 @@ namespace BigMath
     }
 
     static SizeT Multiply(
-        vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+        std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
         ULong b,
-        vector<DataT> &w, SizeT wStart, SizeT wEnd,
+        std::vector<DataT> &w, SizeT wStart, SizeT wEnd,
         BaseT base)
     {
       if (b == 0 ||                // a times 0
@@ -268,20 +267,20 @@ namespace BigMath
 
   public:
     static void MultiplyTo(
-        vector<DataT> &a,
-        vector<DataT> const &b,
+        std::vector<DataT> &a,
+        std::vector<DataT> const &b,
         BaseT base)
     {
       a = Multiply(a, b, base);
     }
 
-    static vector<DataT> Multiply(
-        vector<DataT> const &a,
-        vector<DataT> const &b,
+    static std::vector<DataT> Multiply(
+        std::vector<DataT> const &a,
+        std::vector<DataT> const &b,
         BaseT base)
     {
       if (IsZero(a) || IsZero(b)) // 0 times
-        return vector<DataT>();
+        return std::vector<DataT>();
 
         // If b is a single digit, use the scalar multiplication
       if (b.size() == 1)
@@ -291,7 +290,7 @@ namespace BigMath
         return Multiply(b, a[0], base);
 
       SizeT size = (SizeT)(a.size() + b.size() + 1);
-      vector<DataT> result(size);
+      std::vector<DataT> result(size);
 
       Multiply(a, 0, (SizeT)a.size() - 1, b, 0, (SizeT)b.size() - 1, result, 0, base);
 
@@ -303,13 +302,13 @@ namespace BigMath
     // Classical algorithm
     // Runtime O(n^2), Space O(n)
     static SizeT Multiply(
-        vector<DataT> const &a, SizeT aStart, SizeT aEnd,
-        vector<DataT> const &b, SizeT bStart, SizeT bEnd,
-        vector<DataT> &result, SizeT rStart,
+        std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+        std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+        std::vector<DataT> &result, SizeT rStart,
         BaseT base)
     {
-      aEnd = min(aEnd, (SizeT)(a.size() - 1));
-      bEnd = min(bEnd, (SizeT)(b.size() - 1));
+      aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
+      bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
 
       SizeT k = rStart;
       SizeT lenA = aEnd - aStart + 1;

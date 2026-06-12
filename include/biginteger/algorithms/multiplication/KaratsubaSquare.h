@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
-using namespace std;
 
 #include "../../common/Util.h"
 #include "ClassicSquare.h"
@@ -192,20 +191,20 @@ namespace BigMath
     }
 
   public:
-    static vector<DataT> Square(vector<DataT> const &a, BaseT base)
+    static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
     {
       if (IsZero(a))
-        return vector<DataT>{0};
+        return std::vector<DataT>{0};
 
       SizeT n = (SizeT)a.size();
       if (n <= THRESHOLD)
         return ClassicSquare::Square(a, base);
 
-      vector<DataT> c(2 * n, 0);
+      std::vector<DataT> c(2 * n, 0);
 
       // Workspace bound: per level uses 3m+3 ≈ 1.5n; recursion sum ≈ 3n. Use 8n for safety
       // (matches KaratsubaMultiplication).
-      unique_ptr<DataT[]> w(new DataT[8 * n]);
+      std::unique_ptr<DataT[]> w(new DataT[8 * n]);
 
       SquareRec(a.data(), n, c.data(), w.get(), base);
       TrimZeros(c);

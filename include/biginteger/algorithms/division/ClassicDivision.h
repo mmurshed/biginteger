@@ -12,7 +12,6 @@
 #include <string>
 #include <stdexcept>
 #include <algorithm>
-using namespace std;
 
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
@@ -65,27 +64,27 @@ namespace BigMath
             }
         };
 
-        static void DivideTo(vector<DataT> &u, DataT d, BaseT base)
+        static void DivideTo(std::vector<DataT> &u, DataT d, BaseT base)
         {
             Divide(u, 0, u.size() - 1, d, u, 0, u.size() - 1, base);
         }
 
         static void DivideTo(
-            vector<DataT> &u, SizeT uStart, SizeT uEnd,
+            std::vector<DataT> &u, SizeT uStart, SizeT uEnd,
             DataT d,
             BaseT base)
         {
             Divide(u, uStart, uEnd, d, u, uStart, uEnd, base);
         }
 
-        static vector<DataT> Divide(
-            vector<DataT> const &u,
+        static std::vector<DataT> Divide(
+            std::vector<DataT> const &u,
             DataT d,
             BaseT base)
         {
             SizeT n = (SizeT)u.size();
             // Divide (u_n−1 . . . u_1 u_0)_b by d.
-            vector<DataT> w(n);
+            std::vector<DataT> w(n);
 
             Divide(u, 0, u.size() - 1, d, w, 0, w.size() - 1, base);
 
@@ -96,9 +95,9 @@ namespace BigMath
         }
 
         static void Divide(
-            vector<DataT> const &u, SizeT uStart, SizeT uEnd,
+            std::vector<DataT> const &u, SizeT uStart, SizeT uEnd,
             DataT d,
-            vector<DataT> &w, SizeT wStart, SizeT wEnd,
+            std::vector<DataT> &w, SizeT wStart, SizeT wEnd,
             BaseT base)
         {
             // Number of limbs in [uStart..uEnd]
@@ -180,7 +179,7 @@ namespace BigMath
 
         // In-place divmod by single-limb d. Returns remainder.
         // Quotient overwrites u; trailing zero limbs trimmed.
-        static DataT DivModTo(vector<DataT> &u, DataT d, BaseT base)
+        static DataT DivModTo(std::vector<DataT> &u, DataT d, BaseT base)
         {
             if (u.empty())
                 return 0;
@@ -226,15 +225,15 @@ namespace BigMath
             return (DataT)r;
         }
 
-        static pair<vector<DataT>, vector<DataT>> DivideAndRemainder(
-            vector<DataT> const &u,
+        static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
+            std::vector<DataT> const &u,
             DataT d,
             BaseT base)
         {
             SizeT n = (SizeT)u.size();
             // Divide (u_n−1 . . . u_1 u_0)_b by d.
-            vector<DataT> w(n);
-            vector<DataT> v(1, 0);
+            std::vector<DataT> w(n);
+            std::vector<DataT> v(1, 0);
 
             if (base == Base2_32)
             {
