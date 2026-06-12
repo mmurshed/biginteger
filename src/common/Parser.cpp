@@ -343,6 +343,10 @@ namespace BigMath
         DecimalDcEntry e;
         e.digits = d;
         e.value = Pow10(d);
+        // NOTE: building the dividers in a ParallelDo over levels was tried
+        // (2026-06-12) and REGRESSES cold ToString 10-55%: the level-1/2
+        // reciprocal builds lose their internal threaded NTT when run
+        // serial-inline on a worker, which costs more than the fan-out wins.
         e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
       }
