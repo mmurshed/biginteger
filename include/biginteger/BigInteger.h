@@ -7,6 +7,8 @@
 #ifndef BIGINTEGER
 #define BIGINTEGER
 
+#include <algorithm>
+#include <span>
 #include <vector>
 
 #include "common/Util.h"
@@ -23,7 +25,7 @@ namespace BigMath
     // True if the number is negative
     bool isNegative;
 
-    // Constructor, desctructor, and assignment operator
+    // Constructor, destructor, and assignment operator
   public:
     explicit BigInteger(SizeT size = 0, bool negative = false) : theInteger(size == 0 ? 1 : size, 0), isNegative(negative)
     {
@@ -35,6 +37,19 @@ namespace BigMath
     {
       TrimZerosToOne(theInteger);
       if(negative && Zero())
+      {
+        isNegative = false;
+      }
+    }
+
+    // Zero-copy adoption of a raw limb vector (little-endian limb order).
+    // Precondition: every limb must be canonical for the current base —
+    // < 2^32 when built with BIGMATH_LIMB_64=0. No validation is performed;
+    // non-canonical limbs silently corrupt downstream arithmetic.
+    BigInteger(std::vector<DataT>&& aInt, bool negative) : theInteger(std::move(aInt)), isNegative(negative)
+    {
+      TrimZerosToOne(theInteger);
+      if (isNegative && Zero())
       {
         isNegative = false;
       }
@@ -63,6 +78,93 @@ namespace BigMath
     std::vector<DataT> const &GetInteger() const
     {
       return theInteger;
+    }
+
+    std::vector<DataT> ReleaseInteger()
+    {
+      std::vector<DataT> r = std::move(theInteger);
+      theInteger = {0};
+      isNegative = false;
+      return r;
+    }
+
+    // Byte order for magnitude serialization. Named enum instead of a bool so
+    // call sites read unambiguously next to FromByteArray's `negative` flag.
+    enum class ByteOrder
+    {
+      BigEndian,
+      LittleEndian
+    };
+
+    std::vector<uint8_t> ToByteArray(ByteOrder order = ByteOrder::BigEndian) const
+    {
+      if (Zero())
+      {
+        return {};
+      }
+
+      constexpr SizeT limbBytes = LimbBits / 8;
+      std::vector<uint8_t> bytes;
+      bytes.reserve(theInteger.size() * limbBytes);
+
+      for (DataT val : theInteger)
+      {
+        for (SizeT b = 0; b < limbBytes; ++b)
+        {
+          bytes.push_back(static_cast<uint8_t>((val >> (b * 8)) & 0xFF));
+        }
+      }
+
+      while (!bytes.empty() && bytes.back() == 0)
+      {
+        bytes.pop_back();
+      }
+
+      if (order == ByteOrder::BigEndian)
+      {
+        std::reverse(bytes.begin(), bytes.end());
+      }
+
+      return bytes;
+    }
+
+    static BigInteger FromByteArray(std::span<const uint8_t> bytes, bool negative, ByteOrder order = ByteOrder::BigEndian)
+    {
+      if (bytes.empty())
+      {
+        return BigInteger();
+      }
+
+      constexpr SizeT limbBytes = LimbBits / 8;
+      const size_t numLimbs = (bytes.size() + limbBytes - 1) / limbBytes;
+      std::vector<DataT> limbs(numLimbs, 0);
+
+      auto getByte = [&](size_t idx) -> uint8_t {
+        if (order == ByteOrder::BigEndian)
+        {
+          return bytes[bytes.size() - 1 - idx];
+        }
+        else
+        {
+          return bytes[idx];
+        }
+      };
+
+      for (size_t i = 0; i < numLimbs; ++i)
+      {
+        DataT limbVal = 0;
+        for (size_t b = 0; b < limbBytes; ++b)
+        {
+          size_t byteIdx = i * limbBytes + b;
+          if (byteIdx < bytes.size())
+          {
+            limbVal |= (static_cast<DataT>(getByte(byteIdx)) << (b * 8));
+          }
+        }
+        limbs[i] = limbVal;
+      }
+
+      return BigInteger(std::move(limbs), negative);
     }
 
     DataT operator[](const SizeT i) const

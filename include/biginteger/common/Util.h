@@ -61,7 +61,7 @@ namespace BigMath
     return std::vector<DataT>{0};
   }
 
-  inline SizeT FindNonZeroByte(std::vector<DataT> const &a, Int start = 0, Int end = -1)
+  inline Int FindNonZeroByte(std::vector<DataT> const &a, Int start = 0, Int end = -1)
   {
     Int i = (end == -1 ? (Int)a.size() : end + 1);
     while (i > start && a[i - 1] == 0)

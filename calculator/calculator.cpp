@@ -57,12 +57,14 @@ namespace
     auto const &v = x.GetInteger();
     int hi = (int)v.size() - 1;
     while (hi > 0 && v[hi] == 0) --hi;
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%x", (unsigned)v[hi]);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%llx", (unsigned long long)v[hi]);
     out += buf;
+    
+    const char *fmt = (BigInteger::Base() == Base2_64) ? "%016llx" : "%08llx";
     for (int i = hi - 1; i >= 0; --i)
     {
-      std::snprintf(buf, sizeof(buf), "%08x", (unsigned)v[i]);
+      std::snprintf(buf, sizeof(buf), fmt, (unsigned long long)v[i]);
       out += buf;
     }
     return out;
@@ -77,19 +79,21 @@ namespace
     int hi = (int)v.size() - 1;
     while (hi > 0 && v[hi] == 0) --hi;
 
-    auto pushBits = [&](uint32_t w, int bits) {
+    auto pushBits = [&](ULong w, int bits) {
       for (int i = bits - 1; i >= 0; --i)
-        out.push_back(((w >> i) & 1u) ? '1' : '0');
+        out.push_back(((w >> i) & 1ULL) ? '1' : '0');
     };
 
+    const int limbBits = (BigInteger::Base() == Base2_64) ? 64 : 32;
+
     // Top limb: strip leading zero bits (but keep at least one).
-    uint32_t top = (uint32_t)v[hi];
-    int topBits = 32;
-    while (topBits > 1 && ((top >> (topBits - 1)) & 1u) == 0)
+    ULong top = v[hi];
+    int topBits = limbBits;
+    while (topBits > 1 && ((top >> (topBits - 1)) & 1ULL) == 0)
       --topBits;
     pushBits(top, topBits);
     for (int i = hi - 1; i >= 0; --i)
-      pushBits((uint32_t)v[i], 32);
+      pushBits(v[i], limbBits);
     return out;
   }
 

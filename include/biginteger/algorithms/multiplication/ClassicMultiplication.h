@@ -117,7 +117,7 @@ namespace BigMath
 
       ULong carry = 0;
 
-      for (Int j = aStart; j <= aEnd; j++)
+      for (SizeT j = aStart; j <= aEnd; j++)
       {
         ULong multiply = a[j];
         multiply *= b;
@@ -127,7 +127,7 @@ namespace BigMath
         carry = NextCarry(multiply, base);
       }
 
-      Int j = aEnd + 1;
+      SizeT j = aEnd + 1;
       while (carry > 0)
       {
         SetOrPush(a, j, LowDigit(carry, base));
@@ -240,7 +240,7 @@ namespace BigMath
 
       ULong carry = 0;
 
-      for (Int j = 0; j < len; j++)
+      for (SizeT j = 0; j < len; j++)
       {
         ULong multiply = 0;
         SizeT aPos = aStart + j;
@@ -341,13 +341,13 @@ namespace BigMath
         SizeT jStart = rStart + (i - bStart);
         for (SizeT j = aStart; j <= aEnd; j++)
         {
-          SizeT k = jStart + (j - aStart);
+          SizeT kk = jStart + (j - aStart);
           ULong multiply = a[j];
           multiply *= b[i];
-          multiply += result[k];
+          multiply += result[kk];
           multiply += carry;
 
-          result[k] = LowDigit(multiply, base);
+          result[kk] = LowDigit(multiply, base);
           carry = NextCarry(multiply, base);
         }
         k = jStart + lenA;

@@ -95,30 +95,33 @@ namespace BigMath
     aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
 
-    Int size = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
+    Int len = std::max(Len(aStart, aEnd), Len(bStart, bEnd));
+    if (len <= 0)
+      return;
+    SizeT size = (SizeT)len;
 
     if (base == Base2_64)
     {
       ULong128 carry = 0;
-      for (Int i = 0; i < size; i++)
+      for (SizeT i = 0; i < size; i++)
       {
         ULong128 digitOps = carry;
-        Int aPos = i + aStart;
-        if (aPos <= aEnd && aPos < (Int)a.size())
+        SizeT aPos = i + aStart;
+        if (aPos <= aEnd && aPos < a.size())
           digitOps += a[aPos];
-        Int bPos = i + bStart;
-        if (bPos <= bEnd && bPos < (Int)b.size())
+        SizeT bPos = i + bStart;
+        if (bPos <= bEnd && bPos < b.size())
           digitOps += b[bPos];
-        Int rPos = rStart + i;
-        if (rPos < (Int)result.size())
+        SizeT rPos = rStart + i;
+        if (rPos < result.size())
           result[rPos] = (DataT)(digitOps & 0xFFFFFFFFFFFFFFFFULL);
         carry = digitOps >> 64;
       }
       // Propagate the final carry: a bare += can itself overflow the slot.
       // (If the result window ends here the carry is dropped — this is a
       // fixed-width window primitive; whole-vector AddTo grows `a` first.)
-      Int rPos = rStart + size;
-      while (carry > 0 && rPos < (Int)result.size())
+      SizeT rPos = rStart + size;
+      while (carry > 0 && rPos < result.size())
       {
         carry += result[rPos];
         result[rPos] = (DataT)(carry & 0xFFFFFFFFFFFFFFFFULL);
@@ -129,28 +132,28 @@ namespace BigMath
     }
 
     Long carry = 0;
-    for (Int i = 0; i < size; i++)
+    for (SizeT i = 0; i < size; i++)
     {
       Long digitOps = 0;
 
-      Int aPos = i + aStart;
-      if (aPos <= aEnd && aPos < (Int)a.size())
+      SizeT aPos = i + aStart;
+      if (aPos <= aEnd && aPos < a.size())
         digitOps = a[aPos];
 
       digitOps += carry;
 
-      Int bPos = i + bStart;
-      if (bPos <= bEnd && bPos < (Int)b.size())
+      SizeT bPos = i + bStart;
+      if (bPos <= bEnd && bPos < b.size())
         digitOps += b[bPos];
 
-      Int rPos = rStart + i;
-      if (rPos < (Int)result.size())
+      SizeT rPos = rStart + i;
+      if (rPos < result.size())
         result[rPos] = (DataT)(digitOps % base);
       carry = digitOps / base;
     }
     // Propagate the final carry (see the Base2_64 branch above).
-    Int rPos = rStart + size;
-    while (carry > 0 && rPos < (Int)result.size())
+    SizeT rPos = rStart + size;
+    while (carry > 0 && rPos < result.size())
     {
       Long digitOps = (Long)result[rPos] + carry;
       result[rPos] = (DataT)(digitOps % base);
