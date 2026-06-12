@@ -115,9 +115,26 @@ A `sample` profile of 200M÷40M-digit division showed ~88% of active compute in 
 | div | 5.2M ÷ 1.04M | — | 3 166.0 | **1 700.9** | 1.37× → **0.74×** |
 | div | 10.4M ÷ 2.08M | — | 6 492.4 | **4 426.9** | 1.47× → **1.00×** |
 
-**Division now beats GMP at ≈50–100M-digit dividends (0.71–0.74×) and reaches parity at 200M÷40M digits.** Lower gates (2^18) measured ≈ wash vs 2^20 (≤4% div); 2^20 keeps the gate out of the latency-sensitive sub-ms band. The remaining 200M÷40M gap is the cyclic `MultiplyMod2km1` transforms (always plain, `n ≤ 2^22` cap) — next candidate is routing those through the fused-stage machinery.
+**Division now beats GMP at ≈50–100M-digit dividends (0.71–0.74×) and reaches parity at 200M÷40M digits.** Lower gates (2^18) measured ≈ wash vs 2^20 (≤4% div); 2^20 keeps the gate out of the latency-sensitive sub-ms band. The remaining 200M÷40M gap is the cyclic `MultiplyMod2km1` transforms (always plain, `n ≤ 2^22` cap) — addressed in the next section.
 
 Correctness: raw-limb GMP probe OK at every newly-MFA size (n=2^20–2^23 balanced + 8:1 skew at n=2^19 high-skew gate); full unit/roundtrip/mult/div correctness batteries green.
+
+### Cyclic-product MFA routing + cap raise (2026-06-12)
+
+`MultiplyMod2km1` — the wrap-around product Newton division uses for its reciprocal iterations and wrapped remainders — always ran plain whole-transform `ParallelDo(6/3)` units and was capped at `n ≤ 2^22`. The cap predated MFA support; the MFA permutation in fact cancels between forward and pointwise (both operands share it) and the inverse returns natural order, so the cyclic path now runs the same fused pipeline as the linear multiply (helpers `MfaFusedForwardPointwise` / `MfaFusedInverse`, extracted from `Multiply`) at `n ≥` the MFA gate, and the cap rose to the CRT ceiling `2^26` (coefficient-sum headroom `N·2^64 = 2^90 < p1·p2·p3 ≈ 2^90.5`). Newton's two `nCyc` gates rose to match — large iterations again use cyclic transforms at HALF the linear product's length.
+
+Warm-state, best-of-3 × 3 interleaved rounds vs post-gate-retune main, quiet machine:
+
+| div (limbs) | ≈digits | before ms | after ms | BM/GMP was → now |
+|---|---|---:|---:|---|
+| 1M ÷ 200k | 20M÷4M | 288 | 290 | ~1.0× (wash) |
+| 2.6M ÷ 520k | 50M÷10M | 617 | 603 | 0.69× → **0.67×** |
+| 5.2M ÷ 1.04M | 100M÷20M | 1 668 | **1 301** | 0.71× → **0.55×** |
+| 10.4M ÷ 2.08M | 200M÷40M | 4 194 | **3 074** | 0.95× → **0.68×** |
+
+**Division now beats GMP at every measured size from 20M-digit dividends up.** Cumulative across PR #107 + the gate retune + this change, 200M÷40M-digit division went 6.5s → 3.1s (1.47× → 0.68× vs GMP, a 2.1× swing).
+
+Correctness: probe extended with cyclic rows (vs GMP fold-mod `2^{64L}−1`) at n=2^19 (plain), 2^20/2^22 (MFA), 2^23/2^24 (beyond the old cap, incl. uneven operands) and full-pipeline division quotient checks at both big tiers — all green; transient-break validated (wrong inverse planes → the four MFA-routed cyclic rows FAIL, the plain row stays OK); full unit/roundtrip/mult/div batteries green.
 
 ### MFA focused threshold check
 

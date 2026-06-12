@@ -55,10 +55,19 @@ Warm-state raw-limb suite, best-of-3 × 3 interleaved rounds vs pre-#107
    (DispatchThresholds.h): mul n=2^22 3.0×, n=2^23 2.2×, n=2^21 2.0×;
    div 50–100M digits 0.71–0.74× vs GMP (beats), 200M÷40M 1.47→1.00×
    (parity). 2^18 ≈ wash (≤4% div) — left on the table for tune.yml.
-   Remaining 200M÷40M residual: cyclic MultiplyMod2km1 transforms (always
-   plain Forward/Inverse, n ≤ 2^22 cap) — route through fused stages
-   and/or raise the cap; also the prepared-operand path still has no MFA
-   (matters for ops/Multiplication.h repeated-multiply users, not Newton).
+   Remaining 200M÷40M residual: cyclic MultiplyMod2km1 transforms —
+   **DONE (2026-06-12, cyclic MFA routing)**: MultiplyMod2km1 now runs the
+   shared fused pipeline (MfaFusedForwardPointwise + MfaFusedInverse,
+   extracted from Multiply) at n ≥ gate, and the cyclic cap rose 2^22 →
+   2^26 (headroom N·2^64 = 2^90 < p1p2p3 ≈ 2^90.5; the old cap existed to
+   dodge the then-untrusted MFA permutation, which in fact cancels —
+   probe-verified at n = 2^20–2^24 incl. uneven operands). Newton's two
+   nCyc gates raised to match, so big iterations use half-length cyclic
+   transforms. Measured: div 5.2M÷1.04M limbs −22% (0.55× vs GMP),
+   10.4M÷2.08M −27% (0.68×); mul control unchanged. **Division now beats
+   GMP at every measured size ≥20M-digit dividends.**
+   The prepared-operand path still has no MFA (matters for
+   ops/Multiplication.h repeated-multiply users, not Newton).
 2. F3 pack fusion (parallelism-first): PackOperand is a serial sweep
    writing 6 planes, plus 12 serial plane zero-fills (assign(n,0)) —
    ~1.6 GB serial at 10M limbs. Fold into stage A's ParallelDo(6) gather.
