@@ -36,22 +36,22 @@ Code references use `path:line` where applicable.
 
 ## Number representation
 
-Same as the multiplication subsystem (see [MULTIPLICATION.md §Number representation](MULTIPLICATION.md#number-representation)). Limbs are 32-bit values stored in `uint64_t` slots, little-endian, in base 2³². The upper 32 bits of each storage slot are headroom for carries.
+Same as the multiplication subsystem (see [MULTIPLICATION.md §Number representation](MULTIPLICATION.md#number-representation)). Limbs are true 64-bit values stored in `uint64_t` slots, little-endian, in base 2⁶⁴ (`Base() == Base2_64`, the default since the 64-bit limb refactor of 2026-05, PRs #18–#30). The legacy 32-bit mode (`-DBIGMATH_LIMB_64=0`: 32-bit values in `uint64_t` slots, base 2³², upper 32 bits as carry headroom) remains available as an opt-out.
 
 Two type aliases dominate division code:
 
 | symbol | type | role |
 |---|---|---|
-| `DataT` | `uint64_t` (32-bit value) | one limb |
+| `DataT` | `uint64_t` | one limb (full 64-bit value under `Base2_64`) |
 | `ULong128` | `__uint128_t` | accumulator for normalize, qhat estimation, and 128/64 divmod |
 
-The 32-bit limb size has a particularly heavy impact on division performance because the inner loop of every divider operates on `(top_two_limbs) / divisor_top_limb`, which is a 64/32 division producing a 32-bit quotient digit. GMP's 64-bit limbs do a 128/64 division producing a 64-bit quotient digit per step, halving the number of quotient digits and roughly halving the loop iterations.
+Limb width matters heavily for division because the inner loop of every divider operates on `(top_two_limbs) / divisor_top_limb`. Under `Base2_64` this is a 128/64 division producing a 64-bit quotient digit per step — the same per-step work as GMP's 64-bit limbs. (Under the legacy 32-bit mode it was a 64/32 division producing a 32-bit quotient digit, doubling the loop iterations relative to GMP — the main motivation for the refactor.)
 
 ---
 
 ## Top-level dispatch
 
-`biginteger/algorithms/Division.h` exposes `DivideAndRemainder(a, b, base, computeRemainder)` returning a `{quotient, remainder}` pair. The dispatcher considers operand sizes and the dividend/divisor ratio.
+`include/biginteger/algorithms/Division.h` declares `DivideAndRemainder(a, b, base, computeRemainder)` returning a `{quotient, remainder}` pair; the dispatch logic lives in `src/algorithms/Division.cpp`. The dispatcher considers operand sizes and the dividend/divisor ratio.
 
 ```mermaid
 flowchart TD
@@ -62,9 +62,11 @@ flowchart TD
     C -- no --> D{Compare&#40;a, b&#41;}
     D -- a == b --> Eq[return &#123;1, 0&#125;]
     D -- a &lt; b --> Less[return &#123;0, a&#125;]
-    D -- a &gt; b --> E{Newton band?<br/>b ≥ 2560 and 2a ≥ 5b<br/>OR b ≥ 6144 and 5a ≥ 8b<br/>OR b ≥ 24576 and 3a ≥ 4b<br/>OR b ≥ 2048 and a ≥ 8b}
+    D -- a &gt; b --> E{Newton band?<br/>b ≥ 896 and a ≥ 8b<br/>OR b ≥ 1280 and 2a ≥ 7b<br/>OR b ≥ 1792 and 5a ≥ 14b<br/>OR b ≥ 2560 and 2a ≥ 5b<br/>OR b ≥ 4096 and a ≥ 2b<br/>OR b ≥ 8192 and 5a ≥ 8b<br/>OR b ≥ 131072 and 3a ≥ 4b}
     E -- yes --> N[NewtonDivision]
-    E -- no --> F{Power-of-two base<br/>AND b.size &gt; 512<br/>AND BZ shape fits?}
+    E -- no --> Q{Quotient-sized band?<br/>b ≥ 24576, a ≥ b+64, 3a &lt; 4b<br/>OR thin: b ≥ 8192, 64 ≤ Δ ≤ b/8}
+    Q -- yes --> QS[QuotientSizedDivision]
+    Q -- no --> F{Power-of-two base<br/>AND b.size &gt; 512<br/>AND BZ shape fits?}
     F -- yes --> BZ[BurnikelZieglerDivision]
     F -- no --> FD[FastDivision]
     FD --> S{b is single limb?}
@@ -74,42 +76,53 @@ flowchart TD
 
 Single-limb divisor (`b.size() == 1`) is handled inside `FastDivision` itself, which short-circuits to `ClassicDivision::DivModTo`.
 
-Default thresholds (overridable via `-D...`):
+Default thresholds (overridable via `-D...`; the canonical defaults live in `include/biginteger/build/DispatchThresholds.h` — its `#define`s win over the `#ifndef` fallbacks in `include/biginteger/algorithms/Division.h`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
-| `BIGMATH_NEWTON_MEDIUM_B` | `4096` | limbs | Newton lower bound for medium-skew division |
-| `BIGMATH_NEWTON_SKEW_NUMERATOR` | `3` | — | medium-skew Newton requires `a.size() ≥ 3·b.size() / 1` |
-| `BIGMATH_NEWTON_SKEW_DENOMINATOR` | `1` | — | |
-| `BIGMATH_NEWTON_BALANCED_B` | `98304` | limbs | Newton lower bound for the near-balanced band (PR #79) |
-| `BIGMATH_NEWTON_BALANCED_NUMERATOR` | `2` | — | balanced Newton requires `a.size() ≥ 2·b.size() / 1` |
-| `BIGMATH_NEWTON_BALANCED_DENOMINATOR` | `1` | — | |
-| `BIGMATH_NEWTON_HIGH_SKEW_B` | `2048` | limbs | lower bound for very-high-skew Newton |
-| `BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR` | `8` | — | high-skew Newton requires `a.size() ≥ 8·b.size() / 1` |
-| `BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR` | `1` | — | |
+| `BIGMATH_NEWTON_HIGH_SKEW_B` | `896` | limbs | Newton floor at ratio ≥ 8/1 |
+| `BIGMATH_NEWTON_RATIO35_B` | `1280` | limbs | Newton floor at ratio ≥ 7/2 (keeps the 4.0000 ± 1-limb knife on the Newton side) |
+| `BIGMATH_NEWTON_MEDIUM_B` | `1792` | limbs | Newton floor at ratio ≥ 14/5 (`NEWTON_SKEW_*` = 14/5; likewise for 3.0000) |
+| `BIGMATH_NEWTON_MID_B` | `2560` | limbs | Newton floor at ratio ≥ 5/2 |
+| `BIGMATH_NEWTON_RATIO20_B` | `4096` | limbs | Newton floor at ratio ≥ 2/1 |
+| `BIGMATH_NEWTON_RATIO2_B` | `8192` | limbs | Newton floor at ratio ≥ 8/5 |
+| `BIGMATH_NEWTON_BALANCED_B` | `131072` | limbs | Newton floor for the near-balanced band, ratio ≥ 4/3 (raised from 24576 on 2026-06-12) |
+| `BIGMATH_QSIZED_MAIN_B` | `24576` | limbs | QuotientSizedDivision main-band floor (ratio < 4/3, `a ≥ b + 64`); decoupled from the balanced floor |
+| `BIGMATH_QSIZED_MIN_DELTA` | `64` | limbs | minimum quotient size Δ for QuotientSizedDivision |
+| `BIGMATH_QSIZED_SMALL_B` | `8192` | limbs | thin-quotient extension floor (`64 ≤ Δ ≤ b/8`) |
 | `BIGMATH_BZ_DIVISOR_THRESHOLD` | `512` | limbs | BZ entry guard |
-| `BIGMATH_BZ_RECURSION_THRESHOLD` | `512` | limbs | BZ base-case cutoff (inside `BurnikelZieglerDivision.h`) |
+| `BIGMATH_BZ_RECURSION_THRESHOLD` | `128` | limbs | BZ base-case cutoff (retuned 512 → 128 on 2026-06-12) |
 
 The current dispatch logic, paraphrased:
 
 ```
-1. (b.size ≥ 4096   AND a.size ≥ 3·b.size)
-   OR (b.size ≥ 98304 AND a.size ≥ 2·b.size)   ← near-balanced band (PR #79)
-   OR (b.size ≥ 2048  AND a.size ≥ 8·b.size)                              → Newton
-2. (Base2_32 OR Base2_64)  AND  b.size > 512  AND
+1. (b.size ≥ 896    AND a.size ≥ 8·b.size)
+   OR (b.size ≥ 1280   AND 2·a.size ≥ 7·b.size)
+   OR (b.size ≥ 1792   AND 5·a.size ≥ 14·b.size)
+   OR (b.size ≥ 2560   AND 2·a.size ≥ 5·b.size)
+   OR (b.size ≥ 4096   AND a.size ≥ 2·b.size)
+   OR (b.size ≥ 8192   AND 5·a.size ≥ 8·b.size)
+   OR (b.size ≥ 131072 AND 3·a.size ≥ 4·b.size)  ← near-balanced band      → Newton
+2. (Base2_32 OR Base2_64)  AND
+   ( (b.size ≥ 24576 AND a.size ≥ b.size + 64 AND 3·a.size < 4·b.size)
+     OR (b.size ≥ 8192 AND 64 ≤ Δ ≤ b.size/8) )   (Δ = a.size − b.size)    → QuotientSized
+3. (Base2_32 OR Base2_64)  AND  b.size > 512  AND
    ( (b.size ≥ 1024 AND a.size ≥ b.size + 32 AND a.size ≤ 3·b.size)
      OR (a.size > 2048 AND a.size > 3·b.size) )                           → Burnikel–Ziegler
-3. else                                                                   → FastDivision
-4. (b.size == 1 inside FastDivision)                                      → ClassicDivision
+4. else                                                                   → FastDivision
+5. (b.size == 1 inside FastDivision)                                      → ClassicDivision
 ```
 
 The ordering matters: Newton wins on **large skewed** problems because the per-divisor reciprocal setup amortizes over multiple chunks. BZ wins on **mid-size near-balanced** problems where its 2n/n recursion structure beats both FastDivision and Newton's setup cost.
 
-**Near-balanced band (PR #79; ratio lowered to 4/3 and floor to 24576 limbs on 2026-06-11).** Above `NEWTON_BALANCED_B` (24576 limbs), ratio-≥-4/3 division goes to Newton instead of BZ. BZ's recursive 2n/n halving lands its intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes — the FFT length doubles and the constant factor compounds across recursion depth into a **5–60× slowdown vs Newton**, worst at `n = 2^k + 1` (measured ~90 s for a 262145-limb divisor vs Newton's ~0.9 s). Newton pads once to the working size and stays flat. Exact-power-of-2 divisor sizes are BZ's best case (it ties Newton); they regress ~4 % under this band but are rare in practice. **Band re-measured 2026-06-11** after the wraparound-Newton PRs (#85–#87) cut Newton's constant: the generic BZ/Newton crossover moved from ratio ~2 down to ~1.3 at large b, and the size floor from ~100k down to ~24k limbs (ratio-1.4 crossover ≈ 24k limbs; ratio-2 crossover ≈ 6k). Band lowered `2/1 → 4/3` and `NEWTON_BALANCED_B` `98304 → 24576`. The former ratio ∈ (1, 4/3) residual is closed by **QuotientSizedDivision** (see below). FastDivision is the default workhorse for everything else.
+**Near-balanced band (PR #79; ratio lowered to 4/3 and floor to 24576 limbs on 2026-06-11; floor raised to 131072 on 2026-06-12).** Above `NEWTON_BALANCED_B` (131072 limbs), ratio-≥-4/3 division goes to Newton instead of BZ. BZ's recursive 2n/n halving lands its intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes — the FFT length doubles and the constant factor compounds across recursion depth into a **5–60× slowdown vs Newton**, worst at `n = 2^k + 1` (measured ~90 s for a 262145-limb divisor vs Newton's ~0.9 s). Newton pads once to the working size and stays flat. Exact-power-of-2 divisor sizes are BZ's best case (it ties Newton); they regress ~4 % under this band but are rare in practice. **Band re-measured 2026-06-11** after the wraparound-Newton PRs (#85–#87) cut Newton's constant: the generic BZ/Newton crossover moved from ratio ~2 down to ~1.3 at large b, and the size floor from ~100k down to ~24k limbs (ratio-1.4 crossover ≈ 24k limbs; ratio-2 crossover ≈ 6k). Band lowered `2/1 → 4/3` and `NEWTON_BALANCED_B` `98304 → 24576`. **Update 2026-06-12:** the BZ odd-size padding fix (PR #116) plus the 128-limb BZ recursion basecase retune made padded BZ win ratio 1.4–1.5 shapes through ~98k limbs, so the floor moved back up: `NEWTON_BALANCED_B` `24576 → 131072` (the old 24576 floor was largely insurance against BZ's odd-size collapse, now fixed). The 24576 value survives as `QSIZED_MAIN_B`, the floor of the **QuotientSizedDivision** main band — a different knob, decoupled from the balanced floor. The ratio ∈ (1, 4/3) residual is closed by QuotientSizedDivision (see below). FastDivision is the default workhorse for everything else.
 
 **Medium/ratio-2 band retune (2026-06-11, follow-up to the 4/3 band).** Post-#85–#87 re-measurement
 moved the Newton/BZ crossovers down across the board: `NEWTON_MEDIUM_B` 4096 → 2560 with ratio
-3/1 → **5/2**, plus a new `NEWTON_RATIO2` band (`b ≥ 6144`, ratio ≥ **8/5**). The fractional
+3/1 → **5/2**, plus a new `NEWTON_RATIO2` band (`b ≥ 6144`, ratio ≥ **8/5**) — values as of
+2026-06-11; the frontier was re-swept twice on 2026-06-12 (after the BZ odd-size padding fix,
+then again after the BZ basecase retune 512 → 128) and the canonical bands are now the
+seven-row frontier in the table above. The fractional
 ratios are deliberate cliff-avoidance: digit-derived operands land at limb ratios like
 2.0000 ± 1 limb or 3.0000 ± 1 limb, and the BZ side of a knife-edge `2/1` or `3/1` predicate
 blows up 8–12× on non-power-of-2 divisor sizes (measured: 15578×5193 limbs BZ 69 ms vs Newton
@@ -124,7 +137,7 @@ because it genuinely wins the generic crossovers there (qsized's tops-divide rec
 erratic at fat Δ below the Newton floors: measured 48 ms vs BZ 14 at 8192 ratio 1.55); its
 non-pow2 pathology stays documented as accepted.
 
-**Short-quotient band (`QuotientSizedDivision`, 2026-06-11).** For `b ≥ NEWTON_BALANCED_B`, `a ≥ b + 64`, ratio < 4/3: with Δ = a.size − b.size and t = Δ+4, the (Δ+1)-limb quotient is determined to ±a few units by the operand TOPS — `q_est = floor((a >> B^(nb−t)) / (b >> B^(nb−t)))` (truncating b perturbs q by ≤ ~B^(2−GUARD), sub-ulp). The tops divide (ratio ~2, size ~2Δ/Δ) goes to Newton directly at t ≥ 6144 (measured: Newton beats BZ at ratio 2 from ~6k limbs — 13 vs 22 ms at 12k, 40 vs 299 ms at 30k, 0.16 s vs 5.3 s at 65537); the exact remainder then costs one Δ×nb back-multiply plus ±few fixups (cap 8, fallback Newton). Cost scales with the **quotient**, not the divisor. Measured (nb=131073, the 2^k+1 pathology): ratios 1.05/1.10/1.25 went from 1.07 s / 2.16 s / 5.35 s (BZ) to **28 / 43 / 71 ms** (38–75×). Generic nb=120000: 37/56/116 ms → 30/39/66 ms. It also beats BZ at BZ's exact-power-of-2 best case (131072 @1.25: 65 vs 88 ms) — no regression band.
+**Short-quotient band (`QuotientSizedDivision`, 2026-06-11).** For `b ≥ QSIZED_MAIN_B` (24576 — decoupled from the balanced floor on 2026-06-12 when `NEWTON_BALANCED_B` moved to 131072), `a ≥ b + 64`, ratio < 4/3: with Δ = a.size − b.size and t = Δ+4, the (Δ+1)-limb quotient is determined to ±a few units by the operand TOPS — `q_est = floor((a >> B^(nb−t)) / (b >> B^(nb−t)))` (truncating b perturbs q by ≤ ~B^(2−GUARD), sub-ulp). The tops divide (ratio ~2, size ~2Δ/Δ) goes to Newton directly at t ≥ 6144 (measured: Newton beats BZ at ratio 2 from ~6k limbs — 13 vs 22 ms at 12k, 40 vs 299 ms at 30k, 0.16 s vs 5.3 s at 65537); the exact remainder then costs one Δ×nb back-multiply plus ±few fixups (cap 8, fallback Newton). Cost scales with the **quotient**, not the divisor. Measured (nb=131073, the 2^k+1 pathology): ratios 1.05/1.10/1.25 went from 1.07 s / 2.16 s / 5.35 s (BZ) to **28 / 43 / 71 ms** (38–75×). Generic nb=120000: 37/56/116 ms → 30/39/66 ms. It also beats BZ at BZ's exact-power-of-2 best case (131072 @1.25: 65 vs 88 ms) — no regression band.
 
 `KnuthDivision` and `ReciprocalDivision` exist as alternate implementations used by correctness tests for cross-checking. They are not in the production dispatch path.
 
@@ -204,7 +217,7 @@ The algorithm operates with two recursive primitives:
 
 - **`Div3n2n(a, b)`** — given `a` with 3n limbs and `b` with 2n limbs, produce an n-limb quotient. Internally calls `Div2n1n` once on the top 2n limbs of `a` against the top n of `b`, then performs the multi-precision subtraction `q · b_low` and a fixup loop.
 
-The mutual recursion bottoms out (at `BIGMATH_BZ_RECURSION_THRESHOLD = 512` limbs) by calling `FastDivision` on the base case.
+The mutual recursion bottoms out (at `BIGMATH_BZ_RECURSION_THRESHOLD = 128` limbs; retuned 512 → 128 on 2026-06-12 — Karatsuba-backed multiplies beat 512-limb Knuth-D basecase calls) by calling `FastDivision` on the base case.
 
 ```
                                                           
@@ -239,9 +252,9 @@ The mutual recursion bottoms out (at `BIGMATH_BZ_RECURSION_THRESHOLD = 512` limb
        (this loop runs at most twice)                     
 ```
 
-The shape of the recursion makes BZ a near-perfect match for **balanced** division (dividend ≈ 2× divisor). The dispatcher in `Division.h` reflects this: BZ runs when `b.size() ≥ 1024 AND a.size() ≤ 3·b.size()`.
+The shape of the recursion makes BZ a near-perfect match for **balanced** division (dividend ≈ 2× divisor). The dispatcher reflects this: BZ runs near-balanced when `b.size() ≥ 1024 AND b.size() + 32 ≤ a.size() ≤ 3·b.size()`, plus a big-and-skewed clause `a.size() > 2048 AND a.size() > 3·b.size()`.
 
-**Handling odd divisor size.** BZ's 2n/n recursion requires an even-sized divisor. Earlier versions rejected odd `b.size()` at the entry and fell back to `FastDivision`, which was quadratic and slow. The current implementation **shift-normalizes** odd inputs at the entry: it bit-shifts both `a` and `b` left by enough bits to push `b`'s MSB into a fresh high limb (making `b.size()` even), runs the recursive algorithm on the shifted inputs, then shifts the remainder right by the same amount at the end. The shift cost is O(n + m), negligible compared to the BZ work itself, and the dispatcher no longer has to route odd-divisor cases through `FastDivision`.
+**Handling odd divisor size (fixed 2026-06-12, PR #116).** BZ's recursion halves the divisor size at every level, so the divisor size must stay divisible by 2 all the way down to the basecase. The entry does bit-shift both operands left — but that is **Knuth normalization** (setting the top bit of `b`'s high limb for qhat accuracy), and it never fixed odd sizes below the top level: an odd intermediate size on the way down silently fell back to `FastDivision` at full size. Since ~half of real divisor limb counts hit an odd size at some recursion level, this cost 1.3–10× on those inputs (the root cause of the "2^k+1 family" pathology at ratio < 2.8). The fix pads **both** operands with bottom zero limbs so that the divisor size equals `basecase << levels` — divisible by 2 at every level. The quotient is unchanged by a common bottom-pad, and the remainder's bottom pad limbs come out exactly zero (stripped before return). The pad is at most one basecase-granularity rounding, so the overhead is bounded by ~`1/BZ_THRESHOLD` (≈ 0.8% at the 128-limb basecase).
 
 The `BIGMATH_BZ_DIVISOR_THRESHOLD = 512` guard prevents BZ from being chosen for divisors so small that `FastDivision` would beat it.
 
@@ -294,7 +307,7 @@ Each chunk costs O(M(n)) and there are O(na / n) chunks, so total cost is O((na 
 
 **High-precision reciprocal flag.** When `na ≥ 2n`, the implementation also runs one **extra Newton iteration at full precision** after the main loop (`EXTRA_REFINE_ITERS = 1`), to drop integer-rounding error in `R` to ≤ 1 quotient digit. Without it the fixup loop diverged at `n = 32768` in early testing, handing off to `FastDivision`.
 
-**Why Newton, why bands.** The structural win of Newton over FastDivision is the O(M(n)) per-chunk cost versus FastDivision's O((m−n+1)·n) quadratic-in-quotient-size cost. The win materializes once the divisor is large enough that NTT/Karatsuba is faster than scalar multi-precision arithmetic, and once the ratio is skewed enough that reciprocal setup amortizes. The 2026-05 tuning lowered the dispatcher band from `b.size ≥ 8192` to `b.size ≥ 1024` with skew threshold `a ≥ 3b`, after a GMP-bench regression at `(a=200k, b=50k digits)` showed Newton was missing the band by 1–3 limbs at boundary cases.
+**Why Newton, why bands.** The structural win of Newton over FastDivision is the O(M(n)) per-chunk cost versus FastDivision's O((m−n+1)·n) quadratic-in-quotient-size cost. The win materializes once the divisor is large enough that NTT/Karatsuba is faster than scalar multi-precision arithmetic, and once the ratio is skewed enough that reciprocal setup amortizes. The 2026-05 tuning lowered the dispatcher band from `b.size ≥ 8192` to `b.size ≥ 1024` with skew threshold `a ≥ 3b`, after a GMP-bench regression at `(a=200k, b=50k digits)` showed Newton was missing the band by 1–3 limbs at boundary cases. (Historical; the current seven-band frontier is in [§Top-level dispatch](#top-level-dispatch).)
 
 ### Reciprocal-cached division
 
@@ -331,15 +344,17 @@ cmake --build build -j8 --target bench_vs_gmp
 ./build/bench_vs_gmp
 ```
 
-Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Refreshed 2026-05-27.
+Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew).
+
+> **Superseded — see [BENCHMARK.md](../BENCHMARK.md) for the canonical numbers** (2026-06-12 v13.0 run). Summary as of that run: division **beats GMP from 20M-digit dividends (0.45–0.82×)**, reaches parity at 5M digits, and sits at 2.3–3.8× below 200k digits (the basecase wall). The tables below are the **historical 2026-05-27 snapshot**, kept for the optimization narrative; they predate the 2026-06-11/12 division work (wraparound Newton, QuotientSizedDivision, BZ odd-size padding fix, basecase retune, MFA gate retune).
 
 ### Balanced division
 
 For `a.size() == b.size()` the quotient is 1–2 limbs and both libraries short-circuit. The benchmark numbers are noise — ratios reflect timer resolution, not algorithmic cost — so they are omitted here. To benchmark balanced division meaningfully, use `(a, b)` where `a.size() ≈ 2·b.size()`, which routes through BZ.
 
-### Skewed division (dispatcher routes to Newton)
+### Skewed division (dispatcher routes to Newton) — historical, 2026-05-27
 
-Numbers below are with the full default stack: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT_CRT=1`, `BIGMATH_USE_THREADS=1` (M1 Max, 8-thread pool, min over 5 runs).
+Numbers below are with the full default stack as of 2026-05-27: `BIGMATH_LIMB_64=1`, `BIGMATH_NTT_CRT=1`, `BIGMATH_USE_THREADS=1` (M1 Max, 8-thread pool, min over 5 runs).
 
 | sizes (digits) | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
@@ -369,7 +384,7 @@ All cases route to Newton. The dominant cost is NTT multiplication inside the Ne
 | 10 000 000 / 2 000 000 | — | — | 3.06 × | **2.78 ×** |
 | 50 000 000 / 10 000 000 | — | — | — | **1.79 ×** |
 
-⁂ The 200k/50k case fluctuates with measurement noise (divisor sits below the Newton band at 2596 limbs and routes through BZ, which has lower NTT density per limb than Newton). The other cases all benefit monotonically from the radix-4+8 NTT speedup flowing through Newton's per-chunk multiplications.
+⁂ The 200k/50k case fluctuated with measurement noise: under the dispatch bands in force at the time (2026-05-27), the 2596-limb divisor sat below the Newton floor and routed through BZ. Under the current frontier (`b ≥ 1280` at ratio ≥ 7/2) this shape routes to Newton. The other cases all benefit monotonically from the radix-4+8 NTT speedup flowing through Newton's per-chunk multiplications.
 
 The 40k/10k case sees the smallest improvement because its NTT calls are below the parallelism threshold (Newton's internal mults are too small).
 
@@ -419,9 +434,9 @@ The Knuth Algorithm D implementation has Base2_32 fast paths for:
 
 The current implementation matches the textbook Burnikel–Ziegler structure rather than the earlier ad-hoc recursion. Block writes are done directly to a preallocated quotient buffer instead of accumulating through `vector<vector<DataT>>`, eliminating per-block heap allocation. Measured: `4096 × 2048` balanced division dropped from 4.19 ms to 2.68 ms.
 
-### `BurnikelZiegler` shift-normalize for odd divisor
+### `BurnikelZiegler` bottom-zero-limb padding for odd sizes (PR #116, 2026-06-12)
 
-Earlier versions of the dispatcher rejected odd `b.size()` at entry, sending odd cases through quadratic FastDivision. The current BZ entry shift-normalizes by bit-shifting both `a` and `b` left enough to push `b`'s MSB into a fresh high limb (making the new divisor size even), runs the recursive algorithm, and shifts the remainder right at the end. This eliminated a class of latent performance cliffs at random divisor sizes.
+The BZ entry has always bit-shifted both operands left, but that shift is **Knuth normalization** (it sets the top bit of `b`'s high limb so the recursive qhat estimates stay tight) — it does not change limb counts and never fixed odd sizes below the top level. Any odd intermediate divisor size on the way down silently fell back to `FastDivision` at full size, costing 1.3–10× on ~half of real inputs (odd divisor limb counts) and producing the "2^k+1 family" pathology at ratio < 2.8. PR #116 fixed it by padding **both** operands with bottom zero limbs so the divisor size equals `basecase << levels` and halves cleanly at every recursion level: `a·B^k = q·(b·B^k) + r·B^k`, so the quotient is unchanged and the remainder's bottom `k` pad limbs are exactly zero (stripped before return). Padding overhead is bounded by ~`1/BZ_THRESHOLD`. This fix (together with the basecase retune below) is what allowed the Newton balanced floor to move back up to 131072.
 
 ### Newton–Raphson with `Divider` cached-reciprocal API
 
@@ -522,7 +537,7 @@ Opt-out: `-DBIGMATH_LIMB_64=0` reverts to 32-bit limbs.
 
 ### Multi-prime CRT NTT (2026-05, PRs #34–#37, default since #37)
 
-Three 30-bit NTT-friendly primes (998244353, 985661441, 754974721) with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4 × 16-bit). Halves the NTT length at the cost of 3 parallel transforms + Garner CRT reconstruction. Size-gated via `BIGMATH_NTT_CRT_THRESHOLD` (default 5000 limbs sum); below the gate, Goldilocks runs unchanged.
+Three NTT-friendly primes with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4 × 16-bit). Halves the NTT length at the cost of 3 parallel transforms + Garner CRT reconstruction. Size-gated via `BIGMATH_NTT_CRT_THRESHOLD`; below the gate, Goldilocks runs unchanged. The current prime triple is {2013265921, 469762049, 1811939329} and the gate default is 256 limbs sum (CRT is effectively always on) — see [MULTIPLICATION.md](MULTIPLICATION.md) for the canonical CRT configuration; the original 2026-05 triple and the 5000-limb gate it shipped with are superseded.
 
 Per-prime modular arithmetic is 32-bit (single `MUL` + simple reduce), much cheaper than Goldilocks' ULong128 reduce. Net win on Newton-internal mults: 10-12% on the floor div cases.
 
@@ -593,7 +608,8 @@ which reconstructs `rem = (chunk − W) mod (B^L − 1)` and reads the sign of t
 `t = chunk − Q·b_norm` from the residue's magnitude (`t ≥ 0` ⇒ ≤ n+1 limbs; `t < 0` ⇒ ≥ n+2
 limbs; disjoint because `L ≥ n+2` and quotient-estimate error is O(n) ≪ B). Fixup loops and the
 `FIXUP_LIMIT` bail-to-FastDivision semantics are unchanged. Gated on: power-of-two base,
-`BIGMATH_NTT_CRT`, `Q+n ≥ NTT_MULTIPLICATION_THRESHOLD`, cyclic length strictly below the linear
+`BIGMATH_NTT_CRT`, `Q+n ≥ BIGMATH_CYCLIC_NTT_THRESHOLD` (its own macro, default 1280 — not
+the NTT multiplication threshold), cyclic length strictly below the linear
 length, and `N ≤ 2^26` (the CRT ceiling — raised from 2^22 in PR #110, which also routed the
 cyclic transforms through the fused MFA pipeline; the MFA permutation cancels in the
 pointwise product, so the old below-MFA restriction was unnecessary).
@@ -709,9 +725,9 @@ Architectural notes:
 
 ### Faster NTT kernel — multi-prime CRT with 32-bit coefficients (LANDED, PR #34/#35/#36/#37)
 
-`BIGMATH_NTT_CRT=1` (default since PR #37) uses 3-prime CRT (998244353 / 985661441 / 754974721, all 30-bit, NTT-friendly) with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4). Halves coefficient count at the cost of 3 parallel transforms + Garner CRT reconstruction.
+`BIGMATH_NTT_CRT=1` (default since PR #37) uses 3-prime CRT with 32-bit coefficient splitting (2 per 64-bit limb vs Goldilocks' 4). Halves coefficient count at the cost of 3 parallel transforms + Garner CRT reconstruction.
 
-Size-gated via `BIGMATH_NTT_CRT_THRESHOLD` (default 5000 limbs sum). Below the gate, single-prime Goldilocks NTT runs unchanged (CRT loses on small NTTs where its 3× transform overhead exceeds per-op savings).
+Size-gated via `BIGMATH_NTT_CRT_THRESHOLD`. Below the gate, single-prime Goldilocks NTT runs unchanged. The prime triple and gate have both changed since the 2026-05 landing (currently {2013265921, 469762049, 1811939329}, gate 256 limbs sum — CRT effectively always on); [MULTIPLICATION.md](MULTIPLICATION.md) is the canonical reference for the CRT configuration.
 
 Measured speedup vs Goldilocks-only on the skewed-div cases:
 
@@ -783,7 +799,7 @@ single-call latency.
 
 [Schönhage's half-GCD algorithm](https://en.wikipedia.org/wiki/Half-GCD_algorithm) and [Lehmer's recursive GCD](https://en.wikipedia.org/wiki/Lehmer%27s_GCD_algorithm) compute `gcd(a, b)` in `O(M(n) · log n)`, asymptotically better than the Euclidean algorithm's `O(n²)`.
 
-Rejected because **no big-integer GCD exists in this codebase**. Only single-limb `gcd(DataT, DataT)` in `biginteger/common/Util.h`. No callers (no modular inverse, no `Rational` class, no RSA, no continued fractions). HGCD is ~600–1000 lines of dead code if implemented today. If big-integer GCD is ever needed, start with naïve Euclidean (~50 lines) and escalate only when measured as a bottleneck.
+Rejected because **no big-integer GCD exists in this codebase**. Only single-limb `gcd(DataT, DataT)` in `include/biginteger/common/Util.h`. No callers (no modular inverse, no `Rational` class, no RSA, no continued fractions). HGCD is ~600–1000 lines of dead code if implemented today. If big-integer GCD is ever needed, start with naïve Euclidean (~50 lines) and escalate only when measured as a bottleneck.
 
 ### Möller–Granlund 3/2 reciprocal for qhat (round 1)
 
@@ -797,9 +813,11 @@ Pivoted to blockwise Newton, which captures the same recurrence behavior at the 
 
 Implemented exactly (carry-tracking two-step decomposition) on branch `feat/mulders-short-mul` 2026-05-26, measured flat across every skewed-div bench size, reverted. The two sub-mults of the decomposition sum to ≈ 1.0–1.27× the single mult they replace under CRT-NTT (which routes every bench-relevant operand), and Mulders' Karatsuba edge does not translate. Detail and measurement table in [Improving skewed division beyond the current floor](#improving-skewed-division-beyond-the-current-floor) above.
 
-### Lowering `BIGMATH_BZ_RECURSION_THRESHOLD` below 512
+### Lowering `BIGMATH_BZ_RECURSION_THRESHOLD` below 512 — **OVERTURNED 2026-06-12**
 
-Below 512 limbs the BZ recursion overhead (multiple `Div3n2n` / `Div2n1n` levels, internal mult dispatching) exceeds the work of just calling `FastDivision` on the base case. The 512 threshold matches the BZ "balanced" win band and matches `BZ_DIVISOR_THRESHOLD` at the dispatcher level.
+Original rejection: below 512 limbs the BZ recursion overhead (multiple `Div3n2n` / `Div2n1n` levels, internal mult dispatching) exceeds the work of just calling `FastDivision` on the base case; 512 also matched `BZ_DIVISOR_THRESHOLD` at the dispatcher level.
+
+**Overturned on 2026-06-12:** after the odd-size padding fix (PR #116) made recursion depth size-independent, re-measurement showed Karatsuba-backed multiplies beat 512-limb Knuth-D basecase calls, and the threshold was retuned 512 → **128** — worth another 1.2–1.5× across the BZ band. (`BZ_DIVISOR_THRESHOLD` stays at 512 as the dispatcher entry guard; the two knobs are now independent.)
 
 ### Removing the `high_precision` reciprocal refinement
 
@@ -845,13 +863,15 @@ Same reasons as for multiplication ([MULTIPLICATION.md §Explored but rejected](
 
 ### This codebase
 
-- `biginteger/algorithms/Division.h` — top-level dispatcher.
-- `biginteger/algorithms/division/ClassicDivision.h` — single-limb division and `DivModTo` helper.
-- `biginteger/algorithms/division/FastDivision.h` — Knuth Algorithm D with Base2_32 fast paths.
-- `biginteger/algorithms/division/KnuthDivision.h` — textbook reference, cross-check only.
-- `biginteger/algorithms/division/BurnikelZieglerDivision.h` — balanced 2n/n recursive, with odd-divisor shift-normalize.
-- `biginteger/algorithms/division/NewtonDivision.h` — Newton–Raphson reciprocal, blockwise mode, `Divider` cached-reciprocal class.
-- `biginteger/algorithms/division/ReciprocalDivision.h` — public-facing wrapper around `NewtonDivision::Divider`.
+- `include/biginteger/algorithms/Division.h` — top-level dispatcher declarations; dispatch logic in `src/algorithms/Division.cpp`.
+- `include/biginteger/build/DispatchThresholds.h` — canonical dispatch threshold defaults (its `#define`s win over the `#ifndef` fallbacks in the algorithm headers).
+- `include/biginteger/algorithms/division/ClassicDivision.h` — single-limb division and `DivModTo` helper.
+- `include/biginteger/algorithms/division/FastDivision.h` — Knuth Algorithm D with Base2_32/Base2_64 fast paths.
+- `include/biginteger/algorithms/division/KnuthDivision.h` — textbook reference, cross-check only (rewritten on 128-bit arithmetic for Base2_64, 2026-06-12 audit).
+- `include/biginteger/algorithms/division/BurnikelZieglerDivision.h` — balanced 2n/n recursive, with bottom-zero-limb padding so the divisor size halves cleanly at every level (PR #116).
+- `include/biginteger/algorithms/division/NewtonDivision.h` — Newton–Raphson reciprocal, blockwise mode, `Divider` cached-reciprocal class.
+- `include/biginteger/algorithms/division/QuotientSizedDivision.h` — short-quotient tops-divide algorithm (ratio < 4/3 band).
+- `include/biginteger/algorithms/division/ReciprocalDivision.h` — public-facing wrapper around `NewtonDivision::Divider`.
 - `tests/div_correctness.cpp` — cross-algorithm correctness harness; verifies `q · b + r == a` and `r < b` for every algorithm.
 - `tests/performance/bench_vs_gmp.cpp` — GMP comparison.
 - `tests/performance/dispatch_tuner.cpp` — reports recommended dispatch constants for the current machine.

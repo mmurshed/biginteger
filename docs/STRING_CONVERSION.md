@@ -29,9 +29,9 @@ A technical reference for the decimal I/O subsystem of this BigInteger library: 
 
 ## Scope and audience
 
-This document covers `Parse` and `ToString` in `biginteger/common/Parser.h`. Multiplication and division are companion documents — string conversion is deeply intertwined with both because parsing builds powers of 10 via multiplication and formatting consumes them via division.
+This document covers `Parse` and `ToString`, declared in `include/biginteger/common/Parser.h` (thresholds and constants) and implemented in `src/common/Parser.cpp`. Multiplication and division are companion documents — string conversion is deeply intertwined with both because parsing builds powers of 10 via multiplication and formatting consumes them via division.
 
-- [BASE.md](BASE.md) — number representation (limb storage, base 2³², chunking conventions)
+- [BASE.md](BASE.md) — number representation (limb storage, limb bases, chunking conventions)
 - [MULTIPLICATION.md](MULTIPLICATION.md) — multiplication algorithms used by parser's D&C path and `Pow10`
 - [DIVISION.md](DIVISION.md) — division algorithms used by formatter's D&C path
 
@@ -43,7 +43,7 @@ Code references use `path:line` where applicable.
 
 ## Why string conversion is its own problem
 
-A `BigInteger` stores numbers in base 2³² limbs. A decimal string represents the same number in base 10. The conversion between these representations is not a simple per-digit operation because **the limb base and the I/O base are coprime** (`gcd(2³², 10) = 2`, but only 2 cancels — the residual `10/2 = 5` factor cannot be peeled off cleanly).
+A `BigInteger` stores numbers in power-of-two limbs (base 2⁶⁴ by default). A decimal string represents the same number in base 10. The conversion between these representations is not a simple per-digit operation because **the limb base and the I/O base don't share enough factors** (`gcd(2⁶⁴, 10) = 2`, but only 2 cancels — the residual `10/2 = 5` factor cannot be peeled off cleanly).
 
 Naïve approaches are quadratic:
 
@@ -58,10 +58,10 @@ The library uses two-level decompositions to escape the quadratic cost:
 
 | direction | low-level | high-level |
 |---|---|---|
-| parse | base 10 → base 10¹⁸ via 18-digit chunks | base 10¹⁸ → base 2³² via D&C with cached Pow10 |
-| format | base 2³² → base 10¹⁸ via divmod-10¹⁸ | base 10¹⁸ → base 10 ASCII via D&C with cached reciprocals |
+| parse | base 10 → base 10¹⁸ via 18-digit chunks | base 10¹⁸ → limb base via D&C with cached Pow10 |
+| format | limb base → base 10¹⁹ via divmod-10¹⁹ | base 10¹⁹ → base 10 ASCII via D&C with cached reciprocals |
 
-The 10¹⁸ chunking turns the inner loop's per-character work into per-18-character work, a constant-factor speedup. The D&C structure turns the O(n²) outer behavior into O(M(n) · log n), where M(n) is multiplication cost. With NTT in play, this is **O(n · log² n · log log n) effectively**.
+The 10¹⁸/10¹⁹ chunking turns the inner loop's per-character work into per-18-or-19-character work, a constant-factor speedup. The D&C structure turns the O(n²) outer behavior into O(M(n) · log n), where M(n) is multiplication cost. With NTT in play, this is **O(n · log² n · log log n) effectively**.
 
 ---
 
@@ -69,13 +69,14 @@ The 10¹⁸ chunking turns the inner loop's per-character work into per-18-chara
 
 For full detail see [BASE.md](BASE.md). Briefly:
 
-- `BigInteger` wraps `std::vector<DataT>` (`DataT = uint64_t`, value held in low 32 bits) plus a sign boolean.
+- `BigInteger` wraps `std::vector<DataT>` (`DataT = uint64_t`) plus a sign boolean.
 - Limbs are little-endian (`vec[0]` is least significant).
-- Production base is `Base2_32 = 2³²`.
+- Default base is `Base2_64` — full 64-bit limbs (`BIGMATH_LIMB_64=1`, the default). `Base2_32` (value held in the low 32 bits of the 64-bit container) is the legacy fallback mode. The Parser code is written against `CurrentBase`, which resolves to whichever is compiled in.
 
-The decimal I/O routines use two additional bases internally:
+The decimal I/O routines use additional bases internally:
 
-- `Base10_18 = 10¹⁸` — the chunking base for parser and formatter inner loops. `10¹⁸ < 2⁶³ < 2⁶⁴`, so a chunk fits in a `uint64_t` and products of a chunk with a 32-bit limb fit in `ULong128`.
+- `Base10_18 = 10¹⁸` — the chunking base for the parser's inner loop. `10¹⁸ < 2⁶³ < 2⁶⁴`, so a chunk fits in a `uint64_t`, and chunk-times-limb products keep carry headroom in `ULong128` in both limb modes.
+- `Base10_19 = 10¹⁹` — the formatter's divisor. Formatting only does scalar division by an invariant `uint64_t` divisor, so it can safely use the larger power and peel 19 digits per divmod.
 - `Base10 = 10` — used only as a tutorial constant; never in production hot paths.
 
 ---
@@ -92,7 +93,7 @@ Input strings are processed 18 ASCII digits at a time. The choice of 18 is dicta
    10¹⁸ < 2⁶³ < 10¹⁹
 
    ⇒ 18 decimal digits fits in a signed int64 chunk with room to spare
-   ⇒ chunk × 32-bit limb < 10¹⁸ · 2³² ≈ 2⁹⁰ fits in ULong128
+   ⇒ chunk × 64-bit limb < 10¹⁸ · 2⁶⁴ < 2¹²⁴ fits in ULong128 (with carry headroom)
 ```
 
 The chunk size matters because the inner loop of the linear parser does **one big-integer scalar-multiply per 18 input digits**, rather than one per input digit. The classical 1-digit-at-a-time parser would issue 18× as many scalar multiplications, each scaling 10× instead of 10¹⁸×. The total work is governed by the multiplication count, and reducing it by 18× is a free 18× speedup of the parser's outer loop.
@@ -110,7 +111,7 @@ For inputs up to `DecimalDcThreshold = 2 048 digits`, the parser uses a straight
    return r
 ```
 
-Concretely (paraphrased from `Parser.h::ParseUnsignedLinear`):
+Concretely (paraphrased from `ParseUnsignedLinear` in `src/common/Parser.cpp`):
 
 ```cpp
 vector<DataT> r;
@@ -123,14 +124,14 @@ Int pos = start;
 if (remainder > 0) {
     ULong chunk = ParseChunk(num, pos, remainder);
     pos += (Int)remainder;
-    AddTo(r, chunk, Base2_32);
+    AddTo(r, chunk, CurrentBase);
 }
 
 while (pos <= end) {
     ULong chunk = ParseChunk(num, pos, Base10_18_Zeroes);
     pos += (Int)Base10_18_Zeroes;
-    ClassicMultiplication::MultiplyTo(r, Base10_18, Base2_32);  // r ← r · 10¹⁸
-    AddTo(r, chunk, Base2_32);                                   // r ← r + chunk
+    ClassicMultiplication::MultiplyTo(r, Base10_18, CurrentBase);  // r ← r · 10¹⁸
+    AddTo(r, chunk, CurrentBase);                                   // r ← r + chunk
 }
 ```
 
@@ -205,10 +206,10 @@ vs the linear parser's `O(L²)`. For L = 100 000, the speedup is ~`L / log² L �
 
 The D&C parser needs `Pow10(d)` for `d = L/2, L/4, L/8, ...` down to the leaf threshold. Naïvely computing each from scratch is wasteful — `Pow10(L/2)` is `Pow10(L/4)²`, so the chain can be constructed bottom-up with a sequence of squarings.
 
-`Parser.h::Pow10(d)` uses recursive doubling with memoization:
+`Pow10(d)` (in `src/common/Parser.cpp`) uses recursive doubling with memoization:
 
 ```cpp
-inline vector<DataT> Pow10(SizeT digits) {
+vector<DataT> Pow10(SizeT digits) {
     static thread_local unordered_map<SizeT, vector<DataT>> cache;
 
     auto it = cache.find(digits);
@@ -219,20 +220,20 @@ inline vector<DataT> Pow10(SizeT digits) {
     if (digits == 0)
         value = {1};
     else if (digits <= Base10_18_Zeroes)
-        value = Convert(power10_table[digits]);
+        value = Convert(/* 10^digits computed in a ULong */);
     else if (digits % 2 == 0) {
         vector<DataT> p = Pow10(digits / 2);
-        value = Square(p, Base2_32);             // even d ⇒ Pow10(d) = Pow10(d/2)²
+        value = Square(p, CurrentBase);          // even d ⇒ Pow10(d) = Pow10(d/2)²
     } else {
         SizeT lo = digits / 2;
         SizeT hi = digits - lo;
-        value = Multiply(Pow10(hi), Pow10(lo), Base2_32);
+        value = Multiply(Pow10(hi), Pow10(lo), CurrentBase);
     }
     return cache.emplace(digits, value).first->second;
 }
 ```
 
-The cache is `thread_local`, so each thread maintains its own. The lifetime is the thread (or program for the main thread), which means repeated `Parse` and `ToString` calls amortize the `Pow10` build cost essentially to zero after the first invocation.
+The cache is `thread_local`, so each thread maintains its own. Because the implementation lives in one translation unit (`src/common/Parser.cpp`), every consumer shares the same per-thread cache — a real benefit of the `.cpp` split over the prior header-only design. The lifetime is the thread (or program for the main thread), which means repeated `Parse` and `ToString` calls amortize the `Pow10` build cost essentially to zero after the first invocation.
 
 Even-`d` cases use [`Square`](MULTIPLICATION.md#squaring) rather than `Multiply(p, p)`. `Square` is structurally 1.4–1.6× faster than `Multiply(a, a)` (single FFT in the NTT case; half the partial products in the schoolbook case). The win is small in steady state (the cache absorbs it) but matters in cold-start scenarios.
 
@@ -242,39 +243,38 @@ Even-`d` cases use [`Square`](MULTIPLICATION.md#squaring) rather than `Multiply(
 
 ### Linear formatter (`ToStringLinearAppend`)
 
-For inputs up to `BIGMATH_TOSTR_DC_THRESHOLD = 1 024 digits` (approximate; the threshold is in source-digit-count, not limb-count), the formatter divides the BigInteger by `10¹⁸` repeatedly, peeling off 18 decimal digits per division:
+For inputs up to `BIGMATH_TOSTR_DC_THRESHOLD = 1 024 digits` (approximate; the threshold is in source-digit-count, not limb-count), the formatter divides the BigInteger by `10¹⁹` (`Base10_19`) repeatedly, peeling off 19 decimal digits per division. Formatting can use the larger power than parsing's 10¹⁸ because it only performs scalar division by an invariant divisor that fits in `uint64_t` — no chunk-times-limb carry headroom needed:
 
 ```
    chunks = []
    while r > 0:
-       (r, chunk) = divmod(r, 10¹⁸)
+       (r, chunk) = divmod(r, 10¹⁹)
        chunks.append(chunk)
-   # chunks now holds the number in base 10¹⁸, little-endian
-   format each chunk as up to 18 ASCII digits, right-to-left
+   # chunks now holds the number in base 10¹⁹, little-endian
+   format each chunk as up to 19 ASCII digits, right-to-left
 ```
 
-Concretely (paraphrased from `Parser.h::ToStringLinearAppend`):
+Concretely (paraphrased from `ToStringLinearAppend` in `src/common/Parser.cpp`):
 
 ```cpp
 vector<ULong> chunks;
 chunks.reserve(r.size() + 1);
 while (!(r.size() == 1 && r[0] == 0))
-    chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_18, Base2_32));
+    chunks.push_back((ULong)ClassicDivision::DivModTo(r, Base10_19, CurrentBase));
 
-// format top chunk without leading zeros, then all lower chunks with full 18 ASCII digits
+// format top chunk without leading zeros, then all lower chunks with full 19 ASCII digits
 ```
 
-Each `DivModTo` is O(|r|) limb operations. The number of iterations is O(L / 18) where L is the digit count. Total O(L · |r|) = O(L · L/9.6) = O(L²). Same quadratic complexity as the linear parser; same threshold for switching to D&C.
+Each `DivModTo` is O(|r|) limb operations. The number of iterations is O(L / 19) where L is the digit count. Total O(L · |r|) = O(L²). Same quadratic complexity as the linear parser; same role as the D&C leaf.
 
-The inner loop of `DivModTo(vec, Base10_18, Base2_32)` walks `vec` from high limb to low, maintaining a `ULong128` accumulator. Each limb step is a Möller-Granlund "div2by1" reciprocal divide (`GranlundMollerDivider`, built once per call from the invariant divisor):
+The inner loop of `DivModTo(vec, Base10_19, CurrentBase)` walks `vec` from high limb to low, carrying the running remainder. Each limb step is a Möller-Granlund "div2by1" reciprocal divide (`GranlundMollerDivider`, built once per call from the invariant divisor). In the default `Base2_64` mode each step consumes one full 64-bit limb (`gm.DivMod(r, vec[i], r)`); the legacy `Base2_32` mode packs `(r << 32) | vec[i]` into a `ULong128` accumulator first:
 
 ```
-   gm  = GranlundMollerDivider(d=Base10_18)   ← precompute shift, dn, v once
-   acc = 0
+   gm  = GranlundMollerDivider(d=Base10_19)   ← precompute shift, dn, v once
+   r   = 0
    for i = n-1 down to 0:
-       acc          = (acc << 32) | vec[i]
-       (vec[i], r)  = gm.DivMod(acc.hi, acc.lo)  ← UMULH + add + ≤2 fixups
-   return r                                  ← the remainder (a base-10¹⁸ digit)
+       (vec[i], r) = gm.DivMod(r, vec[i])     ← UMULH + add + ≤2 fixups
+   return r                                   ← the remainder (a base-10¹⁹ digit)
 ```
 
 Replacing the prior `__udivmodti4` libcall (one `UDIV` + multiply-subtract on ARM64, one `DIV` on x86) with `UMULH` + adds yields a measured 1.08–2.13× speedup on `ToString` depending on input size — small inputs that stay in the linear leaf gain the most, large inputs gain less because the D&C path dominates. See [Optimizations already implemented §Granlund–Möller](#granlundmöller-magic-number-divmod-in-classicdivision).
@@ -332,22 +332,22 @@ vs the linear formatter's `O(L²)`. At L = 100 000 the empirical win is **8.4×*
 
 The D&C formatter divides repeatedly by a small set of `10^k` constants — exactly the cached-reciprocal use case that [`NewtonDivision::Divider`](DIVISION.md#reciprocal-cached-division) is designed for.
 
-`Parser.h::BuildDecimalDcChain(topDigits)` constructs a chain of entries, each holding a power of 10 and its precomputed Newton reciprocal:
+`BuildDecimalDcChain(topDigits)` (in `src/common/Parser.cpp`) constructs a chain of entries, each holding a power of 10 and its precomputed Newton reciprocal:
 
 ```cpp
 struct DecimalDcEntry {
     SizeT digits;
-    vector<DataT> value;                            // 10^digits in base 2³²
+    vector<DataT> value;                            // 10^digits in limb base
     std::shared_ptr<NewtonDivision::Divider> divider;  // precomputed reciprocal
 };
 
-inline vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits) {
+vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits) {
     vector<DecimalDcEntry> chain;
     for (SizeT d = topDigits; d >= ToStringDcThreshold / 2; d /= 2) {
         DecimalDcEntry e;
         e.digits = d;
         e.value = Pow10(d);                                          // from cache (or built)
-        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, Base2_32);
+        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
     }
     return chain;
@@ -362,7 +362,9 @@ For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 
 
 ## Top-level dispatch
 
-`Parser.h::ToString(BigInteger)` and `Parser.h::Parse(char const*)` are the entry points. Both inspect the input size and route to either the linear or the D&C implementation.
+`ToString(BigInteger)` and `Parse(char const*)` (declared in `include/biginteger/common/Parser.h`, implemented in `src/common/Parser.cpp`) are the entry points. Both inspect the input size and route to either the linear or the D&C implementation.
+
+Since PRs #118/#119 (2026-06-12), both directions also have a parallel fan-out above ~100 000 digits (`BIGMATH_TOSTR_PARALLEL_THRESHOLD` / `BIGMATH_PARSE_PARALLEL_THRESHOLD`, both 100 000; 3 splits each): the D&C tree descends serially for the first 3 levels, dispatches the 2³ subtrees via one `ParallelDo`, and runs the combines (parse) or string assembly (ToString) on the caller. See `CollectToStringSubtrees`, `CollectParseRanges`, and `CombineParsed` in `src/common/Parser.cpp`. Nested `ParallelDo` calls inside subtree workers (Newton/NTT internals) run inline via the pool's reentrancy guard — see [Explored but rejected §Parallel D&C recursion](#parallel-dc-recursion-deadlock-on-current-pool--overturned-2026-06-12).
 
 ```mermaid
 flowchart TD
@@ -385,7 +387,7 @@ Thresholds (overridable via `-D...`):
 
 | macro | default | direction | meaning |
 |---|---|---|---|
-| `DecimalDcThreshold` (compile-time constant in Parser.h) | `2 048` | parse | length below which linear parser runs |
+| `BIGMATH_PARSE_DC_THRESHOLD` (→ `DecimalDcThreshold` in `include/biginteger/common/Parser.h`) | `2 048` | parse | length below which linear parser runs |
 | `BIGMATH_TOSTR_DC_THRESHOLD` | `1 024` | format | estimated decimal length below which linear formatter runs |
 
 The asymmetry between the parser and formatter thresholds reflects that the formatter has lower per-call setup cost (the `BuildDecimalDcChain` builds a chain of size proportional to `log(L)`, with `Pow10` cache hits making each entry cheap), so it pays to switch to D&C at a smaller threshold than the parser.
@@ -393,6 +395,8 @@ The asymmetry between the parser and formatter thresholds reflects that the form
 ---
 
 ## Benchmark results vs GMP
+
+**Current numbers live in [BENCHMARK.md](../BENCHMARK.md)** (canonical run 2026-06-12, v13.0) — the tables below are a **historical 2026-05-27 snapshot** kept for the optimization narrative and are heavily superseded. Post PRs #118/#119 (parallel D&C fan-out for ToString and parse), decimal I/O **beats GMP from 500k digits in both directions**: parse 0.38–0.69×, warm ToString 0.49–0.62× of GMP's time.
 
 Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
 
@@ -402,9 +406,9 @@ cmake --build build -j8 --target bench_vs_gmp
 ./build/bench_vs_gmp
 ```
 
-Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Refreshed 2026-05-27.
+Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Snapshot date 2026-05-27.
 
-### Parse
+### Parse (historical snapshot, 2026-05-27)
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
@@ -420,9 +424,9 @@ Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew). Full default stack (`BI
 | 20 000 000 digits | 1 252.454 | 803.190 | **1.56 ×** |
 | 50 000 000 digits | 5 212.270 | 2 629.889 | **1.98 ×** |
 
-Parse's BM/GMP ratio narrows with size — **at 20M digits the gap is 1.56×** vs 3.2× at 100k. The asymptotic D&C parser inherits BigMath's NTT lead, which crosses GMP in the 5M-20M balanced multiplication band (see [MULTIPLICATION.md](MULTIPLICATION.md#benchmark-results-vs-gmp)). The 50M tick widens to 1.98× as GMP's SSA recovers.
+At this snapshot, parse's BM/GMP ratio narrowed with size — 1.56× at 20M digits vs 3.2× at 100k — as the asymptotic D&C parser inherited BigMath's NTT lead. **Superseded:** the 2026-06-12 run in [BENCHMARK.md](../BENCHMARK.md) has parse *beating* GMP (0.38–0.69×) at every size from 500k digits up, after the parallel leaf fan-out of PR #119.
 
-### ToString
+### ToString (historical snapshot, 2026-05-27)
 
 | size | BigMath ms | GMP ms | BM / GMP |
 |---|---:|---:|---:|
@@ -438,7 +442,7 @@ Parse's BM/GMP ratio narrows with size — **at 20M digits the gap is 1.56×** v
 | 10 000 000 digits | 2 414.564 | 900.384 | 2.68 × |
 | 20 000 000 digits | 5 436.545 | 2 115.685 | **2.57 ×** |
 
-ToString's BM/GMP ratio narrows from 8.4× at 100k to **2.57× at 20M**. Two effects compound: (1) BigMath's D&C ToString is `O(M(L) · log L)` while GMP's `mpz_get_str` uses highly tuned low-level code; (2) at larger sizes BigMath's NTT-based multiplication inside Newton's reciprocal chain enters the same 5M-20M sweet spot as multiplication. Raising the MFA gate to `2^24` is mostly neutral for ToString in this measured range.
+At this snapshot, ToString's BM/GMP ratio narrowed from 8.4× at 100k to 2.57× at 20M. **Superseded:** the 2026-06-12 run in [BENCHMARK.md](../BENCHMARK.md) has warm ToString *beating* GMP (0.49–0.62×) from 500k digits up, after the cached divider chains, chain-top rounding, and the PR #118 parallel subtree fan-out. (A note here previously called the then-current `2^24` MFA gate "mostly neutral" for ToString — the gate has since moved to `2^20`; see [Future opportunities](#mfa-threshold-effects).)
 
 **Historical view** showing the cumulative wins across the 2026-05 optimization pass:
 
@@ -564,7 +568,7 @@ Discussed in detail in [MULTIPLICATION.md §Classic schoolbook](MULTIPLICATION.m
 
 Landed 2026-05-26. `ClassicDivision::DivideTo`, `DivModTo`, and `DivideAndRemainder` all replaced their `ULong128 / d` inner loops with Möller-Granlund "div2by1" reciprocal arithmetic (paper Algorithm 4). Reciprocal is built once per call (`(2^128 - 1) / dn` precompute) and amortized across the per-limb loop; each limb step then costs one 64×64→128 `UMULH` plus a 128-bit add and 1–2 fixup branches, vs the prior `__udivmodti4` libcall.
 
-`ToString` benefits directly — every `DivModTo(r, Base10_18, ...)` call in `ToStringLinearAppend` runs through the new path, and the D&C formatter routes hundreds of <2 048-digit leaf subproblems through the same loop. Measured wins (M1 Max, default stack):
+`ToString` benefits directly — every `DivModTo(r, Base10_19, ...)` call in `ToStringLinearAppend` runs through the new path, and the D&C formatter routes hundreds of <2 048-digit leaf subproblems through the same loop. Measured wins (M1 Max, default stack):
 
 | size | pre-GM BM ms | post-GM BM ms | speedup | pre-GM × GMP | post-GM × GMP |
 |---|---:|---:|---:|---:|---:|
@@ -585,7 +589,7 @@ Ranked by expected ROI per unit of effort.
 
 ### MFA threshold effects
 
-Large `ToString` calls spend most of their time in Newton division, and Newton's hot path is multiplication. The MFA gate was raised from `2^21` to `2^24` transform coefficients after a focused on/off sweep showed regressions below `2^24`. The retune is mostly neutral for ToString through 20M digits; any further string-conversion gain should come from multiplication improvements or deeper Newton scratch reuse rather than formatter orchestration.
+Large `ToString` calls spend most of their time in Newton division, and Newton's hot path is multiplication. The MFA gate has moved twice: `2^21` → `2^24` (2026-05, when whole-transform `ParallelDo` batching made MFA lose through ~2^23) → **`2^20`** (2026-06-12, after PR #107's row-chunked fused stages flipped the break-even; canonical value in `include/biginteger/build/DispatchThresholds.h`). ToString inherits whatever the multiplication stack does here; any further string-conversion gain should come from multiplication improvements or deeper Newton scratch reuse rather than formatter orchestration.
 
 ### `BIGMATH_TOSTR_DC_THRESHOLD` tuning (re-swept 2026-06-11 — default now 1 024)
 
@@ -660,19 +664,21 @@ Fixed by constructing the chain top-down with `chain[i] = 10^(L / 2^(i+1))`, gua
 
 ### Earlier recursive D&C ToString attempt (pre-`Divider`)
 
-Documented in [project_rejected_algorithms.md](.../memory/) as historical context. Before the `NewtonDivision::Divider` cached-reciprocal API existed, an earlier D&C ToString implementation rebuilt the Newton reciprocal at every divmod call. Each per-level divmod was effectively quadratic in `n`, making the whole D&C approach slower than the linear formatter. The implementation was correctly recognized as a regression and reverted.
+Historical context. Before the `NewtonDivision::Divider` cached-reciprocal API existed, an earlier D&C ToString implementation rebuilt the Newton reciprocal at every divmod call. Each per-level divmod was effectively quadratic in `n`, making the whole D&C approach slower than the linear formatter. The implementation was correctly recognized as a regression and reverted.
 
 The 2026-05 D&C ToString worked specifically because `Divider` made per-divide cost O(M(n)) — the same divmod that had been quadratic before became O(M(n) log n) across the chain, finally beating the linear formatter's O(L²).
 
-### Parallel D&C recursion (deadlock on current pool)
+### Parallel D&C recursion (deadlock on current pool) — OVERTURNED 2026-06-12
+
+**This rejection no longer holds.** `ParallelDo` is now reentrant-safe: a thread-local nesting guard (`tl_chunkDepth` in `src/common/Parallel.cpp`) makes any `ParallelDo` issued from inside a chunk body run inline serially instead of corrupting the pool's single work slot. On top of that guard, parallel D&C fan-out shipped in **both directions**: ToString subtree fan-out in PR #118 (`CollectToStringSubtrees`) and parse leaf fan-out in PR #119 (`CollectParseRanges` / `CombineParsed`), both in `src/common/Parser.cpp`. The shape that won is not the per-level `ParallelDo(2)` rejected below, but a serial descent to a fixed split depth followed by one flat `ParallelDo` over the 2³ subtrees — workers' nested NTT dispatches run inline, and the result is the ≥500k-digit win over GMP recorded in [BENCHMARK.md](../BENCHMARK.md).
+
+The original 2026-05-26 analysis, kept as historical context:
 
 Attempted 2026-05-26. Wrapped `ToStringDivConquer` in a return-style variant that dispatched the two halves via `ParallelDo(2)` with a depth-cap derived from `ParallelNumThreads()`. ToString at 100k digits: 20.85 ms → 16.83 ms (1.24×). ToString at 200k digits: **deadlock**.
 
 Root cause: nested `ParallelDo` on the shared thread pool. Outer `ParallelDo(2)` workers ran Newton, which calls NTT-CRT, which calls `ParallelDo(3)` internally for the per-prime forwards/inverses. The pool (`src/common/Parallel.cpp`) has a single `(curBody, curCtx, generation)` slot — second dispatch overwrites the first, `remaining` counter races, outer wait condition never satisfied. At 100k the per-Newton-call NTT stayed below the CRT threshold so no inner dispatch occurred; at 200k+ the inner CRT fired and deadlocked.
 
-A reentrancy guard (thread-local "skip inner" flag making inner `ParallelDo` run inline when called from a pool worker) would avoid deadlock but loses: outer split 2× × inner serial 1× = 2× total, vs original outer serial 1× × inner CRT-threaded ~2.5× = 2.5×. Outer parallelism on top of inner CRT parallelism requires a reentrancy-aware pool (per-call work queue + generation→counter map), which is a separate piece of work.
-
-Reverted. Prerequisite for re-attempting: rearchitect the pool to support concurrent dispatchers from multiple external threads (or implement nested-call work redirection).
+The analysis predicted that a reentrancy guard would "avoid deadlock but lose" because outer split 2× × inner serial 1× = 2× total vs inner CRT-threaded ~2.5×. That arithmetic assumed per-level fan-out of exactly 2; the shipped design fans out 8 subtrees at once, which keeps the pool saturated and beats the inner-parallelism-only baseline.
 
 ### Direct in-place D&C formatting (measured flat at orchestration layer)
 
@@ -736,7 +742,7 @@ For inputs that fit in a single 10¹⁸ chunk (≤ 18 digits), the parser could 
 
 ### Magic-number division
 
-- [Granlund, T. and Möller, N. — "Improved Division by Invariant Integers" (IEEE Trans. Comput., 2010)](https://gmplib.org/~tege/division-paper.pdf) — magic-number division by constants; relevant to optimizing the linear formatter's divmod-10¹⁸.
+- [Granlund, T. and Möller, N. — "Improved Division by Invariant Integers" (IEEE Trans. Comput., 2010)](https://gmplib.org/~tege/division-paper.pdf) — magic-number division by constants; relevant to optimizing the linear formatter's divmod-10¹⁹.
 
 ### Reference implementations
 
@@ -749,15 +755,16 @@ For inputs that fit in a single 10¹⁸ chunk (≤ 18 digits), the parser could 
 
 ### This codebase
 
-- `biginteger/common/Parser.h` — both parse and format implementations, plus `Pow10` cache, D&C chain construction, `DecimalDcEntry` struct.
-- `biginteger/algorithms/multiplication/ClassicMultiplication.h::MultiplyTo` — scalar-by-vector multiplication used in parser's linear leaf.
-- `biginteger/algorithms/division/ClassicDivision.h::DivModTo` — scalar divisor divmod used in formatter's linear leaf.
-- `biginteger/algorithms/division/NewtonDivision.h::Divider` — cached-reciprocal API that makes D&C formatter viable; see [DIVISION.md §Reciprocal-cached division](DIVISION.md#reciprocal-cached-division).
-- `biginteger/algorithms/Multiplication.h` and `Squaring.h` — used by `Pow10` cache build; see [MULTIPLICATION.md](MULTIPLICATION.md).
+- `include/biginteger/common/Parser.h` — declarations, thresholds (`DecimalDcThreshold`, `ToStringDcThreshold`), `Base10_18`/`Base10_19` constants.
+- `src/common/Parser.cpp` — both parse and format implementations, `Pow10` cache, D&C chain construction (`DecimalDcEntry`, `BuildDecimalDcChain`), parallel fan-outs (`CollectParseRanges`, `CombineParsed`, `CollectToStringSubtrees`).
+- `include/biginteger/algorithms/multiplication/ClassicMultiplication.h::MultiplyTo` — scalar-by-vector multiplication used in parser's linear leaf.
+- `include/biginteger/algorithms/division/ClassicDivision.h::DivModTo` — scalar divisor divmod used in formatter's linear leaf.
+- `include/biginteger/algorithms/division/NewtonDivision.h::Divider` — cached-reciprocal API that makes D&C formatter viable; see [DIVISION.md §Reciprocal-cached division](DIVISION.md#reciprocal-cached-division).
+- `include/biginteger/algorithms/Multiplication.h` and `Squaring.h` — used by `Pow10` cache build; see [MULTIPLICATION.md](MULTIPLICATION.md).
 - `tests/performance/bench_vs_gmp.cpp` — GMP comparison for parse and ToString.
 
 ### Companion documents
 
-- [BASE.md](BASE.md) — number representation underlying both directions (the `Base2_32` limbs and `Base10_18` chunking).
+- [BASE.md](BASE.md) — number representation underlying both directions (the `Base2_64` limbs and `Base10_18`/`Base10_19` chunking).
 - [MULTIPLICATION.md](MULTIPLICATION.md) — multiplication algorithms that power the parser's D&C combine step and `Pow10` cache build.
 - [DIVISION.md](DIVISION.md) — division algorithms that power the formatter's D&C chain. In particular, the [`NewtonDivision::Divider` class](DIVISION.md#reciprocal-cached-division) is the foundation of the 8.4× D&C ToString win.

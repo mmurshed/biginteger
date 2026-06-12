@@ -10,16 +10,18 @@ Concurrent mutation of the *same* object from multiple threads is **not** suppor
 
 ### Per-thread caches (already isolated)
 
-The library uses four `static thread_local` caches that are private to each thread. No coordination is needed; each thread pays a first-touch cost.
+All of the library's internal caches and scratch buffers are `static thread_local` — private to each thread. No coordination is needed; each thread pays a first-touch cost. Grouped by subsystem:
 
-| cache | file | what it holds |
+| cache group | file | what it holds |
 |---|---|---|
-| `NTTCore::BuildPlan::cache` | `include/biginteger/algorithms/multiplication/NTTCore.h` | NTT plans (size → twiddles + bit-reversal table) |
-| `NTTMultiplication::Multiply::fa,fb` | `include/biginteger/algorithms/multiplication/NTTMultiplication.h` | coefficient working buffers |
-| `NTTSquare::Square::fa` | `include/biginteger/algorithms/multiplication/NTTSquare.h` | coefficient working buffer |
+| NTT plan caches | `include/biginteger/algorithms/multiplication/NTTCore.h` (`BuildPlan::cache`), `include/biginteger/algorithms/multiplication/NTTMultiplicationCrt.h` (per-prime `Plan` cache, factorization cache) | NTT plans (size → twiddles + bit-reversal table) |
+| NTT working buffers | `include/biginteger/algorithms/multiplication/NTTMultiplication.h` (`fa,fb`), `NTTSquare.h` (`fa`), `NTTMultiplicationCrt.h` (`fa1..fa3`/`fb1..fb3` coefficient buffers, pack buffers, MFA tile buffers and `mfaScratch`/`cycScratch`) | coefficient and tile working buffers |
+| Newton division scratch | `include/biginteger/algorithms/division/NewtonDivision.h` (`Scratch()` → `ScratchBuffers`) | reusable temporaries for the reciprocal iteration and divide steps |
 | `Pow10::cache` | `src/common/Parser.cpp` | memoized powers of 10 in current-base limbs |
+| ToString divider-chain cache | `src/common/Parser.cpp` (`GetDecimalDcChain`) | per-size chains of `10^k` values + precomputed Newton reciprocals |
+| `BigDecimal` `Pow10Bi` cache | `bigdecimal/BigDecimal.cpp` | `BigInteger` wrappers over cached powers of 10 |
 
-These caches grow monotonically (NTT plan cache is keyed by transform size; Pow10 cache is keyed by exponent). They are never invalidated mid-process and never written from outside the owning thread.
+The point is per-thread isolation, not the exact inventory — any new cache or scratch buffer added to the library follows the same `static thread_local` pattern. The map-like caches grow monotonically (NTT plan caches are keyed by transform size; Pow10 and divider-chain caches by digit count). They are never invalidated mid-process and never written from outside the owning thread.
 
 For a thread-pool worker pattern, warm each pool thread by issuing one representative NTT-bound mult and one `Pow10(d)` call from each worker at startup. Otherwise the first call from each worker pays the cache-fill cost.
 
@@ -56,7 +58,13 @@ Each instance owns its `std::vector<DataT>` storage. Standard C++ rules apply: c
 
 ## Internal parallelism (`BIGMATH_USE_THREADS`, default on since 2026-05)
 
-A small thread pool is linked in when `BIGMATH_USE_THREADS=1` (the default). Used by the CRT NTT path to dispatch 6 forward transforms + 3 inverse transforms as batched work units.
+A small thread pool is linked in when `BIGMATH_USE_THREADS=1` (the default). Its users:
+
+- the **non-MFA CRT NTT path** dispatches 6 forward transforms + 3 inverse transforms as batched work units;
+- the **fused MFA pipeline** (post-PR-#107, transform length ≥ 2^20) instead dispatches row-chunked `ParallelDo(6)` phases per fused stage, keeping 6–12 work units in flight;
+- the **parse and ToString D&C fan-outs** (PRs #118/#119) dispatch one flat `ParallelDo` over 2³ subtree work items above ~100k digits.
+
+`ParallelDo` is reentrant-safe: a thread-local nesting guard (`tl_chunkDepth` in `src/common/Parallel.cpp`) forces any `ParallelDo` issued from inside a chunk body to run inline serially, so subtree workers that reach Newton/NTT internals (which themselves call `ParallelDo`) cannot corrupt the pool's single work slot.
 
 - **Pool size**: `min(hardware_concurrency(), BIGMATH_MAX_THREADS=8)` — on shared-L2 architectures (M1 Max etc.), going beyond 8 cores hits L2 cache pressure on NTT working sets (~512 KB at 32k-coeff transforms).
 - **Linkage**: pool implementation lives in `src/common/Parallel.cpp`. Public headers stay free of `<thread>` so consumers don't pick up pthread unconditionally.

@@ -1,37 +1,55 @@
 # BigMath vs GMP — full benchmark suite
 
-Measured 2026-05-30 (fresh local rerun). Single-run snapshot capturing the state of `master` after the 2026-05 optimization pass (LIMB_64 default, multi-prime CRT NTT default, multithreaded NTT default, M-G div2by1 in `ClassicDivision`, M-G 3/2 qhat in `FastDivision` Base2_64, BZ Knuth-normalize fix, radix-4 + radix-8 fused NTT butterflies (PRs #59, #60), **Matrix Fourier Algorithm / Bailey 6-step CRT NTT retuned to n ≥ 2^24 coefficients**).
-
-**Division-skewed, parse, and ToString tables re-measured 2026-06-12 afternoon (post PR #116–#119: BZ odd-size operand padding + 128-limb basecase + Newton frontier re-sweep; parallel ToString and parse fan-outs).** All other canonical tables re-measured 2026-06-12 evening (post PR #107–#111: MFA pass fusion, row-chunked stages, gate 2^24→2^20, cyclic MFA + 2^26 cap, on-the-fly packing). Single-iter rows on chain-heavy ops (ToString ≥5M digits, balanced mul 500k–2M digits) vary ±20–60% run-to-run with process state — where it matters, rows are annotated with warm steady-state numbers, and the warm-state sections below are authoritative. Earlier note: **all ≤20M-digit tables previously re-measured 2026-06-12 morning on a quiet machine** after the two-day optimization run (PRs #82–#99): the division/decimal session (#82–#95 — bit-shift normalization, wraparound-Newton family, dispatch bands, quotient-sized division, cyclic gate) and the **NEON Shoup NTT** (#96–#99 — vectorized radix-8 butterflies + interleaved twiddle tables + tail layers, plus the dispatch retune they unlocked: NTT entry 5120 → 1280 limbs, Toom-3 retired, CRT always-on). 50M+ rows are annotated where not re-measured.
+Canonical run **2026-06-12 evening at v13.0** (post #120–#126: codebase audit
+fixes, CRT-NTT squaring, dedup refactors, header hygiene). Single
+`bench_vs_gmp` pass on a quiet machine, with warm steady-state re-measurement
+for the chain-/plan-heavy rows where single-iteration cold timing is not
+representative (see Methodology).
 
 ![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
 
 ![Session before/after](docs/images/session_2026_06_11.png)
 
-For per-subsystem deep dives — algorithms, dispatch, optimization history, rejected approaches — see:
+**Headlines:**
 
-- [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md)
-- [docs/DIVISION.md](docs/DIVISION.md)
-- [docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md)
-- [docs/BASE.md](docs/BASE.md)
+- **Balanced multiplication beats GMP at every size from 500k digits up** —
+  peaking at 3.2× faster (10M×10M digits: 64 vs 209 ms) and staying at or
+  below GMP through 200M digits warm (0.89–0.97×).
+- **Skewed multiplication wins every measured shape from 500k×50k up**
+  (0.40–0.73×).
+- **Skewed division beats GMP from 20M-digit dividends (0.45–0.82×)**, parity
+  at 5M (200M÷40M digits: 3.1 s vs GMP's 4.5 s).
+- **Decimal I/O beats GMP from 500k digits in both directions**: parse
+  0.38–0.69×, warm ToString 0.49–0.62×.
+- Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase —
+  the documented portable-C++ wall.
 
-This file is the **raw numbers**, all five subsystems in one place, kept for headline-level reference.
+For per-subsystem deep dives — algorithms, dispatch, optimization history,
+rejected approaches — see [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md),
+[docs/DIVISION.md](docs/DIVISION.md),
+[docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md),
+[docs/BASE.md](docs/BASE.md). Release history: [CHANGELOG.md](CHANGELOG.md).
+This file is the raw numbers, all subsystems in one place.
 
 ---
 
 ## Methodology
 
-- **Hardware:** Apple M1 Max (10-core, 8 performance + 2 efficiency). 64 GB RAM.
+- **Hardware:** Apple M1 Max (10-core, 8 performance + 2 efficiency), 64 GB RAM.
 - **OS:** macOS (Darwin 25.5.0).
-- **Compilers:** Apple Clang via `c++ -std=c++20 -O3 -march=native`.
-- **Reference:** GMP 6.3.0 (Homebrew).
-- **Default stack:** `BIGMATH_LIMB_64=1`, `BIGMATH_NTT_CRT=1`, `BIGMATH_USE_THREADS=1` (8-thread pool, `min(hardware_concurrency, BIGMATH_MAX_THREADS)`).
-- **Timing:** `min` over iteration counts ranging 1–20 depending on operand size. Sub-millisecond cases use 1000+ iters; multi-second cases use 1 iter.
-- **Random inputs:** mt19937_64 seeded per case, full decimal digit range.
-
-Harnesses:
-
-- `tests/performance/bench_vs_gmp.cpp` — canonical bench. Mul covers ≤200M digits (balanced + skewed), div ≤200M×40M skewed, parse ≤50M, ToString ≤20M, plus BigDecimal arithmetic + I/O. Single-iter timing for digits ≥100k; multi-iter best-of below that. Per-row `[op size] setup...` log to stderr so long setup phases don't look stuck.
+- **Build:** CMake Release (`-O3 -march=native`), Apple Clang, C++20.
+- **Reference:** GMP 6.3.0 (Homebrew), timed in-process on the same operands.
+- **Default stack:** `BIGMATH_LIMB_64=1` (64-bit limbs), `BIGMATH_NTT_CRT=1`
+  (3-prime CRT NTT), `BIGMATH_USE_THREADS=1` (8-thread pool),
+  `BIGMATH_NEON=1` on aarch64, MFA gate `2^20` coefficients.
+- **Timing:** min over 1–1000+ iterations depending on size
+  (`tests/performance/bench_vs_gmp.cpp`); rows ≥100k digits are single-iter.
+- **Warm steady state:** rows marked *warm* discard the first call (NTT plan
+  build, divider-chain build, first-touch page faults) and take best-of-3.
+  This is the authoritative comparison for ≥50M-digit multiplication and
+  ≥100k-digit ToString: BigMath amortizes per-process caches that GMP doesn't
+  have, so cold-vs-cold pays them once per process and never again.
+- **Random inputs:** mt19937_64 seeded per case, full digit/limb range.
 
 ---
 
@@ -39,623 +57,230 @@ Harnesses:
 
 Balanced (`a.size() == b.size()`):
 
-| size | BigMath ms | GMP ms | BM/GMP |
+| digits | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | 0.002 | 0.001 | 2.17× |
-| 5 000 × 5 000 | 0.030 | 0.012 | 2.55× |
-| 10 000 × 10 000 | 0.095 | 0.030 | 3.19× |
-| 50 000 × 50 000 | 0.338 | 0.281 | 1.20× |
-| 100 000 × 100 000 | 0.658 | 0.612 | 1.08× |
-| **500 000 × 500 000** | **4.155** | **4.484** | **0.93×** ← single-iter cold; warm best 2.3 ms (0.55×) |
-| **1 000 000 × 1 000 000** | **7.815** | **9.594** | **0.81×** ← BigMath faster |
-| **2 000 000 × 2 000 000** | **16.580** | **20.897** | **0.79×** ← BigMath faster |
-| **5 000 000 × 5 000 000** | **32.615** | **64.423** | **0.51×** ← BigMath 2× faster |
-| **10 000 000 × 10 000 000** | **65.349** | **206.022** | **0.32×** ← BigMath 3.2× faster (was 0.49×) |
-| **20 000 000 × 20 000 000** | **128.820** | **275.617** | **0.47×** ← BigMath 2.1× faster (was 1.05×) |
-| **50 000 000 × 50 000 000** | **741.2** | **672.3** | **1.10×** ← cold; 0.90× warm (was 1.28×) |
-| **100 000 000 × 100 000 000** | **1 574.3** | **1 420.7** | **1.11×** ← cold; 0.94× warm (was 1.30×) |
-| **200 000 000 × 200 000 000** | **3 452.7** | **3 307.1** | **1.04×** ← cold; 0.97× warm (was 1.33×) |
+| 1 000 × 1 000 | 0.002 | 0.001 | 2.33× |
+| 5 000 × 5 000 | 0.033 | 0.013 | 2.56× |
+| 10 000 × 10 000 | 0.100 | 0.031 | 3.19× |
+| 50 000 × 50 000 | 0.363 | 0.292 | 1.24× |
+| 100 000 × 100 000 | 0.797 | 0.617 | 1.29× |
+| **500 000 × 500 000** | **4.081** | **4.595** | **0.89×** ← BigMath faster |
+| **1 000 000 × 1 000 000** | **7.867** | **9.298** | **0.85×** |
+| **2 000 000 × 2 000 000** | **16.606** | **21.030** | **0.79×** |
+| **5 000 000 × 5 000 000** | **32.854** | **63.502** | **0.52×** ← 1.9× faster |
+| **10 000 000 × 10 000 000** | **64.334** | **208.649** | **0.31×** ← 3.2× faster |
+| **20 000 000 × 20 000 000** | **128.586** | **275.484** | **0.47×** ← 2.1× faster |
+| **50 000 000 × 50 000 000** | **606.2 (warm)** | **684.5** | **0.89×** ← cold single-iter 1.08× |
+| **100 000 000 × 100 000 000** | **1 302.5 (warm)** | **1 439.1** | **0.91×** ← cold 1.12× |
+| **200 000 000 × 200 000 000** | **2 808.5 (warm)** | **2 907.3** | **0.97×** ← cold-state scatter up to 1.6× |
 
 Skewed (`a.size() >> b.size()`):
 
-| size | BigMath ms | GMP ms | BM/GMP |
+| digits | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 100 000 × 10 000 | 0.356 | 0.304 | 1.17× |
-| **500 000 × 50 000** | **1.370** | **2.110** | **0.65×** ← BigMath faster |
-| **1 000 000 × 100 000** | **2.459** | **4.571** | **0.54×** ← BigMath 1.9× faster |
-| **2 000 000 × 200 000** | **5.741** | **9.509** | **0.60×** ← BigMath faster |
-| **5 000 000 × 500 000** | **24.471** | **31.971** | **0.77×** ← BigMath faster |
-| **10 000 000 × 1 000 000** | **47.700** | **72.288** | **0.66×** ← BigMath faster (was 1.29×) |
-| **20 000 000 × 2 000 000** | **94.096** | **162.222** | **0.58×** ← BigMath 1.7× faster (was 1.51×) |
-| **50 000 000 × 5 000 000** | **266.8** | **671.5** | **0.40×** ← BigMath 2.5× faster |
-| **100 000 000 × 10 000 000** | **618.4** | **1 014.1** | **0.61×** ← BigMath faster |
-| **200 000 000 × 20 000 000** | **1 323.4** | **1 960.3** | **0.68×** ← BigMath faster |
+| 100 000 × 10 000 | 0.365 | 0.303 | 1.21× |
+| **500 000 × 50 000** | **1.463** | **2.149** | **0.68×** ← BigMath faster |
+| **1 000 000 × 100 000** | **2.784** | **4.576** | **0.61×** |
+| **2 000 000 × 200 000** | **5.694** | **9.414** | **0.60×** |
+| **5 000 000 × 500 000** | **23.489** | **32.139** | **0.73×** |
+| **10 000 000 × 1 000 000** | **46.937** | **70.970** | **0.66×** |
+| **20 000 000 × 2 000 000** | **93.993** | **160.704** | **0.58×** |
+| **50 000 000 × 5 000 000** | **271.616** | **677.097** | **0.40×** ← 2.5× faster |
+| **100 000 000 × 10 000 000** | **620.034** | **1 019.765** | **0.61×** |
+| **200 000 000 × 20 000 000** | **1 376.823** | **1 949.539** | **0.71×** |
 
-**Observations (updated 2026-06-12, post-NEON):**
+Observations:
 
-- **BigMath beats GMP on balanced multiplication at every size from 500k digits up** — peaking at 3.2× (10M×10M: 65 vs 206 ms) and staying ≤1.0× warm through 200M digits. The NEON Shoup butterflies (PR #96), interleaved twiddle tables (#98), and tail layers (#99) compound with the radix-8 fused chain and multithreaded CRT; the fused-MFA work (#107–#111) extended the win through the former 20M–200M-digit gap.
-- **Skewed multiplication beats GMP at every measured shape from 500k×50k up (0.40–0.77×)** — the former 10M×1M / 20M×2M losses (1.29×/1.51×) flipped to 0.66×/0.58× with the MFA gate retune.
-- Sub-NTT sizes (≤ ~13k digits) stay on Karatsuba where GMP's hand-tuned basecase keeps a 2.2–3.3× lead; 50k–100k digits are near parity.
-- **50M+ rows re-measured 2026-06-12 after the MFA correctness fix (PR #103)**: the MFA inverse cross-twiddle had been mis-ordered since 2026-05-31 (PR #72), so every pre-#103 measurement in this band was a wrong-result timing. Post-fix: balanced 50M–200M at 1.28–1.33×, skewed 50M–200M **beating GMP at 0.47–0.83×**. **Superseded in this band by PR #107 — see the next section: balanced 50M–200M now 0.90–0.97×.**
-
-### MFA pass fusion + row-chunked stages (PR #107, 2026-06-12)
-
-PR #107 fused the pointwise multiply into operand B's last forward MFA stage (`FusedForwardBMul` — fb's spectrum never reaches DRAM) and split the forward and inverse MFA stages into `ParallelDo(6)` (prime, half-row-range) work units; the old inverse batched whole per-prime transforms in `ParallelDo(3)`, idling cores for a third of the multiply. Net ≈1.20× in the MFA band — **BigMath now meets or beats GMP on balanced multiplication at every size from 500k digits up, and on every measured skew shape ≥500k digits.**
-
-Warm-state methodology (NOT comparable to the cold single-iter rows above): raw-limb operands, first call discarded (plan build + first-touch page faults), best-of-3 warm × 3 interleaved rounds vs pre-#107 build, GMP timed identically in-process. M1 Max, load < 2.7 during measurement. `≈digits = limbs × 19.27`:
-
-| shape | limbs | pre-#107 ms | post ms | GMP ms | BM/GMP was → now |
-|---|---|---:|---:|---:|---|
-| balanced ≈50M digits | 2.6M × 2.6M | 738.1 | **610.5** | 675.1 | 1.09× → **0.90×** |
-| balanced ≈100M digits | 5.2M × 5.2M | 1 569.5 | **1 314.1** | 1 397.5 | 1.12× → **0.94×** |
-| balanced ≈200M digits | 10.4M × 10.4M | 3 363.3 | **2 766.8** | 2 846.6 | 1.17× → **0.97×** |
-| 10:1 skew ≈50M×5M | 2.6M × 260k | 311.5 | **260.9** | 666.1 | 0.47× → **0.39×** |
-| 10:1 skew ≈100M×10M | 5.2M × 520k | 746.7 | **618.7** | 996.5 | 0.75× → **0.62×** |
-| 10:1 skew ≈200M×20M | 10.4M × 1.04M | 1 581.9 | **1 319.3** | 1 893.7 | 0.84× → **0.70×** |
-| div ≈100M÷20M digits | 5.2M ÷ 1.04M | 3 091.0 | 3 151.9 | 2 305.4 | 1.34× → 1.37× (no change) |
-| div ≈200M÷40M digits | 10.4M ÷ 2.08M | 6 109.7 | 6 319.3 | 4 415.1 | 1.36× → 1.43× (no change) |
-
-Two structural findings from this work:
-
-- **The band is no longer purely memory-bandwidth-bound post-NEON.** A 2-concurrent-process probe shows one multiply draws ~64–69% of the M1 Max's DRAM bandwidth; pure pass-cutting that sacrificed work-unit concurrency regressed 1.47×. Parallelism is the current lever (mem_pass_fusion.md carries the revised analysis).
-- **Division did not inherit the win** (~1% movement): Newton's inner products route through the cyclic `MultiplyMod2km1` path (capped at `n ≤ 2^22`, below the MFA gate by design) and transforms at `n = 2^22–2^23` — below the 2^24 MFA gate. Addressed by the gate retune below.
-
-### MFA gate retune 2^24 → 2^20 (2026-06-12, post-#107)
-
-A `sample` profile of 200M÷40M-digit division showed ~88% of active compute in plain (whole-transform) radix-8 NTT layers with half of all thread-time in `psynch_cvwait` — Newton's transforms sit at `n = 2^22–2^23`, below the MFA gate, on the non-MFA path whose `ParallelDo(6)`/`ParallelDo(3)` whole-transform units idle cores. The 2^24 break-even was measured before PR #107's row-chunked stages existed; re-sweeping the gate (warm-state, quiet machine, best-of-2×2–3 interleaved rounds) flipped it decisively:
-
-| op | size (limbs) | n | gate 2^24 | gate 2^20 | BM/GMP was → now |
-|---|---|---|---:|---:|---|
-| mul | 1M × 1M | 2^22 | 299.1 | **100.7** | 1.12× → **0.38×** |
-| mul | 2M × 2M | 2^23 | 621.5 | **278.9** | 1.15× → **0.52×** |
-| mul | 500k × 500k | 2^21 | 102.5 | **50.4** | 1.06× → **0.51×** |
-| mul | 250k × 250k | 2^20 | 25.9 | 25.5 | 0.59× (wash) |
-| div | 1M ÷ 200k | — | 358.6 | **288.5** | 1.26× → **1.01×** |
-| div | 2.6M ÷ 520k | — | 904.0 | **626.8** | 1.03× → **0.71×** |
-| div | 5.2M ÷ 1.04M | — | 3 166.0 | **1 700.9** | 1.37× → **0.74×** |
-| div | 10.4M ÷ 2.08M | — | 6 492.4 | **4 426.9** | 1.47× → **1.00×** |
-
-**Division now beats GMP at ≈50–100M-digit dividends (0.71–0.74×) and reaches parity at 200M÷40M digits.** Lower gates (2^18) measured ≈ wash vs 2^20 (≤4% div); 2^20 keeps the gate out of the latency-sensitive sub-ms band. The remaining 200M÷40M gap is the cyclic `MultiplyMod2km1` transforms (always plain, `n ≤ 2^22` cap) — addressed in the next section.
-
-Correctness: raw-limb GMP probe OK at every newly-MFA size (n=2^20–2^23 balanced + 8:1 skew at n=2^19 high-skew gate); full unit/roundtrip/mult/div correctness batteries green.
-
-### Cyclic-product MFA routing + cap raise (2026-06-12)
-
-`MultiplyMod2km1` — the wrap-around product Newton division uses for its reciprocal iterations and wrapped remainders — always ran plain whole-transform `ParallelDo(6/3)` units and was capped at `n ≤ 2^22`. The cap predated MFA support; the MFA permutation in fact cancels between forward and pointwise (both operands share it) and the inverse returns natural order, so the cyclic path now runs the same fused pipeline as the linear multiply (helpers `MfaFusedForwardPointwise` / `MfaFusedInverse`, extracted from `Multiply`) at `n ≥` the MFA gate, and the cap rose to the CRT ceiling `2^26` (coefficient-sum headroom `N·2^64 = 2^90 < p1·p2·p3 ≈ 2^90.5`). Newton's two `nCyc` gates rose to match — large iterations again use cyclic transforms at HALF the linear product's length.
-
-Warm-state, best-of-3 × 3 interleaved rounds vs post-gate-retune main, quiet machine:
-
-| div (limbs) | ≈digits | before ms | after ms | BM/GMP was → now |
-|---|---|---:|---:|---|
-| 1M ÷ 200k | 20M÷4M | 288 | 290 | ~1.0× (wash) |
-| 2.6M ÷ 520k | 50M÷10M | 617 | 603 | 0.69× → **0.67×** |
-| 5.2M ÷ 1.04M | 100M÷20M | 1 668 | **1 301** | 0.71× → **0.55×** |
-| 10.4M ÷ 2.08M | 200M÷40M | 4 194 | **3 074** | 0.95× → **0.68×** |
-
-**Division now beats GMP at every measured size from 20M-digit dividends up.** Cumulative across PR #107 + the gate retune + this change, 200M÷40M-digit division went 6.5s → 3.1s (1.47× → 0.68× vs GMP, a 2.1× swing).
-
-Correctness: probe extended with cyclic rows (vs GMP fold-mod `2^{64L}−1`) at n=2^19 (plain), 2^20/2^22 (MFA), 2^23/2^24 (beyond the old cap, incl. uneven operands) and full-pipeline division quotient checks at both big tiers — all green; transient-break validated (wrong inverse planes → the four MFA-routed cyclic rows FAIL, the plain row stays OK); full unit/roundtrip/mult/div batteries green.
-
-### F3 on-the-fly packing (PR #111, 2026-06-12)
-
-In the fused MFA window, stage A's gather packs each element straight from the operand's limbs (`PackedOperandView` / `FusedForwardAPack`) — the pre-packed coefficient planes, their padding zero-fills, and the `fb` planes disappear from the fused path entirely, and the `% P` work moves into the parallel gather. Warm-state: 2–5% across the band (mul 1M limbs −4.4% → 0.36× vs GMP; div 100M÷20M digits −4.6% → 0.53×; 200M÷40M −3.8% → 0.66×).
-
-**Bandwidth saturation tracking** (2-concurrent-process probe at 10.4M-limb mul, per-process slowdown / aggregate throughput): pre-#107 +28% / 1.56× (~64% of DRAM bandwidth used by one multiply) → post-#109 +38% / 1.45× (~69%) → post-#111 +45% / 1.38× (~72%). Still unsaturated — parallelism-first remains the right bias; pure byte-cutting (F2 finalize fusion) stays deprioritized until this approaches ~90%.
-
-### MFA focused threshold check
-
-`mul_xl_bench` was run after raising the default gate to `2^24`. These are limb counts, not decimal digits. For Base2_64 balanced multiplication, `L` limbs per operand map to transform length `bit_ceil(4L - 1)`.
-
-| limbs per operand | transform length | active path | ms |
-|---:|---:|---|---:|
-| 200 000 | 2^20 | non-MFA | 39.942 |
-| 300 000 | 2^21 | non-MFA | 90.660 |
-| 500 000 | 2^21 | non-MFA | 92.290 |
-| 1 000 000 | 2^22 | non-MFA | 255.832 |
-| 2 000 000 | 2^23 | non-MFA | 704.094 |
-| **3 000 000** | **2^24** | **MFA** | **1 269.304** |
-| **5 000 000** | **2^25** | **MFA** | **2 620.899** |
-
-The retuned gate keeps the old MFA-off path through `2^23` and enables MFA at `2^24+`, matching the measured break-even region.
-
-### MFA transpose fusion (PR #78, 2026-05-31)
-
-The MFA forward/inverse transforms ran each axis as a full out-of-place transpose immediately followed by a full row-FFT sweep over the just-written scratch buffer — two extra round-trips through DRAM per axis. At MFA sizes that scratch is 64–256 MB per prime, and the large-MFA kernel is memory-bandwidth bound on this machine, so those round-trips dominate. Fusing the transpose into the adjacent row-FFT — gather a tile of rows into an L2-resident buffer, FFT (and cross-twiddle) there, write the result once — cuts transform traffic from `8n` to `4n` bytes per forward/inverse. The per-row FFT math is unchanged, so output is **bit-exact**: verified against the unfused path (FNV checksum of product limbs) at 2M–8M limbs, plus `mult_correctness` (18/0). Gated by `BIGMATH_NTT_MFA_FUSE` (default on), tile rows by `BIGMATH_NTT_MFA_FUSE_TILE` (default 16).
-
-![MFA transpose fusion — multiply speed and fusion speedup vs operand size](docs/images/mfa_fusion_speedup.png)
-
-Full sweep, balanced Base2_64, M1 Max, best-of-3 interleaved (fusion default vs `-DBIGMATH_NTT_MFA_FUSE=0`). `≈digits = limbs × 19.27`:
-
-| limbs/operand | ≈digits | path | baseline ms | fusion ms | speedup |
-|---:|---:|---|---:|---:|---:|
-| 3 000 | 58K | non-MFA | 0.51 | 0.54 | −5.0% |
-| 10 000 | 193K | non-MFA | 1.89 | 1.92 | −1.5% |
-| 50 000 | 963K | non-MFA | 8.69 | 9.08 | −4.2% |
-| 200 000 | 3.9M | non-MFA | 40.02 | 40.06 | −0.1% |
-| 700 000 | 13.5M | non-MFA | 250.91 | 241.81 | +3.8% |
-| 1 300 000 | 25M | non-MFA | 648.92 | 649.04 | −0.0% |
-| 2 000 000 | 38.5M | MFA (gate) | 689.23 | 678.93 | +1.5% |
-| **2 600 000** | **50M** | **MFA** | **1 121.25** | **1 011.62** | **+10.8%** |
-| **4 000 000** | **77M** | **MFA** | **1 159.97** | **1 046.13** | **+10.9%** |
-| **5 200 000** | **100M** | **MFA** | **2 379.93** | **2 163.77** | **+10.0%** |
-| **6 000 000** | **116M** | **MFA** | **2 393.66** | **2 181.19** | **+9.7%** |
-| **8 000 000** | **154M** | **MFA** | **2 473.24** | **2 231.99** | **+10.8%** |
-| **10 000 000** | **193M** | **MFA** | **4 978.10** | **4 636.81** | **+7.4%** |
-
-The win switches on exactly at the MFA gate (~2–2.6M limbs / ~40–50M digits) and holds **+7–11%** through 193M digits. Below the gate the fused code path is not reached, so those rows run byte-identical machine code — the ±5% scatter is sub-millisecond measurement noise, not a regression.
-
-### Multithreaded NTT check
-
-`BIGMATH_USE_THREADS=1` is the default. A focused `mul_xl_bench` run on 2026-05-27 compared the default build against `-DBIGMATH_USE_THREADS=0`:
-
-| limb size | serial ms | threaded ms | speedup |
-|---:|---:|---:|---:|
-| 100 000 | 55.171 | 17.634 | 3.13× |
-| 500 000 | 257.394 | 90.207 | 2.85× |
-| 1 000 000 | 602.433 | 250.242 | 2.41× |
-
-The threaded path uses coarse CRT parallelism for the six forward transforms and three inverse transforms, plus chunked pointwise multiplication. Single-prime Goldilocks fallback also uses size-gated layer parallelism.
-
-### Prepared CRT NTT operands
-
-`tests/performance/prepared_ntt_bench.cpp` measures repeated multiplication by one fixed large operand. The prepared API caches that operand's CRT spectra and reuses it across partner operands.
-
-| build | limb shape | count | normal total | prepared total | setup | steady speedup | amortized speedup |
-|---|---|---:|---:|---:|---:|---:|---:|
-| threaded default | `100000x100000` | 5 | 95.100 ms | 87.037 ms | 6.921 ms | 1.09× | 1.01× |
-| threaded default | `100000x100000` | 20 | 372.320 ms | 346.550 ms | 6.996 ms | 1.07× | 1.05× |
-| serial `-DBIGMATH_USE_THREADS=0` | `100000x100000` | 5 | 291.137 ms | 198.299 ms | 16.590 ms | 1.47× | 1.35× |
-
-The default threaded gain is modest because regular CRT multiplication already overlaps the six forward transforms across the thread pool. The prepared API is still useful for repeated workloads, especially serial builds or CPU-budget-sensitive callers.
-
-### Public prepared/cached wrappers
-
-The `ops/` layer now exposes the same reuse model through public wrappers.
-
-| wrapper | repeated workload | normal total | prepared/cached total | speedup |
-|---|---|---:|---:|---:|
-| `PreparedMultiplication` | `100000` fixed limbs, `500000` partner limbs, 5 calls | 513.957 ms | 515.918 ms | 0.996× |
-| `CachedDivision` | `100000`-limb divisor, `500000`-limb dividends, 5 calls | 2 419.124 ms | 1 374.231 ms | 1.76× |
-
-`PreparedMultiplication` was flat on this shape because the repeated work was already dominated by the partner operand and the one-time preparation did not amortize over only five calls. `CachedDivision` showed the expected win on repeated skewed division, where the reciprocal setup is reused across the calls.
-
-### Shape-focused multiplication dispatch
-
-`tests/performance/multiplication_shape_bench.cpp` was added to measure direct Classic, Karatsuba, NTT, dispatcher, and an experimental blockwise-skew prototype by limb shape. It found one production dispatch miss: tiny high-skew operands should not enter Karatsuba.
-
-| limb shape | previous dispatch | retuned dispatch | impact |
-|---|---:|---:|---|
-| `1280x64` (`20n/n`) | 0.1522 ms | 0.0848 ms | 1.8× faster |
-| `3200x64` (`50n/n`) | 0.4469 ms | ~0.21-0.25 ms | ~1.8-2.1× faster |
-
-The blockwise-skew prototype wins some `min=64` microbenchmarks but loses at larger smaller-operand sizes, so it remains benchmark-only. A Barrett modular multiply experiment for CRT NTT primes was slower than the existing `% P` lowering and was rejected.
-
-### Toom-3 dispatch band (2026-05-27)
-
-Focused band scan around the Karatsuba → NTT crossover found a narrow Toom-3 window:
-
-| total limbs | per-operand | kara ms | toom3 ms | ntt ms |
-|---:|---:|---:|---:|---:|
-| 2 560 | 1 280 | 0.42 | 0.41 | 0.77 |
-| 3 072 | 1 536 | 0.55 | 0.55 | 0.78 |
-| 3 584 | 1 792 | 0.64 | 0.60 | 0.78 |
-| 4 096 | 2 048 | 0.83 | 0.75 | 0.78 |
-| **4 608** | **2 304** | **1.06** | **1.10** | **1.65** ← NTT-length boundary regression |
-| 5 120 | 2 560 | 1.31 | 1.24 | 0.59 |
-
-Toom-3 ties Karatsuba below total 3 584 and beats both Karatsuba and NTT in [3 584, 4 608]. At total 4 608 NTT pays a length-boundary penalty (next pow-2 NTT size is wasteful here); Toom-3 sidesteps it cleanly. Dispatch now uses Toom-3 for total ∈ [2 560, 5 120), bumping `NTT_MULTIPLICATION_THRESHOLD` from 4 096 → 5 120. The total-4 608 case improved from NTT 1.65 ms → Toom-3 1.10 ms (33% faster) end-to-end through the `Multiply()` entry point.
-
-Toom-5 was checked in the same scan and never wins decisively — it ties Karatsuba in 64-256 limbs per-operand and degrades sharply above 256. It stays excluded from dispatch.
-
-### Toom-3 skew gate (2026-05-30)
-
-A follow-up focused scan found that the Toom-3 band above is a **balanced-product** win only. For 2:1-or-more skewed operands inside the same total-limb window, Toom-3 pays evaluation/interpolation overhead but does not get enough balanced subproblem work back. Dispatch now keeps Toom-3 only when `maxSize < 2 * minSize`; otherwise the pre-NTT window falls back to Karatsuba.
-
-Focused limb benchmark, AppleClang `-O3 -march=native`, default `BIGMATH_LIMB_64=1`:
-
-| limb shape | total limbs | Karatsuba ms | Toom-3 ms | NTT ms | old dispatch ms | new dispatch ms |
-|---|---:|---:|---:|---:|---:|---:|
-| `2560x128` | 2 688 | 0.279 | 0.607 | 0.776 | 0.603 | 0.280 |
-| `2560x256` | 2 816 | 0.341 | 0.733 | 0.778 | 0.730 | 0.343 |
-| `2048x1024` | 3 072 | 0.556 | 0.605 | 0.780 | 0.601 | 0.557 |
-| `3072x1024` | 4 096 | 0.843 | 1.171 | 0.782 | 1.162 | 0.844 |
-| `3072x1536` | 4 608 | 1.078 | 1.185 | 1.705 | 1.180 | 1.113 |
-
-Balanced rows remain in the original Toom-3/NTT decision band. The scan still supports keeping `NTT_MULTIPLICATION_THRESHOLD=5120`: NTT wins at total 5120+, but regresses around total 4608 due to the transform-length boundary.
-
-### Scratch-buffer reuse check (2026-05-30)
-
-The hot-path scratch reuse pass keeps temporary buffers alive across calls in the CRT NTT MFA path and in Newton division. It was benchmarked with the existing dispatch and focused shape harnesses, but it did not move the production thresholds or produce a stable end-to-end band shift on this machine. The useful effect is lower allocation churn, not a headline crossover change.
-
-Representative reruns after the change:
-
-| shape | metric | ms |
-|---|---|---:|
-| `4096x8192` multiplication | dispatch | 0.606 |
-| `8192x16384` multiplication | dispatch | 1.115 |
-| `16000x32000` multiplication | dispatch | 2.204 |
-| `32768x8192` division | Newton | 23.477 |
-| `65536x16384` division | Newton | 50.712 |
-
-These sit in the same band as the pre-change runs, so the doc-level takeaway is that scratch reuse is a cleanup win rather than a dispatch or asymptotic improvement.
+- The 500k–20M-digit balanced band is carried by the NEON Shoup butterflies +
+  radix-8 fused chain + threaded 3-prime CRT; the fused-MFA pipeline
+  (gate 2^20 coefficients) extends the win through 200M digits warm.
+- Sub-50k digits stay on Karatsuba, where GMP's hand-tuned assembly basecase
+  keeps a 2.3–3.2× lead; 50k–100k digits sit at 1.2–1.3×.
+- 50M+ cold rows include the one-time MFA plan build and first-touch page
+  faults for multi-GB buffers; run-to-run cold scatter at 200M digits reaches
+  ±60%, which is why the warm numbers are authoritative there.
 
 ---
 
 ## Division
 
-Balanced (`a.size() == b.size()`) — quotient is 1-2 limbs, both libraries short-circuit. Numbers are sub-microsecond noise; reported for completeness.
+Skewed (`a.size() >> b.size()`) — the Newton/BZ/quotient-sized bands, real
+algorithmic work:
 
-| size | BigMath ms | GMP ms | BM/GMP |
+| digits | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 × 1 000 | <0.001 | <0.001 | — |
-| 5 000 × 5 000 | 0.001 | <0.001 | — |
-| 10 000 × 10 000 | <0.001 | <0.001 | — |
-| 50 000 × 50 000 | 0.001 | <0.001 | 2.33× |
-| 100 000 × 100 000 | 0.001 | 0.001 | 2.31× |
-| 500 000 × 500 000 | 0.007 | 0.004 | 1.59× |
-| 1 000 000 × 1 000 000 | 0.014 | 0.009 | 1.62× |
-| 5 000 000 × 5 000 000 | 1.355 | 0.162 | 8.39× |
+| 40 000 × 10 000 | 0.576 | 0.218 | 2.64× |
+| 100 000 × 10 000 | 1.754 | 0.460 | 3.81× |
+| 200 000 × 50 000 | 4.054 | 1.755 | 2.31× |
+| 500 000 × 100 000 | 7.671 | 4.810 | 1.59× |
+| 1 000 000 × 200 000 | 14.465 | 10.056 | 1.44× |
+| 2 000 000 × 500 000 | 28.920 | 24.466 | 1.18× |
+| **5 000 000 × 1 000 000** | **69.446** | **69.387** | **1.00×** ← parity |
+| 10 000 000 × 2 000 000 | 180.657 | 153.320 | 1.18× |
+| **20 000 000 × 4 000 000** | **285.714** | **348.436** | **0.82×** ← BigMath faster |
+| **50 000 000 × 10 000 000** | **589.797** | **1 317.839** | **0.45×** ← 2.2× faster |
+| **100 000 000 × 20 000 000** | **1 263.489** | **2 581.606** | **0.49×** ← 2× faster |
+| **200 000 000 × 40 000 000** | **3 119.348** | **4 543.900** | **0.69×** ← BigMath faster |
 
-Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
+Balanced equal-size rows are degenerate — the quotient is 0–2 limbs and both
+libraries short-circuit; absolute times are sub-15 µs through 1M digits and
+the ratios are allocation noise, so the table is omitted.
 
-| size | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| **40 000 × 10 000** | **0.583** | **0.223** | **2.61×** ← was 3.35× pre-#116/#117 |
-| **100 000 × 10 000** | **1.698** | **0.446** | **3.81×** ← was 4.84× |
-| **200 000 × 50 000** | **3.899** | **1.700** | **2.29×** ← was 6.65× at session start |
-| **500 000 × 100 000** | **7.566** | **4.548** | **1.66×** ← was 3.85× |
-| **1 000 000 × 200 000** | **14.105** | **9.839** | **1.43×** ← was 3.36× |
-| **2 000 000 × 500 000** | **28.368** | **24.475** | **1.16×** ← was 3.36× |
-| **5 000 000 × 1 000 000** | **69.258** | **68.675** | **1.01×** ← parity, was 2.87× |
-| **10 000 000 × 2 000 000** | **176.289** | **152.020** | **1.16×** ← was 2.79× |
-| **20 000 000 × 4 000 000** | **282.606** | **345.463** | **0.82×** ← BigMath faster, was 2.78× |
-| **50 000 000 × 10 000 000** | **580.8** | **1 306.7** | **0.44×** ← BigMath 2.2× faster (was 1.05×) |
-| **100 000 000 × 20 000 000** | **1 250.0** | **2 569.3** | **0.49×** ← BigMath 2× faster (was 1.23×) |
-| **200 000 000 × 40 000 000** | **2 988.0** | **4 523.4** | **0.66×** ← BigMath faster (was 1.37×; 2.85× at session start) |
+Observations:
 
-(Re-measured 2026-06-12 afternoon, post PR #116/#117 — Burnikel–Ziegler
-odd-size operand padding + 128-limb recursion basecase + Newton frontier
-re-sweep. The canonical shapes above land on even-ish divisor limb counts;
-ODD divisor sizes — ~half of real inputs — previously fell back to
-quadratic Knuth D inside BZ and ran 1.3–10× worse than these rows
-(12289-limb divisor at ratio 1.5: 95 → 8.1 ms post-fix). The basecase
-retune adds 1.1–1.4× across the whole BZ band on top.)
+- **Beats GMP from 20M-digit dividends, parity at 5M.** Newton division
+  inherits every multiplication win (its reciprocal iterations and wrapped
+  remainders run cyclic mod-`B^L−1` products at half transform length on the
+  fused MFA pipeline).
+- The residual sub-200k-digit gap (2.3–3.8×) is the ≤520-limb-divisor
+  basecase band below all NTT-era algorithms — the same portable-C++ wall as
+  small multiplication, documented as accepted in
+  [docs/DIVISION.md](docs/DIVISION.md).
+- These canonical shapes land on even-ish divisor limb counts. Odd divisor
+  sizes — ~half of real inputs — were 1.3–10× worse until the BZ odd-size
+  padding fix (#116); they now track this table.
 
-**Observations (updated 2026-06-12, post-NEON):**
-
-- **Skewed division beats GMP from 20M-digit dividends up (0.45–0.82×) and is at parity from 5M.** At the session start the ≥5M rows sat at 2.8–2.9×; the morning run brought them to parity, and the MFA work (#109/#110: gate retune + cyclic fused routing) flipped 50M–200M to a 1.5–2.2× BigMath win. The wraparound-Newton family (PRs #85–#87) halved the band first (serial-transform-chain cuts: cyclic mod-B^L−1 products, top-limbs quotient estimates, invertappr reciprocal); the NEON butterflies then accelerated every NTT inside Newton.
-- The former 200k×50k worst point (6.65×) sits at 2.29×; the residual worst point is 100k×10k (3.81×, 520-limb divisor below all NTT-era bands — the accepted portable-C++ basecase wall, see `smallskew_div_plan.md`). PR #116/#117 (2026-06-12 afternoon) fixed BZ's odd-divisor-size fallback-to-Knuth-D (1.3–10× on ~half of real shapes, invisible in this even-ish-size table), retuned the BZ basecase 512 → 128, and re-swept the whole Newton frontier against the fixed BZ — including the balanced floor (24576 → 131072: padded BZ beats Newton at ratio 1.4–1.5 through ~98k limbs).
-- Balanced equal-size rows are degenerate (quotient 0–1 limbs, both libraries short-circuit; sub-15µs absolute through 1M digits). FastDivision's scalar-normalization fix (PR #82, bit-shift normalize, 3.5× on that path) shows up in driver benchmarks rather than these noise-level rows.
-- The 200M×40M row's history is a story: the 2026-05-30 value (12.98 s, 2.85×) and every later attempt ran the **broken MFA band** (PR #103) — re-measure runs "hung" because Newton's fixup cap detected the corrupt products and fell back to quadratic FastDivision. Post-fix it completes normally at **6.26 s, 1.37×**.
-
-### Shape-focused division dispatch
-
-`tests/performance/division_shape_bench.cpp` was added after the table above to benchmark meaningful limb-shape division directly. The pass found that the default Base2_64 dispatcher was excluding BZ and sending many near-balanced cases through FastDivision. Dispatch now enables BZ for Base2_64, raises normal Newton entry to 4096-limb divisors, and keeps a high-skew Newton band from 2048-limb divisors at `a >= 8b`.
-
-Representative Base2_64 results:
-
-| shape (limbs) | old dispatch ms | new dispatch ms | main winner |
-|---|---:|---:|---|
-| `4096/2048` | 5.99 | 3.04 | BZ |
-| `6144/4096` | 11.15 | 3.61 | BZ |
-| `10240/4096` | 32.73 | 10.24 | BZ |
-| `12288/8192` | 44.41 | 7.94 | BZ |
-| `20480/2048` (`10n/n`) | 19.15 | 19.19 | Newton |
-
-### Near-balanced division — Newton balanced band (2026-05-31)
-
-Profiling the dispatch path on near-balanced (ratio ≈ 2) division at large
-divisor sizes surfaced two compounding problems, both fixed in
-`perf/newton-balanced-division`:
-
-1. **Newton single-block pathology.** The single-block path (`na ≤ 2n+1`) ran a
-   `2n+1`-limb chunk through the truncated `(chunk·R) >> 2n` quotient estimate.
-   The truncation error scales with `chunk/B^(2n)`, which reaches ~`B` once the
-   chunk exceeds `2n` limbs (the `+1` limb routinely appears from the Knuth
-   normalize shift on `a ≈ 2n`). The estimate then underestimated `Q` by more
-   than the 8-step fixup cap and bailed to quadratic `FastDivision`. At
-   `nb = 50000` this was a 23× spike (5200 ms vs ~360 ms at neighbouring sizes).
-   Fix: route `na > 2n` through the blockwise path so every chunk stays `≤ 2n`.
-
-2. **Burnikel-Ziegler non-power-of-2 blowup.** BZ's recursive `2n/n` halving
-   lands its intermediate NTT multiplies just over power-of-2 length boundaries
-   for non-power-of-2 divisor sizes, where the transform length doubles. The
-   constant factor compounds across the recursion depth into a **5–60× slowdown**
-   versus Newton, worst right above a power of two (`n = 2^k + 1`). Newton pads
-   once to the working size and stays flat. Fix: a Newton *balanced band* —
-   `b ≥ NEWTON_BALANCED_B (98304)` and `a ≥ 2b` — takes the near-balanced large
-   case that BZ previously owned. (Exact-power-of-2 divisor sizes, BZ's best
-   case where it ties Newton, regress ~4 %; they are rare in practice.)
-
-Dispatch wall-clock, BigMath Base2_64, M1 Max, before (`main` `d38f3c8`, → BZ)
-vs after (Newton balanced band):
-
-| shape (limbs) | divisor | before ms | after ms | speedup |
-|---|---|---:|---:|---:|
-| `200000/100000` | non-pow2 | 496.6 | 249.9 | **1.99×** |
-| `500000/250000` | non-pow2 | 5 177.7 | 588.3 | **8.80×** |
-| `1000000/500000` | non-pow2 | 10 554.7 | 1 485.7 | **7.10×** |
-| `2000000/1000000` | non-pow2 | 21 006.9 | 3 747.6 | **5.61×** |
-| `524288/262144` | pow2 (BZ best) | 656.4 | 684.0 | 0.96× |
-| `524290/262145` | 2¹⁸+1 (BZ worst) | 92 060.5 | 941.9 | **97.7×** |
-| `3000000/1000000` | ratio 3 (control) | 4 687.7 | 4 635.7 | 1.01× |
-
-![Near-balanced division dispatch — Newton balanced band vs Burnikel-Ziegler](docs/images/division_balanced_speedup.png)
-
-Harness: `tests/performance/division_balanced_bench.cpp`. Plot regenerated by
-`docs/images/make_division_balanced_plot.py`. Cross-checked against BZ
-limb-for-limb across `na ∈ {2n-1, 2n, 2n+1, 2n+2, 3n}` × `nb` near the boundary
-(120 cases) and the canonical `div_correctness` suite — all match.
-
----
-
-## 2026-06-11/12 optimization run (PRs #82-#99)
-
-Two-day profiling-driven pass: division and decimal I/O first, then NEON across the CRT NTT.
-Full analysis and rejection notes in [docs/DIVISION.md](docs/DIVISION.md),
-[docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md), and
-[docs/MULTIPLICATION.md](docs/MULTIPLICATION.md); this is the headline summary. The refreshed
-tables above are the post-run state.
-
-![Session before/after](docs/images/session_2026_06_11.png)
-
-| PR | change | headline win |
-|---|---|---|
-| #82 | FastDivision bit-shift normalization (replaces scalar-d normalize; kills per-limb `__udivmodti4` remainder denorm) | balanced div 1M digits 0.89 → 0.25 ms (3.5×) |
-| #83 | decimal D&C thresholds: parse 8192 → 2048, tostr 2048 → 1024 (May sweep inverted by the radix-8/MFA/Newton changes) | parse −12…−53% (4k–1M digits), tostr −19…−33% (1.5k–10k) |
-| #84 | doc-only: prepared-transform reuse in `DivideChunk` REJECTED — cut CPU 11% but wall-clock flat (the 6 forward transforms already run concurrently; only serial-chain cuts convert to wall-clock on the threaded stack) | — |
-| #85 | cyclic wrap-around remainder: `Q·b_norm` replaced by its residue mod `B^L−1` at half transform length | skewed div −10–11%, tostr −7% |
-| #86 | top-limbs quotient estimate (GMP `mu_divappr` style): multiply only top n+1 chunk limbs against R | skewed div −20% at transform-boundary sizes, tostr −11% |
-| #87 | invertappr-style wrapped Newton iteration in `ApproxReciprocal` (exact E from cyclic residue + top-slice correction) | one-shot skewed div −24–25%, `Divider` setup −29% |
-| #88 | Newton balanced band ratio 2/1 → 4/3 (post-#85–87 crossover re-measured) | nb=131073 limbs ratio 1.5: 10.7 s → 157 ms |
-| #89 | **quotient-sized division** (`QuotientSizedDivision.h`): divides operand tops for short quotients; cost scales with quotient, not divisor; balanced-band floor 98304 → 24576 limbs | 2^k+1 pathology ratios 1.05–1.25: 1.07–5.35 s → 28–71 ms (38–75×) |
-| #92 | medium band 3/1 @ 4096 → **5/2 @ 2560** + new **8/5 band @ 6144** (fractional ratios kill the one-limb knife-edges where digit-derived operands fall off the band onto BZ's non-pow2 blowups) | 200k×50k digits 6.65× → 3.76×; cliff shapes 300k×100k 24.6× → 3.07×, 400k×200k 20.7× → 3.57× |
-| #94 | thin-quotient extension of the quotient-sized band (`b ≥ 8192`, `Δ ≤ b/8`) | 2^14+1-limb divisor ratio 1.1: 66.4 → 8.3 ms |
-| #95 | separate gate for cyclic NTT products (`BIGMATH_CYCLIC_NTT_THRESHOLD = 1280` vs the 5120 full-product threshold — cyclic runs at half transform length) | cold tostr 100k ratio −30% |
-| #96 | **NEON radix-8 butterflies via Shoup multiplication** (30-bit CRT primes in 32-bit lanes; `Plan` carries `floor(w·2^32/P)` companions; bit-exact) | butterfly kernel 4×; mul 100k −40% |
-| #97 | dispatch retune the NEON win unlocked: NTT entry 5120 → **1280** limbs, Toom-3 window retired, CRT gate 5000 → 256 (always-CRT) | mul 30k digits 2.3×; tostr 1M −25% |
-| #98 | **interleaved (twiddle, Shoup) tables** — one cache line per pair; removes the n > 2^20 memory-bound regression and the size gate | mul 10M −13%, 1M −30% vs separate tables |
-| #99 | NEON tail layers (radix-4/2 collapse to one broadcast Shoup pair + `vld4q`) and inverse 1/n scaling | mul 10M −10% |
-| #101 | Newton band floors post-NEON: high-skew 2048 → 768, medium 2560 → 1024, 8/5 band 6144 → 4096 | 1536-limb divisor ratio 10: 12.0 → 4.9 ms |
-| #102 | ToString chain-top rounding (1/16-octave grid; cache no longer keyed on exact digit count) + Karatsuba leaf threshold 48 → 32; 2-row leaf unrolling rejected (M1 OoO already hides the carry chain) | mixed-size ~100k workload −34% |
-| #103 | **fix: MFA inverse cross-twiddle ordering** — mis-fused since PR #72 (2026-05-31); every ≥2^24-coeff product was silently wrong for 12 days; Newton's fixup fallback masked it as "stuck" runs. `mfa_roundtrip` now in ctest. | 200M×40M div: hung → 6.26 s (1.37×) |
-
-Cumulative on the standard grid across the run: balanced mul 5M×5M 48.9 → **26.2 ms (0.41× vs
-GMP — 2.4× faster than GMP)**; skewed div 5M×1M 200.6 → **69.3 ms (2.87× → 1.03×)** and 10M×2M
-at **0.94× — BigMath faster than GMP**; tostr 1M 224.8 → **101.5 ms**; tostr 20M 2.52× → **1.16×**;
-parse 20M 1.50× → **1.09×**.
-
-Division dispatch now has no known residual shape holes: ratio ∈ (1, 4/3) at b ≥ 24576 limbs routes to
-quotient-sized division (which also beats BZ at BZ's exact-power-of-2 best case), 4/3 ≤ ratio bands route
-to Newton, small/degenerate shapes keep FastDivision.
-
-Two recorded process lessons: profile-sample arithmetic overcounts parallel-overlapped work (CPU-time
-savings ≠ wall-clock savings — see PR #84's rejection), and the exact Newton tower drifts up to ~B^6 ulps,
-so any residue-window sizing needs ~B^16 headroom (a B^4 window caused an 8× ToString regression via
-silent FastDivision fallbacks before being caught with a `10^500000`-divisor repro).
-
----
-
-## In-tree simple harnesses (k-averaged, no GMP)
-
-`tests/multperf_simple.cpp` and `tests/divperf_simple.cpp` are the standalone
-in-tree harnesses (no GMP dependency). Each compares BigMath's own algorithms
-against each other and validates the results limb-for-limb. Both take an
-optional run-count `k` (default 3); every size is timed `k` times and the
-**arithmetic mean** is reported:
-
-```
-multperf_simple 5      # avg of 5 runs per size
-divperf_simple 5
-```
-
-Measured 2026-05-31, M1 Max, `-O2`, default stack (Base2_32 internal repr,
-`k = 5`).
-
-### Multiplication — `multperf_simple 5`
-
-Two random decimal numbers of equal digit length. Speedup is vs Classical.
-
-| digits | Classical ms | Karatsuba ms | Karatsuba× | NTT ms | NTT× |
-|---:|---:|---:|---:|---:|---:|
-| 100 | 0.000 | 0.000 | 0.5× | 0.007 | — |
-| 10 000 | 0.274 | 0.094 | 2.9× | 0.391 | 0.7× |
-| 100 000 | 28.917 | 4.147 | 7.0× | 1.143 | 25.3× |
-| 500 000 | 692.964 | 45.330 | 15.3× | 4.585 | 151.1× |
-
-At 100 digits both classical and Karatsuba are sub-microsecond (rounds to
-0.000 ms); NTT loses to schoolbook at that size, as expected. Karatsuba and NTT
-cross over between 10k and 100k digits — by 500k digits NTT is **151× faster**
-than schoolbook. All three products matched exactly.
-
-### Division — `divperf_simple 5`
-
-`FastDivision` (Knuth D variant) vs `BurnikelZieglerDivision`. Speedup is
-`fast / bz` (>1 means BZ faster). Results cross-checked limb-for-limb.
-
-| shape (limbs) | FastDivision ms | BurnikelZiegler ms | fast/bz |
-|---|---:|---:|---:|
-| 1024 × 512 | 0.845 | 0.864 | 0.98× |
-| 4096 × 2048 | 7.833 | 3.218 | 2.43× |
-| 8192 × 512 | 5.154 | 5.075 | 1.02× |
-| 16384 × 512 | 10.306 | 10.311 | 1.00× |
-
-BZ's recursive halving pays off on the near-balanced `4096 × 2048` shape
-(2.43× over FastDivision). On the skewed `n × 512` shapes the two are at parity
-— the divisor is small enough that FastDivision's quadratic inner loop is short.
+In-tree algorithm cross-check (`divperf_simple 5`, no GMP, limb shapes):
+FastDivision vs BurnikelZiegler at `1024×512` 0.355/0.275 ms, `4096×2048`
+7.99/2.20 ms (BZ 3.6×), `8192×512` 5.25/3.08 ms, `16384×512` 10.36/6.18 ms.
 
 ---
 
 ## Decimal parse (string → BigInteger)
 
-| size (digits) | BigMath ms | GMP ms | BM/GMP |
+| digits | BigMath ms | GMP ms | BM/GMP |
 |---|---:|---:|---:|
-| 1 000 | 0.002 | 0.002 | 1.53× |
-| 10 000 | 0.086 | 0.038 | 2.23× |
-| 50 000 | 1.043 | 0.408 | 2.56× |
-| 100 000 | 1.675 | 1.069 | 1.57× |
-| **500 000** | **6.303** | **8.857** | **0.71×** ← BigMath faster |
-| **1 000 000** | **12.700** | **21.071** | **0.60×** |
-| **2 000 000** | **27.166** | **47.791** | **0.57×** |
-| **5 000 000** | **66.893** | **149.266** | **0.45×** |
-| **10 000 000** | **142.620** | **344.973** | **0.41×** ← BigMath 2.4× faster |
-| **20 000 000** | **303.569** | **799.219** | **0.38×** ← BigMath 2.6× faster |
-| **50 000 000** | **1 259.8** | **2 717.6** | **0.46×** ← BigMath 2.2× faster |
+| 1 000 | 0.002 | 0.002 | 1.55× |
+| 10 000 | 0.087 | 0.038 | 2.26× |
+| 50 000 | 1.081 | 0.390 | 2.77× |
+| 100 000 | 1.739 | 1.072 | 1.62× |
+| **500 000** | **6.234** | **8.989** | **0.69×** ← BigMath faster |
+| **1 000 000** | **12.544** | **20.949** | **0.60×** |
+| **2 000 000** | **26.787** | **48.148** | **0.56×** |
+| **5 000 000** | **66.231** | **150.320** | **0.44×** |
+| **10 000 000** | **141.762** | **350.371** | **0.40×** ← 2.5× faster |
+| **20 000 000** | **306.340** | **814.925** | **0.38×** ← 2.7× faster |
+| **50 000 000** | **1 451.183** | **2 744.997** | **0.53×** |
 
-**Observation (updated 2026-06-12 afternoon, post #119):** **parse beats GMP
-from 500k digits up (0.38–0.71×)** — the parallel leaf fan-out (PR #119, the
-mirror of ToString's #118: 8 leaf ranges parsed in one ParallelDo, combines
-replayed on the caller with threaded-NTT multiplies) took the band from
-1.1–1.65× to a 1.4–2.6× win. Below the 100k-digit fan-out threshold the
-serial numbers stand (the 50k row's 2.56× is GMP's basecase edge). Earlier
-steps: the MFA gate retune (#109) brought 20M/50M to parity; the
-`DecimalDcThreshold` retune (8192 → 2048, PR #83) shaved 10–26% through the
-10k–2M band.
+Parse beats GMP from 500k digits (the parallel leaf fan-out threshold sits at
+100k digits; below it the serial divide-and-conquer numbers stand, and below
+~50k GMP's basecase edge shows).
 
 ---
 
 ## ToString (BigInteger → string)
 
-| size (digits) | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| 1 000 | 0.006 | 0.003 | 1.82× |
-| 10 000 | 0.269 | 0.078 | 3.43× |
-| 50 000 | 2.341 | 0.851 | 2.75× |
-| **100 000** | **7.202** | **2.453** | **2.94×** ← cold-chain; 3.0 ms warm (1.25×) |
-| **200 000** | **14.749** | **6.224** | **2.37×** ← cold-chain; 5.8 ms warm (0.93×) |
-| **500 000** | **36.081** | **21.161** | **1.71×** ← cold-chain; 14.4 ms warm (**0.69×**) |
-| **1 000 000** | **66.898** | **50.915** | **1.31×** ← cold-chain; 28.1 ms warm (**0.57×**) |
-| **2 000 000** | **136.945** | **122.189** | **1.12×** ← cold-chain; 59.0 ms warm (**0.50×**) |
-| **5 000 000** | **565.299** | **390.717** | **1.45×** ← cold-chain; 225 ms warm (**0.58×**) |
-| **10 000 000** | **992.203** | **919.672** | **1.08×** ← cold-chain; 481 ms warm (**0.52×**) |
-| **20 000 000** | **1 975.5** | **2 133.5** | **0.93×** ← BigMath faster even cold |
+Cold = single run including the divider-chain build (a per-process cache GMP
+has no equivalent of); warm = steady state, authoritative from 100k digits up.
 
-**Observation (updated 2026-06-12 afternoon, post #118):** **warm ToString
-beats GMP from 200k digits up (0.50–0.69×)** — the parallel subtree fan-out
-(PR #118: the D&C tree's lower subtrees are fixed-width fields at
-precomputable offsets; one ParallelDo over 8 of them) delivered 1.8–2.4× on
-the warm path, on top of the divider-chain wins this table already
-compounds. The single-run rows at 100k+ include the cold divider-chain
-build (the deferred T2 lever, `tostring_chain_plan.md`); warm numbers in
-the annotations are the steady state and the authoritative comparison —
-GMP has no equivalent chain to amortize, so cold-vs-cold favors it once
-and never again in a process. Methodology matches the original table: warm
-best-of-N below 100k, single cold run (chain build included) at 100k+,
-warm annotations from `tostring_bench` (cold/warm split columns).
+| digits | BigMath cold ms | BigMath warm ms | GMP ms | warm BM/GMP |
+|---|---:|---:|---:|---:|
+| 1 000 | 0.006 | — | 0.003 | 1.83× |
+| 10 000 | 0.262 | — | 0.078 | 3.37× |
+| 50 000 | 2.509 | — | 0.893 | 2.81× |
+| 100 000 | 7.904 | 3.41 | 2.337 | 1.46× |
+| 200 000 | 14.422 | — | 6.342 | 2.27× (cold) |
+| **500 000** | **35.363** | **13.5** | **21.884** | **0.62×** ← BigMath faster |
+| **1 000 000** | **64.697** | **27.7** | **50.271** | **0.55×** |
+| **2 000 000** | **128.493** | **58.4** | **119.721** | **0.49×** |
+| **5 000 000** | **504.249** | **224.5** | **385.7** | **0.58×** |
+| **10 000 000** | **913.196** | **488.3** | **901.2** | **0.54×** |
+| **20 000 000** | **1 901.726** | **1 035.3** | **2 130.4** | **0.49×** ← faster even cold (0.88×) |
 
-### ToString focused warm benchmark
-
-After the table above, `tests/performance/tostring_bench.cpp` was added to isolate BigMath conversion cost without GMP and to measure warm-cache optimization deltas. The 2026-05-26 ToString pass added bit-length digit estimation, thread-local cached D&C divider chains, 10¹⁹ linear formatting chunks, digit-pair ASCII emission, and a boundary `NewtonDivision::Divider::DivideAndRemainderInto` API.
-
-| size (digits) | pre-pass ms | post-pass ms | speedup |
-|---|---:|---:|---:|
-| 1 000 | 0.0079 | 0.0062 | 1.27× |
-| 10 000 | 1.1224 | 0.5097 | 2.20× |
-| 50 000 | 9.4674 | 4.4633 | 2.12× |
-| 100 000 | 19.8435 | 9.4409 | 2.10× |
-| 200 000 | 41.1607 | 20.5682 | 2.00× |
-| 500 000 | — | 61.1404 | — |
-| 1 000 000 | — | 135.8015 | — |
-| 2 000 000 | — | 299.5458 | — |
-
-The dominant win is cached divider-chain reuse. The `DivideAndRemainderInto` API is currently neutral because it delegates to existing Newton internals; deeper scratch-buffer reuse would need to be pushed into `DivideChunk`, multiplication, and subtraction temporaries.
+Warm ToString beats GMP from 500k digits (0.49–0.62×) via the parallel D&C
+subtree fan-out (#118) on top of the cached Newton divider chains. The cold
+chain build is the deferred one-shot-conversion lever; it only matters the
+first time a process formats a given magnitude.
 
 ---
 
 ## BigDecimal
 
-Arbitrary-precision signed decimal. GMP has no native BigDecimal; compared against `mpf_t` at matching precision (`bits = total_digits * 3.322 + 64`).
+GMP has no native BigDecimal; compared against `mpf_t` at matching precision
+(`bits = total_digits × 3.322 + 64`). Sizes are `integer.fraction` digits.
 
-### Arithmetic
-
-Balanced operands (e.g. `100.10` = 100 integer + 10 fractional digits):
-
-| op | size (int.frac) | BigMath ms | GMP (mpf) ms | BM/GMP |
+| op | size | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---|---:|---:|---:|
-| Add | 100.10 | 0.000 | 0.000 | 0.00× |
-| Add | 1000.100 | 0.000 | 0.000 | 0.00× |
-| Add | 5000.500 | 0.001 | 0.000 | 5.66× |
-| Add | 20000.2000 | 0.003 | 0.001 | 5.00× |
-|---|---|---|---|---|
-| Mul | 100.10 | 0.000 | 0.000 | 3.95× |
-| Mul | 1000.100 | 0.003 | 0.001 | 2.33× |
-| Mul | 5000.500 | 0.038 | 0.018 | 2.12× |
-| Mul | 20000.2000 | 0.345 | 0.091 | 3.78× |
-|---|---|---|---|---|
-| Div | 100.10 (10 dp) | 0.001 | 0.000 | 6.53× |
-| Div | 1000.100 (100 dp) | 0.003 | 0.002 | 1.41× |
-| Div | **5000.500 (500 dp)** | **0.023** | **0.026** | **0.89×** ← BigMath faster |
-| Div | 20000.2000 (2000 dp) | 0.233 | 0.198 | 1.18× |
+| add | 5000.500 | 0.001 | 0.000 | 5.0× |
+| add | 20000.2000 | 0.002 | 0.001 | 4.3× |
+| mul | 1000.100 | 0.002 | 0.001 | 2.23× |
+| mul | 5000.500 | 0.031 | 0.013 | 2.46× |
+| mul | 20000.2000 | 0.240 | 0.090 | 2.66× |
+| div | 1000.100 / 100 dp | 0.002 | 0.002 | 1.16× |
+| **div** | **5000.500 / 500 dp** | **0.020** | **0.024** | **0.82×** ← BigMath faster |
+| div | 20000.2000 / 2000 dp | 0.207 | 0.197 | 1.05× |
+| parse | 10 000 digits | 0.106 | 0.108 | 0.98× |
+| parse | 50 000 digits | 1.064 | 1.004 | 1.06× |
+| tostr | 10 000 digits | 0.261 | 0.109 | 2.41× |
+| tostr | 50 000 digits | 2.439 | 1.156 | 2.11× |
 
-Division at varying target scales (operand = 2000 integer + 200 fractional digits):
-
-| scale (dp) | BigMath ms | GMP (mpf) ms | BM/GMP |
-|---|---:|---:|---:|
-| **0** | **0.001** | **0.005** | **0.20×** ← BigMath faster |
-| **10** | **0.003** | **0.005** | **0.61×** ← BigMath faster |
-| **100** | **0.005** | **0.005** | **0.85×** ← BigMath faster |
-| 1000 | 0.015 | 0.010 | 1.57× |
-| 5000 | 0.061 | 0.034 | 1.79× |
-
-### Parse and ToString
-
-Parse (`string → BigDecimal`):
-
-| size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
-|---|---:|---:|---:|
-| 100 | 0.001 | 0.001 | 1.00× |
-| 1 000 | 0.005 | 0.005 | 1.10× |
-| 10 000 | 0.138 | 0.107 | 1.29× |
-| 50 000 | 1.504 | 1.017 | 1.48× |
-
-ToString (`BigDecimal → string`):
-
-| size (digits) | BigMath ms | GMP (mpf) ms | BM/GMP |
-|---|---:|---:|---:|
-| 100 | 0.000 | 0.000 | 0.64× |
-| 1 000 | 0.006 | 0.004 | 1.41× |
-| 10 000 | 0.269 | 0.102 | 2.63× |
-| 50 000 | 4.003 | 1.094 | 3.66× |
-
-**Observations:**
-- BigDecimal division beats GMP at 5000.500 to 500 dp (0.023 vs 0.026 ms).
-- Scale-aware division avoids unnecessary high-precision work; up to **5× faster** than `mpf_div` at small target scales.
-- Parse stays within 1.0-1.5× of GMP across 100-50k digits; ToString stays within 0.7-3.7×.
+Scale-aware division avoids unnecessary high-precision work — at small target
+scales it runs up to 5× faster than `mpf_div` (2000.200-digit operand: 0 dp
+0.18×, 10 dp 0.38×, 100 dp 0.65×); at deep scales (≥1000 dp) `mpf` leads
+1.5–1.7×. Addition is allocation-bound at these sizes (≤2 µs absolute).
+BigDecimal parse tracks GMP at ~1.0×; ToString carries the BigInteger
+formatter's sub-100k-digit ratios.
 
 ---
 
-## Headline summary
+## Internal algorithm crossovers
 
-- **Multiplication 5M-20M balanced:** BigMath is faster at 5M and 10M, then slips back to parity at 20M. The current 10M balanced row is **106.856 ms vs 209.888 ms**, or 0.51×.
-- **Multiplication ≥50M balanced:** GMP still wins via SSA. At 200M the gap widens again to 2.16× on this snapshot.
-- **Multiplication skewed:** parity around 500k×50k and 1M×100k, with a slight BigMath lead at 2M×200k. BigMath falls behind at 50M×5M, 100M×10M, and 200M×20M.
-- **Division skewed:** beats GMP from 20M-digit dividends (0.44–0.82×), parity from 5M; the sub-200k rows sit at 2.3–3.8× (520-limb-divisor basecase wall). BZ's odd-size fallback (1.3–10× on ~half of real divisor sizes, invisible in the canonical even-ish shapes) fixed in PR #116; basecase + frontier retune in #117.
-- **Division balanced 5M×5M:** PR #56 fix routes degenerate-quotient cases to FastDivision; 27.03× → 7.20×.
-- **Division near-balanced (ratio ≈ 2, large `b`):** PR #79 added a Newton balanced band (`b ≥ 98304, a ≥ 2b`) that dodges BZ's 5–60× non-power-of-2 blowup — 8.8× at 500k/250k, 97.7× at the 2¹⁸+1 worst case. Division is now NTT-bound for ratio ≥ 2 and ratio ≥ 3. **Residual:** ratio ∈ (1, 2) at large `b` still on BZ (~2.7× slower than Newton at ratio 1.5).
-- **Parse:** **beats GMP from 500k digits (0.38–0.71×; 20M: 0.38×, 2.6× faster)** after the parallel leaf fan-out (PR #119).
-- **ToString:** **warm beats GMP from 200k digits (0.50–0.69×)** after the parallel subtree fan-out (PR #118); 20M faster than GMP even cold (0.93×).
-- **BigDecimal division:** beats GMP at small target scales (0.20-1.00×) and at the 500 dp near-parity point (0.89×).
+`multperf_simple 5` (BigMath-internal, equal-digit random operands, mean of 5):
 
-For optimizations considered and rejected with measurement evidence, see the **Explored but rejected** sections of each subsystem doc. The 2026-05 optimization stack (LIMB_64 + CRT NTT + threading + M-G reciprocals + BZ Knuth fix + degenerate-quotient guard + radix-4/radix-8 fused butterflies + MFA) closed the GMP gap by 3-5× across every band up to the 20M crossover; past 20M, GMP's SSA still wins but the loss factor halved.
+| digits | Classical ms | Karatsuba ms | Karatsuba× | NTT ms | NTT× |
+|---:|---:|---:|---:|---:|---:|
+| 10 000 | 0.342 | 0.119 | 2.9× | 0.208 | 1.6× |
+| 100 000 | 29.349 | 3.475 | 8.4× | 0.865 | 33.9× |
+| 500 000 | 691.111 | 45.561 | 15.2× | 2.965 | 233.1× |
+
+Dispatch enters NTT at 1280 total limbs (~13k digits in the default 64-bit
+limb build); by 500k digits the CRT NTT is 233× over schoolbook and 15×
+over Karatsuba.
 
 ---
 
-## Dispatch validity after MFA addition
+## Optimization history (condensed)
 
-PR #65 added MFA / Bailey 6-step routing inside `NTTMultiplicationCrt`. The default was retuned from `n ≥ 2^21` to `n ≥ 2^24` transform coefficients on 2026-05-27. For Base2_64 balanced multiplication that starts around **2M limbs per operand** (≈40M decimal digits), because each 64-bit limb produces two CRT coefficients and the convolution has about `4L` coefficients. The retune avoids the measured `2^21`-`2^23` regression band while preserving the `2^24+` wins. All other dispatch thresholds are unchanged in semantics. Verified post-MFA via `tests/performance/dispatch_tuner --full` (2026-05-30):
+The margins above are the product of the 2026-05/06 campaign. Full analysis,
+profiles, and rejection evidence live in the subsystem docs; per-release
+summary in [CHANGELOG.md](CHANGELOG.md). The major steps, in order:
 
-| Knob | Current | Tuner suggestion | Verdict |
-|---|---:|---:|---|
-| `CLASSIC_MULTIPLICATION_THRESHOLD` (total limbs) | 96 | 96 (= 48 per-operand × 2) | Match |
-| `TOOM3_MULTIPLICATION_THRESHOLD` (total limbs) | 2560 | (added 2026-05-27 from focused band scan) | New |
-| `NTT_MULTIPLICATION_THRESHOLD` (total limbs) | 5120 | (raised from 4096 by focused scan) | Updated |
-| `TOOM3_SKEW_RATIO` | 2 | (added 2026-05-30 from skew-focused scan) | New |
-| `CLASSIC_MIN_LIMB_THRESHOLD` | 0 | 0 | Match |
-| `NTT_SQUARE_THRESHOLD` (per limb, LIMB_64) | 2048 | 2048 (NTT wins by < 5% but does win) | Keep — current is valid |
-| `BZ_DIVISOR_THRESHOLD` | 512 | 768 | Keep — current 512 already correct (BZ activates at b > 512; the 1024/512 tie is FastDiv noise) |
-| `NEWTON_MEDIUM_B` | 4096 | 8192 | Keep — current dispatch uses NEWTON_MEDIUM_B together with `a ≥ 3b`, all measured 8192-divisor cases at ratio ≥ 4 still win Newton |
-| `NEWTON_SKEW_NUMERATOR/DENOMINATOR` | 3/1 | 4/1 | Keep — bench rows from 5M×1M onward confirm Newton wins at ratio 5 (BigMath path) |
-| `NEWTON_BALANCED_B` / ratio | 98304 / 2/1 | — | Added PR #79 — near-balanced band; below it BZ wins, above it BZ blows up 5–60× on non-pow2 sizes |
-| `NEWTON_HIGH_SKEW_*` | 2048 / 8/1 | (n/a, no rows) | Keep |
+| when | change | headline effect |
+|---|---|---|
+| 2026-05 | 64-bit limbs (`BIGMATH_LIMB_64`), 3-prime CRT NTT, thread pool, M-G reciprocals, radix-4/8 fused butterflies, MFA layout | closed the GMP gap 3–5× across every band up to ~20M digits |
+| #82–#95 | division/decimal session: bit-shift normalization, wrap-around Newton family (cyclic remainders, top-limbs quotient estimate, invertappr reciprocal), Newton band frontier, quotient-sized division, decimal D&C retunes | skewed div 5M×1M 2.87× → ~1.0×; killed the BZ non-pow2 5–60× blowups (97.7× at 2^18+1) |
+| #96–#99 | **NEON Shoup butterflies** + interleaved twiddle tables + tail layers; dispatch retune they unlocked (NTT entry 5120 → 1280 limbs, Toom-3 window retired, CRT always-on) | butterfly kernel ~4×; mul 100k digits −40% |
+| #103 | **fix: MFA inverse cross-twiddle ordering** — every ≥2^24-coefficient product had been silently wrong for 12 days; Newton's fixup fallback masked it as "stuck" runs. `mfa_roundtrip` added to ctest; all earlier 50M+ rows were invalid timings | 200M×40M div: hung → 6.3 s |
+| #107–#114 | fused-MFA pass fusion (pointwise rides operand B's last forward stage), row-chunked `ParallelDo(6)` stages, **MFA gate 2^24 → 2^20**, cyclic products on the fused pipeline up to the 2^26 CRT ceiling, F3 on-the-fly packing | mul n=2^22 3×; div 100M÷20M 1.37× → 0.55×; 200M÷40M 6.5 s → 3.1 s |
+| #116–#117 | **BZ odd-size bottom-padding fix** (odd divisor limb counts fell back to quadratic Knuth D — 1.3–10× on ~half of real shapes), basecase 512 → 128, full Newton frontier re-sweep | 12289-limb divisor ratio 1.5: 95 → 8.1 ms |
+| #118–#119 | parallel D&C subtree fan-out for ToString and parse | both directions flipped to a 1.4–2.6× win ≥500k digits |
+| #120–#124 | codebase audit: FastDivision MG top-equal qhat fix (silent wrong quotients on structured operands), remainder-sign fix, CRT-squaring dispatch (2.5–5.8× on Square, parse-cold −14…25%), dedups, header hygiene | correctness + Square/parse-cold wins |
 
-**Toom-3 added to dispatch (2026-05-27, skew-gated 2026-05-30):** focused band scan (above, **Toom-3 dispatch band**) found Toom-3 wins by 4-10% in total ∈ [3 584, 4 096] and avoids a 33% NTT-length boundary regression at total 4 608. Dispatch slots Toom-3 between Karatsuba and NTT for total ∈ [2 560, 5 120), but only for non-skewed operands (`max < 2*min`). A skew-focused scan found 2:1+ shapes in that same window are faster through Karatsuba, with wins such as `2560x256` improving from 0.730 ms → 0.343 ms through `Multiply()`. `NTT_MULTIPLICATION_THRESHOLD` remains 5 120. Toom-5 still has no productive band — ties Karatsuba in 64-256 per-operand limbs and degrades sharply above 256, so stays excluded.
+Two history figures are kept with their original data:
+
+![MFA transpose fusion — multiply speed and fusion speedup vs operand size](docs/images/mfa_fusion_speedup.png)
+
+*MFA transpose fusion (#78): fusing the transpose into the adjacent row-FFT
+cut transform traffic from 8n to 4n bytes — +7–11% across the MFA band,
+bit-exact.*
+
+![Near-balanced division dispatch — Newton balanced band vs Burnikel-Ziegler](docs/images/division_balanced_speedup.png)
+
+*Newton balanced band (#79): BZ's recursive halving lands intermediate NTT
+multiplies just over power-of-2 transform boundaries on non-pow2 divisor
+sizes (5–60× blowup, 97.7× at 2^18+1); Newton pads once and stays flat. The
+band's floor and the residual ratio < 4/3 slice were later rebuilt by #88/#89
+(quotient-sized division) and re-swept after #116/#117.*
+
+Process lessons recorded along the way:
+
+- Profile-sample arithmetic overcounts parallel-overlapped work — CPU-time
+  savings ≠ wall-clock savings on the threaded stack (#84's rejection).
+- The exact Newton tower drifts up to ~B^6 ulps; residue-window sizing needs
+  ~B^16 headroom (a B^4 window caused an 8× ToString regression via silent
+  FastDivision fallbacks).
+- Warm-state-only measurement for chain-/plan-heavy ops; single-iter cold
+  rows on those shapes scatter ±20–60% with process state.
+- Random-input cross-checks miss structured-operand bug classes entirely —
+  the seeded adversarial-limb fuzz (`test_adversarial_fuzz.cpp`, #125) now
+  gates every ctest run.
