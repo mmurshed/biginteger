@@ -34,9 +34,9 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 **Multiplication dispatch** (`algorithms/Multiplication.h`):
 - single-limb operand → `ClassicMultiplication::Multiply(vec, scalar, base)`
 - `a.size()+b.size() <= 96` or `min(a,b) <= 32` → classic schoolbook
-- below `NTT_MULTIPLICATION_THRESHOLD = 32768` → `KaratsubaMultiplication`
-- otherwise → `NTTMultiplication`
-- `ToomCookMultiplication` exists as an alternate exercised by tests but is not in the default dispatch path.
+- below `NTT_MULTIPLICATION_THRESHOLD = 1280` total limbs → `KaratsubaMultiplication` (dropped from 5120 on 2026-06-12 after the NEON Shoup butterflies made CRT NTT ~2.5× faster in the small-mid band)
+- otherwise → `NTTMultiplication` (3-prime CRT effectively always: `BIGMATH_NTT_CRT_THRESHOLD = 256`)
+- `ToomCookMultiplication` exists as an alternate exercised by tests; its dispatch window was retired 2026-06-12 (CRT+NEON beats it everywhere).
 
 **Why no Schönhage-Strassen.** NTT here uses the Goldilocks prime `P = 2^64 - 2^32 + 1` with 16-bit input split. Convolution-accumulation overflow only at ~2^31 limbs (≈ 8 GB operands), so NTT covers every practical size. SSA's asymptotic edge is `log log n`; at any size below ~2^40 limbs the constant-factor cost of mod-2^N+1 arithmetic loses to NTT. The ~700+ lines of SSA aren't justified for this codebase — if you need more big-int wins, look at block-recursive Mulders division or Schönhage's subquadratic GCD instead.
 
