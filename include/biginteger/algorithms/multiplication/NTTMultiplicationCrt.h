@@ -456,6 +456,115 @@ namespace BigMath
       return r;
     }
 
+    // ─── NEON tail layers (outerLen == 4 / 2, the log n % 3 remainder) ──────
+    // At outerLen == 4 the twiddles collapse to constants: g = g2 = roots[0]
+    // = 1 and gw = roots[n/4] — one broadcast Shoup pair serves the whole
+    // pass, and the groups-of-4 are contiguous, so vld4q/vst4q de-interleave
+    // does the lane work.
+    template <typename F>
+    inline void ForwardRadix4LayerNeon(UInt *a, Int n, const UInt *roots)
+    {
+      const UInt gw = roots[n / 4];
+      const uint32x4_t vgw = vdupq_n_u32(gw);
+      const uint32x4_t vgws = vdupq_n_u32((UInt)(((ULong)gw << 32) / F::Prime));
+      Int i = 0;
+      for (; i + 16 <= n; i += 16)
+      {
+        uint32x4x4_t x = vld4q_u32(a + i);
+        uint32x4_t t0 = NeonAdd<F>(x.val[0], x.val[2]);
+        uint32x4_t t1 = NeonAdd<F>(x.val[1], x.val[3]);
+        uint32x4_t t2 = NeonSub<F>(x.val[0], x.val[2]);
+        uint32x4_t t3 = NeonShoupMul<F>(vgw, vgws, NeonSub<F>(x.val[1], x.val[3]));
+        uint32x4x4_t y;
+        y.val[0] = NeonAdd<F>(t0, t1);
+        y.val[1] = NeonSub<F>(t0, t1);
+        y.val[2] = NeonAdd<F>(t2, t3);
+        y.val[3] = NeonSub<F>(t2, t3);
+        vst4q_u32(a + i, y);
+      }
+      for (; i < n; i += 4)
+      {
+        UInt x0 = a[i], x1 = a[i + 1], x2 = a[i + 2], x3 = a[i + 3];
+        UInt t0 = F::Add(x0, x2);
+        UInt t1 = F::Add(x1, x3);
+        UInt t2 = F::Sub(x0, x2);
+        UInt t3 = F::Mul(F::Sub(x1, x3), gw);
+        a[i] = F::Add(t0, t1);
+        a[i + 1] = F::Sub(t0, t1);
+        a[i + 2] = F::Add(t2, t3);
+        a[i + 3] = F::Sub(t2, t3);
+      }
+    }
+
+    template <typename F>
+    inline void InverseRadix4LayerNeon(UInt *a, Int n, const UInt *roots)
+    {
+      const UInt gw = roots[n / 4];
+      const uint32x4_t vgw = vdupq_n_u32(gw);
+      const uint32x4_t vgws = vdupq_n_u32((UInt)(((ULong)gw << 32) / F::Prime));
+      Int i = 0;
+      for (; i + 16 <= n; i += 16)
+      {
+        uint32x4x4_t x = vld4q_u32(a + i);
+        uint32x4_t t0 = NeonAdd<F>(x.val[0], x.val[1]);
+        uint32x4_t t1 = NeonSub<F>(x.val[0], x.val[1]);
+        uint32x4_t t2 = NeonAdd<F>(x.val[2], x.val[3]);
+        uint32x4_t t3 = NeonShoupMul<F>(vgw, vgws, NeonSub<F>(x.val[2], x.val[3]));
+        uint32x4x4_t y;
+        y.val[0] = NeonAdd<F>(t0, t2);
+        y.val[2] = NeonSub<F>(t0, t2);
+        y.val[1] = NeonAdd<F>(t1, t3);
+        y.val[3] = NeonSub<F>(t1, t3);
+        vst4q_u32(a + i, y);
+      }
+      for (; i < n; i += 4)
+      {
+        UInt x0 = a[i], x1 = a[i + 1], x2 = a[i + 2], x3 = a[i + 3];
+        UInt t0 = F::Add(x0, x1);
+        UInt t1 = F::Sub(x0, x1);
+        UInt t2 = F::Add(x2, x3);
+        UInt t3 = F::Mul(F::Sub(x2, x3), gw);
+        a[i] = F::Add(t0, t2);
+        a[i + 2] = F::Sub(t0, t2);
+        a[i + 1] = F::Add(t1, t3);
+        a[i + 3] = F::Sub(t1, t3);
+      }
+    }
+
+    template <typename F>
+    inline void InverseRadix2LayerNeon(UInt *a, Int n)
+    {
+      // len == 2: roots[0] == 1, pure add/sub on adjacent pairs.
+      Int i = 0;
+      for (; i + 8 <= n; i += 8)
+      {
+        uint32x4x2_t x = vld2q_u32(a + i);
+        uint32x4x2_t y;
+        y.val[0] = NeonAdd<F>(x.val[0], x.val[1]);
+        y.val[1] = NeonSub<F>(x.val[0], x.val[1]);
+        vst2q_u32(a + i, y);
+      }
+      for (; i < n; i += 2)
+      {
+        UInt u = a[i], v = a[i + 1];
+        a[i] = F::Add(u, v);
+        a[i + 1] = F::Sub(u, v);
+      }
+    }
+
+    // Constant-multiplier Shoup pass for the inverse 1/n scaling.
+    template <typename F>
+    inline void NeonScale(UInt *a, Int n, UInt c)
+    {
+      const uint32x4_t vc = vdupq_n_u32(c);
+      const uint32x4_t vcs = vdupq_n_u32((UInt)(((ULong)c << 32) / F::Prime));
+      Int i = 0;
+      for (; i + 4 <= n; i += 4)
+        vst1q_u32(a + i, NeonShoupMul<F>(vc, vcs, vld1q_u32(a + i)));
+      for (; i < n; ++i)
+        a[i] = F::Mul(a[i], c);
+    }
+
     // NEON 4-lane j-loop of the radix-8 DIF forward layer. Bit-exact with the
     // scalar layer below (Shoup and (a*b)%P agree exactly for inputs < P).
     template <typename F>
@@ -888,7 +997,13 @@ namespace BigMath
         len >>= 3;
       }
       if (len == 4)
+      {
+#if BIGMATH_NEON
+        ForwardRadix4LayerNeon<F>(aPtr, n, roots);
+#else
         ForwardRadix4Layer<F>(aPtr, n, 4, roots);
+#endif
+      }
       else if (len == 2)
         ForwardRadix2Layer<F>(aPtr, n, 2, roots);
     }
@@ -910,12 +1025,20 @@ namespace BigMath
         Int len;
         if (rem == 1)
         {
+#if BIGMATH_NEON
+          InverseRadix2LayerNeon<F>(aPtr, n);
+#else
           InverseRadix2Layer<F>(aPtr, n, 2, roots);
+#endif
           len = 16;
         }
         else if (rem == 2)
         {
+#if BIGMATH_NEON
+          InverseRadix4LayerNeon<F>(aPtr, n, roots);
+#else
           InverseRadix4Layer<F>(aPtr, n, 4, roots);
+#endif
           len = 32;
         }
         else
@@ -937,7 +1060,11 @@ namespace BigMath
       if (scale)
       {
         UInt invSize = plan.invSize;
+#if BIGMATH_NEON
+        NeonScale<F>(aPtr, n, invSize);
+#else
         for (Int i = 0; i < n; ++i) aPtr[i] = F::Mul(aPtr[i], invSize);
+#endif
       }
     }
 
