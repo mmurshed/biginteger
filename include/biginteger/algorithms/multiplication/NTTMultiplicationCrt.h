@@ -46,11 +46,11 @@
 // are needed — the primitive NEON actually has. Microbenched 4x per butterfly
 // pass vs the scalar (a*b) % P loop. Opt out via -DBIGMATH_NEON=0.
 //
-// Size-gated at n <= 2^20 coefficients: above that the transform working set
-// leaves L2 and the butterfly goes memory-bound — the separate Shoup table
-// doubles strided twiddle-cache traffic and turns the 4x compute win into a
-// 15-30% loss (measured at n = 2^21). MFA leaf sub-FFTs (n <= 2^13) always
-// qualify.
+// The interleaved (twiddle, shoup) tables keep the strided gathers at one
+// cache line per pair, so NEON wins or ties at every transform size
+// (separate tables doubled twiddle traffic above L2 and lost 15-30% at
+// n = 2^21 before the interleave). BIGMATH_NEON_NTT_MAX remains as an
+// escape hatch; default is effectively unlimited.
 #ifndef BIGMATH_NEON
 #if defined(__aarch64__)
 #define BIGMATH_NEON 1
@@ -60,7 +60,7 @@
 #endif
 
 #ifndef BIGMATH_NEON_NTT_MAX
-#define BIGMATH_NEON_NTT_MAX (1 << 20)
+#define BIGMATH_NEON_NTT_MAX (1 << 30)
 #endif
 
 #ifndef BIGMATH_NTT_MFA
@@ -197,29 +197,35 @@ namespace BigMath
       std::vector<UInt> forwardRoots;
       std::vector<UInt> inverseRoots;
 #if BIGMATH_NEON
-      // Shoup companions: shoup[k] = floor(roots[k] * 2^32 / P). Lets the
-      // NEON butterfly compute (w*x) mod P with two 32x32 widening multiplies.
-      std::vector<UInt> forwardShoup;
-      std::vector<UInt> inverseShoup;
+      // Interleaved twiddle/Shoup pairs: il[2k] = roots[k],
+      // il[2k+1] = floor(roots[k] * 2^32 / P). One cache line serves both the
+      // twiddle and its Shoup companion — with separate arrays the strided
+      // gathers above L2 doubled twiddle traffic and erased the NEON win at
+      // n >= 2^21.
+      std::vector<UInt> forwardIl;
+      std::vector<UInt> inverseIl;
 #endif
       UInt invSize = 1;
     };
 
 #if BIGMATH_NEON
     template <typename F>
-    inline std::vector<UInt> BuildShoup(const std::vector<UInt> &roots)
+    inline std::vector<UInt> BuildInterleaved(const std::vector<UInt> &roots)
     {
-      std::vector<UInt> s(roots.size());
+      std::vector<UInt> il(roots.size() * 2);
       const UInt *rp = roots.data();
-      UInt *sp = s.data();
+      UInt *ip = il.data();
       Int count = (Int)roots.size();
-      auto body = [rp, sp](Int start, Int end) {
+      auto body = [rp, ip](Int start, Int end) {
         for (Int k = start; k < end; ++k)
-          sp[k] = (UInt)(((ULong)rp[k] << 32) / F::Prime);
+        {
+          ip[2 * k] = rp[k];
+          ip[2 * k + 1] = (UInt)(((ULong)rp[k] << 32) / F::Prime);
+        }
       };
       if ((SizeT)count >= ParallelMinSize()) ParallelFor(count, body);
       else body(0, count);
-      return s;
+      return il;
     }
 #endif
 
@@ -262,8 +268,8 @@ namespace BigMath
       p.forwardRoots = BuildRoots<F, G>(n, false);
       p.inverseRoots = BuildRoots<F, G>(n, true);
 #if BIGMATH_NEON
-      p.forwardShoup = BuildShoup<F>(p.forwardRoots);
-      p.inverseShoup = BuildShoup<F>(p.inverseRoots);
+      p.forwardIl = BuildInterleaved<F>(p.forwardRoots);
+      p.inverseIl = BuildInterleaved<F>(p.inverseRoots);
 #endif
       p.invSize = F::Inv((UInt)n);
       return p;
@@ -426,21 +432,35 @@ namespace BigMath
       return vaddq_u32(vsubq_u32(a, b), vandq_u32(lt, vP));
     }
 
-    // Strided gather of 4 consecutive-j twiddles: p[base], p[base+step], ...
-    static inline uint32x4_t NeonGather(const UInt *p, Int base, Int step)
+    // Strided gather of 4 consecutive-j (twiddle, shoup) pairs from the
+    // interleaved table: one 64-bit load per lane brings both halves on the
+    // same cache line; two unzips split them into the (w, w') vectors.
+    struct NeonPair
     {
-      uint32x4_t v = vdupq_n_u32(p[base]);
-      v = vsetq_lane_u32(p[base + step], v, 1);
-      v = vsetq_lane_u32(p[base + 2 * step], v, 2);
-      v = vsetq_lane_u32(p[base + 3 * step], v, 3);
-      return v;
+      uint32x4_t w;
+      uint32x4_t ws;
+    };
+
+    static inline NeonPair NeonGatherPair(const UInt *il, Int base, Int step)
+    {
+      const uint64_t *q = reinterpret_cast<const uint64_t *>(il);
+      uint64x2_t p01 = vdupq_n_u64(q[base]);
+      p01 = vsetq_lane_u64(q[base + step], p01, 1);
+      uint64x2_t p23 = vdupq_n_u64(q[base + 2 * step]);
+      p23 = vsetq_lane_u64(q[base + 3 * step], p23, 1);
+      uint32x4_t a = vreinterpretq_u32_u64(p01);
+      uint32x4_t b = vreinterpretq_u32_u64(p23);
+      NeonPair r;
+      r.w = vuzp1q_u32(a, b);
+      r.ws = vuzp2q_u32(a, b);
+      return r;
     }
 
     // NEON 4-lane j-loop of the radix-8 DIF forward layer. Bit-exact with the
     // scalar layer below (Shoup and (a*b)%P agree exactly for inputs < P).
     template <typename F>
     inline void ForwardRadix8LayerNeon(UInt *a, Int n, Int outerLen,
-                                       const UInt *roots, const UInt *shoup)
+                                       const UInt *roots, const UInt *il)
     {
       Int halflen = outerLen >> 1;
       Int qlen4 = outerLen >> 2;
@@ -462,47 +482,40 @@ namespace BigMath
           uint32x4_t x6 = vld1q_u32(a + i + j + halflen + qlen4);
           uint32x4_t x7 = vld1q_u32(a + i + j + halflen + qlen4 + qlen8);
 
-          uint32x4_t g_a   = NeonGather(roots, j * stride, stride);
-          uint32x4_t g_a_s = NeonGather(shoup, j * stride, stride);
-          uint32x4_t gw_a   = NeonGather(roots, j * stride + omega4_off, stride);
-          uint32x4_t gw_a_s = NeonGather(shoup, j * stride + omega4_off, stride);
-          uint32x4_t g2_a   = NeonGather(roots, 2 * j * stride, 2 * stride);
-          uint32x4_t g2_a_s = NeonGather(shoup, 2 * j * stride, 2 * stride);
-          uint32x4_t g_b   = NeonGather(roots, (j + qlen8) * stride, stride);
-          uint32x4_t g_b_s = NeonGather(shoup, (j + qlen8) * stride, stride);
-          uint32x4_t gw_b   = NeonGather(roots, (j + qlen8) * stride + omega4_off, stride);
-          uint32x4_t gw_b_s = NeonGather(shoup, (j + qlen8) * stride + omega4_off, stride);
-          uint32x4_t g2_b   = NeonGather(roots, 2 * (j + qlen8) * stride, 2 * stride);
-          uint32x4_t g2_b_s = NeonGather(shoup, 2 * (j + qlen8) * stride, 2 * stride);
-          uint32x4_t g3   = NeonGather(roots, j * stride4, stride4);
-          uint32x4_t g3_s = NeonGather(shoup, j * stride4, stride4);
+          NeonPair g_a  = NeonGatherPair(il, j * stride, stride);
+          NeonPair gw_a = NeonGatherPair(il, j * stride + omega4_off, stride);
+          NeonPair g2_a = NeonGatherPair(il, 2 * j * stride, 2 * stride);
+          NeonPair g_b  = NeonGatherPair(il, (j + qlen8) * stride, stride);
+          NeonPair gw_b = NeonGatherPair(il, (j + qlen8) * stride + omega4_off, stride);
+          NeonPair g2_b = NeonGatherPair(il, 2 * (j + qlen8) * stride, 2 * stride);
+          NeonPair g3   = NeonGatherPair(il, j * stride4, stride4);
 
           uint32x4_t t0 = NeonAdd<F>(x0, x4);
           uint32x4_t t1 = NeonAdd<F>(x2, x6);
-          uint32x4_t t2 = NeonShoupMul<F>(g_a, g_a_s, NeonSub<F>(x0, x4));
-          uint32x4_t t3 = NeonShoupMul<F>(gw_a, gw_a_s, NeonSub<F>(x2, x6));
+          uint32x4_t t2 = NeonShoupMul<F>(g_a.w, g_a.ws, NeonSub<F>(x0, x4));
+          uint32x4_t t3 = NeonShoupMul<F>(gw_a.w, gw_a.ws, NeonSub<F>(x2, x6));
           uint32x4_t y0 = NeonAdd<F>(t0, t1);
-          uint32x4_t y2 = NeonShoupMul<F>(g2_a, g2_a_s, NeonSub<F>(t0, t1));
+          uint32x4_t y2 = NeonShoupMul<F>(g2_a.w, g2_a.ws, NeonSub<F>(t0, t1));
           uint32x4_t y4 = NeonAdd<F>(t2, t3);
-          uint32x4_t y6 = NeonShoupMul<F>(g2_a, g2_a_s, NeonSub<F>(t2, t3));
+          uint32x4_t y6 = NeonShoupMul<F>(g2_a.w, g2_a.ws, NeonSub<F>(t2, t3));
 
           uint32x4_t u0 = NeonAdd<F>(x1, x5);
           uint32x4_t u1 = NeonAdd<F>(x3, x7);
-          uint32x4_t u2 = NeonShoupMul<F>(g_b, g_b_s, NeonSub<F>(x1, x5));
-          uint32x4_t u3 = NeonShoupMul<F>(gw_b, gw_b_s, NeonSub<F>(x3, x7));
+          uint32x4_t u2 = NeonShoupMul<F>(g_b.w, g_b.ws, NeonSub<F>(x1, x5));
+          uint32x4_t u3 = NeonShoupMul<F>(gw_b.w, gw_b.ws, NeonSub<F>(x3, x7));
           uint32x4_t y1 = NeonAdd<F>(u0, u1);
-          uint32x4_t y3 = NeonShoupMul<F>(g2_b, g2_b_s, NeonSub<F>(u0, u1));
+          uint32x4_t y3 = NeonShoupMul<F>(g2_b.w, g2_b.ws, NeonSub<F>(u0, u1));
           uint32x4_t y5 = NeonAdd<F>(u2, u3);
-          uint32x4_t y7 = NeonShoupMul<F>(g2_b, g2_b_s, NeonSub<F>(u2, u3));
+          uint32x4_t y7 = NeonShoupMul<F>(g2_b.w, g2_b.ws, NeonSub<F>(u2, u3));
 
           uint32x4_t z0 = NeonAdd<F>(y0, y1);
-          uint32x4_t z1 = NeonShoupMul<F>(g3, g3_s, NeonSub<F>(y0, y1));
+          uint32x4_t z1 = NeonShoupMul<F>(g3.w, g3.ws, NeonSub<F>(y0, y1));
           uint32x4_t z2 = NeonAdd<F>(y2, y3);
-          uint32x4_t z3 = NeonShoupMul<F>(g3, g3_s, NeonSub<F>(y2, y3));
+          uint32x4_t z3 = NeonShoupMul<F>(g3.w, g3.ws, NeonSub<F>(y2, y3));
           uint32x4_t z4 = NeonAdd<F>(y4, y5);
-          uint32x4_t z5 = NeonShoupMul<F>(g3, g3_s, NeonSub<F>(y4, y5));
+          uint32x4_t z5 = NeonShoupMul<F>(g3.w, g3.ws, NeonSub<F>(y4, y5));
           uint32x4_t z6 = NeonAdd<F>(y6, y7);
-          uint32x4_t z7 = NeonShoupMul<F>(g3, g3_s, NeonSub<F>(y6, y7));
+          uint32x4_t z7 = NeonShoupMul<F>(g3.w, g3.ws, NeonSub<F>(y6, y7));
 
           vst1q_u32(a + i + j, z0);
           vst1q_u32(a + i + j + qlen8, z1);
@@ -575,7 +588,7 @@ namespace BigMath
     // NEON 4-lane j-loop of the radix-8 DIT inverse layer.
     template <typename F>
     inline void InverseRadix8LayerNeon(UInt *a, Int n, Int outerLen,
-                                       const UInt *roots, const UInt *shoup)
+                                       const UInt *roots, const UInt *il)
     {
       Int halflen = outerLen >> 1;
       Int qlen4 = outerLen >> 2;
@@ -596,53 +609,46 @@ namespace BigMath
           uint32x4_t x6 = vld1q_u32(a + i + j + halflen + qlen4);
           uint32x4_t x7 = vld1q_u32(a + i + j + halflen + qlen4 + qlen8);
 
-          uint32x4_t g_a   = NeonGather(roots, j * stride4, stride4);
-          uint32x4_t g_a_s = NeonGather(shoup, j * stride4, stride4);
+          NeonPair g_a = NeonGatherPair(il, j * stride4, stride4);
 
-          uint32x4_t v01 = NeonShoupMul<F>(g_a, g_a_s, x1);
+          uint32x4_t v01 = NeonShoupMul<F>(g_a.w, g_a.ws, x1);
           uint32x4_t y0 = NeonAdd<F>(x0, v01);
           uint32x4_t y1 = NeonSub<F>(x0, v01);
-          uint32x4_t v23 = NeonShoupMul<F>(g_a, g_a_s, x3);
+          uint32x4_t v23 = NeonShoupMul<F>(g_a.w, g_a.ws, x3);
           uint32x4_t y2 = NeonAdd<F>(x2, v23);
           uint32x4_t y3 = NeonSub<F>(x2, v23);
-          uint32x4_t v45 = NeonShoupMul<F>(g_a, g_a_s, x5);
+          uint32x4_t v45 = NeonShoupMul<F>(g_a.w, g_a.ws, x5);
           uint32x4_t y4 = NeonAdd<F>(x4, v45);
           uint32x4_t y5 = NeonSub<F>(x4, v45);
-          uint32x4_t v67 = NeonShoupMul<F>(g_a, g_a_s, x7);
+          uint32x4_t v67 = NeonShoupMul<F>(g_a.w, g_a.ws, x7);
           uint32x4_t y6 = NeonAdd<F>(x6, v67);
           uint32x4_t y7 = NeonSub<F>(x6, v67);
 
-          uint32x4_t g_b1   = NeonGather(roots, 2 * j * stride, 2 * stride);
-          uint32x4_t g_b1_s = NeonGather(shoup, 2 * j * stride, 2 * stride);
-          uint32x4_t g_b2   = NeonGather(roots, 2 * (j + qlen8) * stride, 2 * stride);
-          uint32x4_t g_b2_s = NeonGather(shoup, 2 * (j + qlen8) * stride, 2 * stride);
+          NeonPair g_b1 = NeonGatherPair(il, 2 * j * stride, 2 * stride);
+          NeonPair g_b2 = NeonGatherPair(il, 2 * (j + qlen8) * stride, 2 * stride);
 
-          uint32x4_t w02 = NeonShoupMul<F>(g_b1, g_b1_s, y2);
+          uint32x4_t w02 = NeonShoupMul<F>(g_b1.w, g_b1.ws, y2);
           uint32x4_t z0 = NeonAdd<F>(y0, w02);
           uint32x4_t z2 = NeonSub<F>(y0, w02);
-          uint32x4_t w13 = NeonShoupMul<F>(g_b2, g_b2_s, y3);
+          uint32x4_t w13 = NeonShoupMul<F>(g_b2.w, g_b2.ws, y3);
           uint32x4_t z1 = NeonAdd<F>(y1, w13);
           uint32x4_t z3 = NeonSub<F>(y1, w13);
-          uint32x4_t w46 = NeonShoupMul<F>(g_b1, g_b1_s, y6);
+          uint32x4_t w46 = NeonShoupMul<F>(g_b1.w, g_b1.ws, y6);
           uint32x4_t z4 = NeonAdd<F>(y4, w46);
           uint32x4_t z6 = NeonSub<F>(y4, w46);
-          uint32x4_t w57 = NeonShoupMul<F>(g_b2, g_b2_s, y7);
+          uint32x4_t w57 = NeonShoupMul<F>(g_b2.w, g_b2.ws, y7);
           uint32x4_t z5 = NeonAdd<F>(y5, w57);
           uint32x4_t z7 = NeonSub<F>(y5, w57);
 
-          uint32x4_t g_c0   = NeonGather(roots, j * stride, stride);
-          uint32x4_t g_c0_s = NeonGather(shoup, j * stride, stride);
-          uint32x4_t g_c1   = NeonGather(roots, (j + qlen8) * stride, stride);
-          uint32x4_t g_c1_s = NeonGather(shoup, (j + qlen8) * stride, stride);
-          uint32x4_t g_c2   = NeonGather(roots, (j + qlen4) * stride, stride);
-          uint32x4_t g_c2_s = NeonGather(shoup, (j + qlen4) * stride, stride);
-          uint32x4_t g_c3   = NeonGather(roots, (j + qlen4 + qlen8) * stride, stride);
-          uint32x4_t g_c3_s = NeonGather(shoup, (j + qlen4 + qlen8) * stride, stride);
+          NeonPair g_c0 = NeonGatherPair(il, j * stride, stride);
+          NeonPair g_c1 = NeonGatherPair(il, (j + qlen8) * stride, stride);
+          NeonPair g_c2 = NeonGatherPair(il, (j + qlen4) * stride, stride);
+          NeonPair g_c3 = NeonGatherPair(il, (j + qlen4 + qlen8) * stride, stride);
 
-          uint32x4_t w04 = NeonShoupMul<F>(g_c0, g_c0_s, z4);
-          uint32x4_t w15 = NeonShoupMul<F>(g_c1, g_c1_s, z5);
-          uint32x4_t w26 = NeonShoupMul<F>(g_c2, g_c2_s, z6);
-          uint32x4_t w37 = NeonShoupMul<F>(g_c3, g_c3_s, z7);
+          uint32x4_t w04 = NeonShoupMul<F>(g_c0.w, g_c0.ws, z4);
+          uint32x4_t w15 = NeonShoupMul<F>(g_c1.w, g_c1.ws, z5);
+          uint32x4_t w26 = NeonShoupMul<F>(g_c2.w, g_c2.ws, z6);
+          uint32x4_t w37 = NeonShoupMul<F>(g_c3.w, g_c3.ws, z7);
 
           vst1q_u32(a + i + j, NeonAdd<F>(z0, w04));
           vst1q_u32(a + i + j + halflen, NeonSub<F>(z0, w04));
@@ -868,14 +874,14 @@ namespace BigMath
       if (n <= 1) return;
       const UInt *roots = plan.forwardRoots.data();
 #if BIGMATH_NEON
-      const UInt *shoup = plan.forwardShoup.data();
+      const UInt *fil = plan.forwardIl.data();
 #endif
       Int len = n;
       while (len >= 8)
       {
 #if BIGMATH_NEON
         if ((len >> 3) >= 4 && n <= BIGMATH_NEON_NTT_MAX)
-          ForwardRadix8LayerNeon<F>(aPtr, n, len, roots, shoup);
+          ForwardRadix8LayerNeon<F>(aPtr, n, len, roots, fil);
         else
 #endif
         ForwardRadix8Layer<F>(aPtr, n, len, roots);
@@ -895,7 +901,7 @@ namespace BigMath
     {
       const UInt *roots = plan.inverseRoots.data();
 #if BIGMATH_NEON
-      const UInt *ishoup = plan.inverseShoup.data();
+      const UInt *iil = plan.inverseIl.data();
 #endif
       if (n >= 2)
       {
@@ -920,7 +926,7 @@ namespace BigMath
         {
 #if BIGMATH_NEON
           if ((len >> 3) >= 4 && n <= BIGMATH_NEON_NTT_MAX)
-            InverseRadix8LayerNeon<F>(aPtr, n, len, roots, ishoup);
+            InverseRadix8LayerNeon<F>(aPtr, n, len, roots, iil);
           else
 #endif
           InverseRadix8Layer<F>(aPtr, n, len, roots);
