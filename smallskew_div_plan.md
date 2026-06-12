@@ -132,3 +132,13 @@ here). The MFA-staleness premise (hypothesis 1) was wrong for this
 band: the MFA gate is 2^20 transform length, far above these sizes.
 S2 is moot: blockwise Newton with a cached reciprocal IS the chunking
 pattern, and it loses below 640 limbs.
+
+Follow-up (same day, second PR): with padding making recursion depth
+size-independent, the BZ basecase `BIGMATH_BZ_RECURSION_THRESHOLD`
+swept 512 → 128 — another 1.2-1.5× across the whole BZ band (flat
+64-128, worse at 48), which moved every Newton floor up again and
+raised the balanced floor 24576 → 131072 (padded BZ wins ratio 1.4-1.5
+through ~98k limbs; QSized main floor decoupled at 24576). Even the
+"basecase wall" rows improved: 5200÷520 limbs 2.5 → 1.7 ms. Frontier:
+(896, 8/1), (1280, 7/2), (1792, 14/5), (2560, 5/2), (4096, 2/1),
+(8192, 8/5), (131072, 4/3).

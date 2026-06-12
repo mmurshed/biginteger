@@ -76,24 +76,34 @@
 #define BIGMATH_BZ_DIVISOR_THRESHOLD 512
 #endif
 
+// Newton frontier re-swept 2026-06-12 a second time after the BZ basecase
+// retune (BIGMATH_BZ_RECURSION_THRESHOLD 512 -> 128) made BZ another
+// 1.2-1.5× faster across its whole band: every Newton floor moves up.
+// Frontier (floor, min ratio): (896, 8/1), (1280, 7/2), (1792, 14/5),
+// (2560, 5/2), (4096, 2/1), (8192, 8/5). The old exact-ratio knife-edge
+// hazard (BZ collapsing on the wrong side of 2.0000/3.0000 ± 1 limb) died
+// with the odd-size padding fix — both sides of every knife are now
+// well-behaved, so the cuts below track measured crossovers only.
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 1280
+#define BIGMATH_NEWTON_MEDIUM_B 1792
 #endif
 
-// Newton floors re-swept 2026-06-12 (smallskew_div_plan.md S1) AFTER fixing
-// the BZ odd-size FastDivision fallback (operand padding in
-// BurnikelZieglerDivision.h). That fix changed every crossover: BZ used to
-// collapse to O(n·Δ) on odd divisor sizes (1.3-10× losses), which had pushed
-// the Newton floors artificially low as insurance. With padded BZ
-// well-behaved on all sizes the floors are data-driven again — the Newton
-// frontier is now (640, 8/1), (1024, 7/2), (1280, 14/5), (1792, 5/2),
-// (4096, 8/5), (24576, 4/3); ratio-8/5@4096 re-confirmed unchanged.
-// Ratio-≥8/5 Newton band between the mid (5/2) and balanced (4/3) bands.
-// 8/5 instead of a knife-edge 2/1: digit-derived operands land at limb ratios
-// like 2.0000 ± 1 limb; Newton near-ties padded BZ from ratio ~1.6 at 4096
-// (at ratio 1.6 BZ wins 18-22% at b=2048-3072, Newton from 4096).
+// Ratio ≥ 2 from 4096: Newton edges BZ at 3584 (tie) and wins 8-14% from
+// 4096-6144. Below, BZ.
+#ifndef BIGMATH_NEWTON_RATIO20_B
+#define BIGMATH_NEWTON_RATIO20_B 4096
+#endif
+#ifndef BIGMATH_NEWTON_RATIO20_NUMERATOR
+#define BIGMATH_NEWTON_RATIO20_NUMERATOR 2
+#endif
+#ifndef BIGMATH_NEWTON_RATIO20_DENOMINATOR
+#define BIGMATH_NEWTON_RATIO20_DENOMINATOR 1
+#endif
+
+// Ratio ≥ 8/5 from 8192: BZ wins 1.6-band shapes at 4096-7168 (7-19%),
+// Newton from ~8192-9216.
 #ifndef BIGMATH_NEWTON_RATIO2_B
-#define BIGMATH_NEWTON_RATIO2_B 4096
+#define BIGMATH_NEWTON_RATIO2_B 8192
 #endif
 #ifndef BIGMATH_NEWTON_RATIO2_NUMERATOR
 #define BIGMATH_NEWTON_RATIO2_NUMERATOR 8
@@ -102,12 +112,9 @@
 #define BIGMATH_NEWTON_RATIO2_DENOMINATOR 5
 #endif
 
-// 14/5 rather than 3/1: digit-derived operands land at limb ratios like
-// 3.0000 ± 1 limb; 2.8 keeps that edge on the Newton side (Newton is still
-// 2.3× better than even padded BZ at 15579×5193). Not 5/2: at exactly
-// ratio 2.5, padded BZ beats Newton up to b≈1792 (06-12 probe: 7-34% at
-// 1024-1543), so 2.5 has its own band below with a higher floor. Floor
-// 1280: BZ wins ratio 2.8-3.0 at 1037-1163, Newton from 1291.
+// 14/5 keeps the ratio-3.0000 ± 1 limb digit-derived edge inside one band
+// (both sides Newton at the floor). Newton from 1792 at ratio 2.8-3.0
+// (17-21%); 1543 is a tie, below BZ wins.
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
 #define BIGMATH_NEWTON_SKEW_NUMERATOR 14
 #endif
@@ -116,13 +123,10 @@
 #define BIGMATH_NEWTON_SKEW_DENOMINATOR 5
 #endif
 
-// Ratio ≥ 7/2 from 1024: Newton wins ratio 4-6 across all of [1024, 1280)
-// (3-45%, growing with ratio); 7/2 rather than 4/1 keeps the ratio-4.0000
-// ± 1 limb knife-edge (40k÷10k-digit class) on the Newton side, and 3.5
-// itself is a measured tie. Below 3.2, BZ wins — that segment belongs to
-// the 14/5@1280 band above.
+// Ratio ≥ 7/2 from 1280: Newton wins ratio 4-5 at 1280-1408 (15-41%);
+// 1024 is BZ. 7/2 keeps the ratio-4.0000 ± 1 limb class on the Newton side.
 #ifndef BIGMATH_NEWTON_RATIO35_B
-#define BIGMATH_NEWTON_RATIO35_B 1024
+#define BIGMATH_NEWTON_RATIO35_B 1280
 #endif
 #ifndef BIGMATH_NEWTON_RATIO35_NUMERATOR
 #define BIGMATH_NEWTON_RATIO35_NUMERATOR 7
@@ -131,10 +135,10 @@
 #define BIGMATH_NEWTON_RATIO35_DENOMINATOR 2
 #endif
 
-// Exactly-2.5 shapes (digit-derived 2.5000 ± 1 limb): Newton from 1792
-// (14% win at 1791, 6% at 2049, 29% at 2600); below, padded BZ wins.
+// Exactly-2.5 shapes (digit-derived 2.5000 ± 1 limb): Newton from ~2560
+// (2816: 18%); 2304 and below, BZ.
 #ifndef BIGMATH_NEWTON_MID_B
-#define BIGMATH_NEWTON_MID_B 1792
+#define BIGMATH_NEWTON_MID_B 2560
 #endif
 #ifndef BIGMATH_NEWTON_MID_NUMERATOR
 #define BIGMATH_NEWTON_MID_NUMERATOR 5
@@ -154,11 +158,11 @@
 #define BIGMATH_QSIZED_SMALL_DELTA_DIV 8
 #endif
 
-// 640 (06-12 probe): ratio 8 ties BZ at 640 and wins 16% at 704; ratio 10
-// wins 12% at 640. 576 stays BZ (16% better) and Newton degrades sharply
-// at b ≈ 520, so the floor must not go below 640.
+// 896 (06-12 post-basecase-retune probe): Newton wins ratio 8 from 896
+// (12%) and 1024 (21%); 768 stays BZ (7%) and Newton degrades sharply at
+// b ≈ 520, so the floor must not go below ~832.
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
-#define BIGMATH_NEWTON_HIGH_SKEW_B 640
+#define BIGMATH_NEWTON_HIGH_SKEW_B 896
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR
