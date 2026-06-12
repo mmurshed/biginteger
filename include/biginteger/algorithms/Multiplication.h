@@ -48,14 +48,14 @@ namespace BigMath
 // Toom-3 wins over Karatsuba once the per-operand size grows past ~1280
 // limbs (total ≥ 2560). Measured 2026-05-27; see BENCHMARK.md "Toom-3
 // dispatch band" for the focused scan.
-#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 2560
+#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
 // NTT crossover. Bumped from 4096 to 5120 (2026-05-27) after measurement
 // showed NTT regresses around total 4608 due to NTT-length boundary effect
 // (NTT 1.65 ms vs Toom3 1.10 ms); NTT becomes a clean win again at 5120+.
-#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 5120
+#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 1280
 #endif
 
 #ifndef BIGMATH_TOOM3_SKEW_RATIO

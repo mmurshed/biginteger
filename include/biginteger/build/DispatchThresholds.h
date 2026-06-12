@@ -29,8 +29,12 @@
 #define BIGMATH_CLASSIC_SKEW_RATIO 10
 #endif
 
+// Post-NEON (PR #96) retune: CRT NTT with NEON Shoup butterflies beats
+// Karatsuba from ~384 limbs per operand (sum 768) and Toom-3 everywhere,
+// so the Toom-3 window is retired from dispatch (kept as a cross-check
+// algorithm) and the NTT entry drops 5120 -> 1280 (sum 896-1024 also favors CRT but sits one bit_ceil tier below sum 1040-1250 where Karatsuba still edges it - 1280 keeps the dispatch cliff-free).
 #ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
-#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 2560
+#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
 #endif
 
 #ifndef BIGMATH_TOOM3_SKEW_RATIO
@@ -38,11 +42,15 @@
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
-#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 5120
+#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 1280
 #endif
 
+// CRT+NEON beats single-prime Goldilocks at every measured size (512/op:
+// 0.106 vs 0.176 ms), so the CRT gate drops below the NTT entry point —
+// Goldilocks remains only as the non-aarch64-friendly fallback via
+// -DBIGMATH_NTT_CRT=0.
 #ifndef BIGMATH_NTT_CRT_THRESHOLD
-#define BIGMATH_NTT_CRT_THRESHOLD 5000
+#define BIGMATH_NTT_CRT_THRESHOLD 256
 #endif
 
 #ifndef BIGMATH_NTT_MFA_THRESHOLD

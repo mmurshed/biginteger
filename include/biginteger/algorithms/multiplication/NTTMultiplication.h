@@ -188,7 +188,7 @@ namespace BigMath
             // Threshold 5000 catches the 6000-8000 wins without admitting
             // the sum=4000 regression. Override via -DBIGMATH_NTT_CRT_THRESHOLD=N.
 #ifndef BIGMATH_NTT_CRT_THRESHOLD
-#define BIGMATH_NTT_CRT_THRESHOLD 5000
+#define BIGMATH_NTT_CRT_THRESHOLD 256
 #endif
             if (a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD)
                 return NttCrt::Multiply(a, b, base);
