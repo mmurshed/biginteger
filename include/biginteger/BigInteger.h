@@ -42,6 +42,10 @@ namespace BigMath
       }
     }
 
+    // Zero-copy adoption of a raw limb vector (little-endian limb order).
+    // Precondition: every limb must be canonical for the current base —
+    // < 2^32 when built with BIGMATH_LIMB_64=0. No validation is performed;
+    // non-canonical limbs silently corrupt downstream arithmetic.
     BigInteger(std::vector<DataT>&& aInt, bool negative) : theInteger(std::move(aInt)), isNegative(negative)
     {
       TrimZerosToOne(theInteger);
@@ -84,7 +88,15 @@ namespace BigMath
       return r;
     }
 
-    std::vector<uint8_t> ToByteArray(bool bigEndian = true) const
+    // Byte order for magnitude serialization. Named enum instead of a bool so
+    // call sites read unambiguously next to FromByteArray's `negative` flag.
+    enum class ByteOrder
+    {
+      BigEndian,
+      LittleEndian
+    };
+
+    std::vector<uint8_t> ToByteArray(ByteOrder order = ByteOrder::BigEndian) const
     {
       if (Zero())
       {
@@ -108,7 +120,7 @@ namespace BigMath
         bytes.pop_back();
       }
 
-      if (bigEndian)
+      if (order == ByteOrder::BigEndian)
       {
         std::reverse(bytes.begin(), bytes.end());
       }
@@ -116,7 +128,7 @@ namespace BigMath
       return bytes;
     }
 
-    static BigInteger FromByteArray(std::span<const uint8_t> bytes, bool negative, bool bigEndian = true)
+    static BigInteger FromByteArray(std::span<const uint8_t> bytes, bool negative, ByteOrder order = ByteOrder::BigEndian)
     {
       if (bytes.empty())
       {
@@ -128,7 +140,7 @@ namespace BigMath
       std::vector<DataT> limbs(numLimbs, 0);
 
       auto getByte = [&](size_t idx) -> uint8_t {
-        if (bigEndian)
+        if (order == ByteOrder::BigEndian)
         {
           return bytes[bytes.size() - 1 - idx];
         }

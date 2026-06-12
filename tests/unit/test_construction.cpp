@@ -207,7 +207,8 @@ REGISTER_TEST(Construction, MoveLimbVector)
   ASSERT_EQ(x.size(), 2u);
   ASSERT_EQ(x[0], 12345u);
   ASSERT_EQ(x[1], 67890u);
-  ASSERT_TRUE(limbs.empty()); // Check that vector was moved from
+  // No assertion on `limbs` here: a moved-from vector is in a valid but
+  // unspecified state per the standard.
 }
 
 REGISTER_TEST(Construction, ReleaseInteger)
@@ -227,13 +228,15 @@ REGISTER_TEST(Construction, ReleaseInteger)
 
 REGISTER_TEST(Serialization, ByteArrays)
 {
+  using ByteOrder = BigInteger::ByteOrder;
+
   // Test value 0
   {
     BigInteger z;
-    auto bytes = z.ToByteArray(true);
+    auto bytes = z.ToByteArray(ByteOrder::BigEndian);
     ASSERT_TRUE(bytes.empty());
-    
-    BigInteger z2 = BigInteger::FromByteArray(bytes, false, true);
+
+    BigInteger z2 = BigInteger::FromByteArray(bytes, false, ByteOrder::BigEndian);
     ASSERT_TRUE(z2.Zero());
     ASSERT_FALSE(z2.IsNegative());
   }
@@ -243,33 +246,118 @@ REGISTER_TEST(Serialization, ByteArrays)
     // 0x1234567890abcdef
     ULong val = 0x1234567890abcdefULL;
     BigInteger x = BigIntegerBuilder::From(val);
-    
+
     // Big Endian bytes
     std::vector<uint8_t> expectedBE = {
       0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
     };
-    auto bytesBE = x.ToByteArray(true);
+    auto bytesBE = x.ToByteArray(ByteOrder::BigEndian);
     ASSERT_EQ(bytesBE.size(), expectedBE.size());
     for (size_t i = 0; i < bytesBE.size(); ++i) {
       ASSERT_EQ(bytesBE[i], expectedBE[i]);
     }
-    
-    BigInteger x2 = BigInteger::FromByteArray(bytesBE, true, true);
+
+    BigInteger x2 = BigInteger::FromByteArray(bytesBE, true, ByteOrder::BigEndian);
     ASSERT_TRUE(x2.IsNegative());
     ASSERT_EQ(x2, -x);
-    
+
     // Little Endian bytes
     std::vector<uint8_t> expectedLE = {
       0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12
     };
-    auto bytesLE = x.ToByteArray(false);
+    auto bytesLE = x.ToByteArray(ByteOrder::LittleEndian);
     ASSERT_EQ(bytesLE.size(), expectedLE.size());
     for (size_t i = 0; i < bytesLE.size(); ++i) {
       ASSERT_EQ(bytesLE[i], expectedLE[i]);
     }
-    
-    BigInteger x3 = BigInteger::FromByteArray(bytesLE, false, false);
+
+    BigInteger x3 = BigInteger::FromByteArray(bytesLE, false, ByteOrder::LittleEndian);
     ASSERT_FALSE(x3.IsNegative());
     ASSERT_EQ(x3, x);
   }
+}
+
+REGISTER_TEST(Serialization, OddLengthByteArrays)
+{
+  using ByteOrder = BigInteger::ByteOrder;
+
+  // 5 bytes: partial top limb in both limb configurations.
+  {
+    std::vector<uint8_t> be = {0x01, 0x02, 0x03, 0x04, 0x05};
+    BigInteger x = BigInteger::FromByteArray(be, false);
+    ASSERT_EQ(x, BigIntegerBuilder::From(0x0102030405ULL));
+
+    auto rt = x.ToByteArray();
+    ASSERT_EQ(rt.size(), be.size());
+    for (size_t i = 0; i < rt.size(); ++i)
+      ASSERT_EQ(rt[i], be[i]);
+  }
+
+  // 9 bytes: partial top limb above a full 64-bit limb.
+  {
+    std::vector<uint8_t> be = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
+    BigInteger x = BigInteger::FromByteArray(be, false);
+    // 0x010203040506070809
+    ASSERT_EQ(ToString(x), std::string("18591708106338011145"));
+
+    auto rt = x.ToByteArray();
+    ASSERT_EQ(rt.size(), be.size());
+    for (size_t i = 0; i < rt.size(); ++i)
+      ASSERT_EQ(rt[i], be[i]);
+
+    BigInteger x2 = BigInteger::FromByteArray(x.ToByteArray(ByteOrder::LittleEndian), false, ByteOrder::LittleEndian);
+    ASSERT_EQ(x2, x);
+  }
+}
+
+REGISTER_TEST(Serialization, MultiLimbRoundTrip)
+{
+  using ByteOrder = BigInteger::ByteOrder;
+
+  // 17 bytes: 3 limbs at 64-bit limbs, 5 limbs at 32-bit limbs; the top limb
+  // is partial in both configurations.
+  std::vector<uint8_t> be;
+  for (uint8_t v = 1; v <= 17; ++v)
+    be.push_back(v);
+
+  BigInteger x = BigInteger::FromByteArray(be, false);
+  // 0x0102030405060708090a0b0c0d0e0f1011
+  ASSERT_EQ(ToString(x), std::string("342956481330728537355412814650493833233"));
+  ASSERT_EQ(x.size(), (be.size() + LimbBits / 8 - 1) / (LimbBits / 8));
+
+  auto rtBE = x.ToByteArray(ByteOrder::BigEndian);
+  ASSERT_EQ(rtBE.size(), be.size());
+  for (size_t i = 0; i < rtBE.size(); ++i)
+    ASSERT_EQ(rtBE[i], be[i]);
+
+  auto le = x.ToByteArray(ByteOrder::LittleEndian);
+  ASSERT_EQ(le.size(), be.size());
+  for (size_t i = 0; i < le.size(); ++i)
+    ASSERT_EQ(le[i], be[be.size() - 1 - i]);
+
+  BigInteger x2 = BigInteger::FromByteArray(le, false, ByteOrder::LittleEndian);
+  ASSERT_EQ(x2, x);
+}
+
+REGISTER_TEST(Serialization, LeadingZeroBytes)
+{
+  using ByteOrder = BigInteger::ByteOrder;
+
+  BigInteger expected = BigIntegerBuilder::From(0x0102ULL);
+
+  // Big-endian input with leading zero bytes parses to the same value.
+  std::vector<uint8_t> paddedBE = {0x00, 0x00, 0x00, 0x01, 0x02};
+  BigInteger x = BigInteger::FromByteArray(paddedBE, false, ByteOrder::BigEndian);
+  ASSERT_EQ(x, expected);
+
+  // Little-endian input with trailing zero bytes parses to the same value.
+  std::vector<uint8_t> paddedLE = {0x02, 0x01, 0x00, 0x00, 0x00};
+  BigInteger y = BigInteger::FromByteArray(paddedLE, false, ByteOrder::LittleEndian);
+  ASSERT_EQ(y, expected);
+
+  // Serialization is canonical: zero padding never round-trips.
+  auto bytes = x.ToByteArray(ByteOrder::BigEndian);
+  ASSERT_EQ(bytes.size(), 2u);
+  ASSERT_EQ(bytes[0], 0x01u);
+  ASSERT_EQ(bytes[1], 0x02u);
 }
