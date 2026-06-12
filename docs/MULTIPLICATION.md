@@ -827,3 +827,29 @@ Implemented exactly (two-step recursive decomposition with carry tracking) on br
 - `tests/mult_correctness.cpp` — cross-algorithm correctness harness.
 - `tests/performance/bench_vs_gmp.cpp` — GMP comparison.
 - `tests/performance/dispatch_tuner.cpp` — reports recommended dispatch constants for the current machine.
+
+
+## NEON radix-8 butterflies via Shoup multiplication (2026-06-11)
+
+The CRT NTT's radix-8 butterfly layers gained 4-lane NEON variants
+(`ForwardRadix8LayerNeon` / `InverseRadix8LayerNeon`, `BIGMATH_NEON`, default on
+for aarch64). The old NEON rejection applied to the Goldilocks field (needs
+64×64→128 multiplies NEON doesn't have); the 3-prime CRT path works on 30-bit
+primes in 32-bit lanes, and the twiddle multiplies use **Shoup's method** —
+`Plan` carries companion tables `shoup[k] = floor(roots[k]·2^32/P)`, so
+`(w·x) mod P` needs only a 32×32 widening multiply (`vmull_u32`), a low-32
+multiply, and one conditional subtract. Bit-exact with the scalar `(a·b) % P`
+path; the standalone butterfly kernel measures ~4× over scalar.
+
+**Size-gated at `n ≤ 2^20` coefficients (`BIGMATH_NEON_NTT_MAX`).** Above that
+the working set leaves L2 and the layer goes memory-bound; the separate Shoup
+table doubles strided twiddle-cache traffic and turns the compute win into a
+15–30% loss (measured at `n = 2^21`). MFA leaf sub-FFTs (`n ≤ 2^13`) always
+qualify. Recovering the >2^20 band needs an interleaved `(w, w')` table layout
+(one cache line per twiddle pair) — recorded as follow-up.
+
+End-to-end paired (M1 Max, heavy ambient load — directions reliable, magnitudes
+approximate): mul 100k digits **−40%**, mul 1M **−8…30%**, mul 4M −13%, skewed
+div 1M/200k **−19…28%**, ≥6M digits unchanged (gated). Verified bit-exact via
+`mult_correctness`/`div_correctness` (NTT vs Karatsuba/classic limb-for-limb),
+246 unit tests, and the division stress suites.
