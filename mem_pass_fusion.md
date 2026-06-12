@@ -29,6 +29,36 @@ i.e. F2's tiling for PARALLELISM first, byte savings second. F3 likewise:
 fold pack into stage A only if it keeps ≥6 concurrent units.
 Re-run the 2-process probe after each step; once a single multiply
 saturates bandwidth, byte-cutting resumes being the lever.
+
+## VALIDATION RESULTS (2026-06-12, post-merge, quiet machine load <2.7)
+
+Warm-state raw-limb suite, best-of-3 × 3 interleaved rounds vs pre-#107
+(full table in BENCHMARK.md "MFA pass fusion" section):
+
+- Balanced 50M/100M/200M digits: 1.09×/1.12×/1.17× → **0.90×/0.94×/0.97×**
+  vs GMP — BigMath now meets/beats GMP at every balanced size ≥500k digits.
+- 10:1 skew 50M/100M/200M digits: 0.47×/0.75×/0.84× → **0.39×/0.62×/0.70×**.
+- Division 100M÷20M, 200M÷40M digits: **unchanged** (1.34→1.37×,
+  1.36→1.43× — within round-to-round spread). Newton does NOT inherit:
+  its products route through MultiplyMod2km1 (cyclic, capped n ≤ 2^22,
+  below the MFA gate by design) and the prepared-operand path
+  (PrepareOperand / Multiply(prepared, other)), which has NO MFA at all.
+- 2-proc probe post-#107: +38%/proc, 1.45× aggregate → single multiply now
+  ~69% of bandwidth (was 64%). Still unsaturated; parallelism-first holds.
+
+## Next-lever ranking (revised after validation)
+
+1. **Division MFA routing** — the widest gap left (1.37–1.44× vs GMP).
+   Add MFA to the prepared-operand transform path (its forward/inverse are
+   plain Forward/Inverse), and/or raise the cyclic cap with an MFA-aware
+   MultiplyMod2km1. Newton's big linear multiplies then inherit #107's
+   1.20× automatically.
+2. F3 pack fusion (parallelism-first): PackOperand is a serial sweep
+   writing 6 planes, plus 12 serial plane zero-fills (assign(n,0)) —
+   ~1.6 GB serial at 10M limbs. Fold into stage A's ParallelDo(6) gather.
+3. F2 finalize chunking: FinalizeProduct serial but small (~0.4% in the
+   old profile). Only if the probe shows saturation or its share grew.
+4. F4 transpose audit: unchanged.
 Owner note: this is the last identified structural performance lever. Every
 band below 50M digits is at or better than GMP parity; the 50M–200M-digit
 band (balanced mul 1.28–1.33×, div 1.23–1.37× vs GMP) is

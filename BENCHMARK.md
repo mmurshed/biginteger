@@ -76,7 +76,29 @@ Skewed (`a.size() >> b.size()`):
 - **BigMath beats GMP on balanced multiplication across the entire 500k–10M-digit band — by 1.5–2.4×** (5M×5M: 26.2 vs 63.4 ms). The NEON Shoup butterflies (PR #96), interleaved twiddle tables (#98), and tail layers (#99) compound with the radix-8 fused chain and multithreaded CRT; the dispatch retune (#97, NTT entry 5120 → 1280 limbs) extended NTT routing down to ~14k digits.
 - **Skewed multiplication beats GMP across 500k×50k – 5M×500k (0.56–0.74×).**
 - Sub-NTT sizes (≤ ~13k digits) stay on Karatsuba where GMP's hand-tuned basecase keeps a 2.2–3.3× lead; 50k–100k digits are near parity.
-- **50M+ rows re-measured 2026-06-12 after the MFA correctness fix (PR #103)**: the MFA inverse cross-twiddle had been mis-ordered since 2026-05-31 (PR #72), so every pre-#103 measurement in this band was a wrong-result timing. Post-fix: balanced 50M–200M at 1.28–1.33×, skewed 50M–200M **beating GMP at 0.47–0.83×**.
+- **50M+ rows re-measured 2026-06-12 after the MFA correctness fix (PR #103)**: the MFA inverse cross-twiddle had been mis-ordered since 2026-05-31 (PR #72), so every pre-#103 measurement in this band was a wrong-result timing. Post-fix: balanced 50M–200M at 1.28–1.33×, skewed 50M–200M **beating GMP at 0.47–0.83×**. **Superseded in this band by PR #107 — see the next section: balanced 50M–200M now 0.90–0.97×.**
+
+### MFA pass fusion + row-chunked stages (PR #107, 2026-06-12)
+
+PR #107 fused the pointwise multiply into operand B's last forward MFA stage (`FusedForwardBMul` — fb's spectrum never reaches DRAM) and split the forward and inverse MFA stages into `ParallelDo(6)` (prime, half-row-range) work units; the old inverse batched whole per-prime transforms in `ParallelDo(3)`, idling cores for a third of the multiply. Net ≈1.20× in the MFA band — **BigMath now meets or beats GMP on balanced multiplication at every size from 500k digits up, and on every measured skew shape ≥500k digits.**
+
+Warm-state methodology (NOT comparable to the cold single-iter rows above): raw-limb operands, first call discarded (plan build + first-touch page faults), best-of-3 warm × 3 interleaved rounds vs pre-#107 build, GMP timed identically in-process. M1 Max, load < 2.7 during measurement. `≈digits = limbs × 19.27`:
+
+| shape | limbs | pre-#107 ms | post ms | GMP ms | BM/GMP was → now |
+|---|---|---:|---:|---:|---|
+| balanced ≈50M digits | 2.6M × 2.6M | 738.1 | **610.5** | 675.1 | 1.09× → **0.90×** |
+| balanced ≈100M digits | 5.2M × 5.2M | 1 569.5 | **1 314.1** | 1 397.5 | 1.12× → **0.94×** |
+| balanced ≈200M digits | 10.4M × 10.4M | 3 363.3 | **2 766.8** | 2 846.6 | 1.17× → **0.97×** |
+| 10:1 skew ≈50M×5M | 2.6M × 260k | 311.5 | **260.9** | 666.1 | 0.47× → **0.39×** |
+| 10:1 skew ≈100M×10M | 5.2M × 520k | 746.7 | **618.7** | 996.5 | 0.75× → **0.62×** |
+| 10:1 skew ≈200M×20M | 10.4M × 1.04M | 1 581.9 | **1 319.3** | 1 893.7 | 0.84× → **0.70×** |
+| div ≈100M÷20M digits | 5.2M ÷ 1.04M | 3 091.0 | 3 151.9 | 2 305.4 | 1.34× → 1.37× (no change) |
+| div ≈200M÷40M digits | 10.4M ÷ 2.08M | 6 109.7 | 6 319.3 | 4 415.1 | 1.36× → 1.43× (no change) |
+
+Two structural findings from this work:
+
+- **The band is no longer purely memory-bandwidth-bound post-NEON.** A 2-concurrent-process probe shows one multiply draws ~64–69% of the M1 Max's DRAM bandwidth; pure pass-cutting that sacrificed work-unit concurrency regressed 1.47×. Parallelism is the current lever (mem_pass_fusion.md carries the revised analysis).
+- **Division did not inherit the win** (~1% movement): Newton's inner products route through the cyclic `MultiplyMod2km1` path (capped at `n ≤ 2^22`, below the MFA gate by design) and the prepared-operand path (`PrepareOperand`/`Multiply(prepared, other)`), which has no MFA at all. Large division (1.37–1.44× vs GMP) is now the widest remaining gap.
 
 ### MFA focused threshold check
 
