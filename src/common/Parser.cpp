@@ -16,6 +16,7 @@
 #include "biginteger/algorithms/division/NewtonDivision.h"
 
 #include <memory>
+#include <bit>
 #include <cmath>
 #include <unordered_map>
 #include <utility>
@@ -405,7 +406,17 @@ namespace BigMath
       return s;
     }
 
-    auto const &chain = GetDecimalDcChain(approxDigits / 2);
+    // Round the chain top up to a 1/16-octave grid so nearby digit counts
+    // share one cached chain. The cache key used to be the EXACT digit count:
+    // workloads converting many values of slightly different lengths rebuilt
+    // the whole divider chain (the dominant cold cost) on every call. The
+    // rounded top makes the first split at worst ~56/44 instead of exactly
+    // half — benign, unlike the 73/27 power-of-2-tower split documented in
+    // STRING_CONVERSION.md.
+    SizeT grid = std::max<SizeT>(SizeT(1) << (std::bit_width(approxDigits) - 5), 1);
+    SizeT rounded = ((approxDigits + grid - 1) / grid) * grid;
+
+    auto const &chain = GetDecimalDcChain(rounded / 2);
     ToStringDivConquer(std::move(r), chain, 0, 0, s);
     return s;
   }

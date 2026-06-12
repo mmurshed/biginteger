@@ -853,3 +853,18 @@ approximate): mul 100k digits **−40%**, mul 1M **−8…30%**, mul 4M −13%, 
 div 1M/200k **−19…28%**, ≥6M digits unchanged (gated). Verified bit-exact via
 `mult_correctness`/`div_correctness` (NTT vs Karatsuba/classic limb-for-limb),
 246 unit tests, and the division stress suites.
+
+
+## Karatsuba leaf — 2-row unrolling rejected, threshold 48 → 32 (2026-06-12)
+
+Closing the sub-13k-digit gap vs GMP (2.2–3.3×) was attempted at the
+`MultiplyClassicPtr` leaf. A 2-row outer-unrolled schoolbook (two independent
+carry chains per pass, classic `addmul_2` shape) was built and validated
+bit-exact — and measured **flat** (0.94–1.03× at 32–512 limbs): the M1's
+out-of-order core already overlaps the single-row carry chain with the
+independent multiply stream, so the manual ILP buys nothing in C++. The
+remaining gap is GMP's hand-scheduled assembly basecase (dedicated register
+allocation, `mulx`-style chains) and is not reachable from portable C++ on
+this core. `BIGMATH_KARATSUBA_THRESHOLD` re-swept post-NEON: 48 → 32
+(~3% at 10k digits; deeper recursion reaches the NEON-fast NTT band sooner
+via the dispatcher's lower entry).
