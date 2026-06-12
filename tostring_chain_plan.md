@@ -1,6 +1,6 @@
 # ToString Chain Optimization Plan
 
-Status: PLANNED (written 2026-06-12, post PR #107–#112 MFA run).
+Status: DONE (T1 executed 2026-06-12, PR #118; see outcome at bottom).
 This is the largest user-visible gap left vs GMP: ToString at 100k–2M
 digits runs 1.85–4.0× GMP's time; at ≥5M digits the warm steady state is
 already 1.17–1.28× (near parity) and the residual is cold chain build.
@@ -142,3 +142,41 @@ ToString output is end-to-end checkable — byte equality vs
 
 Target: 100k digits 4.0× → ≤2×; 1M 2.16× → ≤1.3×; warm 5M–20M from
 1.17–1.28× → parity or better.
+
+## Outcome (2026-06-12, executed)
+
+Cold/warm split (new `tostring_bench` columns) attributed the time
+exactly as hypothesized: chain build ≈ 40-60% of cold, serial divmod
+tree the rest. T1 alone beat every target (PR #118):
+
+| digits | warm before | after | GMP | ratio |
+|---|---:|---:|---:|---|
+| 100k | 5.4 ms | 3.0 | 2.4 | 1.25× (target ≤2×) |
+| 500k | 31.6 | 14.4 | 20.8 | **0.69×** |
+| 1M | 67.5 | 28.1 | 49.0 | **0.57×** (target ≤1.3×) |
+| 2M | 144.0 | 59.0 | 119.1 | **0.50×** |
+| 10M | 1062 | 481 | 908 | **0.53×** |
+
+ToString beats GMP from 500k digits up. Shape: serial descent through
+the top 3 divmod levels (threaded NTT inside), 8 fixed-width subtrees,
+one ParallelDo, memcpy at precomputed offsets. Prerequisite: ParallelDo
+made safely reentrant (thread_local depth guard runs nested dispatches
+inline) — the pool's single work slot was a latent corruption hazard
+for ANY nested use. Splits=4 measured equal-or-worse than 3.
+
+- **T2: deferred.** Feasible (ApproxReciprocal's doubling loop has clean
+  (R, cur_n) warm-start state; seed = square of the half-level
+  reciprocal with normalization-shift bookkeeping) but cold-only,
+  ~30-40% of chain build ≈ 13 ms at 1M, with fiddly ±1-limb alignment
+  edge cases — worst ROI of the plan now that warm beats GMP. Revisit
+  only if one-shot conversions show up in a real workload.
+- **T3: skipped** — no mixed-size workload; grid-rounded cache (PR #102)
+  already covers nearby sizes.
+- **T4: swept, defaults confirmed.** ToStringDcThreshold 256-4096 and
+  parse DecimalDcThreshold 1024-8192 vs defaults 1024/2048: differences
+  at/below the ~5-10% run-noise floor except parse ≥4096 (clearly
+  worse, 1M parse 31.7→36.8 ms). `BIGMATH_PARSE_DC_THRESHOLD` is now an
+  override hook like the ToString one.
+- **Dead end (documented in code):** ParallelDo over the chain's divider
+  builds regresses cold 10-55% — level-1/2 reciprocal builds lose their
+  internal threaded NTT when run serial-inline on a worker.

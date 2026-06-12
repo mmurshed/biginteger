@@ -28,6 +28,34 @@ static std::string RandomDigits(int digits, std::mt19937 &gen)
   return v;
 }
 
+// ─── parallel ToString fan-out band (≥ BIGMATH_TOSTR_PARALLEL_THRESHOLD) ────
+
+// Byte equality of the round trip is the oracle — any offset-math error in
+// the parallel subtree fan-out corrupts the string. All-9s exercises the
+// carry boundary in every subtree; a power of 10 exercises the IsZero/padTo
+// zero-fill paths.
+static void CheckRoundTrip(std::string const &s)
+{
+  BigInteger v = Parse(s.c_str());
+  ASSERT_EQ(ToString(v), s);
+}
+
+REGISTER_TEST(ToStringParallel, RandomLarge)
+{
+  std::mt19937 gen(0x7051);
+  CheckRoundTrip(RandomDigits(250000, gen));
+}
+
+REGISTER_TEST(ToStringParallel, AllNines)
+{
+  CheckRoundTrip(std::string(150000, '9'));
+}
+
+REGISTER_TEST(ToStringParallel, PowerOfTen)
+{
+  CheckRoundTrip("1" + std::string(150000, '0'));
+}
+
 // ─── parse basics ────────────────────────────────────────────────────────────
 
 REGISTER_TEST(Parse, EmptyAndNullSafe)

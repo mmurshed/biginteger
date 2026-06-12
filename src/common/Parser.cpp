@@ -15,6 +15,9 @@
 #include "biginteger/algorithms/division/ClassicDivision.h"
 #include "biginteger/algorithms/division/NewtonDivision.h"
 
+#include "biginteger/common/Parallel.h"
+
+#include <cstring>
 #include <memory>
 #include <bit>
 #include <cmath>
@@ -296,10 +299,22 @@ namespace BigMath
       AppendPaddedUnsignedDecimal(*it, Base10_19_Zeroes, out);
   }
 
+// Parallel ToString fan-out (T1): depth of serial descent before the one
+// ParallelDo dispatch (2^splits subtrees), and the digit count below which
+// the fan-out isn't worth the extra copy + dispatch.
+#ifndef BIGMATH_TOSTR_PARALLEL_SPLITS
+#define BIGMATH_TOSTR_PARALLEL_SPLITS 3
+#endif
+#ifndef BIGMATH_TOSTR_PARALLEL_THRESHOLD
+#define BIGMATH_TOSTR_PARALLEL_THRESHOLD 100000
+#endif
+
   // Chain entry: 10^digits + its precomputed Newton-reciprocal divider.
   // Built top-down so each level splits its parent in half — balanced T(N) = 2T(N/2) + M(N).
   namespace
   {
+    constexpr int ToStringParallelSplits = BIGMATH_TOSTR_PARALLEL_SPLITS;
+    constexpr SizeT ToStringParallelThreshold = BIGMATH_TOSTR_PARALLEL_THRESHOLD;
     SizeT EstimateDecimalDigits(std::vector<DataT> const &r)
     {
 #if BIGMATH_LIMB_64
@@ -328,6 +343,10 @@ namespace BigMath
         DecimalDcEntry e;
         e.digits = d;
         e.value = Pow10(d);
+        // NOTE: building the dividers in a ParallelDo over levels was tried
+        // (2026-06-12) and REGRESSES cold ToString 10-55%: the level-1/2
+        // reciprocal builds lose their internal threaded NTT when run
+        // serial-inline on a worker, which costs more than the fan-out wins.
         e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
       }
@@ -382,6 +401,93 @@ namespace BigMath
       ToStringDivConquer(std::move(q), chain, level + 1, topPad, out);
       ToStringDivConquer(std::move(r), chain, level + 1, half, out);
     }
+
+#if BIGMATH_USE_THREADS
+    // T1 (tostring_chain_plan.md): the D&C recursion is embarrassingly
+    // parallel below the first few divmods — every subtree's output is a
+    // fixed-width field (value < 10^padTo by construction), so the substrings
+    // land at disjoint, precomputable offsets. Descend serially through the
+    // top `splits` levels (those divmods are the big O(M(L)) ones and thread
+    // internally via NTT), collect the subtrees, then convert them with ONE
+    // ParallelDo dispatch — the pool is non-reentrant by design and nested
+    // dispatches run inline (Parallel.cpp tl_chunkDepth guard).
+    struct ToStringSubtree
+    {
+      std::vector<DataT> n;
+      SizeT level;
+      SizeT padTo;
+    };
+
+    void CollectToStringSubtrees(
+        std::vector<DataT> n,
+        std::vector<DecimalDcEntry> const &chain,
+        SizeT level,
+        SizeT padTo,
+        int splits,
+        std::vector<ToStringSubtree> &items)
+    {
+      if (splits == 0 || level >= chain.size() || IsZero(n))
+      {
+        items.push_back({std::move(n), level, padTo});
+        return;
+      }
+      // n smaller than this level's divisor → top half empty; descend without
+      // consuming a split (no fan-out happened).
+      if (Compare(n, chain[level].value) < 0)
+      {
+        CollectToStringSubtrees(std::move(n), chain, level + 1, padTo, splits, items);
+        return;
+      }
+      std::vector<DataT> q;
+      std::vector<DataT> r;
+      chain[level].divider->DivideAndRemainderInto(n, q, r);
+      SizeT half = chain[level].digits;
+      SizeT topPad = (padTo > half) ? padTo - half : 0;
+      CollectToStringSubtrees(std::move(q), chain, level + 1, topPad, splits - 1, items);
+      CollectToStringSubtrees(std::move(r), chain, level + 1, half, splits - 1, items);
+    }
+
+    void ToStringDivConquerParallel(
+        std::vector<DataT> n,
+        std::vector<DecimalDcEntry> const &chain,
+        std::string &out)
+    {
+      std::vector<ToStringSubtree> items;
+      items.reserve((SizeT)1 << ToStringParallelSplits);
+      CollectToStringSubtrees(std::move(n), chain, 0, 0, ToStringParallelSplits, items);
+
+      // Head subtree carries padTo = 0 (variable width — no leading zeros) so
+      // its length is unknown until converted; do it serially. Everything
+      // after it is fixed-width.
+      ToStringDivConquer(std::move(items[0].n), chain, items[0].level, items[0].padTo, out);
+
+      SizeT m = (SizeT)items.size();
+      if (m <= 1)
+        return;
+
+      std::vector<SizeT> offset(m);
+      SizeT pos = out.size();
+      for (SizeT i = 1; i < m; ++i)
+      {
+        offset[i] = pos;
+        pos += items[i].padTo;
+      }
+      out.resize(pos);
+
+      ParallelDo((Int)(m - 1), [&](Int start, Int end) {
+        for (Int t = start; t < end; ++t)
+        {
+          SizeT i = (SizeT)t + 1;
+          std::string part;
+          part.reserve(items[i].padTo);
+          ToStringDivConquer(std::move(items[i].n), chain, items[i].level, items[i].padTo, part);
+          if (part.size() != items[i].padTo)
+            std::abort(); // fixed-width invariant broken — corrupt output otherwise
+          std::memcpy(&out[offset[i]], part.data(), part.size());
+        }
+      });
+    }
+#endif
   } // namespace
 
   std::string ToString(std::vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg)
@@ -417,6 +523,14 @@ namespace BigMath
     SizeT rounded = ((approxDigits + grid - 1) / grid) * grid;
 
     auto const &chain = GetDecimalDcChain(rounded / 2);
+#if BIGMATH_USE_THREADS
+    if (approxDigits >= ToStringParallelThreshold && ParallelNumThreads() > 1 &&
+        chain.size() >= (SizeT)ToStringParallelSplits)
+    {
+      ToStringDivConquerParallel(std::move(r), chain, s);
+      return s;
+    }
+#endif
     ToStringDivConquer(std::move(r), chain, 0, 0, s);
     return s;
   }

@@ -39,7 +39,10 @@ namespace BigMath
   // multiplication has broad carry headroom across both limb modes.
   inline constexpr ULong Base10_19 = 10000000000000000000ULL;
   inline constexpr SizeT Base10_19_Zeroes = 19;
-  inline constexpr SizeT DecimalDcThreshold = 2048;
+#ifndef BIGMATH_PARSE_DC_THRESHOLD
+#define BIGMATH_PARSE_DC_THRESHOLD 2048
+#endif
+  inline constexpr SizeT DecimalDcThreshold = BIGMATH_PARSE_DC_THRESHOLD;
 
 #ifndef BIGMATH_TOSTR_DC_THRESHOLD
 #define BIGMATH_TOSTR_DC_THRESHOLD 1024
