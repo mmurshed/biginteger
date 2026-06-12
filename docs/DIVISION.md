@@ -594,7 +594,9 @@ which reconstructs `rem = (chunk − W) mod (B^L − 1)` and reads the sign of t
 limbs; disjoint because `L ≥ n+2` and quotient-estimate error is O(n) ≪ B). Fixup loops and the
 `FIXUP_LIMIT` bail-to-FastDivision semantics are unchanged. Gated on: power-of-two base,
 `BIGMATH_NTT_CRT`, `Q+n ≥ NTT_MULTIPLICATION_THRESHOLD`, cyclic length strictly below the linear
-length, and `N ≤ 2^22` (CRT coefficient-sum headroom; below the MFA permuted regime).
+length, and `N ≤ 2^26` (the CRT ceiling — raised from 2^22 in PR #110, which also routed the
+cyclic transforms through the fused MFA pipeline; the MFA permutation cancels in the
+pointwise product, so the old below-MFA restriction was unnecessary).
 
 Measured (M1 Max, paired back-to-back runs):
 

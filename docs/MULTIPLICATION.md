@@ -82,7 +82,7 @@ flowchart TD
     N --> C1{CRT enabled<br/>AND size ≥ CRT_THRESHOLD?}
     C1 -- no --> G[Goldilocks NTT]
     C1 -- yes --> C2[3-prime CRT NTT]
-    C2 --> C3{transform n ≥ 2^24?}
+    C2 --> C3{transform n ≥ 2^20?}
     C3 -- yes --> MFA[MFA / Bailey 6-step]
     C3 -- no --> R8[radix-8 CRT NTT]
 ```
@@ -97,10 +97,10 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Secondary Classic guard |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `64` | min of limbs | Classic for tiny high-skew products |
 | `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | tiny high-skew Classic guard |
-| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `2560` | sum of limbs | Karatsuba below, Toom-3 above |
-| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `5120` | sum of limbs | Toom-3 below, NTT above |
-| `BIGMATH_NTT_CRT_THRESHOLD` | `5000` | sum of limbs | CRT NTT vs Goldilocks NTT |
-| `BIGMATH_NTT_MFA_THRESHOLD` | `2^24` | transform coefficients | MFA vs radix-8 CRT NTT |
+| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `1280` | sum of limbs | Karatsuba below (Toom-3 window retired post-NEON) |
+| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `1280` | sum of limbs | Karatsuba below, NTT above |
+| `BIGMATH_NTT_CRT_THRESHOLD` | `256` | sum of limbs | CRT NTT vs Goldilocks NTT (CRT effectively always) |
+| `BIGMATH_NTT_MFA_THRESHOLD` | `2^20` | transform coefficients | MFA vs radix-8 CRT NTT (2^24 → 2^20 in PR #109) |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `48` | max of operands | Inside Karatsuba: base-case cutoff |
 
 `Toom-Cook 3` is now in the default dispatch for a narrow pre-NTT band. `Toom-5` is implemented and correctness-tested but **not in the default dispatch** — see [Toom-5](#toom-5) for why.
@@ -429,7 +429,7 @@ Hardware: Apple M1 Max. Reference library: GMP 6.3.0 (Homebrew). Refreshed 2026-
 
 **Reading these numbers.**
 
-- **Balanced multiplication wins from 5M through 10M digits and is near parity at 20M.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior sweet spot. Raising the MFA gate to `2^24` improved the 10M balanced row by about 8% (114 ms → 105 ms) by avoiding early MFA.
+- **Balanced multiplication wins from 5M through 10M digits and is near parity at 20M.** Radix-4 + radix-8 fused butterflies (PRs #59, #60) widened the prior sweet spot. Raising the MFA gate to `2^24` improved the 10M balanced row by about 8% (114 ms → 105 ms) by avoiding early MFA. (Historical: the gate later returned to `2^20` in PR #109 once the row-chunked fused stages flipped the break-even.)
 - **GMP recovers at ≥50M via Schönhage-Strassen.** The 2026-05-27 retuned run measured 1.86× at 50M and 2.04× at 100M. MFA remains valuable at very large limb counts, but the 100M row is noisy. BigMath's CRT NTT inner loop is still scalar 32-bit modular ops; the remaining high-risk/high-reward lever is a real CRT butterfly SIMD/assembly path (see [Future opportunities](#future-opportunities)).
 - **Skewed mults:** 500k×50k, 2M×200k, and 50M×5M are parity; 1M×100k is a BigMath win. Raising the MFA gate gives up the earlier 50M×5M early-MFA win but improves the balanced sweet spot.
 
@@ -547,7 +547,7 @@ The threaded gain is smaller because normal CRT multiplication already runs the 
 
 ### Matrix Fourier Algorithm (MFA) / Bailey 6-step for CRT NTT (2026-05-27)
 
-Recursive 2D layout for each per-prime NTT once length reaches `BIGMATH_NTT_MFA_THRESHOLD` (default 2^24 coefficients). The threshold is in NTT coefficients, not source limbs. For Base2_64 balanced multiplication with `L` limbs per operand, the CRT coefficient count is roughly `4L`, so the current gate starts around 2M limbs per operand (≈40M decimal digits). For length `N = N1·N2`:
+Recursive 2D layout for each per-prime NTT once length reaches `BIGMATH_NTT_MFA_THRESHOLD` (default 2^20 coefficients since PR #109; it was 2^24 before the row-chunked fused stages flipped the break-even). The threshold is in NTT coefficients, not source limbs. For Base2_64 balanced multiplication with `L` limbs per operand, the CRT coefficient count is roughly `4L`, so the current gate starts around 128k limbs per operand (≈2.5M decimal digits). For length `N = N1·N2`:
 
 1. Transpose `N2×N1 → N1×N2`
 2. `N1` forward sub-FFTs of length `N2` along rows
@@ -588,7 +588,7 @@ Landed result (warm best-of-3 ×3 interleaved rounds vs pre-fusion baseline, M1 
 
 This retune keeps the radix-8 CRT path through the measured regression band and enables MFA at `2^24+`, where the earlier on/off sweep showed wins. The main tradeoff is skewed `50M×5M`: it no longer trips MFA and moves from a clear BigMath win to parity, while balanced `10M×10M` improves by about 8%.
 
-Gate via `BIGMATH_NTT_MFA` (default 1) and `BIGMATH_NTT_MFA_THRESHOLD` (default 2^24). Leaf size `BIGMATH_NTT_MFA_LEAF` (default 2^13) controls the recursion stopping point — sub-FFTs at or below the leaf size hit the existing radix-4/8 chain via `ForwardPtr`.
+Gate via `BIGMATH_NTT_MFA` (default 1) and `BIGMATH_NTT_MFA_THRESHOLD` (default 2^20). Leaf size `BIGMATH_NTT_MFA_LEAF` (default 2^13) controls the recursion stopping point — sub-FFTs at or below the leaf size hit the existing radix-4/8 chain via `ForwardPtr`.
 
 ### Karatsuba pointer-based workspace
 
@@ -691,7 +691,7 @@ CRT NTT (default ≥5000 limbs sum) operates on 30-bit primes with 32-bit coeffi
 
 ### Revisit MFA shape-aware gating
 
-The `2^24` threshold fixes balanced multiplication's early-MFA regression, but skewed `50M×5M` now falls back to the non-MFA path and lands at parity instead of the earlier early-MFA win. A future improvement would make the gate shape-aware rather than using only transform length, but that needs more shape data to avoid reintroducing the balanced regression.
+(Resolved 2026-06-12.) The `2^24` threshold era traded the skewed `50M×5M` early-MFA win for the balanced band. PR #107's row-chunked fused stages removed the trade-off entirely: the gate dropped to `2^20` (PR #109) with wins across both shapes, and the cyclic path joined the fused pipeline in PR #110.
 
 ### MFA recursion below the leaf
 
