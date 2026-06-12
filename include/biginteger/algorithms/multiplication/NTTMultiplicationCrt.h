@@ -2027,6 +2027,163 @@ namespace BigMath
     }
 #endif // BIGMATH_NTT_MFA
 
+#if BIGMATH_NTT_MFA
+    // True when n is in the single-level fused MFA window (n1, n2 <= LEAF —
+    // with LEAF = 2^13 this covers every admissible CRT length up to 2^26).
+    inline bool MfaFusedWindow(Int n)
+    {
+#if BIGMATH_NTT_MFA_FUSE
+      if (n <= BIGMATH_NTT_MFA_LEAF) return false;
+      Int n1, n2;
+      MFAFactor(n, n1, n2);
+      return n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF;
+#else
+      (void)n;
+      return false;
+#endif
+    }
+
+#if BIGMATH_NTT_MFA_FUSE
+    // Fused forward + pointwise for one operand pair across all three primes
+    // (pass fusion F1, mem_pass_fusion.md), parallelism-preserving form:
+    //   P1 — ParallelDo(6): stage A (gather + row FFT(n2) + cross-twiddle)
+    //        for all six operand×prime planes; independent units.
+    //   P2 — ParallelDo(6): unit = (prime, half of the n2 output rows).
+    //        Each unit runs fa's stage B on its row range, then fb's stage B
+    //        over the same range with the pointwise multiply fused into the
+    //        scatter (FusedForwardBMul): fa[i] = fa[i] · fb^[i]. fb's
+    //        spectrum never reaches DRAM and no standalone pointwise sweep
+    //        is needed, while the forward keeps six concurrent work units
+    //        throughout.
+    // A first cut paired fa/fb whole-prime in ParallelDo(3); warm-state
+    // benches showed a 1.47× regression — this band does NOT saturate
+    // bandwidth from 3 cores. Row-level ParallelFor inside the stages can't
+    // restore the parallelism either: MFA stage row counts (n1, n2 ≤ 2^13)
+    // sit below ParallelMinSize() = 65536, so the internal gate never
+    // fires. ParallelDo bypasses MinSize.
+    // bufs = {fa1, fb1, fa2, fb2, fa3, fb3}; scrs = six scratch planes.
+    // Caller must pre-build the plan trees in the dispatching thread and
+    // guarantee MfaFusedWindow(n).
+    inline void MfaFusedForwardPointwise(UInt *const bufs[6], UInt *const scrs[6], Int n,
+                                         const MfaPlanTree<F1> &tree1,
+                                         const MfaPlanTree<F2> &tree2,
+                                         const MfaPlanTree<F3> &tree3)
+    {
+      Int n1 = 0, n2 = 0;
+      MFAFactor(n, n1, n2);
+      const UInt *fwd1 = tree1.Get(n).forwardRoots.data();
+      const UInt *fwd2 = tree2.Get(n).forwardRoots.data();
+      const UInt *fwd3 = tree3.Get(n).forwardRoots.data();
+      const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
+      const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
+      const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+      const Int *br = GetBitReverseTable(n2).data();
+
+      auto stageA = [bufs, scrs, n, n1, n2, fwd1, fwd2, fwd3,
+                     pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
+        for (Int idx = s; idx < e; ++idx)
+        {
+          switch (idx)
+          {
+            case 0: FusedForwardA<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+            case 1: FusedForwardA<F1>(bufs[1], scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
+            case 2: FusedForwardA<F2>(bufs[2], scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+            case 3: FusedForwardA<F2>(bufs[3], scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
+            case 4: FusedForwardA<F3>(bufs[4], scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+            case 5: FusedForwardA<F3>(bufs[5], scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
+          }
+        }
+      };
+      ParallelDo(6, stageA);
+
+      const Int half = n2 >> 1;
+      auto stageB = [bufs, scrs, n1, n2, half,
+                     pn1_1, pn1_2, pn1_3](Int s, Int e) {
+        for (Int idx = s; idx < e; ++idx)
+        {
+          Int r0s = (idx & 1) ? half : 0;
+          Int r0e = (idx & 1) ? n2 : half;
+          switch (idx >> 1)
+          {
+            case 0:
+              FusedForwardB<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
+              FusedForwardBMul<F1>(bufs[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
+              break;
+            case 1:
+              FusedForwardB<F2>(bufs[2], scrs[2], n1, n2, *pn1_2, r0s, r0e);
+              FusedForwardBMul<F2>(bufs[2], scrs[3], n1, n2, *pn1_2, r0s, r0e);
+              break;
+            case 2:
+              FusedForwardB<F3>(bufs[4], scrs[4], n1, n2, *pn1_3, r0s, r0e);
+              FusedForwardBMul<F3>(bufs[4], scrs[5], n1, n2, *pn1_3, r0s, r0e);
+              break;
+          }
+        }
+      };
+      ParallelDo(6, stageB);
+    }
+
+    // Row-chunked fused inverse for the three product planes. The 2-process
+    // probe showed a single multiply uses only ~64% of DRAM bandwidth, so
+    // ParallelDo(3) whole-transform units (3 cores busy) leave wall-clock on
+    // the table. Each fused inverse stage runs as (prime, half-row-range)
+    // units — 6 concurrent units per phase, same math; the barrier between
+    // the two ParallelDo calls is load-bearing (stage B row j reads scatter
+    // output from every stage A unit).
+    // bufs = {fa1, fa2, fa3}; scrs = three scratch planes. Same caller
+    // contract as MfaFusedForwardPointwise.
+    inline void MfaFusedInverse(UInt *const bufs[3], UInt *const scrs[3], Int n,
+                                const MfaPlanTree<F1> &tree1,
+                                const MfaPlanTree<F2> &tree2,
+                                const MfaPlanTree<F3> &tree3)
+    {
+      Int n1 = 0, n2 = 0;
+      MFAFactor(n, n1, n2);
+      const UInt *inv1 = tree1.Get(n).inverseRoots.data();
+      const UInt *inv2 = tree2.Get(n).inverseRoots.data();
+      const UInt *inv3 = tree3.Get(n).inverseRoots.data();
+      const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
+      const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
+      const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+      const Int *br = GetBitReverseTable(n2).data();
+
+      const Int halfA = n2 >> 1; // stage A iterates n2 rows of length n1
+      auto invStageA = [bufs, scrs, n1, n2, halfA,
+                        pn1_1, pn1_2, pn1_3](Int s, Int e) {
+        for (Int idx = s; idx < e; ++idx)
+        {
+          Int r0s = (idx & 1) ? halfA : 0;
+          Int r0e = (idx & 1) ? n2 : halfA;
+          switch (idx >> 1)
+          {
+            case 0: FusedInverseA<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e); break;
+            case 1: FusedInverseA<F2>(bufs[1], scrs[1], n1, n2, *pn1_2, r0s, r0e); break;
+            case 2: FusedInverseA<F3>(bufs[2], scrs[2], n1, n2, *pn1_3, r0s, r0e); break;
+          }
+        }
+      };
+      ParallelDo(6, invStageA);
+
+      const Int halfB = n1 >> 1; // stage B iterates n1 rows of length n2
+      auto invStageB = [bufs, scrs, n, n1, n2, halfB, inv1, inv2, inv3,
+                        pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
+        for (Int idx = s; idx < e; ++idx)
+        {
+          Int r0s = (idx & 1) ? halfB : 0;
+          Int r0e = (idx & 1) ? n1 : halfB;
+          switch (idx >> 1)
+          {
+            case 0: FusedInverseB<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, inv1, br, r0s, r0e); break;
+            case 1: FusedInverseB<F2>(bufs[1], scrs[1], n, n1, n2, *pn2_2, inv2, br, r0s, r0e); break;
+            case 2: FusedInverseB<F3>(bufs[2], scrs[2], n, n1, n2, *pn2_3, inv3, br, r0s, r0e); break;
+          }
+        }
+      };
+      ParallelDo(6, invStageB);
+    }
+#endif // BIGMATH_NTT_MFA_FUSE
+#endif // BIGMATH_NTT_MFA
+
     // ─── Public Multiply ─────────────────────────────────────────────────────
 
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
@@ -2082,78 +2239,11 @@ namespace BigMath
         UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
                            mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
 
-        Int n1 = 0, n2 = 0;
-        MFAFactor(n, n1, n2);
 #if BIGMATH_NTT_MFA_FUSE
-        if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+        if (MfaFusedWindow(n))
         {
-          // Pass fusion F1 (mem_pass_fusion.md), parallelism-preserving form.
-          //   P1 — ParallelDo(6): stage A (gather + row FFT(n2) + cross-
-          //        twiddle) for all six operand×prime planes; independent.
-          //   P2 — ParallelDo(6): unit = (prime, half of the n2 output
-          //        rows). Each unit runs fa's stage B on its row range, then
-          //        fb's stage B over the same range with the pointwise
-          //        multiply fused into the scatter (FusedForwardBMul):
-          //        fa[i] = fa[i] · fb^[i]. fb's spectrum never reaches DRAM
-          //        and the standalone pointwise sweep below is skipped,
-          //        while the forward keeps six concurrent work units
-          //        throughout.
-          // A first cut paired fa/fb whole-prime in ParallelDo(3); warm-
-          // state benches showed a 1.47× regression — this band does NOT
-          // saturate bandwidth from 3 cores. Row-level ParallelFor inside
-          // the stages can't restore the parallelism either: MFA stage row
-          // counts (n1, n2 ≤ 2^13) sit below ParallelMinSize() = 65536, so
-          // the internal gate never fires. ParallelDo bypasses MinSize.
-          const UInt *fwd1 = tree1.Get(n).forwardRoots.data();
-          const UInt *fwd2 = tree2.Get(n).forwardRoots.data();
-          const UInt *fwd3 = tree3.Get(n).forwardRoots.data();
-          const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
-          const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
-          const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
-          const Int *br = GetBitReverseTable(n2).data();
-
-          auto stageA = [bufs, scrs, n, n1, n2, fwd1, fwd2, fwd3,
-                         pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
-              {
-                case 0: FusedForwardA<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-                case 1: FusedForwardA<F1>(bufs[1], scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-                case 2: FusedForwardA<F2>(bufs[2], scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-                case 3: FusedForwardA<F2>(bufs[3], scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-                case 4: FusedForwardA<F3>(bufs[4], scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
-                case 5: FusedForwardA<F3>(bufs[5], scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
-              }
-            }
-          };
-          ParallelDo(6, stageA);
-
-          const Int half = n2 >> 1;
-          auto stageB = [bufs, scrs, n1, n2, half,
-                         pn1_1, pn1_2, pn1_3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              Int r0s = (idx & 1) ? half : 0;
-              Int r0e = (idx & 1) ? n2 : half;
-              switch (idx >> 1)
-              {
-                case 0:
-                  FusedForwardB<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
-                  FusedForwardBMul<F1>(bufs[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
-                  break;
-                case 1:
-                  FusedForwardB<F2>(bufs[2], scrs[2], n1, n2, *pn1_2, r0s, r0e);
-                  FusedForwardBMul<F2>(bufs[2], scrs[3], n1, n2, *pn1_2, r0s, r0e);
-                  break;
-                case 2:
-                  FusedForwardB<F3>(bufs[4], scrs[4], n1, n2, *pn1_3, r0s, r0e);
-                  FusedForwardBMul<F3>(bufs[4], scrs[5], n1, n2, *pn1_3, r0s, r0e);
-                  break;
-              }
-            }
-          };
-          ParallelDo(6, stageB);
+          // Pass fusion F1 + row-chunked stages — see MfaFusedForwardPointwise.
+          MfaFusedForwardPointwise(bufs, scrs, n, tree1, tree2, tree3);
           pointwiseFused = true;
         }
         else
@@ -2238,59 +2328,11 @@ namespace BigMath
         UInt *bufs[3] = {fa1.data(), fa2.data(), fa3.data()};
         UInt *scrs[3] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data()};
 
-        Int n1 = 0, n2 = 0;
-        MFAFactor(n, n1, n2);
 #if BIGMATH_NTT_MFA_FUSE
-        if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
+        if (MfaFusedWindow(n))
         {
-          // Row-chunked inverse: the 2-concurrent-process probe showed a
-          // single multiply uses only ~64% of DRAM bandwidth, so the old
-          // ParallelDo(3) (one whole per-prime inverse per unit, 3 cores
-          // busy) leaves wall-clock on the table. Split each fused inverse
-          // stage into (prime, half-row-range) units — 6 concurrent units
-          // per phase, same math, barrier between stages preserved (stage B
-          // row j reads scratch elements written by every stage A unit).
-          const UInt *inv1 = tree1.Get(n).inverseRoots.data();
-          const UInt *inv2 = tree2.Get(n).inverseRoots.data();
-          const UInt *inv3 = tree3.Get(n).inverseRoots.data();
-          const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
-          const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
-          const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
-          const Int *br = GetBitReverseTable(n2).data();
-
-          const Int halfA = n2 >> 1; // stage A iterates n2 rows of length n1
-          auto invStageA = [bufs, scrs, n1, n2, halfA,
-                            pn1_1, pn1_2, pn1_3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              Int r0s = (idx & 1) ? halfA : 0;
-              Int r0e = (idx & 1) ? n2 : halfA;
-              switch (idx >> 1)
-              {
-                case 0: FusedInverseA<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e); break;
-                case 1: FusedInverseA<F2>(bufs[1], scrs[1], n1, n2, *pn1_2, r0s, r0e); break;
-                case 2: FusedInverseA<F3>(bufs[2], scrs[2], n1, n2, *pn1_3, r0s, r0e); break;
-              }
-            }
-          };
-          ParallelDo(6, invStageA);
-
-          const Int halfB = n1 >> 1; // stage B iterates n1 rows of length n2
-          auto invStageB = [bufs, scrs, n, n1, n2, halfB, inv1, inv2, inv3,
-                            pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              Int r0s = (idx & 1) ? halfB : 0;
-              Int r0e = (idx & 1) ? n1 : halfB;
-              switch (idx >> 1)
-              {
-                case 0: FusedInverseB<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, inv1, br, r0s, r0e); break;
-                case 1: FusedInverseB<F2>(bufs[1], scrs[1], n, n1, n2, *pn2_2, inv2, br, r0s, r0e); break;
-                case 2: FusedInverseB<F3>(bufs[2], scrs[2], n, n1, n2, *pn2_3, inv3, br, r0s, r0e); break;
-              }
-            }
-          };
-          ParallelDo(6, invStageB);
+          // Row-chunked fused inverse — see MfaFusedInverse.
+          MfaFusedInverse(bufs, scrs, n, tree1, tree2, tree3);
         }
         else
 #endif
@@ -2351,8 +2393,12 @@ namespace BigMath
     //
     // Caller contract: L · coeffsPerLimb is a power of two (so the cyclic
     // length is an admissible NTT size), a.size() ≤ L, b.size() ≤ L, and
-    // N ≤ 2^22 (same CRT coefficient-sum headroom bound as the linear path,
-    // and safely below the MFA regime, which permutes coefficient order).
+    // N ≤ 2^26 (the CRT length ceiling: coefficient-sum headroom N·2^64 <
+    // p1·p2·p3 ≈ 2^90.5 and the primes' 2-adic order). The cap was 2^22
+    // while this path predated MFA support; the MFA permutation cancels
+    // between forward and pointwise (both operands share it) and the
+    // inverse returns natural order, so the fused MFA pipeline is valid
+    // here and engages at n ≥ BIGMATH_NTT_MFA_THRESHOLD (2026-06-12).
     // Returns the canonical residue in [0, B^L − 1), trimmed.
     inline std::vector<DataT> MultiplyMod2km1(const std::vector<DataT> &a,
                                               const std::vector<DataT> &b,
@@ -2364,8 +2410,8 @@ namespace BigMath
 
       SizeT coeffsPerLimb = CoeffsPerLimb(base);
       Int n = (Int)((ULong)L * coeffsPerLimb);
-      if (n <= 1 || (n & (n - 1)) != 0 || n > (1 << 22))
-        throw std::invalid_argument("MultiplyMod2km1: L*coeffsPerLimb must be a power of two <= 2^22");
+      if (n <= 1 || (n & (n - 1)) != 0 || n > (1 << 26))
+        throw std::invalid_argument("MultiplyMod2km1: L*coeffsPerLimb must be a power of two <= 2^26");
       if (a.size() > L || b.size() > L)
         throw std::invalid_argument("MultiplyMod2km1: operand exceeds L limbs");
 
@@ -2381,74 +2427,103 @@ namespace BigMath
       const auto &plan2 = GetPlan<F2, G2>(n);
       const auto &plan3 = GetPlan<F3, G3>(n);
 
-#if BIGMATH_USE_THREADS
+#if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+      // Same fused MFA pipeline as the linear path (forward + fused
+      // pointwise, row-chunked inverse). The MFA permutation cancels in the
+      // pointwise product and the inverse returns natural order, so the
+      // Garner walk below is unchanged. This is what makes the 2^26 cap
+      // usable: large cyclic transforms previously ran whole-transform
+      // ParallelDo(6/3) units that idle cores (the pre-#109 division
+      // profile: ~88% of compute in plain butterfly layers).
+      if (n >= BIGMATH_NTT_MFA_THRESHOLD && MfaFusedWindow(n))
       {
-        std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
-            {
-              case 0: Forward<F1>(*bufs[0], *p1); break;
-              case 1: Forward<F1>(*bufs[1], *p1); break;
-              case 2: Forward<F2>(*bufs[2], *p2); break;
-              case 3: Forward<F2>(*bufs[3], *p2); break;
-              case 4: Forward<F3>(*bufs[4], *p3); break;
-              case 5: Forward<F3>(*bufs[5], *p3); break;
-            }
-          }
-        };
-        ParallelDo(6, body);
+        static thread_local std::vector<UInt> cycScratch[6];
+        for (int i = 0; i < 6; ++i) cycScratch[i].assign(n, 0);
+        MfaPlanTree<F1> tree1;
+        MfaPlanTree<F2> tree2;
+        MfaPlanTree<F3> tree3;
+        BuildMfaPlanTree<F1, G1>(n, tree1);
+        BuildMfaPlanTree<F2, G2>(n, tree2);
+        BuildMfaPlanTree<F3, G3>(n, tree3);
+        UInt *bufs[6] = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
+        UInt *scrs[6] = {cycScratch[0].data(), cycScratch[1].data(), cycScratch[2].data(),
+                         cycScratch[3].data(), cycScratch[4].data(), cycScratch[5].data()};
+        MfaFusedForwardPointwise(bufs, scrs, n, tree1, tree2, tree3);
+        UInt *ibufs[3] = {fa1.data(), fa2.data(), fa3.data()};
+        MfaFusedInverse(ibufs, scrs, n, tree1, tree2, tree3);
       }
+      else
+#endif
+      {
+#if BIGMATH_USE_THREADS
+        {
+          std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
+          const Plan<F1> *p1 = &plan1;
+          const Plan<F2> *p2 = &plan2;
+          const Plan<F3> *p3 = &plan3;
+          auto body = [bufs, p1, p2, p3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              switch (idx)
+              {
+                case 0: Forward<F1>(*bufs[0], *p1); break;
+                case 1: Forward<F1>(*bufs[1], *p1); break;
+                case 2: Forward<F2>(*bufs[2], *p2); break;
+                case 3: Forward<F2>(*bufs[3], *p2); break;
+                case 4: Forward<F3>(*bufs[4], *p3); break;
+                case 5: Forward<F3>(*bufs[5], *p3); break;
+              }
+            }
+          };
+          ParallelDo(6, body);
+        }
 #else
-      Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
-      Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
-      Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
+        Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
+        Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
+        Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
 #endif
 
-      {
-        UInt *p1a = fa1.data(), *p1b = fb1.data();
-        UInt *p2a = fa2.data(), *p2b = fb2.data();
-        UInt *p3a = fa3.data(), *p3b = fb3.data();
-        auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
-          for (Int i = s; i < e; ++i)
-          {
-            p1a[i] = F1::Mul(p1a[i], p1b[i]);
-            p2a[i] = F2::Mul(p2a[i], p2b[i]);
-            p3a[i] = F3::Mul(p3a[i], p3b[i]);
-          }
-        };
-        if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
-        else body(0, n);
-      }
+        {
+          UInt *p1a = fa1.data(), *p1b = fb1.data();
+          UInt *p2a = fa2.data(), *p2b = fb2.data();
+          UInt *p3a = fa3.data(), *p3b = fb3.data();
+          auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
+            for (Int i = s; i < e; ++i)
+            {
+              p1a[i] = F1::Mul(p1a[i], p1b[i]);
+              p2a[i] = F2::Mul(p2a[i], p2b[i]);
+              p3a[i] = F3::Mul(p3a[i], p3b[i]);
+            }
+          };
+          if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
+          else body(0, n);
+        }
 
 #if BIGMATH_USE_THREADS
-      {
-        std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
-        const Plan<F1> *p1 = &plan1;
-        const Plan<F2> *p2 = &plan2;
-        const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
+        {
+          std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
+          const Plan<F1> *p1 = &plan1;
+          const Plan<F2> *p2 = &plan2;
+          const Plan<F3> *p3 = &plan3;
+          auto body = [bufs, p1, p2, p3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
             {
-              case 0: Inverse<F1>(*bufs[0], *p1); break;
-              case 1: Inverse<F2>(*bufs[1], *p2); break;
-              case 2: Inverse<F3>(*bufs[2], *p3); break;
+              switch (idx)
+              {
+                case 0: Inverse<F1>(*bufs[0], *p1); break;
+                case 1: Inverse<F2>(*bufs[1], *p2); break;
+                case 2: Inverse<F3>(*bufs[2], *p3); break;
+              }
             }
-          }
-        };
-        ParallelDo(3, body);
-      }
+          };
+          ParallelDo(3, body);
+        }
 #else
-      Inverse<F1>(fa1, plan1);
-      Inverse<F2>(fa2, plan2);
-      Inverse<F3>(fa3, plan3);
+        Inverse<F1>(fa1, plan1);
+        Inverse<F2>(fa2, plan2);
+        Inverse<F3>(fa3, plan3);
 #endif
+      }
 
       // Garner-recombine and carry across exactly N coefficients (L limbs);
       // the carry that spills past limb L wraps back to limb 0 (B^L ≡ 1).

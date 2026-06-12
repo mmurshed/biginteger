@@ -230,7 +230,7 @@ namespace BigMath
           ULong nLin = std::bit_ceil(((ULong)D_new.size() + R_pad.size()) * c);
           SizeT L = (SizeT)(nCyc / c);
           if (D_new.size() + R_pad.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
-              nCyc < nLin && nCyc <= (1u << 22) &&
+              nCyc < nLin && nCyc <= (1u << 26) &&
               D_new.size() <= L && R_pad.size() <= L)
           {
             wrappedIter = true;
@@ -445,7 +445,7 @@ namespace BigMath
         ULong nLinear = std::bit_ceil(((ULong)Q.size() + n) * c);
         SizeT L = (SizeT)(nCyc / c);
         if (Q.size() + n >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
-            nCyc < nLinear && nCyc <= (1u << 22) &&
+            nCyc < nLinear && nCyc <= (1u << 26) &&
             Q.size() <= L)
           return WrappedRemainder(chunk, b_norm, L, Q, rem, fixupLimit);
       }
