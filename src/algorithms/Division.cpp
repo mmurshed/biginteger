@@ -5,6 +5,7 @@
  */
 
 #include "biginteger/algorithms/Division.h"
+#include "biginteger/algorithms/division/QuotientSizedDivision.h"
 
 #include <stdexcept>
 
@@ -17,6 +18,7 @@ namespace BigMath
   const SizeT NEWTON_BALANCED_B = BIGMATH_NEWTON_BALANCED_B;
   const SizeT NEWTON_BALANCED_NUMERATOR = BIGMATH_NEWTON_BALANCED_NUMERATOR;
   const SizeT NEWTON_BALANCED_DENOMINATOR = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
+  const SizeT QSIZED_MIN_DELTA = BIGMATH_QSIZED_MIN_DELTA;
   const SizeT NEWTON_HIGH_SKEW_B = BIGMATH_NEWTON_HIGH_SKEW_B;
   const SizeT NEWTON_HIGH_SKEW_NUMERATOR = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
   const SizeT NEWTON_HIGH_SKEW_DENOMINATOR = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
@@ -59,6 +61,18 @@ namespace BigMath
     bool newton_eligible = newton_medium_skew || newton_balanced || newton_high_skew;
     if (newton_eligible)
       return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+    // Short-quotient band: large divisors below the Newton balanced band
+    // (ratio < 4/3) with a quotient big enough that FastDivision's O(n*delta)
+    // loses. BZ's near-balanced path blows up 7-128x on 2^k+1-family divisor
+    // sizes here; quotient-sized division scales with the quotient instead.
+    bool qsized_eligible =
+        (base == Base2_32 || base == Base2_64) &&
+        b.size() >= NEWTON_BALANCED_B &&
+        a.size() >= b.size() + QSIZED_MIN_DELTA &&
+        NEWTON_BALANCED_DENOMINATOR * a.size() < NEWTON_BALANCED_NUMERATOR * b.size();
+    if (qsized_eligible)
+      return QuotientSizedDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
     // BZ for large near-balanced divisors and for big-and-skewed cases.
     // The +32-limb quotient-bulk guard in the near-balanced clause excludes

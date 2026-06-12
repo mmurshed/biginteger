@@ -7,14 +7,18 @@
  *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (3/1)          · b
  *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (4/3)      · b
  *        - b ≥ NEWTON_HIGH_SKEW_B AND  a ≥ NEWTON_HIGH_SKEW (8/1)     · b
- *      The balanced (ratio ≥ 2) band starts higher (96k limbs) because BZ wins
- *      near-balanced below that; above it BZ degrades erratically (measured
- *      2×–4.5× slower at b ≥ 100k) while Newton stays smooth.
- *   2. Power-of-two base  AND  b > BZ_DIVISOR_THRESHOLD  AND  BZ band fits
+ *      The balanced (ratio ≥ 4/3) band starts at 24k limbs — the generic
+ *      Newton/BZ crossover measured after the wraparound-Newton PRs (#85-#87);
+ *      below it BZ wins near-balanced, above it BZ degrades erratically.
+ *   2. QuotientSizedDivision when b ≥ NEWTON_BALANCED_B, a ≥ b + 64, and
+ *      ratio < 4/3 — short-quotient shapes where cost should scale with the
+ *      quotient, not the divisor (and where BZ blows up 7-128× on
+ *      2^k+1-family divisor sizes).
+ *   3. Power-of-two base  AND  b > BZ_DIVISOR_THRESHOLD  AND  BZ band fits
  *      → BurnikelZieglerDivision    (balanced 2n/n recursion)
- *   3. else
+ *   4. else
  *      → FastDivision        (Knuth Algorithm D, hybrid-64-bit basecase)
- *   4. single-limb divisor inside the above → ClassicDivision
+ *   5. single-limb divisor inside the above → ClassicDivision
  *
  * Thresholds tunable at compile time via -DBIGMATH_*=N.
  *
@@ -32,6 +36,7 @@
 #include "division/ClassicDivision.h"
 #include "division/FastDivision.h"
 #include "division/NewtonDivision.h"
+#include "division/QuotientSizedDivision.h"
 
 namespace BigMath
 {
@@ -52,7 +57,7 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_B
-#define BIGMATH_NEWTON_BALANCED_B 98304
+#define BIGMATH_NEWTON_BALANCED_B 24576
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_NUMERATOR
@@ -61,6 +66,10 @@ namespace BigMath
 
 #ifndef BIGMATH_NEWTON_BALANCED_DENOMINATOR
 #define BIGMATH_NEWTON_BALANCED_DENOMINATOR 3
+#endif
+
+#ifndef BIGMATH_QSIZED_MIN_DELTA
+#define BIGMATH_QSIZED_MIN_DELTA 64
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
@@ -82,6 +91,7 @@ namespace BigMath
   extern const SizeT NEWTON_BALANCED_B;
   extern const SizeT NEWTON_BALANCED_NUMERATOR;
   extern const SizeT NEWTON_BALANCED_DENOMINATOR;
+  extern const SizeT QSIZED_MIN_DELTA;
   extern const SizeT NEWTON_HIGH_SKEW_B;
   extern const SizeT NEWTON_HIGH_SKEW_NUMERATOR;
   extern const SizeT NEWTON_HIGH_SKEW_DENOMINATOR;
