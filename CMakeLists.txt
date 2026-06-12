@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(bigmath
-    VERSION 12.0.0
+    VERSION 13.0.0
     DESCRIPTION "Arbitrary-precision integer library with NTT multiplication and Newton division"
     LANGUAGES CXX)
 
