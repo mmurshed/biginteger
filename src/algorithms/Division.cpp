@@ -47,7 +47,7 @@ namespace BigMath
     bool newton_medium_skew =
         b.size() >= NEWTON_MEDIUM_B &&
         NEWTON_SKEW_DENOMINATOR * a.size() >= NEWTON_SKEW_NUMERATOR * b.size();
-    // Near-balanced (ratio ≥ 2) band: only above NEWTON_BALANCED_B, where BZ's
+    // Near-balanced (ratio ≥ 4/3) band: only above NEWTON_BALANCED_B, where BZ's
     // near-balanced path degrades erratically (measured 2×–4.5× slower than
     // Newton at b ≥ 100k limbs); below it BZ wins, so leave it alone.
     bool newton_balanced =

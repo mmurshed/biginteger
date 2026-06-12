@@ -43,14 +43,14 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 **Division dispatch** (`algorithms/Division.h`, thresholds defined in `src/algorithms/Division.cpp`):
 - `NewtonDivision` (Newton-Raphson reciprocal, O(M(n)); handles arbitrary `na/nb` via blockwise mode — top chunk in [n+1, 2n], slide down by n, thread the remainder) when any skew band holds:
   - `b ≥ 4096` at ratio ≥ 3 (`NEWTON_SKEW` 3/1), or
-  - `b ≥ 98304` at ratio ≥ 2 (`NEWTON_BALANCED` 2/1 — the near-balanced band, PR #79), or
+  - `b ≥ 98304` at ratio ≥ 4/3 (`NEWTON_BALANCED` 4/3 — the near-balanced band, PR #79, lowered from 2/1 2026-06-11), or
   - `b ≥ 2048` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1).
 - else `BurnikelZieglerDivision` for power-of-two base when `b > 512` and the BZ band fits (near-balanced `b ≥ 1024, b+32 ≤ a ≤ 3b`, or big-and-skewed `a > 2048 && a > 3b`).
 - otherwise multi-limb → `FastDivision` (Knuth Algorithm D variant)
 - single-limb divisor → `ClassicDivision`
 - `KnuthDivision` and `ReciprocalDivision` are alternates used by correctness tests for cross-checking.
 
-The balanced band exists because BZ's recursive 2n/n halving lands intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes, blowing up 5–60× vs Newton (worst at `n = 2^k+1`); Newton pads once and stays flat. **Known residual:** ratio ∈ (1, 2) at large `b` still routes to BZ and hits the same blowup (~2.7× slower than Newton would be at ratio 1.5) — the balanced band's `a ≥ 2b` lower bound doesn't cover it yet.
+The balanced band exists because BZ's recursive 2n/n halving lands intermediate NTT multiplies just over power-of-2 transform-length boundaries for non-power-of-2 divisor sizes, blowing up 5–60× vs Newton (worst at `n = 2^k+1`); Newton pads once and stays flat. **Known residual:** ratio ∈ (1, 4/3) at large `b` still routes to BZ; generic sizes are fine there (BZ wins below the ~1.3 crossover) but `2^k+1`-family divisor sizes still blow up — the proper fix for that range is quotient-sized division.
 
 When adding a new algorithm, slot the implementation under `algorithms/<op>/<Name>.h`, then update the dispatch in `algorithms/<Op>.h` — the thresholds there are the only place size cutoffs live.
 
