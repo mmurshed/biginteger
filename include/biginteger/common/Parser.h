@@ -12,8 +12,8 @@
  *     ToStringDivConquer       — D&C using Newton-Divider chain, O(M(L) · log L)
  *
  * Thresholds:
- *     DecimalDcThreshold       — parse linear→D&C cutoff (8192 digits)
- *     ToStringDcThreshold      — format linear→D&C cutoff (2048 digits)
+ *     DecimalDcThreshold       — parse linear→D&C cutoff (2048 digits)
+ *     ToStringDcThreshold      — format linear→D&C cutoff (1024 digits)
  *
  * Caches (`Pow10`) and chain-builder helpers live in the .cpp with internal-linkage
  * `static thread_local` storage that is shared across all callers in the same TU.
@@ -39,10 +39,10 @@ namespace BigMath
   // multiplication has broad carry headroom across both limb modes.
   inline constexpr ULong Base10_19 = 10000000000000000000ULL;
   inline constexpr SizeT Base10_19_Zeroes = 19;
-  inline constexpr SizeT DecimalDcThreshold = 8192;
+  inline constexpr SizeT DecimalDcThreshold = 2048;
 
 #ifndef BIGMATH_TOSTR_DC_THRESHOLD
-#define BIGMATH_TOSTR_DC_THRESHOLD 2048
+#define BIGMATH_TOSTR_DC_THRESHOLD 1024
 #endif
   inline constexpr SizeT ToStringDcThreshold = BIGMATH_TOSTR_DC_THRESHOLD;
 
