@@ -17,6 +17,17 @@ using namespace std;
 #include "ClassicDivision.h"
 #include "FastDivision.h"
 
+// Gate for the cyclic (wrap-around) NTT products inside Newton division.
+// Separate from NTT_MULTIPLICATION_THRESHOLD because a cyclic product runs at
+// HALF the transform length of the full product the threshold was tuned for —
+// its crossover vs Karatsuba sits proportionally lower. Swept 2026-06-11 on
+// cold ToString (whose divider-chain reciprocal towers run entirely in this
+// band at <= 500k digits): 1280 beats 5120 by ~30% at 100k-200k digits and
+// is neutral at 500k+; 640 regresses. Tunable for re-sweeps.
+#ifndef BIGMATH_CYCLIC_NTT_THRESHOLD
+#define BIGMATH_CYCLIC_NTT_THRESHOLD 1280
+#endif
+
 namespace BigMath
 {
   // Newton-Raphson division.
@@ -218,7 +229,7 @@ namespace BigMath
           ULong nCyc = std::bit_ceil((ULong)(Lmin + 1) * c);
           ULong nLin = std::bit_ceil(((ULong)D_new.size() + R_pad.size()) * c);
           SizeT L = (SizeT)(nCyc / c);
-          if (D_new.size() + R_pad.size() >= NTT_MULTIPLICATION_THRESHOLD &&
+          if (D_new.size() + R_pad.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
               nCyc < nLin && nCyc <= (1u << 22) &&
               D_new.size() <= L && R_pad.size() <= L)
           {
@@ -433,7 +444,7 @@ namespace BigMath
         ULong nCyc = std::bit_ceil((ULong)(n + 2) * c);
         ULong nLinear = std::bit_ceil(((ULong)Q.size() + n) * c);
         SizeT L = (SizeT)(nCyc / c);
-        if (Q.size() + n >= NTT_MULTIPLICATION_THRESHOLD &&
+        if (Q.size() + n >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
             nCyc < nLinear && nCyc <= (1u << 22) &&
             Q.size() <= L)
           return WrappedRemainder(chunk, b_norm, L, Q, rem, fixupLimit);

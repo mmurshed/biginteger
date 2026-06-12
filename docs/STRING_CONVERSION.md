@@ -613,6 +613,22 @@ Best ToString time (ms, min over many iters, M1 Max, full default stack) at each
 
 **Don't tune without re-measuring.** The pre-PR-#43 sweep gave the same answer with different absolute times. If further optimizations land that shift the linear-leaf cost again, re-run the sweep before changing the default.
 
+### Cyclic-NTT gate retune for chain construction (2026-06-11)
+
+Cold-path profiling (fresh `topDigits` per call, so the divider-chain cache never hits) showed
+~100% of a cold 100k-digit `ToString` inside `Divider` construction — `ApproxReciprocal` towers
+whose multiplies all sit below the 5120-limb NTT dispatch threshold, i.e. pure Karatsuba.
+
+The wraparound machinery (cyclic `mod B^L−1` products in the reciprocal iteration and
+`WrappedRemainder`) had inherited `NTT_MULTIPLICATION_THRESHOLD` as its gate — but a cyclic
+product runs at HALF the transform length of the full product that threshold was tuned for, so
+its crossover vs Karatsuba sits proportionally lower. New `BIGMATH_CYCLIC_NTT_THRESHOLD`
+(default **1280** total limbs) gates the cyclic paths independently.
+
+Paired sweep (cold ToString, BM/GMP ratio, machine under load so ratios not absolute):
+100k digits 7.3–7.4× → **4.6–5.2×**, 200k −33%, 500k+ neutral, 640 regresses. The win flows to
+every Newton divide with sub-5120-limb internals, not just ToString.
+
 ### True scratch-buffer reuse inside Newton division
 
 The current `NewtonDivision::Divider::DivideAndRemainderInto` boundary API avoids rebuilding the divisor reciprocal, but it still delegates to internals that allocate temporary quotient, remainder, normalization, and multiplication vectors. A deeper scratch-aware Newton path could reduce allocation churn in `ToStringDivConquer`. Expected win is small, probably low single digits, because profiling shows the dominant cost is still NTT multiplication. This is not a first-choice optimization unless allocation profiles show otherwise.
