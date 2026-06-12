@@ -10,75 +10,52 @@
 
 namespace BigMath
 {
+  // Subtracts scalar b from a starting at limb aStart, borrowing upward.
+  // Precondition: the value of a from aStart up is >= b (same contract as
+  // before). For small bases (e.g. Base2_32) a 64-bit b can span multiple
+  // limbs — the previous version assumed a single borrow and corrupted the
+  // result for b >= base; this decomposes b limb by limb.
   void SubtractFrom(std::vector<DataT> &a, SizeT aStart, SizeT aEnd,
                     ULong b, BaseT base)
   {
+    (void)aEnd; // kept for signature compatibility; subtraction borrows upward
     if (b == 0)
       return;
 
-    // For Base2_64, the limb max is 2^64-1 (= LimbMask). The original code
-    // uses `(base - b) % base` and `base - 1`, which underflows when base == 0
-    // (the Base2_64 sentinel). Use limb-mask arithmetic instead.
-    const ULong limbMax = (base == Base2_64) ? 0xFFFFFFFFFFFFFFFFULL : (ULong)(base - 1);
-
-    if (aEnd >= aStart)
+    ULong128 rem = b; // amount still to subtract at the current position
+    SizeT pos = aStart;
+    while (rem > 0)
     {
-      if (a[aStart] >= b)
+      if (pos >= a.size())
+        a.resize(pos + 1, 0);
+
+      ULong digit;
+      if (base == Base2_64)
       {
-        a[aStart] -= static_cast<DataT>(b);
-        return;
+        digit = (ULong)rem;
+        rem >>= 64;
       }
       else
       {
-        b -= a[aStart];
-        // (base - b) for non-Base2_64; for Base2_64 it's (2^64 - b) which
-        // equals (~b + 1), i.e. the two's-complement negation as ULong.
-        a[aStart] = (base == Base2_64)
-                        ? static_cast<DataT>((ULong)(0) - b)
-                        : static_cast<DataT>((base - b) % base);
-        b = 1;
+        digit = (ULong)(rem % base);
+        rem /= base;
       }
-    }
-    else
-    {
-      while (a.size() <= aStart)
-        a.push_back(0);
 
-      if (b > 0)
-      {
-        a[aStart] = (base == Base2_64)
-                        ? static_cast<DataT>((ULong)(0) - b)
-                        : static_cast<DataT>((base - b) % base);
-        b = 1;
-      }
-    }
-
-    SizeT aPos = aStart + 1;
-    while (b > 0)
-    {
-      if (aPos < a.size())
-      {
-        if (a[aPos] >= 1)
-        {
-          a[aPos] -= 1;
-          b = 0;
-        }
-        else
-        {
-          a[aPos] = static_cast<DataT>(limbMax);
-          b = 1;
-        }
-      }
+      if ((ULong)a[pos] >= digit)
+        a[pos] = (DataT)((ULong)a[pos] - digit);
       else
       {
-        a.push_back(static_cast<DataT>(limbMax));
-        b = 1;
+        // a[pos] + base - digit; for Base2_64 the wraparound of 64-bit
+        // unsigned subtraction is exactly that.
+        a[pos] = (base == Base2_64)
+                     ? (DataT)((ULong)a[pos] - digit)
+                     : (DataT)((ULong)a[pos] + (ULong)base - digit);
+        rem += 1;
       }
-      aPos++;
+      ++pos;
     }
 
-    while (!a.empty() && a.back() == 0)
-      a.pop_back();
+    TrimZerosToOne(a);
   }
 
   void SubtractFrom(std::vector<DataT> &a, ULong b, BaseT base)

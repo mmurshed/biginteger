@@ -80,7 +80,8 @@
 // retune (BIGMATH_BZ_RECURSION_THRESHOLD 512 -> 128) made BZ another
 // 1.2-1.5× faster across its whole band: every Newton floor moves up.
 // Frontier (floor, min ratio): (896, 8/1), (1280, 7/2), (1792, 14/5),
-// (2560, 5/2), (4096, 2/1), (8192, 8/5). The old exact-ratio knife-edge
+// (2560, 5/2), (4096, 2/1), (8192, 8/5), (131072, 4/3) — the balanced
+// band macros live further down this file. The old exact-ratio knife-edge
 // hazard (BZ collapsing on the wrong side of 2.0000/3.0000 ± 1 limb) died
 // with the odd-size padding fix — both sides of every knife are now
 // well-behaved, so the cuts below track measured crossovers only.
@@ -171,6 +172,40 @@
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR
 #define BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR 1
+#endif
+
+// Balanced band (ratio >= 4/3): Newton from 131072 limbs — raised from
+// 24576 on 2026-06-12 after the BZ odd-size padding fix + 128-limb basecase
+// retune made padded BZ win ratio 1.4-1.5 through ~98k limbs.
+#ifndef BIGMATH_NEWTON_BALANCED_B
+#define BIGMATH_NEWTON_BALANCED_B 131072
+#endif
+#ifndef BIGMATH_NEWTON_BALANCED_NUMERATOR
+#define BIGMATH_NEWTON_BALANCED_NUMERATOR 4
+#endif
+#ifndef BIGMATH_NEWTON_BALANCED_DENOMINATOR
+#define BIGMATH_NEWTON_BALANCED_DENOMINATOR 3
+#endif
+
+// Quotient-sized band: b >= 24576 (decoupled from the balanced floor),
+// a >= b + BIGMATH_QSIZED_MIN_DELTA, ratio < 4/3.
+#ifndef BIGMATH_QSIZED_MAIN_B
+#define BIGMATH_QSIZED_MAIN_B 24576
+#endif
+#ifndef BIGMATH_QSIZED_MIN_DELTA
+#define BIGMATH_QSIZED_MIN_DELTA 64
+#endif
+
+// Burnikel-Ziegler recursion basecase (retuned 512 -> 128 on 2026-06-12:
+// Karatsuba-backed multiplies beat 512-limb Knuth-D basecase calls).
+#ifndef BIGMATH_BZ_RECURSION_THRESHOLD
+#define BIGMATH_BZ_RECURSION_THRESHOLD 128
+#endif
+
+// Newton division: minimum combined size for the cyclic (mod 2^k-1)
+// wrapped-remainder multiply.
+#ifndef BIGMATH_CYCLIC_NTT_THRESHOLD
+#define BIGMATH_CYCLIC_NTT_THRESHOLD 1280
 #endif
 
 #endif

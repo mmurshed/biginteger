@@ -11,11 +11,13 @@
  *   - sum < NTT_MULTIPLICATION_THRESHOLD           → KaratsubaMultiplication
  *   - otherwise                                    → NTTMultiplication
  *
- * Toom-3 covers a narrow but real window (total ≈ 2560-5120 limbs) where it
- * beats Karatsuba by 8-15% and avoids an NTT-length boundary regression
- * around total 4608. See MULTIPLICATION.md for the focused band measurement.
- * Toom-5 has no productive band — it ties Karatsuba below 256 per-operand
- * limbs and degrades fast above, so it stays excluded from dispatch.
+ * Toom-3's former dispatch window (total ≈ 2560-5120 limbs) was retired on
+ * 2026-06-12: with TOOM3_MULTIPLICATION_THRESHOLD == NTT_MULTIPLICATION_THRESHOLD
+ * the Toom-3 branch below is unreachable and CRT+NEON NTT covers the band
+ * (see DispatchThresholds.h). ToomCookMultiplication stays as a
+ * test-exercised alternate. Toom-5 has no productive band — it ties
+ * Karatsuba below 256 per-operand limbs and degrades fast above, so it
+ * stays excluded from dispatch.
  *
  * Thresholds are tunable at compile time via -DBIGMATH_*=N.
  *
@@ -45,16 +47,14 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
-// Toom-3 wins over Karatsuba once the per-operand size grows past ~1280
-// limbs (total ≥ 2560). Measured 2026-05-27; see BENCHMARK.md "Toom-3
-// dispatch band" for the focused scan.
+// Set equal to the NTT threshold since 2026-06-12, which retires the Toom-3
+// dispatch window (CRT+NEON NTT beats it everywhere it used to win).
 #define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
-// NTT crossover. Bumped from 4096 to 5120 (2026-05-27) after measurement
-// showed NTT regresses around total 4608 due to NTT-length boundary effect
-// (NTT 1.65 ms vs Toom3 1.10 ms); NTT becomes a clean win again at 5120+.
+// NTT crossover. Dropped 5120 -> 1280 on 2026-06-12 after the NEON Shoup
+// butterflies made CRT NTT ~2.5x faster in the small-mid band.
 #define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 1280
 #endif
 

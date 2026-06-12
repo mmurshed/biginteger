@@ -13,3 +13,4 @@ build/
 # rule above also matches include/biginteger/build/).
 !include/biginteger/build/
 !include/biginteger/build/**
+.DS_Store

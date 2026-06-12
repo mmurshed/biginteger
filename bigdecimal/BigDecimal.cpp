@@ -22,12 +22,9 @@ namespace BigMath
 {
   namespace
   {
-    // Negation that does not mutate: BigInteger's operator- is in-place.
     inline BigInteger Negated(BigInteger const &x)
     {
-      BigInteger r(x);
-      if (!r.Zero()) -r;
-      return r;
+      return -x;
     }
 
     inline BigInteger AbsCopy(BigInteger const &x)
@@ -96,11 +93,10 @@ namespace BigMath
 
   BigDecimal::BigDecimal() : unscaled_(BIZero()), scale_(0) {}
 
+  // Caller-requested scale is kept even for zero (Java does the same).
   BigDecimal::BigDecimal(BigInteger unscaled, int scale)
       : unscaled_(std::move(unscaled)), scale_(scale)
   {
-    if (unscaled_.Zero())
-      scale_ = scale;  // keep caller-requested scale even for zero (Java does)
   }
 
   BigDecimal::BigDecimal(long n) : unscaled_(BigIntegerBuilder::From((Long)n)), scale_(0) {}
@@ -177,7 +173,7 @@ namespace BigMath
 
     BigInteger unscaled = BigIntegerBuilder::From(digits);
     if (neg && !unscaled.Zero())
-      -unscaled;
+      unscaled = -unscaled;
 
     long finalScale = (long)fracLen - expPart;
     if (finalScale > 2'000'000'000L || finalScale < -2'000'000'000L)
@@ -307,7 +303,7 @@ namespace BigMath
 
     BigInteger signed_q = q;
     if (resultNeg && !signed_q.Zero())
-      -signed_q;
+      signed_q = -signed_q;
 
     return BigDecimal(std::move(signed_q), newScale);
   }
@@ -332,7 +328,7 @@ namespace BigMath
       q = q + BIOne();
     BigInteger signed_q = q;
     if (resultNeg && !signed_q.Zero())
-      -signed_q;
+      signed_q = -signed_q;
     return BigDecimal(std::move(signed_q), newScale);
   }
 

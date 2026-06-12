@@ -21,16 +21,23 @@
  *   - Combined modulus = p1·p2·p3 ≈ 2^91, comfortably holds 32×32 product
  *     summed over up to 2^26 ≈ 67 M coefficients.
  *
- * Gated on BIGMATH_NTT_CRT=1. Default off; selected at compile time in
- * NTTMultiplication's dispatch when the macro is set.
+ * Gated on BIGMATH_NTT_CRT (default ON, see below); selected at compile
+ * time in NTTMultiplication's dispatch.
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-// Default: CRT NTT enabled via size-gated dispatch (threshold 5000 limbs
-// sum). Wins 5-15% on large mul / skewed div / parse / ToString when the
-// combined operand size crosses the gate. Below the gate, Goldilocks NTT
-// runs as before — zero-cost fall-through. Opt out via -DBIGMATH_NTT_CRT=0.
+// Pull in the platform/threshold configuration BEFORE the #ifndef fallbacks
+// below: a TU that includes this header first would otherwise lock in the
+// local defaults and silently diverge from TUs that saw a tuned profile
+// (inline functions => ODR violation).
+#include "../../build/PlatformConfig.h"
+#include "../../build/DispatchThresholds.h"
+
+// Default: CRT NTT enabled via size-gated dispatch (BIGMATH_NTT_CRT_THRESHOLD,
+// 256 limbs sum — effectively always once NTT is selected). Below the gate,
+// Goldilocks NTT runs as before — zero-cost fall-through. Opt out via
+// -DBIGMATH_NTT_CRT=0.
 #ifndef BIGMATH_NTT_CRT
 #define BIGMATH_NTT_CRT 1
 #endif
@@ -1278,12 +1285,15 @@ namespace BigMath
       prepared.operandCoeffSize = (ULong)operand.size() * prepared.coeffsPerLimb;
       ULong maxOtherCoeffSize = (ULong)maxOtherLimbs * prepared.coeffsPerLimb;
       ULong maxCoeffCount = prepared.operandCoeffSize + maxOtherCoeffSize - 1;
-      prepared.n = (Int)std::max<ULong>(2, std::bit_ceil(maxCoeffCount));
-      if (prepared.n > (1 << 26))
+      // Check the ceiling BEFORE narrowing to Int: bit_ceil > 2^30 wraps
+      // negative in Int and would sail past the guard.
+      ULong nWide = std::max<ULong>(2, std::bit_ceil(maxCoeffCount));
+      if (nWide > (1u << 26))
         throw std::invalid_argument(
             "NttCrt: operands exceed the CRT NTT length ceiling (2^26 coefficients, "
             "~640M decimal digits) — P2/P3 have 2-adic order 2^26, so longer "
             "transforms would silently compute with invalid roots");
+      prepared.n = (Int)nWide;
 
       prepared.f1.assign(prepared.n, 0);
       prepared.f2.assign(prepared.n, 0);
@@ -1611,26 +1621,6 @@ namespace BigMath
           negIdx += rowIndex;
         }
       }
-    }
-
-    template <typename F>
-    inline void MfaTwiddleApply(UInt *plane, Int n1, Int n2, Int nFull, const UInt *roots, bool parallel)
-    {
-      const std::vector<Int> &brTable = GetBitReverseTable(n2);
-      const Int *br = brTable.data();
-      auto body = [plane, n2, nFull, roots, br](Int iStart, Int iEnd) {
-        for (Int i = iStart; i < iEnd; ++i)
-        {
-          UInt *row = plane + (SizeT)i * n2;
-          MfaTwiddleApplyRow<F>(row, i, n2, nFull, roots, br);
-        }
-      };
-#if BIGMATH_USE_THREADS
-      if (parallel && (SizeT)n1 >= ParallelMinSize()) ParallelFor(n1, body);
-      else body(0, n1);
-#else
-      body(0, n1);
-#endif
     }
 
 #if BIGMATH_NTT_MFA_FUSE
@@ -2282,15 +2272,18 @@ namespace BigMath
       ULong aCoeffSize = (ULong)a.size() * coeffsPerLimb;
       ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
-      Int n = (Int)std::bit_ceil(coeffCount);
+      ULong nWide = std::bit_ceil(coeffCount);
       // CRT length ceiling: the primes' 2-adic order is 2^26 (see the prime
       // table at the top of this file). Beyond it BuildRoots' (P-1)/n is no
       // longer exact and the transform silently corrupts — fail loudly. The
       // pre-guard behavior was undefined output at ≥ ~8 GB operand pairs.
-      if (n > (1 << 26))
+      // Check BEFORE narrowing to Int: bit_ceil > 2^30 wraps negative in Int
+      // and would sail past the guard.
+      if (nWide > (1u << 26))
         throw std::invalid_argument(
             "NttCrt: operands exceed the CRT NTT length ceiling (2^26 coefficients, "
             "~640M decimal digits)");
+      Int n = (Int)nWide;
 
       // Three parallel transforms. Buffer zero-fill + packing happen inside
       // the branch that needs them: the fused MFA path (F3) packs straight

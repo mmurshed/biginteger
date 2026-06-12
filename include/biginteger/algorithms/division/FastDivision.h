@@ -451,7 +451,20 @@ namespace BigMath
       for (Int j = (Int)m; j >= 0; --j)
       {
         ULong qhat;
-        if (useMG32)
+        // MG 3/2 precondition is (u2:u1) < (d1:d0). The Knuth loop invariant
+        // (window < d*B) only gives <= when the divisor has nonzero limbs
+        // below the top two; on equality MGQhat's modular arithmetic wraps
+        // and returns garbage. The true digit in that case is exactly B-1:
+        // (B-1)*d <= window < B*d. GMP's sbpi1_div_qr special-cases this
+        // identically. (For n == 2 equality cannot occur: remainder < d.)
+        bool mgTopEqual =
+            (useMG32 || useMG64) &&
+            u[j + n] == v[n - 1] && u[j + n - 1] == v[n - 2];
+        if (mgTopEqual)
+        {
+          qhat = (base == Base2_64) ? ~(ULong)0 : (ULong)0xFFFFFFFFULL;
+        }
+        else if (useMG32)
         {
           qhat = (ULong)MGQhat_Base32(
               (DataT)u[j + n], (DataT)u[j + n - 1], (DataT)u[j + n - 2],
@@ -469,24 +482,26 @@ namespace BigMath
           // 128/64 division; rhat overflow is detected via __builtin_add_overflow
           // since B = 2^64 doesn't fit in ULong.
           ULong128 numerator = ((ULong128)u[j + n] << 64) | u[j + n - 1];
-          qhat = (ULong)(numerator / v[n - 1]);
-          ULong rhat = (ULong)(numerator % v[n - 1]);
+          ULong128 qhat128 = numerator / v[n - 1];
 
-          // Cap qhat at 2^64-1: if numerator / v[n-1] would equal B = 2^64, the
-          // quotient digit cannot represent it; clamp and rely on the fixup loop.
-          // This corresponds to the `qhat == (ULong)base` check in the Base2_32
-          // path. Since `qhat` is held in ULong, the only way for it to equal B
-          // is overflow into a higher value; we approximate by checking the
-          // divide's high-bits-clear precondition (u[j+n] < v[n-1] post-normalize).
+          // Cap qhat at B-1 = 2^64-1: when u[j+n] == v[n-1] (legal under
+          // Algorithm D's invariant) the raw estimate is >= B and a narrowing
+          // cast would silently wrap to a tiny digit. Clamp and recompute rhat
+          // against the clamped digit; the correction loop and the SubtractMul
+          // fixup handle the rest. This is the `qhat == base` check of the
+          // generic path, done in 128 bits.
+          if (qhat128 >= ((ULong128)1 << 64))
+            qhat128 = (((ULong128)1 << 64) - 1);
+          ULong128 rhat128 = numerator - qhat128 * v[n - 1];
+          qhat = (ULong)qhat128;
 
-          while (n > 1 &&
-                 (ULong128)qhat * v[n - 2] > (((ULong128)rhat << 64) | u[j + n - 2]))
+          // Once rhat >= B the mul test is unconditionally false, which also
+          // covers the old __builtin_add_overflow early-exit.
+          while (n > 1 && rhat128 < ((ULong128)1 << 64) &&
+                 (ULong128)qhat * v[n - 2] > ((rhat128 << 64) | u[j + n - 2]))
           {
             --qhat;
-            ULong new_rhat;
-            if (__builtin_add_overflow(rhat, v[n - 1], &new_rhat))
-              break; // rhat overflowed past B; further qhat decrements are unnecessary
-            rhat = new_rhat;
+            rhat128 += v[n - 1];
           }
         }
         else

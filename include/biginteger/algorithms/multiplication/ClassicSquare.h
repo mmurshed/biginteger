@@ -19,8 +19,8 @@ namespace BigMath
   class ClassicSquare
   {
   public:
-    // Pointer variant: r[0..2n-1] = a[0..n-1]^2. r must be pre-zeroed by caller
-    // (we don't memset internally since KaratsubaSquare hands in a fresh buffer).
+    // Pointer variant: r[0..2n-1] = a[0..n-1]^2. r is zeroed here; callers
+    // may hand in dirty buffers.
     static void SquarePtr(const DataT *a, SizeT n, DataT *r, BaseT base)
     {
       std::memset(r, 0, 2 * n * sizeof(DataT));

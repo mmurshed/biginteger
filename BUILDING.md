@@ -57,7 +57,7 @@ cd build && ctest --output-on-failure
 ./build/bench_vs_gmp
 ```
 
-Compares this library to GMP across multiplication, division, parse, and ToString at sizes 1 000 – 1 000 000 decimal digits. The bench takes ~30 s.
+Compares this library to GMP across multiplication, division, parse, and ToString (1k digits up through the multi-million-digit rows; see BENCHMARK.md for the full canonical run). The bench takes ~30 s.
 
 Results discussed in [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md), [docs/DIVISION.md](docs/DIVISION.md), [docs/STRING_CONVERSION.md](docs/STRING_CONVERSION.md).
 
@@ -101,4 +101,4 @@ cd build && ctest --output-on-failure && cd ..
 ./build/bench_vs_gmp
 ```
 
-Expected: `mul 1000×1000` ≈ 3.5× vs GMP; `ToString 100 000 digits` ≈ 17× vs GMP. See [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md) and [docs/DIVISION.md](docs/DIVISION.md) for the full reference table.
+Expected: see the current ratio table in README.md (post-#116-#119 BigMath beats GMP at ≥500k digits on mul, div, parse, and ToString; e.g. `ToString 100 000 digits` ≈ 1.25× vs GMP). See [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md) and [docs/DIVISION.md](docs/DIVISION.md) for the full reference table.

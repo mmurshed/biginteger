@@ -245,7 +245,7 @@ namespace BigMath
         // Base2_32 path packs pairs of 32-bit limbs into 64-bit values and runs the
         // schoolbook in 64-bit limb space — 4× fewer multiplies, each is UMULL+UMULH
         // on ARM64 (≈ 2× cost per multiply). Net ≈ 2× over scalar 32-bit schoolbook.
-        // Buffers up to 64 packed limbs (covers Karatsuba leaf threshold of 48) live
+        // Buffers up to 64 packed limbs (covers the Karatsuba leaf threshold of 32) live
         // on the stack to avoid heap allocation; larger inputs fall back to heap.
         static void MultiplyClassicPtr(
             const DataT* a, SizeT lenA,

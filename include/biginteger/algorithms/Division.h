@@ -11,9 +11,9 @@
  *        - b ≥ NEWTON_RATIO20_B   AND  a ≥ NEWTON_RATIO20 (2/1)       · b
  *        - b ≥ NEWTON_RATIO2_B    AND  a ≥ NEWTON_RATIO2 (8/5)        · b
  *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (4/3)      · b
- *      The balanced (ratio ≥ 4/3) band starts at 24k limbs — the generic
- *      Newton/BZ crossover measured after the wraparound-Newton PRs (#85-#87);
- *      below it BZ wins near-balanced, above it BZ degrades erratically.
+ *      The balanced (ratio ≥ 4/3) band starts at 131072 limbs — raised from
+ *      24576 on 2026-06-12 after the BZ odd-size padding fix + 128-limb
+ *      basecase retune; below it padded BZ wins near-balanced shapes.
  *   2. QuotientSizedDivision when b ≥ QSIZED_MAIN_B, a ≥ b + 64, and
  *      ratio < 4/3 — short-quotient shapes where cost should scale with the
  *      quotient, not the divisor (and where BZ blows up 7-128× on

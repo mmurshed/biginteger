@@ -34,7 +34,8 @@ namespace BigMath
     {
       auto [qv, rv] = divider.DivideAndRemainder(a.GetInteger(), computeRemainder);
       BigInteger q(qv, a.IsNegative() != divisor.IsNegative());
-      BigInteger r(rv, a.IsNegative() || divisor.IsNegative());
+      // Truncated division: remainder takes the dividend's sign.
+      BigInteger r(rv, a.IsNegative());
       return {q, r};
     }
 

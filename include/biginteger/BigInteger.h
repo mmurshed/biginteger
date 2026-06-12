@@ -26,7 +26,7 @@ namespace BigMath
 
     // Constructor, desctructor, and assignment operator
   public:
-    BigInteger(SizeT size = 0, bool negative = false) : theInteger(size == 0 ? 1 : size, 0), isNegative(negative)
+    explicit BigInteger(SizeT size = 0, bool negative = false) : theInteger(size == 0 ? 1 : size, 0), isNegative(negative)
     {
       if (isNegative && Zero())
         isNegative = false;
@@ -87,7 +87,7 @@ namespace BigMath
 
     static BaseT Base()
     {
-      // Resolves to Base2_32 by default, Base2_64 under -DBIGMATH_LIMB_64=1.
+      // Resolves to Base2_64 by default (BIGMATH_LIMB_64=1); Base2_32 under -DBIGMATH_LIMB_64=0.
       return CurrentBase;
     }
 
@@ -114,12 +114,13 @@ namespace BigMath
       return *this;
     }
 
-    // Negation, returns -*this
-    BigInteger &operator-()
+    // Negation, returns a negated copy; *this is unchanged
+    BigInteger operator-() const
     {
-      if (!Zero())
-        isNegative = !isNegative;
-      return *this;
+      BigInteger r(*this);
+      if (!r.Zero())
+        r.isNegative = !r.isNegative;
+      return r;
     }
 
   public:
