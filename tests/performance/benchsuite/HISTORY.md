@@ -45,3 +45,10 @@ Lower ratio is better (BigMath ms / GMP ms). Rows are the entries flagged
 |----|------|-----------:|-------:|-------:|:-----:|
 | mul | 1000000x1000000 digits | 10.641 | 8.716 | 1.22x | ok |
 | div | 1000000x200000 digits | 22.706 | 10.367 | 2.19x | ok |
+
+## run 5 — machine=Apple_M1_Max_arm64 profile=default — post PRs #94-#103 (NEON-era dispatch + MFA inverse-twiddle fix)
+
+| op | size | BigMath ms | GMP ms | BM/GMP | check |
+|----|------|-----------:|-------:|-------:|:-----:|
+| mul | 1000000x1000000 digits | 8.205 | 8.716 | 0.94x | ok |
+| div | 1000000x200000 digits | 14.027 | 10.367 | 1.35x | ok |

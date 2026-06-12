@@ -52,9 +52,9 @@ Balanced (`a.size() == b.size()`):
 | **5 000 000 × 5 000 000** | **26.236** | **63.428** | **0.41×** ← BigMath 2.4× faster |
 | **10 000 000 × 10 000 000** | **99.245** | **200.989** | **0.49×** ← BigMath 2× faster |
 | **20 000 000 × 20 000 000** | **291.308** | **278.113** | **1.05×** ← parity |
-| 50 000 000 × 50 000 000 | 1 248.374 | 674.945 | 1.85× (2026-05-30, pre-NEON) |
-| 100 000 000 × 100 000 000 | 2 617.801 | 1 453.331 | 1.80× (2026-05-30, pre-NEON) |
-| 200 000 000 × 200 000 000 | 6 578.614 | 3 049.051 | 2.16× (2026-05-30, pre-NEON) |
+| **50 000 000 × 50 000 000** | **858.8** | **672.1** | **1.28×** ← was 1.85× |
+| **100 000 000 × 100 000 000** | **1 819.6** | **1 404.5** | **1.30×** ← was 1.80× |
+| **200 000 000 × 200 000 000** | **3 873.8** | **2 913.3** | **1.33×** ← was 2.16× |
 
 Skewed (`a.size() >> b.size()`):
 
@@ -67,16 +67,16 @@ Skewed (`a.size() >> b.size()`):
 | **5 000 000 × 500 000** | **22.840** | **30.658** | **0.74×** ← BigMath faster |
 | 10 000 000 × 1 000 000 | 92.563 | 71.587 | 1.29× |
 | 20 000 000 × 2 000 000 | 246.468 | 163.208 | 1.51× |
-| 50 000 000 × 5 000 000 | 615.801 | 684.121 | 0.90× (2026-05-30, pre-NEON) |
-| 100 000 000 × 10 000 000 | 1 159.229 | 1 011.270 | 1.15× (2026-05-30, pre-NEON) |
-| 200 000 000 × 20 000 000 | 2 446.578 | 1 952.674 | 1.25× (2026-05-30, pre-NEON) |
+| **50 000 000 × 5 000 000** | **317.6** | **675.9** | **0.47×** ← BigMath 2.1× faster |
+| **100 000 000 × 10 000 000** | **754.1** | **1 009.0** | **0.75×** ← BigMath faster |
+| **200 000 000 × 20 000 000** | **1 598.9** | **1 926.0** | **0.83×** ← BigMath faster |
 
 **Observations (updated 2026-06-12, post-NEON):**
 
 - **BigMath beats GMP on balanced multiplication across the entire 500k–10M-digit band — by 1.5–2.4×** (5M×5M: 26.2 vs 63.4 ms). The NEON Shoup butterflies (PR #96), interleaved twiddle tables (#98), and tail layers (#99) compound with the radix-8 fused chain and multithreaded CRT; the dispatch retune (#97, NTT entry 5120 → 1280 limbs) extended NTT routing down to ~14k digits.
 - **Skewed multiplication beats GMP across 500k×50k – 5M×500k (0.56–0.74×).**
 - Sub-NTT sizes (≤ ~13k digits) stay on Karatsuba where GMP's hand-tuned basecase keeps a 2.2–3.3× lead; 50k–100k digits are near parity.
-- 50M+ rows predate NEON (the MFA path above 2^24 coefficients is memory-bandwidth-bound; NEON's compute win is smaller there) — re-measure pending.
+- **50M+ rows re-measured 2026-06-12 after the MFA correctness fix (PR #103)**: the MFA inverse cross-twiddle had been mis-ordered since 2026-05-31 (PR #72), so every pre-#103 measurement in this band was a wrong-result timing. Post-fix: balanced 50M–200M at 1.28–1.33×, skewed 50M–200M **beating GMP at 0.47–0.83×**.
 
 ### MFA focused threshold check
 
@@ -245,15 +245,16 @@ Skewed (`a.size() >> b.size()`) — Newton/BZ band, real algorithmic work:
 | **5 000 000 × 1 000 000** | **69.335** | **67.338** | **1.03×** ← parity, was 2.87× |
 | **10 000 000 × 2 000 000** | **141.871** | **151.489** | **0.94×** ← BigMath faster, was 2.79× |
 | **20 000 000 × 4 000 000** | **358.438** | **350.019** | **1.02×** ← parity, was 2.78× |
-| 50 000 000 × 10 000 000 | 1 461.269 | 1 297.461 | 1.13× (2026-06-11, pre-NEON) |
-| 100 000 000 × 20 000 000 | 3 165.678 | 2 581.199 | 1.23× (2026-06-11, pre-NEON) |
-| 200 000 000 × 40 000 000 | 12 979.547 | 4 550.205 | 2.85× (2026-05-30, not re-measured) |
+| **50 000 000 × 10 000 000** | **1 363.7** | **1 302.1** | **1.05×** ← parity |
+| **100 000 000 × 20 000 000** | **3 130.4** | **2 541.1** | **1.23×** |
+| **200 000 000 × 40 000 000** | **6 259.9** | **4 577.4** | **1.37×** ← was 2.85×; pre-fix runs hung in fallback |
 
 **Observations (updated 2026-06-12, post-NEON):**
 
 - **Skewed division reached GMP parity from 5M digits up: 5M×1M at 1.03×, 10M×2M at 0.94× (BigMath faster), 20M×4M at 1.02×.** At the session start these sat at 2.8–2.9×. The wraparound-Newton family (PRs #85–#87) halved the band first (serial-transform-chain cuts: cyclic mod-B^L−1 products, top-limbs quotient estimates, invertappr reciprocal); the NEON butterflies then accelerated every NTT inside Newton.
 - The former 200k×50k worst point (6.65×) sits at 2.23× after the band retunes (#92: `NEWTON_MEDIUM` 5/2 @ 2560 + 8/5 band @ 6144 — fractional ratios kill one-limb knife-edge cliffs) plus NEON. The residual worst point is now 100k×10k (4.92×, 520-limb divisor below all NTT-era bands).
 - Balanced equal-size rows are degenerate (quotient 0–1 limbs, both libraries short-circuit; sub-15µs absolute through 1M digits). FastDivision's scalar-normalization fix (PR #82, bit-shift normalize, 3.5× on that path) shows up in driver benchmarks rather than these noise-level rows.
+- The 200M×40M row's history is a story: the 2026-05-30 value (12.98 s, 2.85×) and every later attempt ran the **broken MFA band** (PR #103) — re-measure runs "hung" because Newton's fixup cap detected the corrupt products and fell back to quadratic FastDivision. Post-fix it completes normally at **6.26 s, 1.37×**.
 
 ### Shape-focused division dispatch
 
@@ -343,6 +344,9 @@ tables above are the post-run state.
 | #97 | dispatch retune the NEON win unlocked: NTT entry 5120 → **1280** limbs, Toom-3 window retired, CRT gate 5000 → 256 (always-CRT) | mul 30k digits 2.3×; tostr 1M −25% |
 | #98 | **interleaved (twiddle, Shoup) tables** — one cache line per pair; removes the n > 2^20 memory-bound regression and the size gate | mul 10M −13%, 1M −30% vs separate tables |
 | #99 | NEON tail layers (radix-4/2 collapse to one broadcast Shoup pair + `vld4q`) and inverse 1/n scaling | mul 10M −10% |
+| #101 | Newton band floors post-NEON: high-skew 2048 → 768, medium 2560 → 1024, 8/5 band 6144 → 4096 | 1536-limb divisor ratio 10: 12.0 → 4.9 ms |
+| #102 | ToString chain-top rounding (1/16-octave grid; cache no longer keyed on exact digit count) + Karatsuba leaf threshold 48 → 32; 2-row leaf unrolling rejected (M1 OoO already hides the carry chain) | mixed-size ~100k workload −34% |
+| #103 | **fix: MFA inverse cross-twiddle ordering** — mis-fused since PR #72 (2026-05-31); every ≥2^24-coeff product was silently wrong for 12 days; Newton's fixup fallback masked it as "stuck" runs. `mfa_roundtrip` now in ctest. | 200M×40M div: hung → 6.26 s (1.37×) |
 
 Cumulative on the standard grid across the run: balanced mul 5M×5M 48.9 → **26.2 ms (0.41× vs
 GMP — 2.4× faster than GMP)**; skewed div 5M×1M 200.6 → **69.3 ms (2.87× → 1.03×)** and 10M×2M
@@ -424,7 +428,7 @@ BZ's recursive halving pays off on the near-balanced `4096 × 2048` shape
 | 5 000 000 | 177.273 | 147.586 | 1.20× |
 | **10 000 000** | **381.573** | **344.493** | **1.11×** |
 | **20 000 000** | **877.318** | **802.175** | **1.09×** ← near parity |
-| 50 000 000 | 5 236.669 | 2 691.178 | 1.95× (2026-06-11, pre-NEON) |
+| **50 000 000** | **3 656.8** | **2 643.5** | **1.38×** ← was 1.95× |
 
 **Observation (updated 2026-06-12):** parse is now within **1.09–1.20× of GMP from 5M digits up** (NTT-bound; inherits the NEON wins). The `DecimalDcThreshold` retune (8192 → 2048, PR #83) shaved 10–26% through the 10k–2M band. The 50M row predates NEON.
 

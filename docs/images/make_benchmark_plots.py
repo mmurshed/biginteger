@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the BENCHMARK.md / README.md performance figures.
 
-Data: 2026-06-12 full refresh (M1 Max, paired same-run BigMath vs GMP 6.3,
+Data: 2026-06-12 full refresh + post-PR-#103 XL rows (M1 Max, paired same-run BigMath vs GMP 6.3,
 quiet machine). Regenerate by rerunning the refresh harness and updating the
 tables below, then: python3 docs/images/make_benchmark_plots.py
 """
@@ -14,14 +14,15 @@ import matplotlib.pyplot as plt
 MUL_BAL = {
     1e3: 2.18, 5e3: 2.68, 1e4: 3.31, 5e4: 1.16, 1e5: 1.09, 5e5: 0.59,
     1e6: 0.65, 2e6: 0.58, 5e6: 0.41, 1e7: 0.49, 2e7: 1.05,
+    5e7: 1.28, 1e8: 1.30, 2e8: 1.33,
 }
 DIV_SKEW = {  # a = 5b shapes, keyed by dividend digits
     4e4: 3.38, 1e5: 4.92, 2e5: 2.23, 5e5: 1.64, 1e6: 1.43, 2e6: 1.18,
-    5e6: 1.03, 1e7: 0.94, 2e7: 1.02,
+    5e6: 1.03, 1e7: 0.94, 2e7: 1.02, 5e7: 1.05, 1e8: 1.23, 2e8: 1.37,
 }
 PARSE = {
     1e3: 1.58, 1e4: 2.26, 5e4: 2.64, 1e5: 2.37, 5e5: 1.64, 1e6: 1.55,
-    2e6: 1.45, 5e6: 1.20, 1e7: 1.11, 2e7: 1.09,
+    2e6: 1.45, 5e6: 1.20, 1e7: 1.11, 2e7: 1.09, 5e7: 1.38,
 }
 TOSTR = {
     1e3: 1.83, 1e4: 3.35, 5e4: 3.06, 1e5: 4.31, 2e5: 3.29, 5e5: 2.39,
@@ -56,9 +57,9 @@ def ratio_plot(path):
                 marker=marker, markersize=4.5, linewidth=1.6)
     ax.axhline(1.0, color="black", linewidth=1.0, linestyle="--", alpha=0.7)
     ax.text(1.25e3, 0.93, "GMP parity", fontsize=8.5, alpha=0.8)
-    ax.fill_between([7e2, 3e7], 0.3, 1.0, color="green", alpha=0.06)
+    ax.fill_between([7e2, 3e8], 0.3, 1.0, color="green", alpha=0.06)
     ax.set_xscale("log")
-    ax.set_xlim(7e2, 3e7)
+    ax.set_xlim(7e2, 3e8)
     ax.set_ylim(0.3, 5.2)
     ax.set_xlabel("operand size (decimal digits)")
     ax.set_ylabel("BigMath / GMP wall-clock ratio   (lower is better)")
