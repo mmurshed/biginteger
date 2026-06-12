@@ -243,6 +243,42 @@ namespace BigMath
       return q1;
     }
 
+    // Bit-shift normalization for power-of-two bases. Shifting left by s
+    // (s < limbBits) sets the divisor's top bit; denormalizing the remainder
+    // is a right shift — no per-limb 128/64 division like the scalar-d path.
+    static vector<DataT> ShiftLeftBits(span<const DataT> a, int s, int limbBits)
+    {
+      vector<DataT> out(a.size() + 1, 0);
+      if (s == 0)
+      {
+        std::copy(a.begin(), a.end(), out.begin());
+        return out;
+      }
+      DataT mask = limbBits == 64 ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
+      DataT carry = 0;
+      for (SizeT i = 0; i < a.size(); ++i)
+      {
+        DataT cur = a[i];
+        out[i] = ((cur << s) | carry) & mask;
+        carry = cur >> (limbBits - s);
+      }
+      out[a.size()] = carry;
+      return out;
+    }
+
+    static void ShiftRightBitsInPlace(vector<DataT> &r, int s, int limbBits)
+    {
+      if (s == 0)
+        return;
+      DataT mask = limbBits == 64 ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
+      SizeT n = (SizeT)r.size();
+      for (SizeT i = 0; i < n; ++i)
+      {
+        DataT hi = (i + 1 < n) ? r[i + 1] : 0;
+        r[i] = ((r[i] >> s) | (hi << (limbBits - s))) & mask;
+      }
+    }
+
     static vector<DataT> MultiplyByScalar(span<const DataT> a, DataT d, BaseT base)
     {
       if (d == 0 || IsZero(a))
@@ -362,28 +398,27 @@ namespace BigMath
         return {q, computeRemainder ? vector<DataT>{rem} : vector<DataT>()};
       }
 
-      DataT d;
-      if (base == Base2_64)
+      bool pow2base = (base == Base2_32 || base == Base2_64);
+      int limbBits = (base == Base2_64) ? 64 : 32;
+      int shift = 0;
+      DataT d = 1;
+      vector<DataT> u, v;
+      if (pow2base)
       {
-        // For Base2_64: d = floor(2^64 / (b_top + 1)). Special-case b_top == max
-        // (b is already normalized; d = 1).
         DataT btop = b[b.size() - 1];
-        if (btop == 0xFFFFFFFFFFFFFFFFULL)
-          d = 1;
-        else
-          d = (DataT)(((ULong128)1 << 64) / ((ULong128)btop + 1));
+        shift = (limbBits == 64) ? __builtin_clzll((unsigned long long)btop)
+                                 : __builtin_clz((unsigned)btop);
+        u = ShiftLeftBits(a, shift, limbBits);
+        v = ShiftLeftBits(b, shift, limbBits);
       }
       else
       {
         d = (DataT)(base / (b[b.size() - 1] + 1));
+        u = d > 1 ? MultiplyByScalar(a, d, base)
+                  : vector<DataT>(a.begin(), a.end());
+        v = d > 1 ? MultiplyByScalar(b, d, base)
+                  : vector<DataT>(b.begin(), b.end());
       }
-
-      vector<DataT> u = d > 1
-                            ? MultiplyByScalar(a, d, base)
-                            : vector<DataT>(a.begin(), a.end());
-      vector<DataT> v = d > 1
-                            ? MultiplyByScalar(b, d, base)
-                            : vector<DataT>(b.begin(), b.end());
 
       TrimZeros(u);
       TrimZeros(v);
@@ -486,9 +521,13 @@ namespace BigMath
       if (computeRemainder)
       {
         r.assign(u.begin(), u.begin() + n);
-        TrimZerosToOne(r);
-        if (d > 1)
+        if (pow2base)
+          ShiftRightBitsInPlace(r, shift, limbBits);
+        else if (d > 1)
+        {
+          TrimZerosToOne(r);
           r = DivideByScalar(span<const DataT>(r), d, base);
+        }
         TrimZerosToOne(r);
       }
 
