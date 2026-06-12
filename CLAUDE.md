@@ -46,7 +46,7 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
   - `b ≥ 6144` at ratio ≥ 8/5 (`NEWTON_RATIO2`, added 2026-06-11), or
   - `b ≥ 24576` at ratio ≥ 4/3 (`NEWTON_BALANCED` — near-balanced band; ratio lowered from 2/1 and floor from 98304 on 2026-06-11), or
   - `b ≥ 2048` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1).
-- `QuotientSizedDivision` when `b ≥ 24576`, `a ≥ b + 64`, and ratio < 4/3: divides the operand TOPS (`t = Δ+4` limbs of b, `Δ+t` of a) for the (Δ+1)-limb quotient, then one Δ×nb back-multiply for the remainder — cost scales with the quotient, not the divisor.
+- `QuotientSizedDivision` when (`b ≥ 24576`, `a ≥ b + 64`, ratio < 4/3) OR (thin-quotient: `b ≥ 8192`, `64 ≤ Δ ≤ b/8`): divides the operand TOPS (`t = Δ+4` limbs of b, `Δ+t` of a) for the (Δ+1)-limb quotient, then one Δ×nb back-multiply for the remainder — cost scales with the quotient, not the divisor.
 - else `BurnikelZieglerDivision` for power-of-two base when `b > 512` and the BZ band fits (near-balanced `b ≥ 1024, b+32 ≤ a ≤ 3b`, or big-and-skewed `a > 2048 && a > 3b`).
 - otherwise multi-limb → `FastDivision` (Knuth Algorithm D variant)
 - single-limb divisor → `ClassicDivision`
