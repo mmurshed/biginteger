@@ -592,11 +592,42 @@ focused stress harness at gate-active sizes (nb 2 600–16 000 limbs, ratios 1.5
 sparse / zero-half adversarial patterns, `na = 2n`/`2n±1` boundaries, power-of-two cliffs) —
 cross-checked limb-for-limb against FastDivision plus the `q·b + r == a`, `r < b` identity.
 
-Remaining wraparound headroom (not yet taken): the same trick applies to `CR = chunk · R`
-(GMP's `mu_divappr` multiplies only the top `n+1` limbs of the chunk against the inverse with
-wraparound) and to the `T = D·R` / `RD = R·diff` products inside `ApproxReciprocal`
-(`invertappr`-style). Both need sharper error analysis than the QB case (the residue's "known
-high part" comes from the Newton invariant rather than an explicit `rem < b` bound).
+### Truncate the quotient-estimate product — top-limbs CR (LANDED 2026-06-11)
+
+The CR-side follow-up (GMP `mu_divappr` style): `CR = chunk · R` only feeds
+`Q = CR >> 2n`, and because `b_norm` is normalized (top bit set, `b ≥ B^n/2`) the bottom
+`chunk.size() − (n+1)` limbs of the chunk contribute under 1 ulp to Q
+(`c_lo / b < 2·B^(sh−n) ≤ 2/B`). `DivideChunk` therefore multiplies only the **top n+1 limbs**
+of the chunk against R — the product shrinks from `(chunk + R)` to `(n+1 + R)` limbs, halving
+the transform whenever the two sizes straddle a power-of-two boundary (`bit_ceil` gate; at
+sizes where both round to the same transform length the approximation is skipped entirely).
+
+The estimate underestimates Q by ≤ ~3 extra steps (floor truncations; same direction as the
+existing reciprocal error), absorbed by a relaxed fixup budget (12 on the approx attempt vs 8
+exact). Safety net: if the approx attempt ever blows its budget, `DivideChunk` retries once
+with the exact full product before falling back to FastDivision — the worst case is bounded at
+~1.4× a normal chunk, never quadratic.
+
+Measured (M1 Max, paired runs, on top of the cyclic-QB win above):
+
+| case | cyclic QB only | + top-limbs CR | delta |
+|---|---:|---:|---:|
+| div 3M / 600k digits | 90.2 ms | 72.3 ms | **−20%** |
+| div 5M / 1M digits | 187.6 ms | 149.7 ms | **−20%** |
+| tostr 1M digits | 138.5 ms | 122.7 ms | **−11%** |
+| div 1M / 200k digits | 30.9 ms | 30.8 ms | flat (gate off: equal `bit_ceil`) |
+
+The win lands on the ~1/3 of sizes (log-uniform) where `(3n+1)·c` and `(2n+2)·c` straddle a
+transform-length boundary; elsewhere the gate keeps the exact product and cost is unchanged.
+Verified with the same stress harness as the cyclic-QB change (gate-active divisor sizes,
+adversarial patterns, blockwise/single-block boundaries) plus `div_correctness`, 246 unit
+tests, and ToString round-trips at 100k/1M/5M digits.
+
+Remaining wraparound headroom (not yet taken): the `T = D·R` / `RD = R·diff` products inside
+`ApproxReciprocal` (`invertappr`-style). These need sharper error analysis (the residue's
+"known high part" comes from the Newton invariant rather than an explicit `rem < b` bound),
+and the reciprocal is computed once per `Divider` — amortized away in ToString workloads, so
+the win is confined to one-shot dispatch divides.
 
 ### Parallelize NTT — multithreading (LANDED, PR #32/#38/#39)
 
