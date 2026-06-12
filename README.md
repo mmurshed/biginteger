@@ -6,16 +6,16 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 ## Performance
 
-BigMath vs GMP 6.3, Apple M1 Max, paired same-run measurements (2026-06-12). Below the dashed line BigMath is faster than GMP:
+BigMath vs GMP 6.3, Apple M1 Max, paired same-run measurements (canonical run 2026-06-12 at v13.0). Below the dashed line BigMath is faster than GMP:
 
 ![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
 
-- **Multiplication beats GMP at every balanced size from 500k digits up** — peaking at 3.2× faster (10M×10M: 65 vs 206 ms) and staying at or below GMP through 200M digits (warm steady state) — and at **every measured skewed shape ≥500k×50k** (0.40–0.77×).
-- **Division beats GMP from 20M-digit dividends (0.45–0.82×)** and reaches parity from 5M (200M÷40M: 3.0 s vs GMP's 4.5 s).
-- **Decimal I/O beats GMP from 500k digits in both directions** after the parallel D&C fan-outs (PRs #118/#119): warm ToString 0.50–0.69× (1M digits: 28 vs 49 ms), parse 0.38–0.71× (20M digits: 304 vs 799 ms, 2.6× faster).
+- **Multiplication beats GMP at every balanced size from 500k digits up** — peaking at 3.2× faster (10M×10M: 64 vs 209 ms) and staying at or below GMP through 200M digits warm (0.89–0.97×) — and at **every measured skewed shape ≥500k×50k** (0.40–0.73×).
+- **Division beats GMP from 20M-digit dividends (0.45–0.82×)** and reaches parity at 5M (200M÷40M: 3.1 s vs GMP's 4.5 s).
+- **Decimal I/O beats GMP from 500k digits in both directions**: parse 0.38–0.69× (20M digits: 306 vs 815 ms, 2.7× faster), warm ToString 0.49–0.62× (1M digits: 28 vs 50 ms).
 - Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase — the documented portable-C++ wall.
 
-Two 2026-06 optimization runs produced the current margins — PRs #82–#99 (wraparound Newton division, dispatch band retunes, quotient-sized division, NEON Shoup NTT butterflies) and PRs #107–#112 (fused-MFA pass fusion, row-chunked stage parallelism, MFA gate 2^24→2^20, cyclic products on the fused pipeline, on-the-fly operand packing). PR #116 then fixed a long-standing Burnikel–Ziegler blind spot: odd divisor limb counts silently fell back to quadratic Knuth D, costing 1.3–10× on ~half of real division shapes in the 1k–25k-limb band (12289-limb divisor at ratio 1.5: 95 → 8 ms) — the prior benchmark tables, whose digit-derived shapes mostly landed on even sizes, never sampled it.
+The margins come from the 2026 optimization campaign — NEON Shoup NTT butterflies, fused-MFA transforms, the wraparound-Newton division family, the Burnikel–Ziegler odd-size padding fix, parallel decimal I/O fan-outs, and CRT-NTT squaring — followed by a full-codebase correctness audit. The condensed history with per-step wins is in [BENCHMARK.md](BENCHMARK.md#optimization-history-condensed); releases in [CHANGELOG.md](CHANGELOG.md).
 
 ![Session before/after](docs/images/session_2026_06_11.png)
 
@@ -136,32 +136,32 @@ Operators: `+ - * / % ^` (with `^` right-associative). Literals: decimal, `0x…
 
 Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations that landed, and approaches that were tried and rejected with reasons.
 
-## Performance
+## Performance numbers
 
-Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Canonical `bench_vs_gmp` run, 2026-06-12 evening (post PR #107–#112):
+Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Canonical `bench_vs_gmp` run, 2026-06-12 at v13.0; rows marked *warm* are steady-state best-of-3 (see [BENCHMARK.md](BENCHMARK.md) methodology):
 
-| operation | size | BigMath | GMP | ratio |
+| operation | size (digits) | BigMath | GMP | ratio |
 |---|---|---:|---:|---:|
-| mul | 100 000 × 100 000 | 0.66 ms | 0.61 ms | 1.08× |
-| mul | **1 000 000 × 1 000 000** | **7.8 ms** | **9.6 ms** | **0.81×** ← BigMath faster |
-| mul | **5 000 000 × 5 000 000** | **32.6 ms** | **64.4 ms** | **0.51×** ← BigMath 2× faster |
-| mul | **10 000 000 × 10 000 000** | **65 ms** | **206 ms** | **0.32×** ← BigMath 3.2× faster |
-| mul | **20 000 000 × 20 000 000** | **129 ms** | **276 ms** | **0.47×** ← BigMath 2.1× faster |
-| mul | **200 000 000 × 200 000 000** | **3 453 ms** | **3 307 ms** | **1.04×** ← 0.97× warm |
-| mul (skewed) | **1 000 000 / 100 000** | **2.5 ms** | **4.6 ms** | **0.54×** ← BigMath faster |
-| mul (skewed) | **20 000 000 / 2 000 000** | **94 ms** | **162 ms** | **0.58×** ← BigMath faster |
-| mul (skewed) | **50 000 000 / 5 000 000** | **267 ms** | **671 ms** | **0.40×** ← BigMath 2.5× faster |
-| div (skewed) | 500 000 / 100 000 | 7.6 ms | 4.6 ms | 1.65× |
-| div (skewed) | **5 000 000 / 1 000 000** | **70 ms** | **70 ms** | **1.01×** ← parity |
-| div (skewed) | **50 000 000 / 10 000 000** | **587 ms** | **1 307 ms** | **0.45×** ← BigMath 2.2× faster |
-| div (skewed) | **200 000 000 / 40 000 000** | **3 010 ms** | **4 492 ms** | **0.67×** ← BigMath faster |
-| parse | 1 000 000 digits | 32 ms | 21 ms | 1.58× |
-| parse | **20 000 000 digits** | **814 ms** | **804 ms** | **1.01×** ← parity |
-| ToString | 100 000 digits | 3.0 ms | 2.4 ms | 1.25× |
-| ToString | **1 000 000 digits** | **28 ms** | **49 ms** | **0.57×** ← BigMath faster |
-| ToString | **10 000 000 digits** | **481 ms (warm)** | **908 ms** | **0.53×** ← BigMath faster |
+| mul | 100 000 × 100 000 | 0.80 ms | 0.62 ms | 1.29× |
+| mul | **1 000 000 × 1 000 000** | **7.9 ms** | **9.3 ms** | **0.85×** ← BigMath faster |
+| mul | **5 000 000 × 5 000 000** | **32.9 ms** | **63.5 ms** | **0.52×** ← 1.9× faster |
+| mul | **10 000 000 × 10 000 000** | **64 ms** | **209 ms** | **0.31×** ← 3.2× faster |
+| mul | **20 000 000 × 20 000 000** | **129 ms** | **275 ms** | **0.47×** ← 2.1× faster |
+| mul | **200 000 000 × 200 000 000** | **2 809 ms (warm)** | **2 907 ms** | **0.97×** |
+| mul (skewed) | **1 000 000 / 100 000** | **2.8 ms** | **4.6 ms** | **0.61×** ← BigMath faster |
+| mul (skewed) | **20 000 000 / 2 000 000** | **94 ms** | **161 ms** | **0.58×** |
+| mul (skewed) | **50 000 000 / 5 000 000** | **272 ms** | **677 ms** | **0.40×** ← 2.5× faster |
+| div (skewed) | 500 000 / 100 000 | 7.7 ms | 4.8 ms | 1.59× |
+| div (skewed) | **5 000 000 / 1 000 000** | **69 ms** | **69 ms** | **1.00×** ← parity |
+| div (skewed) | **50 000 000 / 10 000 000** | **590 ms** | **1 318 ms** | **0.45×** ← 2.2× faster |
+| div (skewed) | **200 000 000 / 40 000 000** | **3 119 ms** | **4 544 ms** | **0.69×** ← BigMath faster |
+| parse | **1 000 000** | **12.5 ms** | **20.9 ms** | **0.60×** ← BigMath faster |
+| parse | **20 000 000** | **306 ms** | **815 ms** | **0.38×** ← 2.7× faster |
+| ToString | 100 000 | 3.4 ms (warm) | 2.3 ms | 1.46× |
+| ToString | **1 000 000** | **27.7 ms (warm)** | **50.3 ms** | **0.55×** ← BigMath faster |
+| ToString | **10 000 000** | **488 ms (warm)** | **901 ms** | **0.54×** |
 
-**BigMath beats GMP on balanced multiplication at every size from 500k digits up** — the former ≥50M-digit losses ("GMP SSA recovers") closed once the fused-MFA pipeline landed: 50M–200M digits run at 0.90–0.97× warm. **Skewed division flipped from a 1.9–2.8× loss to a 0.45–0.67× win at ≥20M-digit dividends** as Newton inherits the fused multiplies and runs its wrap-around products on the same pipeline. **ToString flipped from the largest remaining gap to a 0.50–0.69× win at ≥500k digits** (PR #118: the D&C formatter's subtrees are fixed-width fields at precomputable offsets — one ParallelDo over 8 of them; `tostring_chain_plan.md` records the outcome and the deferred cold-chain lever). The 10k–2M-digit division plan (`smallskew_div_plan.md`) is executed: its sweep surfaced the Burnikel–Ziegler odd-size fallback fixed in PR #116, and what remains of the sub-50k-digit division gap is the documented portable-C++ basecase wall, accepted there. See [BENCHMARK.md](BENCHMARK.md) for full tables, warm/cold methodology, and per-PR history.
+What remains behind GMP — division below ~200k-digit dividends and everything below ~13k digits — is the hand-tuned-assembly basecase band, documented as the accepted portable-C++ wall in the subsystem docs. See [BENCHMARK.md](BENCHMARK.md) for full tables, warm/cold methodology, and the condensed optimization history.
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
