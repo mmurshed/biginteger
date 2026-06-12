@@ -99,7 +99,7 @@ The chunk size matters because the inner loop of the linear parser does **one bi
 
 ### Linear parser (`ParseUnsignedLinear`)
 
-For inputs up to `DecimalDcThreshold = 8 192 digits`, the parser uses a straightforward chunked accumulation:
+For inputs up to `DecimalDcThreshold = 2 048 digits`, the parser uses a straightforward chunked accumulation:
 
 ```
    r = 0
@@ -242,7 +242,7 @@ Even-`d` cases use [`Square`](MULTIPLICATION.md#squaring) rather than `Multiply(
 
 ### Linear formatter (`ToStringLinearAppend`)
 
-For inputs up to `BIGMATH_TOSTR_DC_THRESHOLD = 2 048 digits` (approximate; the threshold is in source-digit-count, not limb-count), the formatter divides the BigInteger by `10¹⁸` repeatedly, peeling off 18 decimal digits per division:
+For inputs up to `BIGMATH_TOSTR_DC_THRESHOLD = 1 024 digits` (approximate; the threshold is in source-digit-count, not limb-count), the formatter divides the BigInteger by `10¹⁸` repeatedly, peeling off 18 decimal digits per division:
 
 ```
    chunks = []
@@ -354,7 +354,7 @@ inline vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits) {
 }
 ```
 
-For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 500, 6 250, 3 125, 1 562}` (until reaching `threshold / 2 = 1 024`). Six chain entries, each with one `Pow10` build and one `Divider` setup. The `Divider` setup is the dominant cost of chain construction; it's amortized over every divmod at that level during the recursive descent.
+For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 500, 6 250, 3 125, 1 562, 781}` (until reaching `threshold / 2 = 512`). Seven chain entries, each with one `Pow10` build and one `Divider` setup. The `Divider` setup is the dominant cost of chain construction; it's amortized over every divmod at that level during the recursive descent.
 
 **Why this is the key to the 8.4× win.** Before `NewtonDivision::Divider` existed, the D&C formatter rebuilt the reciprocal at *every* divmod call, restoring quadratic behavior to each level and making the whole D&C approach *slower* than linear formatting. The earlier "recursive D&C ToString" attempt in this codebase's history was correctly recognized as worse than linear and was reverted. Only after the `Divider` API landed (which made per-divide cost `O(M(n))` rather than `O(M(n) + reciprocal_setup)`) did the D&C structure pay off.
 
@@ -366,14 +366,14 @@ For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 
 
 ```mermaid
 flowchart TD
-    P[Parse&#40;num&#41;] --> P2{length &gt; 8192?}
+    P[Parse&#40;num&#41;] --> P2{length &gt; 2048?}
     P2 -- no --> PL[ParseUnsignedLinear]
     P2 -- yes --> PD[ParseUnsignedDivideConquer]
     PD --> PP[Pow10 cache<br/>+ Multiply combine]
     PD -. recurses to .-> PL
 
     T[ToString&#40;bigInt&#41;] --> TE[EstimateDecimalDigits]
-    TE --> T2{est decimal length &lt; 2048?}
+    TE --> T2{est decimal length &lt; 1024?}
     T2 -- yes --> TL[ToStringLinearAppend]
     T2 -- no --> TC[thread-local DecimalDcChain<br/>Pow10 + Newton Divider]
     TC --> TD[ToStringDivConquer]
@@ -385,8 +385,8 @@ Thresholds (overridable via `-D...`):
 
 | macro | default | direction | meaning |
 |---|---|---|---|
-| `DecimalDcThreshold` (compile-time constant in Parser.h) | `8 192` | parse | length below which linear parser runs |
-| `BIGMATH_TOSTR_DC_THRESHOLD` | `2 048` | format | estimated decimal length below which linear formatter runs |
+| `DecimalDcThreshold` (compile-time constant in Parser.h) | `2 048` | parse | length below which linear parser runs |
+| `BIGMATH_TOSTR_DC_THRESHOLD` | `1 024` | format | estimated decimal length below which linear formatter runs |
 
 The asymmetry between the parser and formatter thresholds reflects that the formatter has lower per-call setup cost (the `BuildDecimalDcChain` builds a chain of size proportional to `log(L)`, with `Pow10` cache hits making each entry cheap), so it pays to switch to D&C at a smaller threshold than the parser.
 
@@ -587,9 +587,13 @@ Ranked by expected ROI per unit of effort.
 
 Large `ToString` calls spend most of their time in Newton division, and Newton's hot path is multiplication. The MFA gate was raised from `2^21` to `2^24` transform coefficients after a focused on/off sweep showed regressions below `2^24`. The retune is mostly neutral for ToString through 20M digits; any further string-conversion gain should come from multiplication improvements or deeper Newton scratch reuse rather than formatter orchestration.
 
-### `BIGMATH_TOSTR_DC_THRESHOLD` tuning (re-confirmed 2026-05-26)
+### `BIGMATH_TOSTR_DC_THRESHOLD` tuning (re-swept 2026-06-11 — default now 1 024)
 
-The threshold defaults to 2 048. **Re-swept 2026-05-26** after the GM div2by1 in `ClassicDivision` (PR #43) made the linear leaf 2.13× faster at 1k digits — that shift could have moved the linear→D&C crossover. It didn't. 2 048 remains the right compromise.
+**Re-swept 2026-06-11** after the multiplication-stack changes since May (radix-4/8 fused NTT PR #59/#60, MFA PR #65, Newton balanced band PR #79) shifted the linear→D&C crossover. The May conclusion below no longer holds: paired old/new runs showed T=1024 wins or ties at every measured size — 1 500 digits −19%, 2 000 −31%, 10 000 −33%, 100k–1M ~−7%. The 22–34% regression zone at 1.5–2k digits from the May sweep has inverted. `DecimalDcThreshold` (parse) was re-swept the same day: 8 192 → 2 048 with no regression at any size and −28% at 10k, −53% at 8k, −11–12% at 100k–1M digits.
+
+#### Historical: 2026-05-26 sweep (superseded)
+
+The threshold defaulted to 2 048. **Re-swept 2026-05-26** after the GM div2by1 in `ClassicDivision` (PR #43) made the linear leaf 2.13× faster at 1k digits — that shift could have moved the linear→D&C crossover. It didn't. 2 048 remains the right compromise.
 
 Best ToString time (ms, min over many iters, M1 Max, full default stack) at each (size, threshold) cell:
 
@@ -605,7 +609,7 @@ Best ToString time (ms, min over many iters, M1 Max, full default stack) at each
 | 50 000 | 8.899  | 8.887  | 8.922  | **9.049**  | 9.399  | 10.145 |
 | 100 000| 19.461 | 19.603 | 19.527 | **19.743** | 20.562 | 22.163 |
 
-**Why 2048 is the right default.** No single threshold dominates across the size range — at 1.5–2k T=2048 is best (the doc's stated sweet spot), at 3k T=4096 wins by 18%, at 10k+ T=1024 marginally faster (1–2%). 2048 sits at the corner of the curve. Lowering to 1024 costs 22–34% at 1500–2000 digits in exchange for ~1–2% at 10k+ — net loss. Raising to 4096 saves 18% at 3k but costs 66% at 1k (puny tier 0.013ms but a common case). 2048 minimizes the worst-case regression across the typical workload mix.
+**Why 2048 was the right default (May 2026).** No single threshold dominates across the size range — at 1.5–2k T=2048 is best (the doc's stated sweet spot), at 3k T=4096 wins by 18%, at 10k+ T=1024 marginally faster (1–2%). 2048 sits at the corner of the curve. Lowering to 1024 costs 22–34% at 1500–2000 digits in exchange for ~1–2% at 10k+ — net loss. Raising to 4096 saves 18% at 3k but costs 66% at 1k (puny tier 0.013ms but a common case). 2048 minimizes the worst-case regression across the typical workload mix.
 
 **Don't tune without re-measuring.** The pre-PR-#43 sweep gave the same answer with different absolute times. If further optimizations land that shift the linear-leaf cost again, re-run the sweep before changing the default.
 
