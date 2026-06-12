@@ -1,6 +1,6 @@
 # Small-Skew Division Plan (10k–2M-digit dividends)
 
-Status: PLANNED (written 2026-06-12, post PR #107–#112 MFA run).
+Status: DONE (S1 executed 2026-06-12; see outcome at bottom).
 Honest expectations up front: this band is adjacent to documented dead
 ends (sub-50k mul vs GMP's hand-tuned basecase), and GMP's lead here is
 basecase quality, not algorithm choice. The realistic goal is to halve
@@ -101,3 +101,34 @@ a user-facing operation, and its T1/T2 levers are structural rather
 than tuning. Do S1 here (it is a half-day sweep with proven odds),
 then decide between S2 and the ToString plan with the numbers in hand
 — do not run both speculative tracks at once.
+
+## Outcome (2026-06-12, executed)
+
+S1 ran and found something better than stale floors: **BZ fell back to
+FastDivision wholesale whenever the divisor size was odd** at entry or
+at any recursion level (`BurnikelZieglerDivision.h`), i.e. on ~half of
+all real divisor sizes BZ was silently O(n·Δ). This was the root cause
+of the documented "2^k+1 family" pathology, and it had biased every
+prior Newton/BZ floor sweep (smooth probe sizes measured real BZ; real
+shapes often got Fast).
+
+Fix: pad both operands with k bottom zero limbs so the divisor size is
+`ceil(n/2^d)·2^d` (d = recursion depth); quotient unchanged, remainder
+drops the k zero pad limbs. Overhead ≤ ~1/BZ_THRESHOLD. Measured (odd
+sizes, dispatch before → after): 8193÷ at ratio 1.5: 43.5 → 4.9 ms;
+12289 at 1.5: 95 → 8.1; 4097 at 1.5: 10.5 → 2.2; 2049 at 2.0:
+5.3 → 1.8; 1037 at 2.0: 1.35 → 0.67.
+
+Newton frontier re-swept against the fixed BZ (equal-rep interleaved
+probe, `tests/performance/division_floor_probe.cpp`): now
+(640, 8/1), (1024, 7/2), (1280, 14/5), (1792, 5/2), (4096, 8/5),
+(24576, 4/3). Knife-edges at integer digit-ratios stay on the Newton
+side (7/2 covers 4.0000±1, 14/5 covers 3.0000±1).
+
+The plan's two worst rows (520-limb divisor) were already optimally
+dispatched — BZ wins them, all our algorithms are ≥2.5× GMP there, and
+the gap is basecase quality (hypothesis 3 — S3 accepted, documented
+here). The MFA-staleness premise (hypothesis 1) was wrong for this
+band: the MFA gate is 2^20 transform length, far above these sizes.
+S2 is moot: blockwise Newton with a cached reciprocal IS the chunking
+pattern, and it loses below 640 limbs.

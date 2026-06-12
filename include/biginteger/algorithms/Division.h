@@ -4,7 +4,9 @@
  * Dispatch order:
  *   1. NewtonDivision (blockwise handles arbitrary ratio via reciprocal cache),
  *      when any of these skew bands hold:
- *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (5/2)          · b
+ *        - b ≥ NEWTON_RATIO35_B   AND  a ≥ NEWTON_RATIO35 (7/2)       · b
+ *        - b ≥ NEWTON_MEDIUM_B    AND  a ≥ NEWTON_SKEW (14/5)         · b
+ *        - b ≥ NEWTON_MID_B       AND  a ≥ NEWTON_MID (5/2)           · b
  *        - b ≥ NEWTON_RATIO2_B    AND  a ≥ NEWTON_RATIO2 (8/5)        · b
  *        - b ≥ NEWTON_BALANCED_B  AND  a ≥ NEWTON_BALANCED (4/3)      · b
  *        - b ≥ NEWTON_HIGH_SKEW_B AND  a ≥ NEWTON_HIGH_SKEW (8/1)     · b
@@ -42,7 +44,7 @@
 namespace BigMath
 {
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 1024
+#define BIGMATH_NEWTON_MEDIUM_B 1280
 #endif
 
 // Ratio-≥8/5 band. Sits between the medium (3/1) and balanced (4/3) bands:
@@ -66,11 +68,38 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
-#define BIGMATH_NEWTON_SKEW_NUMERATOR 5
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 14
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
-#define BIGMATH_NEWTON_SKEW_DENOMINATOR 2
+#define BIGMATH_NEWTON_SKEW_DENOMINATOR 5
+#endif
+
+// Ratio ≥ 7/2 band: Newton wins ratio ≥ 4 across [1024, 1280); 7/2 keeps
+// the ratio-4.0000 ± 1 limb knife-edge on the Newton side.
+#ifndef BIGMATH_NEWTON_RATIO35_B
+#define BIGMATH_NEWTON_RATIO35_B 1024
+#endif
+
+#ifndef BIGMATH_NEWTON_RATIO35_NUMERATOR
+#define BIGMATH_NEWTON_RATIO35_NUMERATOR 7
+#endif
+
+#ifndef BIGMATH_NEWTON_RATIO35_DENOMINATOR
+#define BIGMATH_NEWTON_RATIO35_DENOMINATOR 2
+#endif
+
+// Exactly-2.5 band: Newton wins from b ≈ 1792; below, padded BZ.
+#ifndef BIGMATH_NEWTON_MID_B
+#define BIGMATH_NEWTON_MID_B 1792
+#endif
+
+#ifndef BIGMATH_NEWTON_MID_NUMERATOR
+#define BIGMATH_NEWTON_MID_NUMERATOR 5
+#endif
+
+#ifndef BIGMATH_NEWTON_MID_DENOMINATOR
+#define BIGMATH_NEWTON_MID_DENOMINATOR 2
 #endif
 
 #ifndef BIGMATH_NEWTON_BALANCED_B
@@ -97,7 +126,7 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
-#define BIGMATH_NEWTON_HIGH_SKEW_B 768
+#define BIGMATH_NEWTON_HIGH_SKEW_B 640
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR
@@ -115,6 +144,12 @@ namespace BigMath
   extern const SizeT BZ_DIVISOR_THRESHOLD;
   extern const SizeT NEWTON_SKEW_NUMERATOR;
   extern const SizeT NEWTON_SKEW_DENOMINATOR;
+  extern const SizeT NEWTON_RATIO35_B;
+  extern const SizeT NEWTON_RATIO35_NUMERATOR;
+  extern const SizeT NEWTON_RATIO35_DENOMINATOR;
+  extern const SizeT NEWTON_MID_B;
+  extern const SizeT NEWTON_MID_NUMERATOR;
+  extern const SizeT NEWTON_MID_DENOMINATOR;
   extern const SizeT NEWTON_BALANCED_B;
   extern const SizeT NEWTON_BALANCED_NUMERATOR;
   extern const SizeT NEWTON_BALANCED_DENOMINATOR;

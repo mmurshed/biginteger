@@ -93,6 +93,12 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(division_balanced_bench tests/performance/division_balanced_bench.cpp)
     target_link_libraries(division_balanced_bench PRIVATE bigmath::bigmath)
 
+    add_executable(division_shape_bench tests/performance/division_shape_bench.cpp)
+    target_link_libraries(division_shape_bench PRIVATE bigmath::bigmath)
+
+    add_executable(division_floor_probe tests/performance/division_floor_probe.cpp)
+    target_link_libraries(division_floor_probe PRIVATE bigmath::bigmath)
+
     add_executable(mfa_correctness tests/performance/mfa_correctness.cpp)
     target_link_libraries(mfa_correctness PRIVATE bigmath::bigmath)
 
