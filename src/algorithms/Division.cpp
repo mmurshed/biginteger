@@ -22,6 +22,8 @@ namespace BigMath
   const SizeT NEWTON_BALANCED_NUMERATOR = BIGMATH_NEWTON_BALANCED_NUMERATOR;
   const SizeT NEWTON_BALANCED_DENOMINATOR = BIGMATH_NEWTON_BALANCED_DENOMINATOR;
   const SizeT QSIZED_MIN_DELTA = BIGMATH_QSIZED_MIN_DELTA;
+  const SizeT QSIZED_SMALL_B = BIGMATH_QSIZED_SMALL_B;
+  const SizeT QSIZED_SMALL_DELTA_DIV = BIGMATH_QSIZED_SMALL_DELTA_DIV;
   const SizeT NEWTON_HIGH_SKEW_B = BIGMATH_NEWTON_HIGH_SKEW_B;
   const SizeT NEWTON_HIGH_SKEW_NUMERATOR = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
   const SizeT NEWTON_HIGH_SKEW_DENOMINATOR = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
@@ -73,11 +75,19 @@ namespace BigMath
     // (ratio < 4/3) with a quotient big enough that FastDivision's O(n*delta)
     // loses. BZ's near-balanced path blows up 7-128x on 2^k+1-family divisor
     // sizes here; quotient-sized division scales with the quotient instead.
-    bool qsized_eligible =
-        (base == Base2_32 || base == Base2_64) &&
+    bool qsized_main =
         b.size() >= NEWTON_BALANCED_B &&
         a.size() >= b.size() + QSIZED_MIN_DELTA &&
         NEWTON_BALANCED_DENOMINATOR * a.size() < NEWTON_BALANCED_NUMERATOR * b.size();
+    // Thin-quotient extension below the balanced floor: delta <= b/8. Generic
+    // wins are modest; the point is the 3-14x BZ pathology on 2^k+1-family
+    // divisor sizes in this band.
+    bool qsized_thin =
+        b.size() >= QSIZED_SMALL_B &&
+        a.size() >= b.size() + QSIZED_MIN_DELTA &&
+        (a.size() - b.size()) * QSIZED_SMALL_DELTA_DIV <= b.size();
+    bool qsized_eligible =
+        (base == Base2_32 || base == Base2_64) && (qsized_main || qsized_thin);
     if (qsized_eligible)
       return QuotientSizedDivision::DivideAndRemainder(a, b, base, computeRemainder);
 

@@ -89,6 +89,13 @@ namespace BigMath
 #define BIGMATH_QSIZED_MIN_DELTA 64
 #endif
 
+#ifndef BIGMATH_QSIZED_SMALL_B
+#define BIGMATH_QSIZED_SMALL_B 8192
+#endif
+#ifndef BIGMATH_QSIZED_SMALL_DELTA_DIV
+#define BIGMATH_QSIZED_SMALL_DELTA_DIV 8
+#endif
+
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
 #define BIGMATH_NEWTON_HIGH_SKEW_B 2048
 #endif
@@ -112,6 +119,8 @@ namespace BigMath
   extern const SizeT NEWTON_BALANCED_NUMERATOR;
   extern const SizeT NEWTON_BALANCED_DENOMINATOR;
   extern const SizeT QSIZED_MIN_DELTA;
+  extern const SizeT QSIZED_SMALL_B;
+  extern const SizeT QSIZED_SMALL_DELTA_DIV;
   extern const SizeT NEWTON_HIGH_SKEW_B;
   extern const SizeT NEWTON_HIGH_SKEW_NUMERATOR;
   extern const SizeT NEWTON_HIGH_SKEW_DENOMINATOR;

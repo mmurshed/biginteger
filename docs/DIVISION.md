@@ -115,9 +115,14 @@ ratios are deliberate cliff-avoidance: digit-derived operands land at limb ratio
 blows up 8–12× on non-power-of-2 divisor sizes (measured: 15578×5193 limbs BZ 69 ms vs Newton
 9 ms; 20785×10393 BZ 139 ms vs Newton 12 ms — both shapes sat one limb below the old bands).
 End-to-end: 200k×50k digits 6.65× → 3.36× vs GMP; 300k×100k 24.6× → 3.07×; 400k×200k
-20.7× → 3.57×. Known residual: ratio ∈ (1, 8/5) at `b ∈ (512, 24576)` stays BZ — generically
-correct (BZ wins those crossovers) but non-pow2 pathology there remains; fixing it needs the
-quotient-sized band extended below 24576 with fresh crossover data.
+20.7× → 3.57×. Residual narrowed 2026-06-11 (same day): a **thin-quotient extension** of the quotient-sized
+band now covers `Δ ≤ b/8` at `b ≥ 8192` (`BIGMATH_QSIZED_SMALL_B`). Sweep data: in that slice
+quotient-sized wins generic sizes modestly (8192 limbs ratio 1.1: 3.8 vs BZ 5.5 ms) and kills the
+2^k+1 pathology 3–14× (16385 ratio 1.1: 66.4 → 8.3 ms end-to-end). The remaining BZ slice —
+`Δ ∈ (b/8, ...)` at `b ∈ (512, 24576)`, plus everything at `b < 8192` below ratio 8/5 — keeps BZ
+because it genuinely wins the generic crossovers there (qsized's tops-divide recursion gets
+erratic at fat Δ below the Newton floors: measured 48 ms vs BZ 14 at 8192 ratio 1.55); its
+non-pow2 pathology stays documented as accepted.
 
 **Short-quotient band (`QuotientSizedDivision`, 2026-06-11).** For `b ≥ NEWTON_BALANCED_B`, `a ≥ b + 64`, ratio < 4/3: with Δ = a.size − b.size and t = Δ+4, the (Δ+1)-limb quotient is determined to ±a few units by the operand TOPS — `q_est = floor((a >> B^(nb−t)) / (b >> B^(nb−t)))` (truncating b perturbs q by ≤ ~B^(2−GUARD), sub-ulp). The tops divide (ratio ~2, size ~2Δ/Δ) goes to Newton directly at t ≥ 6144 (measured: Newton beats BZ at ratio 2 from ~6k limbs — 13 vs 22 ms at 12k, 40 vs 299 ms at 30k, 0.16 s vs 5.3 s at 65537); the exact remainder then costs one Δ×nb back-multiply plus ±few fixups (cap 8, fallback Newton). Cost scales with the **quotient**, not the divisor. Measured (nb=131073, the 2^k+1 pathology): ratios 1.05/1.10/1.25 went from 1.07 s / 2.16 s / 5.35 s (BZ) to **28 / 43 / 71 ms** (38–75×). Generic nb=120000: 37/56/116 ms → 30/39/66 ms. It also beats BZ at BZ's exact-power-of-2 best case (131072 @1.25: 65 vs 88 ms) — no regression band.
 

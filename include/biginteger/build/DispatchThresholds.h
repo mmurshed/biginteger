@@ -91,6 +91,17 @@
 #define BIGMATH_NEWTON_SKEW_DENOMINATOR 2
 #endif
 
+// Thin-quotient extension of the quotient-sized band below the balanced
+// floor: delta <= b/8 at b >= 8192. Generic wins are modest (8192 limbs at
+// ratio 1.1: 3.8 vs BZ 5.5 ms) but the 2^k+1-family BZ pathology there is
+// 3-14x (16385 limbs ratio 1.1: 11.9 vs 66.4 ms).
+#ifndef BIGMATH_QSIZED_SMALL_B
+#define BIGMATH_QSIZED_SMALL_B 8192
+#endif
+#ifndef BIGMATH_QSIZED_SMALL_DELTA_DIV
+#define BIGMATH_QSIZED_SMALL_DELTA_DIV 8
+#endif
+
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
 #define BIGMATH_NEWTON_HIGH_SKEW_B 2048
 #endif
