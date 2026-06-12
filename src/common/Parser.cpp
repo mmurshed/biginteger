@@ -169,11 +169,86 @@ namespace BigMath
     return result;
   }
 
+// Parallel parse fan-out: depth of the deterministic split replay before the
+// one ParallelDo dispatch (2^splits leaf ranges), and the digit count below
+// which the fan-out isn't worth the dispatch.
+#ifndef BIGMATH_PARSE_PARALLEL_SPLITS
+#define BIGMATH_PARSE_PARALLEL_SPLITS 3
+#endif
+#ifndef BIGMATH_PARSE_PARALLEL_THRESHOLD
+#define BIGMATH_PARSE_PARALLEL_THRESHOLD 100000
+#endif
+
+#if BIGMATH_USE_THREADS
+  namespace
+  {
+    // The split points are a pure function of (start, end), so the collect
+    // and combine phases replay the exact ParseUnsignedDivideConquer tree:
+    // leaves parse in parallel, the combines run on the caller afterwards
+    // (their Multiply uses the threaded NTT; workers' nested ParallelDo runs
+    // inline — Parallel.cpp tl_chunkDepth guard).
+    void CollectParseRanges(Int start, Int end, int splits,
+                            std::vector<std::pair<Int, Int>> &ranges)
+    {
+      SizeT len = (SizeT)(end - start + 1);
+      if (splits == 0 || len <= DecimalDcThreshold)
+      {
+        ranges.push_back({start, end});
+        return;
+      }
+      SizeT lowDigits = len / 2;
+      Int split = end - (Int)lowDigits;
+      CollectParseRanges(start, split, splits - 1, ranges);
+      CollectParseRanges(split + 1, end, splits - 1, ranges);
+    }
+
+    std::vector<DataT> CombineParsed(Int start, Int end, int splits,
+                                     std::vector<std::vector<DataT>> &leaves,
+                                     SizeT &idx)
+    {
+      SizeT len = (SizeT)(end - start + 1);
+      if (splits == 0 || len <= DecimalDcThreshold)
+        return std::move(leaves[idx++]);
+
+      SizeT lowDigits = len / 2;
+      Int split = end - (Int)lowDigits;
+      std::vector<DataT> high = CombineParsed(start, split, splits - 1, leaves, idx);
+      std::vector<DataT> low = CombineParsed(split + 1, end, splits - 1, leaves, idx);
+      std::vector<DataT> scale = Pow10(lowDigits);
+      std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
+      std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
+      TrimZerosToOne(result);
+      return result;
+    }
+  }
+#endif
+
   // Parse decimal digit range [start..end] into base-2^32 limbs.
   std::vector<DataT> ParseUnsigned(char const *num, Int start, Int end)
   {
     if (start > end)
       return std::vector<DataT>();
+
+#if BIGMATH_USE_THREADS
+    SizeT len = (SizeT)(end - start + 1);
+    if (len >= (SizeT)BIGMATH_PARSE_PARALLEL_THRESHOLD && ParallelNumThreads() > 1)
+    {
+      std::vector<std::pair<Int, Int>> ranges;
+      ranges.reserve((SizeT)1 << BIGMATH_PARSE_PARALLEL_SPLITS);
+      CollectParseRanges(start, end, BIGMATH_PARSE_PARALLEL_SPLITS, ranges);
+      if (ranges.size() > 1)
+      {
+        std::vector<std::vector<DataT>> leaves(ranges.size());
+        ParallelDo((Int)ranges.size(), [&](Int s, Int e) {
+          for (Int i = s; i < e; ++i)
+            leaves[(SizeT)i] =
+                ParseUnsignedDivideConquer(num, ranges[(SizeT)i].first, ranges[(SizeT)i].second);
+        });
+        SizeT idx = 0;
+        return CombineParsed(start, end, BIGMATH_PARSE_PARALLEL_SPLITS, leaves, idx);
+      }
+    }
+#endif
     return ParseUnsignedDivideConquer(num, start, end);
   }
 
