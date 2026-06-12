@@ -74,14 +74,16 @@
 #define BIGMATH_NTT_MFA_LEAF (1 << 13)
 #endif
 
-// MFA fires when transform length n reaches this. Default 2^24 = 16,777,216
-// coeffs ≈ 64 MB per-prime buffer. For balanced Base2_64 multiplication this
-// starts around 2M limbs per operand (≈40M decimal digits), because each limb
-// contributes two CRT coefficients and the convolution length is about 4L.
-// Fresh M1 Max measurements showed the previous 2^21 gate was too early: MFA
-// lost through ~2^23 and won around 2^24+ transform lengths.
+// MFA fires when transform length n reaches this. Canonical value lives in
+// build/DispatchThresholds.h (2^20 since the 2026-06-12 post-PR-#107
+// retune); this fallback only applies if that header isn't in the TU.
+// History: 2^21 (too early pre-NEON) -> 2^24 (MFA lost through ~2^23 with
+// whole-transform ParallelDo batching) -> 2^20: the row-chunked
+// ParallelDo(6) fused stages from PR #107 keep 6-12 work units busy where
+// the non-MFA path idles cores, flipping the break-even (warm-state
+// n=2^22 mul 3.0x, n=2^23 2.2x vs non-MFA).
 #ifndef BIGMATH_NTT_MFA_THRESHOLD
-#define BIGMATH_NTT_MFA_THRESHOLD (1 << 24)
+#define BIGMATH_NTT_MFA_THRESHOLD (1 << 20)
 #endif
 
 // Fuse the MFA transpose into the adjacent row-FFT pass. The plain MFA writes a

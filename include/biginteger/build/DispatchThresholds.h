@@ -53,8 +53,15 @@
 #define BIGMATH_NTT_CRT_THRESHOLD 256
 #endif
 
+// Post-PR-#107 retune (2026-06-12): the row-chunked ParallelDo(6) fused MFA
+// stages flipped the old 2^24 break-even — the whole-transform non-MFA path
+// idles cores (6-unit forward, 3-unit inverse) while the fused path keeps
+// 6-12 units busy. Warm-state sweep (quiet M1 Max, best-of-3 interleaved):
+// n=2^22 mul 3.0× faster, n=2^23 2.2×, div 100M÷20M digits 1.37→0.74× vs
+// GMP, 200M÷40M 1.47→1.01×. 2^18 measured ≈ wash vs 2^20 (≤4% div); 2^20
+// keeps the gate out of the latency-sensitive sub-ms band.
 #ifndef BIGMATH_NTT_MFA_THRESHOLD
-#define BIGMATH_NTT_MFA_THRESHOLD (1 << 24)
+#define BIGMATH_NTT_MFA_THRESHOLD (1 << 20)
 #endif
 
 #ifndef BIGMATH_NTT_SQUARE_THRESHOLD

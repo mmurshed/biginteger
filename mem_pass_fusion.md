@@ -48,11 +48,17 @@ Warm-state raw-limb suite, best-of-3 × 3 interleaved rounds vs pre-#107
 
 ## Next-lever ranking (revised after validation)
 
-1. **Division MFA routing** — the widest gap left (1.37–1.44× vs GMP).
-   Add MFA to the prepared-operand transform path (its forward/inverse are
-   plain Forward/Inverse), and/or raise the cyclic cap with an MFA-aware
-   MultiplyMod2km1. Newton's big linear multiplies then inherit #107's
-   1.20× automatically.
+1. **Division MFA routing — DONE via gate retune (2026-06-12)**. Profile
+   showed div's transforms at n=2^22–2^23, below the 2^24 gate, with half
+   of thread-time in psynch_cvwait. The 2^24 break-even predated #107's
+   row-chunked stages; re-sweep flipped it. Gate now **2^20**
+   (DispatchThresholds.h): mul n=2^22 3.0×, n=2^23 2.2×, n=2^21 2.0×;
+   div 50–100M digits 0.71–0.74× vs GMP (beats), 200M÷40M 1.47→1.00×
+   (parity). 2^18 ≈ wash (≤4% div) — left on the table for tune.yml.
+   Remaining 200M÷40M residual: cyclic MultiplyMod2km1 transforms (always
+   plain Forward/Inverse, n ≤ 2^22 cap) — route through fused stages
+   and/or raise the cap; also the prepared-operand path still has no MFA
+   (matters for ops/Multiplication.h repeated-multiply users, not Newton).
 2. F3 pack fusion (parallelism-first): PackOperand is a serial sweep
    writing 6 planes, plus 12 serial plane zero-fills (assign(n,0)) —
    ~1.6 GB serial at 10M limbs. Fold into stage A's ParallelDo(6) gather.

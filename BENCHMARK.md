@@ -98,7 +98,26 @@ Warm-state methodology (NOT comparable to the cold single-iter rows above): raw-
 Two structural findings from this work:
 
 - **The band is no longer purely memory-bandwidth-bound post-NEON.** A 2-concurrent-process probe shows one multiply draws ~64–69% of the M1 Max's DRAM bandwidth; pure pass-cutting that sacrificed work-unit concurrency regressed 1.47×. Parallelism is the current lever (mem_pass_fusion.md carries the revised analysis).
-- **Division did not inherit the win** (~1% movement): Newton's inner products route through the cyclic `MultiplyMod2km1` path (capped at `n ≤ 2^22`, below the MFA gate by design) and the prepared-operand path (`PrepareOperand`/`Multiply(prepared, other)`), which has no MFA at all. Large division (1.37–1.44× vs GMP) is now the widest remaining gap.
+- **Division did not inherit the win** (~1% movement): Newton's inner products route through the cyclic `MultiplyMod2km1` path (capped at `n ≤ 2^22`, below the MFA gate by design) and transforms at `n = 2^22–2^23` — below the 2^24 MFA gate. Addressed by the gate retune below.
+
+### MFA gate retune 2^24 → 2^20 (2026-06-12, post-#107)
+
+A `sample` profile of 200M÷40M-digit division showed ~88% of active compute in plain (whole-transform) radix-8 NTT layers with half of all thread-time in `psynch_cvwait` — Newton's transforms sit at `n = 2^22–2^23`, below the MFA gate, on the non-MFA path whose `ParallelDo(6)`/`ParallelDo(3)` whole-transform units idle cores. The 2^24 break-even was measured before PR #107's row-chunked stages existed; re-sweeping the gate (warm-state, quiet machine, best-of-2×2–3 interleaved rounds) flipped it decisively:
+
+| op | size (limbs) | n | gate 2^24 | gate 2^20 | BM/GMP was → now |
+|---|---|---|---:|---:|---|
+| mul | 1M × 1M | 2^22 | 299.1 | **100.7** | 1.12× → **0.38×** |
+| mul | 2M × 2M | 2^23 | 621.5 | **278.9** | 1.15× → **0.52×** |
+| mul | 500k × 500k | 2^21 | 102.5 | **50.4** | 1.06× → **0.51×** |
+| mul | 250k × 250k | 2^20 | 25.9 | 25.5 | 0.59× (wash) |
+| div | 1M ÷ 200k | — | 358.6 | **288.5** | 1.26× → **1.01×** |
+| div | 2.6M ÷ 520k | — | 904.0 | **626.8** | 1.03× → **0.71×** |
+| div | 5.2M ÷ 1.04M | — | 3 166.0 | **1 700.9** | 1.37× → **0.74×** |
+| div | 10.4M ÷ 2.08M | — | 6 492.4 | **4 426.9** | 1.47× → **1.00×** |
+
+**Division now beats GMP at ≈50–100M-digit dividends (0.71–0.74×) and reaches parity at 200M÷40M digits.** Lower gates (2^18) measured ≈ wash vs 2^20 (≤4% div); 2^20 keeps the gate out of the latency-sensitive sub-ms band. The remaining 200M÷40M gap is the cyclic `MultiplyMod2km1` transforms (always plain, `n ≤ 2^22` cap) — next candidate is routing those through the fused-stage machinery.
+
+Correctness: raw-limb GMP probe OK at every newly-MFA size (n=2^20–2^23 balanced + 8:1 skew at n=2^19 high-skew gate); full unit/roundtrip/mult/div correctness batteries green.
 
 ### MFA focused threshold check
 
