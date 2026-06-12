@@ -42,7 +42,8 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Division dispatch** (`algorithms/Division.h`, thresholds defined in `src/algorithms/Division.cpp`):
 - `NewtonDivision` (Newton-Raphson reciprocal, O(M(n)); handles arbitrary `na/nb` via blockwise mode — top chunk in [n+1, 2n], slide down by n, thread the remainder) when any skew band holds:
-  - `b ≥ 4096` at ratio ≥ 3 (`NEWTON_SKEW` 3/1), or
+  - `b ≥ 2560` at ratio ≥ 5/2 (`NEWTON_SKEW` — lowered from 4096 @ 3/1 on 2026-06-11), or
+  - `b ≥ 6144` at ratio ≥ 8/5 (`NEWTON_RATIO2`, added 2026-06-11), or
   - `b ≥ 24576` at ratio ≥ 4/3 (`NEWTON_BALANCED` — near-balanced band; ratio lowered from 2/1 and floor from 98304 on 2026-06-11), or
   - `b ≥ 2048` at ratio ≥ 8 (`NEWTON_HIGH_SKEW` 8/1).
 - `QuotientSizedDivision` when `b ≥ 24576`, `a ≥ b + 64`, and ratio < 4/3: divides the operand TOPS (`t = Δ+4` limbs of b, `Δ+t` of a) for the (Δ+1)-limb quotient, then one Δ×nb back-multiply for the remainder — cost scales with the quotient, not the divisor.

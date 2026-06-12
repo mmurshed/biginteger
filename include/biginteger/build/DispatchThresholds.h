@@ -62,15 +62,33 @@
 #endif
 
 #ifndef BIGMATH_NEWTON_MEDIUM_B
-#define BIGMATH_NEWTON_MEDIUM_B 4096
+#define BIGMATH_NEWTON_MEDIUM_B 2560
 #endif
 
+// Ratio-≥8/5 Newton band between the medium (3/1) and balanced (4/3) bands.
+// 8/5 instead of a knife-edge 2/1: digit-derived operands land at limb ratios
+// like 2.0000 ± 1 limb, and the BZ side of the edge blows up 8-12× on
+// non-power-of-2 divisor sizes; Newton generic-ties BZ from ratio ~1.6 here.
+#ifndef BIGMATH_NEWTON_RATIO2_B
+#define BIGMATH_NEWTON_RATIO2_B 6144
+#endif
+#ifndef BIGMATH_NEWTON_RATIO2_NUMERATOR
+#define BIGMATH_NEWTON_RATIO2_NUMERATOR 8
+#endif
+#ifndef BIGMATH_NEWTON_RATIO2_DENOMINATOR
+#define BIGMATH_NEWTON_RATIO2_DENOMINATOR 5
+#endif
+
+// 5/2 rather than 3/1: digit-derived operands land at limb ratios like
+// 3.0000 ± 1 limb, and BZ blows up ~7× on non-pow2 divisor sizes across
+// that edge (15578×5193 limbs: BZ 69 ms vs Newton 9 ms). Newton wins from
+// ratio ~2.5 at b ≥ 2560 (near-tie at 2600, clear by 4096).
 #ifndef BIGMATH_NEWTON_SKEW_NUMERATOR
-#define BIGMATH_NEWTON_SKEW_NUMERATOR 3
+#define BIGMATH_NEWTON_SKEW_NUMERATOR 5
 #endif
 
 #ifndef BIGMATH_NEWTON_SKEW_DENOMINATOR
-#define BIGMATH_NEWTON_SKEW_DENOMINATOR 1
+#define BIGMATH_NEWTON_SKEW_DENOMINATOR 2
 #endif
 
 #ifndef BIGMATH_NEWTON_HIGH_SKEW_B
