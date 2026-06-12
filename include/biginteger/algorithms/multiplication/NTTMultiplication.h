@@ -9,6 +9,7 @@
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
 #include "NTTCore.h"
+#include "NTTFinalize.h"
 #include "NTTMultiplicationCrt.h"
 
 using namespace std;
@@ -18,120 +19,6 @@ namespace BigMath
     class NTTMultiplication
     {
     private:
-        static vector<DataT> FinalizeBase2_32(const vector<ULong> &coeffs, SizeT coeffCount)
-        {
-            vector<DataT> result;
-            result.reserve(coeffCount / 2 + 2);
-
-            ULong carry = 0;
-            ULong low = 0;
-            bool hasLow = false;
-
-            for (SizeT i = 0; i < coeffCount; ++i)
-            {
-                ULong total = coeffs[i] + carry;
-                ULong digit = total & 0xFFFFULL;
-                carry = total >> 16;
-
-                if (hasLow)
-                {
-                    result.push_back((DataT)(low | (digit << 16)));
-                    hasLow = false;
-                }
-                else
-                {
-                    low = digit;
-                    hasLow = true;
-                }
-            }
-
-            while (carry > 0)
-            {
-                ULong digit = carry & 0xFFFFULL;
-                carry >>= 16;
-
-                if (hasLow)
-                {
-                    result.push_back((DataT)(low | (digit << 16)));
-                    hasLow = false;
-                }
-                else
-                {
-                    low = digit;
-                    hasLow = true;
-                }
-            }
-
-            if (hasLow)
-                result.push_back((DataT)low);
-
-            TrimZeros(result);
-            return result;
-        }
-
-        // Packs four consecutive 16-bit NTT coefficients into one 64-bit limb,
-        // propagating carries through `carry`. Mirrors FinalizeBase2_32's 2-into-1
-        // pattern with a 4-slot rotor for the 64-bit case.
-        static vector<DataT> FinalizeBase2_64(const vector<ULong> &coeffs, SizeT coeffCount)
-        {
-            vector<DataT> result;
-            result.reserve(coeffCount / 4 + 2);
-
-            ULong carry = 0;
-            SizeT i = 0;
-            for (; i + 3 < coeffCount; i += 4)
-            {
-                ULong total0 = coeffs[i] + carry;
-                ULong d0 = total0 & 0xFFFFULL;
-                carry = total0 >> 16;
-
-                ULong total1 = coeffs[i + 1] + carry;
-                ULong d1 = total1 & 0xFFFFULL;
-                carry = total1 >> 16;
-
-                ULong total2 = coeffs[i + 2] + carry;
-                ULong d2 = total2 & 0xFFFFULL;
-                carry = total2 >> 16;
-
-                ULong total3 = coeffs[i + 3] + carry;
-                ULong d3 = total3 & 0xFFFFULL;
-                carry = total3 >> 16;
-
-                result.push_back((DataT)(d0 | (d1 << 16) | (d2 << 32) | (d3 << 48)));
-            }
-
-            ULong limb_acc = 0;
-            int slot = 0;
-            for (; i < coeffCount; ++i)
-            {
-                ULong total = coeffs[i] + carry;
-                ULong digit = total & 0xFFFFULL;
-                carry = total >> 16;
-                limb_acc |= digit << (slot * 16);
-                ++slot;
-            }
-            while (carry > 0)
-            {
-                ULong digit = carry & 0xFFFFULL;
-                carry >>= 16;
-
-                limb_acc |= digit << (slot * 16);
-                ++slot;
-                if (slot == 4)
-                {
-                    result.push_back((DataT)limb_acc);
-                    limb_acc = 0;
-                    slot = 0;
-                }
-            }
-
-            if (slot != 0)
-                result.push_back((DataT)limb_acc);
-
-            TrimZeros(result);
-            return result;
-        }
-
     public:
         using PreparedOperand = NttCrt::PreparedOperand;
 
@@ -235,7 +122,7 @@ namespace BigMath
                 }
                 NTTCore::Inverse(fa, plan);
 
-                return FinalizeBase2_32(fa, (SizeT)coeffCount);
+                return NttFinalizeBase2_32(fa, (SizeT)coeffCount);
             }
             else if (base == Base2_64)
             {
@@ -287,7 +174,7 @@ namespace BigMath
                 }
                 NTTCore::Inverse(fa, plan);
 
-                return FinalizeBase2_64(fa, (SizeT)coeffCount);
+                return NttFinalizeBase2_64(fa, (SizeT)coeffCount);
             }
             else
             {

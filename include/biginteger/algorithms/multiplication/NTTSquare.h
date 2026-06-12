@@ -16,6 +16,7 @@
 #include "../../common/Util.h"
 #include "NTTMultiplication.h"
 #include "NTTCore.h"
+#include "NTTFinalize.h"
 #include "ClassicSquare.h"
 
 using namespace std;
@@ -25,101 +26,6 @@ namespace BigMath
   class NTTSquare
   {
   private:
-    static vector<DataT> FinalizeBase2_32(const vector<ULong> &coeffs, SizeT coeffCount)
-    {
-      vector<DataT> result;
-      result.reserve(coeffCount / 2 + 2);
-
-      ULong carry = 0;
-      ULong low = 0;
-      bool hasLow = false;
-
-      for (SizeT i = 0; i < coeffCount; ++i)
-      {
-        ULong total = coeffs[i] + carry;
-        ULong digit = total & 0xFFFFULL;
-        carry = total >> 16;
-
-        if (hasLow)
-        {
-          result.push_back((DataT)(low | (digit << 16)));
-          hasLow = false;
-        }
-        else
-        {
-          low = digit;
-          hasLow = true;
-        }
-      }
-
-      while (carry > 0)
-      {
-        ULong digit = carry & 0xFFFFULL;
-        carry >>= 16;
-
-        if (hasLow)
-        {
-          result.push_back((DataT)(low | (digit << 16)));
-          hasLow = false;
-        }
-        else
-        {
-          low = digit;
-          hasLow = true;
-        }
-      }
-
-      if (hasLow)
-        result.push_back((DataT)low);
-
-      TrimZeros(result);
-      return result;
-    }
-
-    // 4-into-1 rotor: combine four consecutive 16-bit coefficients into one
-    // 64-bit limb, propagating carries.
-    static vector<DataT> FinalizeBase2_64(const vector<ULong> &coeffs, SizeT coeffCount)
-    {
-      vector<DataT> result;
-      result.reserve(coeffCount / 4 + 2);
-
-      ULong carry = 0;
-      ULong limb_acc = 0;
-      int slot = 0;
-
-      auto flush = [&result, &limb_acc, &slot](bool force)
-      {
-        if (slot == 4 || (force && slot != 0))
-        {
-          result.push_back((DataT)limb_acc);
-          limb_acc = 0;
-          slot = 0;
-        }
-      };
-
-      for (SizeT i = 0; i < coeffCount; ++i)
-      {
-        ULong total = coeffs[i] + carry;
-        ULong digit = total & 0xFFFFULL;
-        carry = total >> 16;
-        limb_acc |= digit << (slot * 16);
-        ++slot;
-        flush(false);
-      }
-      while (carry > 0)
-      {
-        ULong digit = carry & 0xFFFFULL;
-        carry >>= 16;
-        limb_acc |= digit << (slot * 16);
-        ++slot;
-        flush(false);
-      }
-      flush(true);
-
-      TrimZeros(result);
-      return result;
-    }
-
   public:
     static vector<DataT> Square(vector<DataT> const &a, BaseT base)
     {
@@ -180,7 +86,7 @@ namespace BigMath
         }
         NTTCore::Inverse(fa, plan);
 
-        return FinalizeBase2_32(fa, (SizeT)coeffCount);
+        return NttFinalizeBase2_32(fa, (SizeT)coeffCount);
       }
       else if (base == Base2_64)
       {
@@ -216,7 +122,7 @@ namespace BigMath
         }
         NTTCore::Inverse(fa, plan);
 
-        return FinalizeBase2_64(fa, (SizeT)coeffCount);
+        return NttFinalizeBase2_64(fa, (SizeT)coeffCount);
       }
       else
       {
