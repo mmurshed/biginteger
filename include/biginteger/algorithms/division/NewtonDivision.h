@@ -2,6 +2,7 @@
 #define NEWTON_DIVISION
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <stdexcept>
 #include <utility>
@@ -234,6 +235,85 @@ namespace BigMath
       bool ok;
     };
 
+    static SizeT TrimmedSize(vector<DataT> const &v)
+    {
+      SizeT s = (SizeT)v.size();
+      while (s > 1 && v[s - 1] == 0)
+        --s;
+      return s;
+    }
+
+    // Wrap-around remainder (GMP mu_div-style): instead of the full product
+    // QB = Q·b_norm, compute only its residue W = (Q·b_norm) mod (B^L − 1)
+    // with a cyclic NTT of HALF the transform length, and reconstruct
+    // rem = chunk − Q·b_norm from it.
+    //
+    // Exactness: Q is the truncated reciprocal estimate, so the true
+    // t = chunk − Q·b_norm satisfies |t| < 9·b_norm < B^(n+1) ≤ B^(L−1) — the
+    // residue (chunk − W) mod (B^L − 1) identifies t uniquely, and its sign is
+    // readable from the magnitude: t ≥ 0 lands in [0, B^(n+1)) (≤ n+1 limbs),
+    // t < 0 lands in (M − 9·B^n, M) (≥ n+2 limbs). L ≥ n+2 by construction.
+    //
+    // Returns false if a fixup cap blows; caller falls back to FastDivision
+    // exactly like the plain path.
+    static bool WrappedRemainder(
+        vector<DataT> const &chunk,
+        vector<DataT> const &b_norm,
+        SizeT L,
+        vector<DataT> &Q,
+        vector<DataT> &rem)
+    {
+      SizeT n = (SizeT)b_norm.size();
+      const DataT maxLimb = (CurrentBase == Base2_64) ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
+      const vector<DataT> M(L, maxLimb); // B^L − 1
+
+      vector<DataT> W = NTTMultiplication::MultiplyMod2km1(Q, b_norm, L, CurrentBase);
+
+      // chunk mod M: fold the limbs above L back onto the low L (B^L ≡ 1).
+      vector<DataT> cm(chunk.begin(), chunk.begin() + std::min((SizeT)chunk.size(), L));
+      if (chunk.size() > L)
+      {
+        vector<DataT> hi(chunk.begin() + L, chunk.end());
+        cm = Add(cm, hi, CurrentBase);
+        while (Compare(cm, M) >= 0)
+          cm = Subtract(cm, M, CurrentBase);
+      }
+
+      // rem_m = (cm − W) mod M
+      vector<DataT> rem_m = (Compare(cm, W) >= 0)
+                                ? Subtract(cm, W, CurrentBase)
+                                : Subtract(Add(cm, M, CurrentBase), W, CurrentBase);
+
+      const int FIXUP_LIMIT = 8;
+      static const vector<DataT> one{1};
+
+      // t < 0 (Q overestimated): rem_m ≈ M − |t|, which needs > n+1 limbs.
+      int iters = 0;
+      while (TrimmedSize(rem_m) > n + 1)
+      {
+        if (++iters > FIXUP_LIMIT)
+          return false;
+        Q = Subtract(Q, one, CurrentBase);
+        rem_m = Add(rem_m, b_norm, CurrentBase);
+        while (Compare(rem_m, M) >= 0)
+          rem_m = Subtract(rem_m, M, CurrentBase);
+      }
+
+      // rem_m now equals chunk − Q·b_norm exactly.
+      iters = 0;
+      while (Compare(rem_m, b_norm) >= 0)
+      {
+        if (++iters > FIXUP_LIMIT)
+          return false;
+        rem_m = Subtract(rem_m, b_norm, CurrentBase);
+        Q = Add(Q, one, CurrentBase);
+      }
+
+      rem = std::move(rem_m);
+      TrimZerosToOne(rem);
+      return true;
+    }
+
     // Reciprocal-based divide of a single chunk by b_norm. Used by both single-block and
     // blockwise paths. Returns {q, rem, true} on success, {{}, {}, false} on fixup overflow.
     static DivideResult DivideChunk(
@@ -254,6 +334,28 @@ namespace BigMath
       else
         Q.assign(1, 0);
       TrimZerosToOne(Q);
+
+      // Remainder via half-length cyclic product when the full Q·b_norm would
+      // be CRT-NTT-routed and the cyclic transform is strictly shorter.
+#if BIGMATH_NTT_CRT
+      if ((CurrentBase == Base2_32 || CurrentBase == Base2_64) && !IsZero(Q))
+      {
+        SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
+        ULong nCyc = std::bit_ceil((ULong)(n + 2) * c);
+        ULong nLinear = std::bit_ceil(((ULong)Q.size() + n) * c);
+        SizeT L = (SizeT)(nCyc / c);
+        if (Q.size() + n >= NTT_MULTIPLICATION_THRESHOLD &&
+            nCyc < nLinear && nCyc <= (1u << 22) &&
+            Q.size() <= L)
+        {
+          vector<DataT> rem;
+          if (!WrappedRemainder(chunk, b_norm, L, Q, rem))
+            return {{}, {}, false};
+          TrimZerosToOne(Q);
+          return {Q, rem, true};
+        }
+      }
+#endif
 
       QB = Multiply(Q, b_norm, CurrentBase);
 

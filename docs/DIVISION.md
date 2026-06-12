@@ -553,6 +553,51 @@ Bonus pitfall surfaced during development: `Multiply()` trims trailing zeros, so
 
 Reverted in full. Don't re-attempt unless a non-NTT multiplication path becomes dominant, or there's a Karatsuba-only Newton band big enough to matter.
 
+### Reduce NTT length — wrap-around cyclic remainder (LANDED 2026-06-11)
+
+The follow-up to the Mulders rejection above, attacking the same `DivideChunk` cost from the
+angle that *does* translate to NTT: cut the **transform length**, not the multiply count.
+Transform length is the serial critical path of a CRT-NTT multiply (the three primes already run
+in parallel; see the prepared-transform rejection in *Explored but rejected* for the measurement
+proving count-cuts don't move wall-clock).
+
+`DivideChunk` needed the full `QB = Q · b_norm` (transform length `bit_ceil(2·(2n+1))` coeffs)
+only to compute `rem = chunk − QB` and detect quotient-estimate error. But `|chunk − Q·b_norm| <
+9·b_norm < B^(n+1)`, so the *residue* `(Q·b_norm) mod (B^L − 1)` with `L ≈ n+2` determines `rem`
+exactly — and a length-`N` NTT computes products mod `(x^N − 1)` natively, so the residue costs a
+cyclic transform of `bit_ceil((n+2)·c)` coeffs — **half the full product's length**
+(GMP's `mpn_mu_div_qr` uses the same wraparound idea via `mulmod_bnm1`).
+
+Implementation: `NttCrt::MultiplyMod2km1(a, b, L, base)` (cyclic convolution at `N = L·c`,
+wrap-folding Garner finalize, canonical residue), used by `NewtonDivision::WrappedRemainder`
+which reconstructs `rem = (chunk − W) mod (B^L − 1)` and reads the sign of the true
+`t = chunk − Q·b_norm` from the residue's magnitude (`t ≥ 0` ⇒ ≤ n+1 limbs; `t < 0` ⇒ ≥ n+2
+limbs; disjoint because `L ≥ n+2` and quotient-estimate error is O(n) ≪ B). Fixup loops and the
+`FIXUP_LIMIT` bail-to-FastDivision semantics are unchanged. Gated on: power-of-two base,
+`BIGMATH_NTT_CRT`, `Q+n ≥ NTT_MULTIPLICATION_THRESHOLD`, cyclic length strictly below the linear
+length, and `N ≤ 2^22` (CRT coefficient-sum headroom; below the MFA permuted regime).
+
+Measured (M1 Max, paired back-to-back runs):
+
+| case | base | cyclic | delta |
+|---|---:|---:|---:|
+| div 1M / 200k digits | 34.9 ms | 31.1 ms | **−11%** |
+| div 5M / 1M digits | 206.1 ms | 184.9 ms | **−10%** |
+| tostr 1M digits | 147.1 ms | 136.7 ms | **−7%** |
+| tostr 200k digits | 21.3 ms | 20.4 ms | −4% |
+| div 1M/1M digits (FastDivision path) | 0.226 ms | 0.223 ms | flat (not routed) |
+
+Verified: 246 unit tests, `div_correctness`, ToString round-trips at 100k/1M/5M digits, and a
+focused stress harness at gate-active sizes (nb 2 600–16 000 limbs, ratios 1.5–15, all-max /
+sparse / zero-half adversarial patterns, `na = 2n`/`2n±1` boundaries, power-of-two cliffs) —
+cross-checked limb-for-limb against FastDivision plus the `q·b + r == a`, `r < b` identity.
+
+Remaining wraparound headroom (not yet taken): the same trick applies to `CR = chunk · R`
+(GMP's `mu_divappr` multiplies only the top `n+1` limbs of the chunk against the inverse with
+wraparound) and to the `T = D·R` / `RD = R·diff` products inside `ApproxReciprocal`
+(`invertappr`-style). Both need sharper error analysis than the QB case (the residue's "known
+high part" comes from the Newton invariant rather than an explicit `rem < b` bound).
+
 ### Parallelize NTT — multithreading (LANDED, PR #32/#38/#39)
 
 `BIGMATH_USE_THREADS=1` (default since PR #39) wires a small thread pool (size `min(hw_concurrency, BIGMATH_MAX_THREADS=8)`) into the CRT NTT path. The 6 forwards (3 of `fa`, 3 of `fb`) dispatch as one `ParallelDo` batch of 6 work units; 3 inverses dispatch as a 3-unit batch. Each NTT runs serially within its worker — **2 dispatches per Multiply**, not 100+.

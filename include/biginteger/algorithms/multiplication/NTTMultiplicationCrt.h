@@ -1555,6 +1555,182 @@ namespace BigMath
 
       return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
     }
+
+    // ─── Cyclic (wrap-around) product: (a · b) mod (B^L − 1) ────────────────
+    //
+    // An NTT of length N computes coefficient products mod (x^N − 1); with
+    // N = L · coeffsPerLimb the wrapped coefficient sums carry-propagate to
+    // exactly (a · b) mod (B^L − 1), because B^L ≡ 1 there. The transform is
+    // HALF the length the full product would need — and transform length is
+    // the serial critical path of a multiply (the three primes already run in
+    // parallel), so callers that can reconstruct what they need from the
+    // residue get the product at about half the wall-clock cost.
+    //
+    // Caller contract: L · coeffsPerLimb is a power of two (so the cyclic
+    // length is an admissible NTT size), a.size() ≤ L, b.size() ≤ L, and
+    // N ≤ 2^22 (same CRT coefficient-sum headroom bound as the linear path,
+    // and safely below the MFA regime, which permutes coefficient order).
+    // Returns the canonical residue in [0, B^L − 1), trimmed.
+    inline std::vector<DataT> MultiplyMod2km1(const std::vector<DataT> &a,
+                                              const std::vector<DataT> &b,
+                                              SizeT L,
+                                              BaseT base)
+    {
+      if (IsZero(a) || IsZero(b))
+        return std::vector<DataT>{0};
+
+      SizeT coeffsPerLimb = CoeffsPerLimb(base);
+      Int n = (Int)((ULong)L * coeffsPerLimb);
+      if (n <= 1 || (n & (n - 1)) != 0 || n > (1 << 22))
+        throw std::invalid_argument("MultiplyMod2km1: L*coeffsPerLimb must be a power of two <= 2^22");
+      if (a.size() > L || b.size() > L)
+        throw std::invalid_argument("MultiplyMod2km1: operand exceeds L limbs");
+
+      static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
+      fa1.assign(n, 0); fb1.assign(n, 0);
+      fa2.assign(n, 0); fb2.assign(n, 0);
+      fa3.assign(n, 0); fb3.assign(n, 0);
+
+      PackOperand(a, base, fa1, fa2, fa3);
+      PackOperand(b, base, fb1, fb2, fb3);
+
+      const auto &plan1 = GetPlan<F1, G1>(n);
+      const auto &plan2 = GetPlan<F2, G2>(n);
+      const auto &plan3 = GetPlan<F3, G3>(n);
+
+#if BIGMATH_USE_THREADS
+      {
+        std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Forward<F1>(*bufs[0], *p1); break;
+              case 1: Forward<F1>(*bufs[1], *p1); break;
+              case 2: Forward<F2>(*bufs[2], *p2); break;
+              case 3: Forward<F2>(*bufs[3], *p2); break;
+              case 4: Forward<F3>(*bufs[4], *p3); break;
+              case 5: Forward<F3>(*bufs[5], *p3); break;
+            }
+          }
+        };
+        ParallelDo(6, body);
+      }
+#else
+      Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
+      Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
+      Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
+#endif
+
+      {
+        UInt *p1a = fa1.data(), *p1b = fb1.data();
+        UInt *p2a = fa2.data(), *p2b = fb2.data();
+        UInt *p3a = fa3.data(), *p3b = fb3.data();
+        auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
+          for (Int i = s; i < e; ++i)
+          {
+            p1a[i] = F1::Mul(p1a[i], p1b[i]);
+            p2a[i] = F2::Mul(p2a[i], p2b[i]);
+            p3a[i] = F3::Mul(p3a[i], p3b[i]);
+          }
+        };
+        if ((SizeT)n >= ParallelMinSize()) ParallelFor(n, body);
+        else body(0, n);
+      }
+
+#if BIGMATH_USE_THREADS
+      {
+        std::vector<UInt> *bufs[3] = {&fa1, &fa2, &fa3};
+        const Plan<F1> *p1 = &plan1;
+        const Plan<F2> *p2 = &plan2;
+        const Plan<F3> *p3 = &plan3;
+        auto body = [bufs, p1, p2, p3](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: Inverse<F1>(*bufs[0], *p1); break;
+              case 1: Inverse<F2>(*bufs[1], *p2); break;
+              case 2: Inverse<F3>(*bufs[2], *p3); break;
+            }
+          }
+        };
+        ParallelDo(3, body);
+      }
+#else
+      Inverse<F1>(fa1, plan1);
+      Inverse<F2>(fa2, plan2);
+      Inverse<F3>(fa3, plan3);
+#endif
+
+      // Garner-recombine and carry across exactly N coefficients (L limbs);
+      // the carry that spills past limb L wraps back to limb 0 (B^L ≡ 1).
+      const InvTable &inv = GarnerInverses();
+      std::vector<DataT> r(L, 0);
+      ULong128 carry = 0;
+      if (base == Base2_64)
+      {
+        for (SizeT i = 0; i < L; ++i)
+        {
+          ULong128 total = Garner(fa1[2 * i], fa2[2 * i], fa3[2 * i], inv) + carry;
+          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+          total = Garner(fa1[2 * i + 1], fa2[2 * i + 1], fa3[2 * i + 1], inv) + carry;
+          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+          r[i] = (DataT)(lo | (hi << 32));
+        }
+      }
+      else
+      {
+        for (SizeT i = 0; i < L; ++i)
+        {
+          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
+          r[i] = (DataT)(total & 0xFFFFFFFFULL);
+          carry = total >> 32;
+        }
+      }
+
+      const ULong limbMask = (base == Base2_64) ? ~0ULL : 0xFFFFFFFFULL;
+      const int limbBits = (base == Base2_64) ? 64 : 32;
+      while (carry > 0)
+      {
+        ULong128 cur = carry;
+        carry = 0;
+        for (SizeT i = 0; cur > 0; ++i)
+        {
+          if (i == L)
+          {
+            carry += cur; // spilled past the top again — wrap once more
+            break;
+          }
+          ULong128 s = (ULong128)(ULong)r[i] + (ULong)(cur & limbMask);
+          r[i] = (DataT)((ULong)s & limbMask);
+          cur = (cur >> limbBits) + (s >> limbBits);
+        }
+      }
+
+      // r is now in [0, B^L − 1]; the single non-canonical value is B^L − 1
+      // itself (all limbs max), which ≡ 0.
+      bool allMax = true;
+      for (SizeT i = 0; i < L; ++i)
+        if ((ULong)r[i] != limbMask)
+        {
+          allMax = false;
+          break;
+        }
+      if (allMax)
+        return std::vector<DataT>{0};
+
+      TrimZeros(r);
+      if (r.empty())
+        r.push_back(0);
+      return r;
+    }
   } // namespace NttCrt
 } // namespace BigMath
 

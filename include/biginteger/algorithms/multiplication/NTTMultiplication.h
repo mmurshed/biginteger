@@ -154,6 +154,17 @@ namespace BigMath
             return NttCrt::Multiply(prepared, other);
         }
 
+        // (a · b) mod (B^L − 1) via a cyclic NTT of half the full-product
+        // length. See NttCrt::MultiplyMod2km1 for the caller contract.
+        static vector<DataT> MultiplyMod2km1(
+            const vector<DataT> &a,
+            const vector<DataT> &b,
+            SizeT L,
+            BaseT base)
+        {
+            return NttCrt::MultiplyMod2km1(a, b, L, base);
+        }
+
         // Multiply two vectors of digits using NTT-based convolution.
         static vector<DataT> Multiply(const vector<DataT> &a, const vector<DataT> &b, BaseT base)
         {
