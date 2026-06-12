@@ -64,9 +64,12 @@
 #define BIGMATH_NTT_MFA_THRESHOLD (1 << 20)
 #endif
 
+// Retuned 2048 -> 640 on 2026-06-12 when the square dispatch moved from the
+// single-prime Goldilocks NTTSquare to the CRT+NEON NttCrt self-multiply:
+// KaratsubaSquare ties CRT at 512 limbs and loses 1.3x+ from 768.
 #ifndef BIGMATH_NTT_SQUARE_THRESHOLD
 #if BIGMATH_LIMB_64
-#define BIGMATH_NTT_SQUARE_THRESHOLD 2048
+#define BIGMATH_NTT_SQUARE_THRESHOLD 640
 #else
 #define BIGMATH_NTT_SQUARE_THRESHOLD 512
 #endif

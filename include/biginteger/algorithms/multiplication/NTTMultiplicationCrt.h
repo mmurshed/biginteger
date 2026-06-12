@@ -2264,6 +2264,13 @@ namespace BigMath
       if (a.size() == 1) return ClassicMultiplication::Multiply(b, a[0], base);
       if (b.size() == 1) return ClassicMultiplication::Multiply(a, b[0], base);
 
+      // Squaring: when both operands are the same vector, the b-side pack and
+      // forward transforms are byte-identical to the a-side — skip them and
+      // square fa pointwise. (The fused MFA window below packs straight from
+      // the limb arrays and fuses the pointwise into its stages, so it keeps
+      // the two-operand flow.)
+      const bool sameOperand = (&a == &b);
+
       // Split into 32-bit coefficients. Works for Base2_32 (1 coeff per limb)
       // and Base2_64 (2 coeffs per limb). Pre-CRT bounds: each coefficient is
       // < 2^32, convolution sum at length N is < N · 2^64.
@@ -2340,78 +2347,130 @@ namespace BigMath
           // where it (and ForwardMFA/InverseMFA's standalone Transpose
           // sweeps) is the intended fallback. Kept, not dead code.
           for (int i = 0; i < 6; ++i) mfaScratch[i].assign(n, 0);
-          fa1.assign(n, 0); fb1.assign(n, 0);
-          fa2.assign(n, 0); fb2.assign(n, 0);
-          fa3.assign(n, 0); fb3.assign(n, 0);
+          fa1.assign(n, 0);
+          fa2.assign(n, 0);
+          fa3.assign(n, 0);
           PackOperand(a, base, fa1, fa2, fa3);
-          PackOperand(b, base, fb1, fb2, fb3);
+          if (!sameOperand)
+          {
+            fb1.assign(n, 0); fb2.assign(n, 0); fb3.assign(n, 0);
+            PackOperand(b, base, fb1, fb2, fb3);
+          }
           UInt *bufs[6]   = {fa1.data(), fb1.data(), fa2.data(), fb2.data(), fa3.data(), fb3.data()};
           UInt *scrs[6]   = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
                              mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
-          // Multi-level MFA: original 6-unit forward batch; the pointwise
-          // sweep below handles the product.
-          auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
-            for (Int idx = s; idx < e; ++idx)
-            {
-              switch (idx)
+          if (sameOperand)
+          {
+            // Squaring: only the three a-side forwards.
+            auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
+              for (Int idx = s; idx < e; ++idx)
               {
-                case 0: ForwardMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
-                case 1: ForwardMFA<F1>(bufs[1], n, scrs[1], /*parallel=*/false, tree1); break;
-                case 2: ForwardMFA<F2>(bufs[2], n, scrs[2], /*parallel=*/false, tree2); break;
-                case 3: ForwardMFA<F2>(bufs[3], n, scrs[3], /*parallel=*/false, tree2); break;
-                case 4: ForwardMFA<F3>(bufs[4], n, scrs[4], /*parallel=*/false, tree3); break;
-                case 5: ForwardMFA<F3>(bufs[5], n, scrs[5], /*parallel=*/false, tree3); break;
+                switch (idx)
+                {
+                  case 0: ForwardMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
+                  case 1: ForwardMFA<F2>(bufs[2], n, scrs[1], /*parallel=*/false, tree2); break;
+                  case 2: ForwardMFA<F3>(bufs[4], n, scrs[2], /*parallel=*/false, tree3); break;
+                }
               }
-            }
-          };
-          ParallelDo(6, fwdBody);
+            };
+            ParallelDo(3, fwdBody);
+          }
+          else
+          {
+            // Multi-level MFA: original 6-unit forward batch; the pointwise
+            // sweep below handles the product.
+            auto fwdBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
+              for (Int idx = s; idx < e; ++idx)
+              {
+                switch (idx)
+                {
+                  case 0: ForwardMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
+                  case 1: ForwardMFA<F1>(bufs[1], n, scrs[1], /*parallel=*/false, tree1); break;
+                  case 2: ForwardMFA<F2>(bufs[2], n, scrs[2], /*parallel=*/false, tree2); break;
+                  case 3: ForwardMFA<F2>(bufs[3], n, scrs[3], /*parallel=*/false, tree2); break;
+                  case 4: ForwardMFA<F3>(bufs[4], n, scrs[4], /*parallel=*/false, tree3); break;
+                  case 5: ForwardMFA<F3>(bufs[5], n, scrs[5], /*parallel=*/false, tree3); break;
+                }
+              }
+            };
+            ParallelDo(6, fwdBody);
+          }
         }
       }
       else
 #endif
       {
-        fa1.assign(n, 0); fb1.assign(n, 0);
-        fa2.assign(n, 0); fb2.assign(n, 0);
-        fa3.assign(n, 0); fb3.assign(n, 0);
+        fa1.assign(n, 0);
+        fa2.assign(n, 0);
+        fa3.assign(n, 0);
         PackOperand(a, base, fa1, fa2, fa3);
-        PackOperand(b, base, fb1, fb2, fb3);
+        if (!sameOperand)
+        {
+          fb1.assign(n, 0); fb2.assign(n, 0); fb3.assign(n, 0);
+          PackOperand(b, base, fb1, fb2, fb3);
+        }
 #if BIGMATH_USE_THREADS
-        // Cross-prime parallelism: 6 forwards as one batch.
+        // Cross-prime parallelism: 6 forwards as one batch (3 when squaring).
         std::vector<UInt> *bufs[6] = {&fa1, &fb1, &fa2, &fb2, &fa3, &fb3};
         const Plan<F1> *p1 = &plan1;
         const Plan<F2> *p2 = &plan2;
         const Plan<F3> *p3 = &plan3;
-        auto body = [bufs, p1, p2, p3](Int s, Int e) {
-          for (Int idx = s; idx < e; ++idx)
-          {
-            switch (idx)
+        if (sameOperand)
+        {
+          auto body = [bufs, p1, p2, p3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
             {
-              case 0: Forward<F1>(*bufs[0], *p1); break;
-              case 1: Forward<F1>(*bufs[1], *p1); break;
-              case 2: Forward<F2>(*bufs[2], *p2); break;
-              case 3: Forward<F2>(*bufs[3], *p2); break;
-              case 4: Forward<F3>(*bufs[4], *p3); break;
-              case 5: Forward<F3>(*bufs[5], *p3); break;
+              switch (idx)
+              {
+                case 0: Forward<F1>(*bufs[0], *p1); break;
+                case 1: Forward<F2>(*bufs[2], *p2); break;
+                case 2: Forward<F3>(*bufs[4], *p3); break;
+              }
             }
-          }
-        };
-        ParallelDo(6, body);
+          };
+          ParallelDo(3, body);
+        }
+        else
+        {
+          auto body = [bufs, p1, p2, p3](Int s, Int e) {
+            for (Int idx = s; idx < e; ++idx)
+            {
+              switch (idx)
+              {
+                case 0: Forward<F1>(*bufs[0], *p1); break;
+                case 1: Forward<F1>(*bufs[1], *p1); break;
+                case 2: Forward<F2>(*bufs[2], *p2); break;
+                case 3: Forward<F2>(*bufs[3], *p2); break;
+                case 4: Forward<F3>(*bufs[4], *p3); break;
+                case 5: Forward<F3>(*bufs[5], *p3); break;
+              }
+            }
+          };
+          ParallelDo(6, body);
+        }
 #else
-        Forward<F1>(fa1, plan1); Forward<F1>(fb1, plan1);
-        Forward<F2>(fa2, plan2); Forward<F2>(fb2, plan2);
-        Forward<F3>(fa3, plan3); Forward<F3>(fb3, plan3);
+        Forward<F1>(fa1, plan1);
+        Forward<F2>(fa2, plan2);
+        Forward<F3>(fa3, plan3);
+        if (!sameOperand)
+        {
+          Forward<F1>(fb1, plan1);
+          Forward<F2>(fb2, plan2);
+          Forward<F3>(fb3, plan3);
+        }
 #endif
       }
 
       // The fused MFA path already multiplied fb into fa during forward
       // stage B; the standalone pointwise sweep runs for every other path.
+      // When squaring, the b-side pointers alias fa and square it in place.
 #if BIGMATH_NTT_MFA
       if (!pointwiseFused)
 #endif
       {
-        UInt *p1a = fa1.data(), *p1b = fb1.data();
-        UInt *p2a = fa2.data(), *p2b = fb2.data();
-        UInt *p3a = fa3.data(), *p3b = fb3.data();
+        UInt *p1a = fa1.data(), *p1b = sameOperand ? fa1.data() : fb1.data();
+        UInt *p2a = fa2.data(), *p2b = sameOperand ? fa2.data() : fb2.data();
+        UInt *p3a = fa3.data(), *p3b = sameOperand ? fa3.data() : fb3.data();
         auto body = [p1a, p1b, p2a, p2b, p3a, p3b](Int s, Int e) {
           for (Int i = s; i < e; ++i)
           {
