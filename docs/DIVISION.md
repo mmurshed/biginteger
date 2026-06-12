@@ -608,6 +608,43 @@ _(M-G 3/2 for Base2_64 FastDivision was landed 2026-05-26 — see [Optimizations
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
 
+### Prepared-transform reuse in `NewtonDivision::DivideChunk` (2026-06-11)
+
+Implemented and rejected on branch `perf/newton-prepared-transforms`. The idea: `DivideChunk`'s
+two products (`CR = chunk·R`, `QB = Q·b_norm`) recompute the forward CRT-NTT spectra of `R` and
+`b_norm` on every chunk and every `Divider` reuse, even though both operands are constant. The
+existing `NttCrt::PreparedOperand` API was wired into `DivideChunk` (size-gated per product on
+`NTT_MULTIPLICATION_THRESHOLD`), prepared eagerly in `Divider`'s constructor and in the blockwise
+one-shot path. Profiling had suggested ~15–18%: forward:inverse top-of-stack samples sit at 3:2,
+and one of the two forwards per product becomes cacheable.
+
+**Measured: flat to slightly negative.** Paired runs, M1 Max, default threaded stack:
+
+| case | base | prepared |
+|------|-----:|---------:|
+| div 1M×200k digits | 34.4 ms | 35.7 ms |
+| div 5M×1M digits | 205.7 ms | 209.7 ms |
+| tostr 1M digits | 151.0 ms | 149.6 ms |
+| tostr 100k digits | 9.63 ms | 9.45 ms |
+
+Root cause: **the saved work was never on the critical path.** With `BIGMATH_USE_THREADS=1`
+(default), `NttCrt::Multiply` dispatches all 6 forward transforms (2 operands × 3 primes) as one
+batched `ParallelDo` across the 8-thread pool — they run concurrently, so the forward phase's
+wall-clock is one transform regardless of whether 3 or 6 are queued. Removing one operand's
+forwards cut **CPU** time 11% (`/usr/bin/time`: user 2.30 s → 2.05 s on the 1M×200k loop) but
+wall-clock was flat, and the prepared path's separate `ParallelDo(3)` dispatches scheduled
+slightly worse than the batched 6.
+
+The profile-derived 15–18% estimate was CPU-time arithmetic; it ignored that sample counts
+across pool threads overlap in wall-clock. **Lesson: on the threaded default, an optimization
+must shorten the serial chain (transform length, transform count *per dependency step*, memory
+passes), not just total transform count.**
+
+Re-attempt only if: (a) a single-threaded build matters as a first-class target (the CPU saving
+is real there), or (b) the pool gains intra-transform parallelism making per-transform latency
+the unit of progress, or (c) energy/throughput-under-contention becomes a goal rather than
+single-call latency.
+
 ### Subquadratic GCD (Schönhage HGCD / Lehmer recursive)
 
 [Schönhage's half-GCD algorithm](https://en.wikipedia.org/wiki/Half-GCD_algorithm) and [Lehmer's recursive GCD](https://en.wikipedia.org/wiki/Lehmer%27s_GCD_algorithm) compute `gcd(a, b)` in `O(M(n) · log n)`, asymptotically better than the Euclidean algorithm's `O(n²)`.
