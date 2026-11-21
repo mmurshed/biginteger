@@ -157,6 +157,16 @@ REGISTER_TEST(MfaTransform, ConvolutionMatchesPlainP2)
   ASSERT_TRUE((ConvolutionMatchesPlainOk<F2, G2>(1 << 14, 0xEE1)));
 }
 
+// At n2 = 256 the NEON cross-twiddle table switches to lane and block
+// factors. Compare against a whole-transform convolution for all primes,
+// with both square and rectangular MFA layouts.
+REGISTER_TEST(MfaTransform, FactoredTwiddleConvolution)
+{
+  ASSERT_TRUE((ConvolutionMatchesPlainOk<F1, G1>(1 << 16, 0xFA1)));
+  ASSERT_TRUE((ConvolutionMatchesPlainOk<F2, G2>(1 << 17, 0xFA2)));
+  ASSERT_TRUE((ConvolutionMatchesPlainOk<F3, G3>(1 << 16, 0xFA3)));
+}
+
 // 2^14/2^15/2^17 hit the single-level fused-mul scatter (even and uneven
 // n1/n2 factorizations); 2^12 sits at/below the leaf, exercising
 // ForwardMFAMul's plain-forward + pointwise fallback branch.
