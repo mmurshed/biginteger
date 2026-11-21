@@ -6,20 +6,15 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 ## Performance
 
-BigMath vs GMP 6.3, Apple M1 Max, paired same-run measurements (canonical runs: multiplication 2026-11-20, division and decimal I/O 2026-11-21). GMP is single-threaded; BigMath uses its 8-thread pool on NTT-sized work.
+On an Apple M1 Max, BigMath used up to eight threads and GMP 6.3.0 used one. Each comparison below uses the same operands on both sides.
 
-- **Multiplication beats GMP from 10k digits up** (was 500k before the 2026-11 pass) — 0.21–0.63× from 50k to 20M digits, peaking at 4.8× faster (10M×10M: 43 vs 207 ms), and 0.63–0.72× warm through 200M digits. Skewed shapes: 0.27–0.51×.
-- **Division beats GMP from 200k-digit dividends (0.19–0.67×)** — 50M÷10M digits: 244 ms vs GMP's 1.31 s; 200M÷40M: 1.45 s vs 4.47 s. It was 500k before the 2026-11 division pass, which sped up the 12 published skewed division cases by 1.14–1.58×. The historical table compares BigMath quotient-only with GMP quotient and remainder.
-- **Decimal I/O**: parse beats GMP from 100k digits (0.23–0.54×; 20M digits: 183 vs 804 ms), ToString from 200k digits cold (0.38–0.74×) and from 100k warm (0.30–0.57×).
-- Below ~10k digits multiplication is 1.4–1.5× behind GMP (was 2.3–3.2×). Still trailing: division below ~200k-digit dividends (1.4–2.0×, was 2–2.9×) and small decimal I/O.
+- **Multiplication.** Warm balanced products first beat GMP at 10,000 digits per operand and stayed ahead at every larger sampled size through 200 million. At 10 million digits, BigMath took 29.7 ms versus GMP’s 205.7 ms. At 200 million digits, the first call took 1.55× GMP’s time and the warm call took 0.81×. Warm 10:1 products took 0.21–0.53× GMP’s time across all ten sizes.
+- **Division.** At 100,000 ÷ 10,000 digits, BigMath took 1.97× GMP’s warm quotient-only time and 1.82× its quotient-and-remainder time. At 200,000 ÷ 50,000 digits the plotted run measured 0.67× and 0.60×, respectively. A second run on different operands measured 0.92× and 1.04× at that size. Both runs favored BigMath in both modes at every larger skewed size tested.
+- **Decimal conversion.** Warm parsing and formatting first beat GMP at the 100,000-digit sample. At 20 million digits, BigMath took 180 ms to parse and 614 ms to format, versus 790 ms and 2,127 ms for GMP.
 
-The margins come from the 2026 optimization campaign — NEON Shoup NTT butterflies, fused-MFA transforms, the wraparound-Newton division family, the Burnikel–Ziegler odd-size fix — and the 2026-11 multiplication pass: flag-chain limb kernels, all-NEON transform tails, a rewritten thread pool, a parallel finalize pass, truncated transform lengths and a re-swept dispatcher; and the 2026-11 division pass: a raw-buffer basecase, in-place Burnikel–Ziegler, a guarded-precision Newton reciprocal, a re-swept division dispatcher, quotient-only division and lock-free job pickup in the thread pool.
+![Four plots of BigMath time divided by GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
-![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
-
-*Figure uses the canonical runs: multiplication 2026-11-20; division and decimal I/O 2026-11-21. Multiplication at ≥50M digits uses warm timings; ToString cold and measured warm timings are shown separately. See [BENCHMARK.md](BENCHMARK.md) for operand shapes and timing methodology.*
-
-Full tables, methodology, and per-PR history: [BENCHMARK.md](BENCHMARK.md).
+The arithmetic panels use warm timings. Division uses dividends four to ten times the divisor length. The conversion panels show first and warm calls separately. A ratio below 1 means BigMath was faster. [Full tables and methodology](BENCHMARK.md) · [Measured data](docs/benchmarks/2026-11-21-pr152-m1-max.csv)
 
 ---
 
@@ -86,7 +81,7 @@ The standalone perf harnesses `multperf_simple` and `divperf_simple` (BigMath-in
 ./build/divperf_simple 5
 ```
 
-See [BENCHMARK.md](BENCHMARK.md#in-tree-simple-harnesses-k-averaged-no-gmp) for the latest k=5 numbers.
+The internal multiplication table reports the mean of five calls per algorithm. [Internal algorithm crossovers](BENCHMARK.md#internal-algorithm-crossovers)
 
 ## Use
 
@@ -138,30 +133,26 @@ Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations th
 
 ## Performance numbers
 
-Apple M1 Max, vs GMP 6.3.0, `-O3 -march=native`, full default stack (`BIGMATH_LIMB_64=1` + `BIGMATH_NTT_CRT=1` + `BIGMATH_USE_THREADS=1`, 8-thread pool). Canonical `bench_vs_gmp` runs (multiplication 2026-11-20; division and decimal I/O 2026-11-21); rows marked *warm* discard the first call.
+Selected warm calls from the full November 21, 2026 run on an Apple M1 Max. Ratios are calculated before rounding for display. The full results include first-call times, additional operand sizes and every repetition count. [Benchmark tables](BENCHMARK.md)
 
-| operation | size (digits) | BigMath | GMP | ratio |
-|---|---|---:|---:|---:|
-| mul | 1 000 × 1 000 | 1.3 µs | 0.9 µs | 1.39× |
-| mul | **10 000 × 10 000** | **27 µs** | **30 µs** | **0.90×** ← BigMath faster |
-| mul | **100 000 × 100 000** | **0.25 ms** | **0.60 ms** | **0.42×** |
-| mul | **1 000 000 × 1 000 000** | **4.8 ms** | **9.6 ms** | **0.50×** |
-| mul | **10 000 000 × 10 000 000** | **43 ms** | **207 ms** | **0.21×** ← 4.8× faster |
-| mul | **20 000 000 × 20 000 000** | **93 ms** | **276 ms** | **0.34×** |
-| mul | **200 000 000 × 200 000 000** | **2 121 ms (warm)** | **2 957 ms** | **0.72×** |
-| mul (skewed) | **1 000 000 / 100 000** | **1.4 ms** | **4.7 ms** | **0.29×** |
-| mul (skewed) | **50 000 000 / 5 000 000** | **204 ms** | **677 ms** | **0.30×** |
-| div (skewed) | **200 000 / 50 000** | **1.2 ms** | **1.7 ms** | **0.67×** ← BigMath faster |
-| div (skewed) | **1 000 000 / 200 000** | **5.0 ms** | **10.2 ms** | **0.49×** |
-| div (skewed) | **50 000 000 / 10 000 000** | **244 ms** | **1 307 ms** | **0.19×** ← 5.4× faster |
-| div (skewed) | **200 000 000 / 40 000 000** | **1 450 ms** | **4 472 ms** | **0.32×** |
-| parse | **1 000 000** | **7.1 ms** | **20.8 ms** | **0.34×** |
-| parse | **20 000 000** | **183 ms** | **804 ms** | **0.23×** ← 4.4× faster |
-| ToString | **100 000** | **1.4 ms (warm)** | **2.4 ms** | **0.57×** |
-| ToString | **1 000 000** | **14.8 ms (warm)** | **49.6 ms** | **0.30×** |
-| ToString | **10 000 000** | **362 ms (cold)** | **901 ms** | **0.40×** |
-
-What remains behind GMP: division below ~200k-digit dividends (1.4–2.0×; worst for divisors of a few hundred limbs at high ratio, where GMP's divide-and-conquer sits on an assembly basecase and Toom multiplies), multiplication below ~10k digits (1.4–1.5×, GMP's assembly basecase plus Toom tiers), small decimal I/O, and 1–4-limb products where the result allocation dominates. See [BENCHMARK.md](BENCHMARK.md) for full tables, warm/cold methodology, and the condensed optimization history.
+| Operation | Decimal digits | BigMath ms | GMP ms | BigMath / GMP |
+|---|---:|---:|---:|---:|
+| Multiply | 5,000 × 5,000 | 0.01696 | 0.01254 | 1.35× |
+| Multiply | 10,000 × 10,000 | 0.02283 | 0.02783 | 0.82× |
+| Multiply | 50,000 × 50,000 | 0.1107 | 0.2723 | 0.41× |
+| Multiply | 1,000,000 × 1,000,000 | 3.247 | 9.379 | 0.35× |
+| Multiply | 10,000,000 × 10,000,000 | 29.75 | 205.7 | 0.14× |
+| Multiply | 200,000,000 × 200,000,000 | 2,325 | 2,868 | 0.81× |
+| Multiply | 1,000,000 × 100,000 | 1.279 | 4.437 | 0.29× |
+| Divide, quotient | 100,000 ÷ 10,000 | 0.8523 | 0.4327 | 1.97× |
+| Divide, quotient and remainder | 100,000 ÷ 10,000 | 0.8488 | 0.4658 | 1.82× |
+| Divide, quotient | 200,000 ÷ 50,000 | 1.013 | 1.52 | 0.67× |
+| Divide, quotient and remainder | 200,000 ÷ 50,000 | 0.9871 | 1.642 | 0.60× |
+| Divide, quotient | 200,000,000 ÷ 40,000,000 | 1,359 | 4,183 | 0.32× |
+| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 1,380 | 4,443 | 0.31× |
+| Parse | 20,000,000 | 180 | 789.7 | 0.23× |
+| ToString | 100,000 | 1.462 | 2.392 | 0.61× |
+| ToString | 20,000,000 | 613.8 | 2,127 | 0.29× |
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
