@@ -91,7 +91,7 @@ Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
-| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `96` under LIMB_64 | sum of limbs | Classic small-product cutoff |
+| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `64` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 on 2026-11-20, following the Karatsuba leaf cutoff of 32) |
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Secondary Classic guard |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `64` | min of limbs | Classic for tiny high-skew products |
 | `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | tiny high-skew Classic guard |

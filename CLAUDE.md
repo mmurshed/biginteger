@@ -32,7 +32,7 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Multiplication dispatch** (`algorithms/Multiplication.h`):
 - single-limb operand → `ClassicMultiplication::Multiply(vec, scalar, base)`
-- `a.size()+b.size() <= 96`, or heavy skew (`min <= 64` and `max >= 10·min`) → classic schoolbook
+- `a.size()+b.size() <= 64` (re-swept from 96 on 2026-11-20 to follow the Karatsuba leaf cutoff of 32), or heavy skew (`min <= 64` and `max >= 10·min`) → classic schoolbook
 - below `NTT_MULTIPLICATION_THRESHOLD = 1280` total limbs → `KaratsubaMultiplication` (dropped from 5120 on 2026-06-12 after the NEON Shoup butterflies made CRT NTT ~2.5× faster in the small-mid band)
 - otherwise → `NTTMultiplication` (3-prime CRT effectively always: `BIGMATH_NTT_CRT_THRESHOLD = 256`)
 - `ToomCookMultiplication` exists as an alternate exercised by tests; its dispatch window was retired 2026-06-12 (CRT+NEON beats it everywhere).

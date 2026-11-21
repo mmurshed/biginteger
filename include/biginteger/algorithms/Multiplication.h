@@ -37,10 +37,11 @@
 namespace BigMath
 {
 #ifndef BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD
-// dispatch_tuner LIMB_64=1: Classic wins up to total 96 limbs (much larger
-// schoolbook range than 32-bit, where Classic only wins at 1-limb operands).
+// LIMB_64=1: Classic wins up to total 64 limbs (32x32) — the Karatsuba leaf
+// cutoff; above it Karatsuba is faster. Must stay value-identical to
+// build/DispatchThresholds.h.
 #if BIGMATH_LIMB_64
-#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 96
+#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 64
 #else
 #define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 0
 #endif
