@@ -451,7 +451,23 @@ namespace BigMath
             // leaves better than 2x headroom. (Before the slicing path the
             // clamped split recursed la/lb levels deep on skewed inputs and
             // this bound did not hold — see the comment there.)
-            std::unique_ptr<DataT[]> w(new DataT[16 * n]);
+            //
+            // Sized by shape, because the dispatcher sends arbitrarily long
+            // products here when the shorter operand is small:
+            //   - min at or below the leaf cutoff: straight to the schoolbook
+            //     kernel, no workspace;
+            //   - max >= 2*min (sliced): one 2*min temporary plus the balanced
+            //     recursion on min, i.e. <= 8*min + O(log) — independent of max;
+            //   - otherwise the balanced bound, 16n as before.
+            const SizeT m = (SizeT)std::min(a.size(), b.size());
+            size_t wLimbs;
+            if (m <= KARATSUBA_THRESHOLD)
+                wLimbs = 0;
+            else if (n >= 2 * m)
+                wLimbs = (size_t)10 * m + 1024;
+            else
+                wLimbs = (size_t)16 * n;
+            std::unique_ptr<DataT[]> w(wLimbs ? new DataT[wLimbs] : nullptr);
 
             MultiplyRecursive(
                 a.data(), a.size(),

@@ -28,6 +28,15 @@
 #define BIGMATH_CYCLIC_NTT_THRESHOLD 1280
 #endif
 
+// Gate for the top-limbs quotient estimate (the tryApprox path below). It
+// used to read NTT_MULTIPLICATION_THRESHOLD directly; that constant moved
+// 1280 -> 640 in the 2026-11-20 multiplication retune, and the division
+// frontier has not been re-swept against the faster multiply, so the gate
+// keeps the value it was tuned at.
+#ifndef BIGMATH_NEWTON_APPROX_THRESHOLD
+#define BIGMATH_NEWTON_APPROX_THRESHOLD 1280
+#endif
+
 namespace BigMath
 {
   // Newton-Raphson division.
@@ -460,7 +469,7 @@ namespace BigMath
         SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
         ULong nFull = std::bit_ceil(((ULong)chunk.size() + R.size()) * c);
         ULong nTop = std::bit_ceil(((ULong)n + 1 + R.size()) * c);
-        tryApprox = (chunk.size() + R.size() >= NTT_MULTIPLICATION_THRESHOLD) &&
+        tryApprox = (chunk.size() + R.size() >= (SizeT)BIGMATH_NEWTON_APPROX_THRESHOLD) &&
                     nTop < nFull;
       }
 #endif

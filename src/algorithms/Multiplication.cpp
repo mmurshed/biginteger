@@ -13,6 +13,8 @@ namespace BigMath
   const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
   const SizeT TOOM3_MULTIPLICATION_THRESHOLD = BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD;
   const SizeT NTT_MULTIPLICATION_THRESHOLD = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
+  const SizeT NTT_MIN_LIMB_THRESHOLD = BIGMATH_NTT_MIN_LIMB_THRESHOLD;
+  const ULong NTT_AREA_THRESHOLD = BIGMATH_NTT_AREA_THRESHOLD;
   const SizeT TOOM3_SKEW_RATIO = BIGMATH_TOOM3_SKEW_RATIO;
   const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
@@ -40,16 +42,21 @@ namespace BigMath
     if (minSize <= CLASSIC_SKEW_MIN_LIMB_THRESHOLD && maxSize >= CLASSIC_SKEW_RATIO * minSize)
       return ClassicMultiplication::Multiply(a, b, base);
 
-    if (size < TOOM3_MULTIPLICATION_THRESHOLD)
-      return KaratsubaMultiplication::Multiply(a, b, base);
+    // NTT needs a long enough product AND a long enough shorter operand: for
+    // a skewed product the alternative is sliced Karatsuba, whose cost grows
+    // with max * K(min)/min, so a short operand keeps Karatsuba ahead well
+    // past the balanced crossover. The area test la*lb captures that.
+    if (size >= NTT_MULTIPLICATION_THRESHOLD &&
+        minSize >= NTT_MIN_LIMB_THRESHOLD &&
+        (ULong)a.size() * (ULong)b.size() >= NTT_AREA_THRESHOLD)
+      return NTTMultiplication::Multiply(a, b, base);
 
-    if (size < NTT_MULTIPLICATION_THRESHOLD && maxSize < TOOM3_SKEW_RATIO * minSize)
+    // Toom-3 window [TOOM3, NTT) on the total — empty by default.
+    if (size >= TOOM3_MULTIPLICATION_THRESHOLD && size < NTT_MULTIPLICATION_THRESHOLD &&
+        maxSize < TOOM3_SKEW_RATIO * minSize)
       return ToomCookMultiplication::Multiply(a, b, base);
 
-    if (size < NTT_MULTIPLICATION_THRESHOLD)
-      return KaratsubaMultiplication::Multiply(a, b, base);
-
-    return NTTMultiplication::Multiply(a, b, base);
+    return KaratsubaMultiplication::Multiply(a, b, base);
   }
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,

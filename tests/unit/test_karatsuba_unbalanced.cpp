@@ -68,3 +68,19 @@ REGISTER_TEST(KaratsubaUnbalanced, DispatchBandWorstCases)
   Check(1100, 66, 2, gen);
   Check(1279, 33, 0, gen);
 }
+
+REGISTER_TEST(KaratsubaUnbalanced, ExtremeSkewUsesShapeSizedWorkspace)
+{
+  // The dispatcher routes arbitrarily long products here whenever the short
+  // operand is small, so the workspace is sized from min (not 16 * max). The
+  // long operand is tens to thousands of times the short one.
+  std::mt19937_64 gen(0xE87EEEULL);
+  Check(5000, 65, 0, gen);
+  Check(5000, 65, 1, gen);
+  Check(20000, 30, 0, gen);
+  Check(20000, 25, 2, gen);
+  Check(60000, 40, 0, gen);
+  Check(3001, 1500, 0, gen); // just over 2:1 with a long short operand
+  Check(2999, 1500, 0, gen); // just under 2:1 (balanced path)
+}
+

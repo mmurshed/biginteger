@@ -1,23 +1,27 @@
 /**
  * BigMath: Multiplication dispatcher
  *
- * Picks the best strategy based on operand sizes:
+ * Picks the best strategy based on operand sizes (64-bit-limb defaults):
  *   - single-limb operand                          → ClassicMultiplication (scalar)
- *   - sum ≤ CLASSIC_MULTIPLICATION_THRESHOLD OR
- *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD             → ClassicMultiplication
- *   - sum < TOOM3_MULTIPLICATION_THRESHOLD         → KaratsubaMultiplication
- *   - sum < NTT_MULTIPLICATION_THRESHOLD and
- *     max < TOOM3_SKEW_RATIO · min                 → ToomCookMultiplication (Toom-3)
- *   - sum < NTT_MULTIPLICATION_THRESHOLD           → KaratsubaMultiplication
- *   - otherwise                                    → NTTMultiplication
+ *   - sum ≤ CLASSIC_MULTIPLICATION_THRESHOLD (56) OR
+ *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD (24)        → ClassicMultiplication
+ *   - sum ≥ NTT_MULTIPLICATION_THRESHOLD (640) AND
+ *     min ≥ NTT_MIN_LIMB_THRESHOLD (64) AND
+ *     la·lb ≥ NTT_AREA_THRESHOLD (96000)           → NTTMultiplication
+ *   - otherwise                                    → KaratsubaMultiplication
+ *                                                    (slices unbalanced operands)
  *
- * Toom-3's former dispatch window (total ≈ 2560-5120 limbs) was retired on
- * 2026-06-12: with TOOM3_MULTIPLICATION_THRESHOLD == NTT_MULTIPLICATION_THRESHOLD
- * the Toom-3 branch below is unreachable and CRT+NEON NTT covers the band
- * (see DispatchThresholds.h). ToomCookMultiplication stays as a
- * test-exercised alternate. Toom-5 has no productive band — it ties
- * Karatsuba below 256 per-operand limbs and degrades fast above, so it
- * stays excluded from dispatch.
+ * The NTT condition is an area test rather than a plain total because the
+ * alternative for a skewed product is sliced Karatsuba, whose cost follows
+ * max · K(min)/min: a short operand keeps Karatsuba ahead far beyond the
+ * balanced crossover (48 × 6144 limbs still favors it).
+ *
+ * The Toom-3 window is [TOOM3_MULTIPLICATION_THRESHOLD, NTT_…) on the sum and
+ * is retired by keeping the two equal; ToomCookMultiplication stays as a
+ * test-exercised alternate. Toom-5 has no productive band. The legacy
+ * "min ≤ 64 and max ≥ 10·min → classic" skew guard is retired the same way
+ * (CLASSIC_SKEW_MIN_LIMB_THRESHOLD = 0) since Karatsuba's slicing path
+ * handles skew.
  *
  * Thresholds are tunable at compile time via -DBIGMATH_*=N.
  *
@@ -46,16 +50,42 @@ namespace BigMath
 #endif
 #endif
 
+// The #ifndef fallbacks below must stay value-identical to
+// build/DispatchThresholds.h (the canonical home, included via Constants.h);
+// they only apply when that header is bypassed.
 #ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
-// Set equal to the NTT threshold since 2026-06-12, which retires the Toom-3
-// dispatch window (CRT+NEON NTT beats it everywhere it used to win).
+// Equal to the NTT threshold, which retires the Toom-3 dispatch window.
+#if BIGMATH_LIMB_64
+#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 640
+#else
 #define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
+#endif
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
-// NTT crossover. Dropped 5120 -> 1280 on 2026-06-12 after the NEON Shoup
-// butterflies made CRT NTT ~2.5x faster in the small-mid band.
+// Floor on a.size() + b.size() for NTT. 5120 -> 1280 on 2026-06-12, -> 640 on
+// 2026-11-20 (together with the min-limb and area conditions below).
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 640
+#else
 #define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 1280
+#endif
+#endif
+
+#ifndef BIGMATH_NTT_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_MIN_LIMB_THRESHOLD 64
+#else
+#define BIGMATH_NTT_MIN_LIMB_THRESHOLD 0
+#endif
+#endif
+
+#ifndef BIGMATH_NTT_AREA_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_AREA_THRESHOLD 96000
+#else
+#define BIGMATH_NTT_AREA_THRESHOLD 0
+#endif
 #endif
 
 #ifndef BIGMATH_TOOM3_SKEW_RATIO
@@ -65,11 +95,19 @@ namespace BigMath
 #endif
 
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 24
+#else
 #define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 0
+#endif
 #endif
 
 #ifndef BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD 0
+#else
 #define BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD 64
+#endif
 #endif
 
 #ifndef BIGMATH_CLASSIC_SKEW_RATIO
@@ -79,6 +117,8 @@ namespace BigMath
   extern const SizeT CLASSIC_MULTIPLICATION_THRESHOLD;
   extern const SizeT TOOM3_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
+  extern const SizeT NTT_MIN_LIMB_THRESHOLD;
+  extern const ULong NTT_AREA_THRESHOLD;
   extern const SizeT TOOM3_SKEW_RATIO;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
