@@ -37,11 +37,10 @@
 namespace BigMath
 {
 #ifndef BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD
-// LIMB_64=1: Classic wins up to total 64 limbs (32x32) — the Karatsuba leaf
-// cutoff; above it Karatsuba is faster. Must stay value-identical to
-// build/DispatchThresholds.h.
+// LIMB_64=1: Classic wins up to total 56 limbs (28x28); from 32x32 Karatsuba
+// is faster. Must stay value-identical to build/DispatchThresholds.h.
 #if BIGMATH_LIMB_64
-#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 64
+#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 56
 #else
 #define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 0
 #endif

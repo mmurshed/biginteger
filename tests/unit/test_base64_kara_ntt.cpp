@@ -58,7 +58,7 @@ static bool LimbVectorsEqual(std::vector<DataT> const &x, std::vector<DataT> con
 REGISTER_TEST(Base64Kara, AgainstClassicSmall)
 {
   std::mt19937_64 gen(0xC0FFEEULL);
-  // 50 limbs > KARATSUBA_THRESHOLD (48), so recursion is exercised.
+  // 50 limbs > KARATSUBA_THRESHOLD (24), so recursion is exercised.
   auto a = RandomLimbs64(50, gen);
   auto b = RandomLimbs64(50, gen);
   auto k = KaratsubaMultiplication::Multiply(a, b, Base2_64);
