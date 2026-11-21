@@ -167,3 +167,78 @@ REGISTER_TEST(ParallelPool, ResultsIndependentOfTemperature)
 
 #endif
 
+
+// Awake workers pick a job up without a lock, from a description the slot
+// owner rewrites for every dispatch. Back-to-back jobs with different
+// contexts and slice counts must never run a slice with another job's
+// description: each job's context lives in a stack frame that is gone by the
+// next dispatch, and carries the id the body expects.
+REGISTER_TEST(ParallelPool, BackToBackJobsNeverMixDescriptions)
+{
+  std::mt19937 gen(123);
+  for (int round = 0; round < 20000; ++round)
+  {
+    const Int tasks = 2 + (Int)(gen() % 9);
+    struct Ctx
+    {
+      int id;
+      Int tasks;
+      std::atomic<int> hits[16];
+      std::atomic<int> bad{0};
+    } ctx;
+    ctx.id = round;
+    ctx.tasks = tasks;
+    for (auto &h : ctx.hits)
+      h.store(0);
+    ParallelDo(tasks, [&ctx, round, tasks](Int s, Int e) {
+      for (Int i = s; i < e; ++i)
+      {
+        if (i < 0 || i >= tasks || ctx.id != round || ctx.tasks != tasks)
+          ctx.bad.fetch_add(1);
+        else
+          ctx.hits[(size_t)i].fetch_add(1);
+      }
+    });
+    ASSERT_EQ(ctx.bad.load(), 0);
+    for (Int i = 0; i < tasks; ++i)
+      ASSERT_EQ(ctx.hits[(size_t)i].load(), 1);
+  }
+}
+
+// No lost wake-ups. Each job has one slice per pool thread, and a slice does
+// not return until every slice has been entered — so the job only completes
+// if every worker shows up, wherever the dispatch caught it: spinning, on
+// its way to park, parked, or just woken. The gaps between jobs straddle the
+// spin window to hit each of those states.
+REGISTER_TEST(ParallelPool, EveryWorkerAnswersEveryDispatch)
+{
+  const Int threads = (Int)ParallelNumThreads();
+  if (threads < 2)
+    return;
+  using Clock = std::chrono::steady_clock;
+  for (int gapUs : {0, 5, 20, 50, 80, 95, 100, 105, 120, 200, 500, 3000})
+    for (int round = 0; round < 25; ++round)
+    {
+      const auto until = Clock::now() + std::chrono::microseconds(gapUs);
+      while (Clock::now() < until)
+      {
+      }
+      std::atomic<Int> entered{0};
+      std::atomic<bool> timedOut{false};
+      ParallelDo(threads, [&](Int s, Int e) {
+        entered.fetch_add(e - s);
+        const auto deadline = Clock::now() + std::chrono::seconds(20);
+        while (entered.load() < threads)
+        {
+          if (Clock::now() > deadline)
+          {
+            timedOut.store(true);
+            break;
+          }
+          std::this_thread::yield();
+        }
+      });
+      ASSERT_TRUE(!timedOut.load());
+      ASSERT_EQ(entered.load(), threads);
+    }
+}

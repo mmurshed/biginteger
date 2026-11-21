@@ -160,25 +160,48 @@ namespace BigMath
           return;
         }
 
-        uint32_t gen;
+        // Publish the job without a lock, so that awake workers pick it up
+        // without one either (seven workers reading the description under a
+        // shared mutex serialize at every dispatch, and the losers sleep in
+        // the kernel). Only the slot owner writes, in this order:
+        //   1. close `claim` under the new generation tag — from here on no
+        //      claim against the previous job can succeed;
+        //   2. write the description;
+        //   3. open `claim` at slice 0;
+        //   4. publish `generation`.
+        // A worker reads `generation`, then the description, then claims
+        // with that generation. A description read before step 4 belongs to
+        // an older generation, and step 1 has already made every claim with
+        // that generation fail — so a torn or stale description is never
+        // acted on.
+        const uint32_t gen = generation.load(std::memory_order_relaxed) + 1;
+        claim.store(((uint64_t)gen << 32) | 0xFFFFFFFFu, std::memory_order_seq_cst);
+        curBody.store(body, std::memory_order_relaxed);
+        curCtx.store(ctx, std::memory_order_relaxed);
+        curTotal.store(total, std::memory_order_relaxed);
+        curChunks.store(numChunks, std::memory_order_relaxed);
+        pending.store(numChunks, std::memory_order_relaxed);
+        claim.store((uint64_t)gen << 32, std::memory_order_release);
+        generation.store(gen, std::memory_order_seq_cst);
+
+        // Parked workers need a wake-up. A worker announces that it is about
+        // to park by decrementing `awake` (under `m`) before its last look at
+        // `generation`; with both sides sequentially consistent, either it
+        // sees this job or we see it missing here. Taking `m` orders the
+        // notify after its wait has begun.
+        if (awake.load(std::memory_order_seq_cst) < (int)workers.size())
         {
-          std::lock_guard<std::mutex> lk(m);
-          curBody = body;
-          curCtx = ctx;
-          curTotal = total;
-          curChunks = numChunks;
-          gen = (uint32_t)(generation.load(std::memory_order_relaxed) + 1);
-          pending.store(numChunks, std::memory_order_relaxed);
-          claim.store((uint64_t)gen << 32, std::memory_order_relaxed);
-          generation.store(gen, std::memory_order_release);
+          {
+            std::lock_guard<std::mutex> lk(m);
+          }
+          cv.notify_all();
         }
-        cv.notify_all();
 
         ClaimAndRun(gen, body, ctx, total, numChunks);
 
         if (!SpinUntil([this] { return pending.load(std::memory_order_acquire) == 0; }))
         {
-          std::unique_lock<std::mutex> lk(m);
+          std::unique_lock<std::mutex> lk(doneMutex);
           doneCv.wait(lk, [this] { return pending.load(std::memory_order_acquire) == 0; });
         }
       }
@@ -196,8 +219,9 @@ namespace BigMath
         for (;;)
         {
           if ((uint32_t)(word >> 32) != gen) return;
-          Int c = (Int)(uint32_t)word;
-          if (c >= chunks) return;
+          const uint32_t index = (uint32_t)word; // 0xFFFFFFFF while the slot is being written
+          if (index >= (uint32_t)chunks) return;
+          const Int c = (Int)index;
           if (!claim.compare_exchange_weak(word, word + 1, std::memory_order_acq_rel, std::memory_order_acquire))
             continue;
 
@@ -213,7 +237,7 @@ namespace BigMath
           {
             // Last slice done: wake the caller if it has parked. Taking the
             // lock orders this notify after the caller's predicate check.
-            std::lock_guard<std::mutex> lk(m);
+            std::lock_guard<std::mutex> lk(doneMutex);
             doneCv.notify_one();
           }
           word = claim.load(std::memory_order_acquire);
@@ -224,53 +248,57 @@ namespace BigMath
       {
         uint32_t lastSeen = 0;
         uint32_t lastPoke = 0;
-        awake.fetch_add(1, std::memory_order_relaxed);
+        awake.fetch_add(1, std::memory_order_seq_cst);
         for (;;)
         {
           // Stay hot for a short while after the previous job (or a prewarm
-          // poke), then park.
-          SpinUntil([this, lastSeen] {
+          // poke). A job that arrives during the spin is picked up without
+          // touching `m`.
+          const bool hot = SpinUntil([this, lastSeen] {
             return generation.load(std::memory_order_acquire) != lastSeen ||
                    shutdown.load(std::memory_order_acquire);
           });
 
-          void (*body)(Int, Int, void *) = nullptr;
-          void *ctx = nullptr;
-          Int total = 0;
-          Int chunks = 0;
+          bool poked = false;
+          if (!hot)
           {
+            // Park. `awake` drops before the last look at `generation` (see
+            // RunChunks), and stays dropped only while actually waiting.
             std::unique_lock<std::mutex> lk(m);
-            auto wanted = [this, lastSeen, lastPoke] {
-              return generation.load(std::memory_order_acquire) != lastSeen ||
-                     shutdown.load(std::memory_order_acquire) ||
-                     poke.load(std::memory_order_acquire) != lastPoke;
-            };
-            while (!wanted())
+            awake.fetch_sub(1, std::memory_order_seq_cst);
+            for (;;)
             {
-              awake.fetch_sub(1, std::memory_order_relaxed);
+              if (generation.load(std::memory_order_seq_cst) != lastSeen ||
+                  shutdown.load(std::memory_order_acquire))
+                break;
+              if (poke.load(std::memory_order_acquire) != lastPoke)
+              {
+                poked = true;
+                break;
+              }
               cv.wait(lk);
-              awake.fetch_add(1, std::memory_order_relaxed);
             }
-            if (shutdown.load(std::memory_order_acquire)) return;
-            const bool poked = poke.load(std::memory_order_acquire) != lastPoke;
+            awake.fetch_add(1, std::memory_order_seq_cst);
             lastPoke = poke.load(std::memory_order_acquire);
-            if (generation.load(std::memory_order_acquire) == lastSeen)
-            {
-              // Poked awake with no job: relay the wake-up to any workers
-              // still parked, then go back to the spin phase.
-              const bool relay = poked && awake.load(std::memory_order_relaxed) < (int)workers.size();
-              lk.unlock();
-              if (relay) cv.notify_all();
-              continue;
-            }
-            lastSeen = generation.load(std::memory_order_acquire);
-            body = curBody;
-            ctx = curCtx;
-            total = curTotal;
-            chunks = curChunks;
           }
 
-          ClaimAndRun(lastSeen, body, ctx, total, chunks);
+          if (shutdown.load(std::memory_order_acquire)) return;
+
+          const uint32_t gen = generation.load(std::memory_order_acquire);
+          if (gen == lastSeen)
+          {
+            // Poked awake with no job: relay the wake-up to any workers
+            // still parked, then go back to the spin phase.
+            if (poked && awake.load(std::memory_order_relaxed) < (int)workers.size())
+              cv.notify_all();
+            continue;
+          }
+          lastSeen = gen;
+          void (*body)(Int, Int, void *) = curBody.load(std::memory_order_relaxed);
+          void *ctx = curCtx.load(std::memory_order_relaxed);
+          const Int total = curTotal.load(std::memory_order_relaxed);
+          const Int chunks = curChunks.load(std::memory_order_relaxed);
+          ClaimAndRun(gen, body, ctx, total, chunks);
         }
       }
 
@@ -278,17 +306,19 @@ namespace BigMath
       std::vector<std::thread> workers;
 
       std::mutex dispatchMutex; // held by the one caller that owns the slot
-      std::mutex m;             // guards the job description below + both cvs
+      std::mutex m;             // parking only: guards waits on `cv`
       std::condition_variable cv;
+      std::mutex doneMutex;     // the slot owner's wait for the last slice
       std::condition_variable doneCv;
       std::atomic<bool> shutdown{false};
 
-      // Job description: written under `m` by the slot owner, read under `m`
-      // by workers together with `generation`.
-      void (*curBody)(Int, Int, void *) = nullptr;
-      void *curCtx = nullptr;
-      Int curTotal = 0;
-      Int curChunks = 0;
+      // Job description: written by the slot owner while `claim` is closed,
+      // read lock-free by workers (protocol in RunChunks). Atomics so that a
+      // racing read is merely stale, never undefined.
+      std::atomic<void (*)(Int, Int, void *)> curBody{nullptr};
+      std::atomic<void *> curCtx{nullptr};
+      std::atomic<Int> curTotal{0};
+      std::atomic<Int> curChunks{0};
 
       std::atomic<int> awake{0};           // workers not parked on `cv`
       std::atomic<uint32_t> poke{0};       // bumped by Prewarm(); wakes workers into their spin phase
