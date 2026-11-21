@@ -1012,6 +1012,23 @@ Quotient-only time, µs (M1 Max):
 Quotients at least as long as the divisor (ratio ≥ 2) are unchanged: there
 the remainder falls out of the division anyway.
 
+### Newton: schoolbook for a short leading block (PR #149)
+
+Blockwise Newton division cuts the normalized dividend into a leading chunk
+of `n+1 … 2n` limbs and then `n`-limb blocks. Every chunk costs a reciprocal
+multiply and a back-multiply at the divisor's size, whatever the chunk's
+quotient length. A dividend of exactly `k·n` limbs gains a limb from the
+normalization shift whenever the divisor's top limb has leading zeros and the
+dividend's top limb is large enough — one random input in three — and that
+single quotient limb was paying for a whole chunk. Leading blocks of up to
+`BIGMATH_NEWTON_SCHOOLBOOK_HEAD = 32` quotient limbs now go to
+`FastDivision` (the divisor is already normalized): ~1.3 ns per divisor limb
+per quotient limb, against 60–75 ns per divisor limb for a chunk.
+
+Six random 8192 ÷ 4096-limb divisions, single-threaded, µs: before 3106,
+2636, 2614, 3099, 2595, 3116 — after 2624, 2645, 2591, 2615, 2620, 2630. The
+slow third is gone (−16%); the rest is unchanged.
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
