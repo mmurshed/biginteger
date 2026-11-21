@@ -2,7 +2,9 @@
  * BigMath: Internal thread pool for parallel NTT.
  *
  * Compiled only when BIGMATH_USE_THREADS=1. Lazy-initialized on first call.
- * Workers spin-wait on a condition variable for low dispatch latency.
+ * Workers poll briefly for the next job (BIGMATH_POOL_SPIN_US) before parking
+ * on a condition variable; one caller owns the pool at a time and any other
+ * concurrent caller runs its work inline.
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
@@ -13,24 +15,65 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
-#include <functional>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <vector>
+
+// How long an idle worker (and a caller waiting for its last chunks) keeps
+// polling before it parks on a condition variable. A parked thread costs
+// 20-30 us to wake on macOS — more than a whole small NTT — while one
+// multiply issues its dispatches only tens of microseconds apart, so a short
+// spin keeps the pool hot across the phases of one operation and across
+// back-to-back operations. 0 disables spinning (park immediately).
+#ifndef BIGMATH_POOL_SPIN_US
+#define BIGMATH_POOL_SPIN_US 100
+#endif
 
 namespace BigMath
 {
   namespace
   {
-    // Nesting guard: the pool has a single work slot (curBody/remaining), so a
-    // ParallelDo issued from inside a chunk body — worker thread or the caller
-    // thread running chunk 0 — would overwrite in-flight work and corrupt the
-    // outer dispatch's completion count. Any nested call runs inline serially
-    // instead. This makes ParallelDo safely reentrant, which top-level
-    // orchestration (e.g. the ToString subtree fan-out) relies on: subtree
-    // workers call Newton/NTT code that itself uses ParallelDo.
+    // Nesting guard: a ParallelDo issued from inside a chunk body — worker
+    // thread or the caller thread running a chunk — runs inline serially
+    // instead of re-entering the pool. Top-level orchestration (e.g. the
+    // ToString subtree fan-out) relies on this: subtree workers call
+    // Newton/NTT code that itself uses ParallelDo.
     thread_local int tl_chunkDepth = 0;
+
+    inline void CpuRelax()
+    {
+#if defined(__aarch64__) || defined(_M_ARM64)
+      __asm__ __volatile__("yield");
+#elif defined(__x86_64__) || defined(__i386__)
+      __builtin_ia32_pause();
+#endif
+    }
+
+    // Poll `done()` for up to BIGMATH_POOL_SPIN_US. Returns true if it became
+    // true while spinning. The clock is read every 32 polls, so one poll is
+    // an atomic load plus a pause.
+    template <typename Pred>
+    inline bool SpinUntil(Pred &&done)
+    {
+#if BIGMATH_POOL_SPIN_US > 0
+      using Clock = std::chrono::steady_clock;
+      const auto deadline = Clock::now() + std::chrono::microseconds(BIGMATH_POOL_SPIN_US);
+      for (;;)
+      {
+        for (int i = 0; i < 32; ++i)
+        {
+          if (done()) return true;
+          CpuRelax();
+        }
+        if (Clock::now() >= deadline) return done();
+      }
+#else
+      return done();
+#endif
+    }
 
     class ThreadPool
     {
@@ -47,7 +90,7 @@ namespace BigMath
         {
           workers.reserve(numThreads - 1);
           for (SizeT i = 1; i < numThreads; ++i)
-            workers.emplace_back([this, i] { WorkerLoop((Int)i); });
+            workers.emplace_back([this] { WorkerLoop(); });
         }
       }
 
@@ -55,8 +98,7 @@ namespace BigMath
       {
         {
           std::lock_guard<std::mutex> lk(m);
-          shutdown = true;
-          generation++;
+          shutdown.store(true, std::memory_order_release);
         }
         cv.notify_all();
         for (auto &t : workers) t.join();
@@ -64,9 +106,10 @@ namespace BigMath
 
       SizeT NumThreads() const { return numThreads; }
 
-      // Dispatch `numChunks` parallel calls of body(start, end). The caller
-      // thread runs chunk 0; workers 1..numChunks-1 run the others. Blocks
-      // until all chunks complete.
+      // Run body over `numChunks` equal slices of [0, total). Blocks until
+      // every slice has completed. The caller works too: it and the workers
+      // claim slices from a shared counter, so a dispatch never waits for a
+      // parked worker to wake up when the caller could do the slice itself.
       void RunChunks(Int numChunks, Int total, void (*body)(Int, Int, void *), void *ctx)
       {
         if (numChunks <= 1 || tl_chunkDepth > 0)
@@ -76,88 +119,128 @@ namespace BigMath
         }
         if ((SizeT)numChunks > numThreads) numChunks = (Int)numThreads;
 
-        // Publish work.
+        // The pool has one work slot. A second user thread dispatching while
+        // the slot is busy runs its work inline instead of queueing behind
+        // (or, as before this lock existed, overwriting) the job in flight.
+        std::unique_lock<std::mutex> owner(dispatchMutex, std::try_to_lock);
+        if (!owner.owns_lock())
+        {
+          body(0, total, ctx);
+          return;
+        }
+
+        uint32_t gen;
         {
           std::lock_guard<std::mutex> lk(m);
           curBody = body;
           curCtx = ctx;
           curTotal = total;
           curChunks = numChunks;
-          remaining = numChunks - 1; // caller does chunk 0
-          generation++;
+          gen = (uint32_t)(generation.load(std::memory_order_relaxed) + 1);
+          pending.store(numChunks, std::memory_order_relaxed);
+          claim.store((uint64_t)gen << 32, std::memory_order_relaxed);
+          generation.store(gen, std::memory_order_release);
         }
         cv.notify_all();
 
-        // Caller runs chunk 0 itself.
-        Int chunkSize = (total + numChunks - 1) / numChunks;
-        Int s0 = 0;
-        Int e0 = std::min(total, chunkSize);
-        ++tl_chunkDepth;
-        body(s0, e0, ctx);
-        --tl_chunkDepth;
+        ClaimAndRun(gen, body, ctx, total, numChunks);
 
-        // Wait for workers.
-        std::unique_lock<std::mutex> lk(m);
-        doneCv.wait(lk, [this] { return remaining == 0; });
+        if (!SpinUntil([this] { return pending.load(std::memory_order_acquire) == 0; }))
+        {
+          std::unique_lock<std::mutex> lk(m);
+          doneCv.wait(lk, [this] { return pending.load(std::memory_order_acquire) == 0; });
+        }
       }
 
     private:
-      void WorkerLoop(Int workerId)
+      // Claim slices of job `gen` until none are left. `claim` packs
+      // (generation, next slice index) into one word, so a claim can only
+      // succeed against the job whose body/ctx this thread actually read: a
+      // thread that arrives after the job finished sees a different
+      // generation tag (or an exhausted index) and touches nothing.
+      void ClaimAndRun(uint32_t gen, void (*body)(Int, Int, void *), void *ctx, Int total, Int chunks)
       {
-        Long lastSeen = 0;
+        const Int chunkSize = (total + chunks - 1) / chunks;
+        uint64_t word = claim.load(std::memory_order_acquire);
         for (;;)
         {
+          if ((uint32_t)(word >> 32) != gen) return;
+          Int c = (Int)(uint32_t)word;
+          if (c >= chunks) return;
+          if (!claim.compare_exchange_weak(word, word + 1, std::memory_order_acq_rel, std::memory_order_acquire))
+            continue;
+
+          Int s = c * chunkSize;
+          Int e = std::min(total, s + chunkSize);
+          if (s < e)
+          {
+            ++tl_chunkDepth;
+            body(s, e, ctx);
+            --tl_chunkDepth;
+          }
+          if (pending.fetch_sub(1, std::memory_order_acq_rel) == 1)
+          {
+            // Last slice done: wake the caller if it has parked. Taking the
+            // lock orders this notify after the caller's predicate check.
+            std::lock_guard<std::mutex> lk(m);
+            doneCv.notify_one();
+          }
+          word = claim.load(std::memory_order_acquire);
+        }
+      }
+
+      void WorkerLoop()
+      {
+        uint32_t lastSeen = 0;
+        for (;;)
+        {
+          // Stay hot for a short while after the previous job, then park.
+          SpinUntil([this, lastSeen] {
+            return generation.load(std::memory_order_acquire) != lastSeen ||
+                   shutdown.load(std::memory_order_acquire);
+          });
+
           void (*body)(Int, Int, void *) = nullptr;
           void *ctx = nullptr;
           Int total = 0;
           Int chunks = 0;
           {
             std::unique_lock<std::mutex> lk(m);
-            cv.wait(lk, [this, &lastSeen] { return generation != lastSeen || shutdown; });
-            if (shutdown) return;
-            lastSeen = generation;
+            cv.wait(lk, [this, lastSeen] {
+              return generation.load(std::memory_order_acquire) != lastSeen ||
+                     shutdown.load(std::memory_order_acquire);
+            });
+            if (shutdown.load(std::memory_order_acquire)) return;
+            lastSeen = generation.load(std::memory_order_acquire);
             body = curBody;
             ctx = curCtx;
             total = curTotal;
             chunks = curChunks;
           }
 
-          if (workerId < chunks)
-          {
-            Int chunkSize = (total + chunks - 1) / chunks;
-            Int s = workerId * chunkSize;
-            Int e = std::min(total, s + chunkSize);
-            if (s < e)
-            {
-              ++tl_chunkDepth;
-              body(s, e, ctx);
-              --tl_chunkDepth;
-            }
-          }
-
-          {
-            std::lock_guard<std::mutex> lk(m);
-            if (workerId < chunks)
-              --remaining;
-          }
-          if (workerId < chunks)
-            doneCv.notify_one();
+          ClaimAndRun(lastSeen, body, ctx, total, chunks);
         }
       }
 
       SizeT numThreads = 1;
       std::vector<std::thread> workers;
-      std::mutex m;
+
+      std::mutex dispatchMutex; // held by the one caller that owns the slot
+      std::mutex m;             // guards the job description below + both cvs
       std::condition_variable cv;
       std::condition_variable doneCv;
-      Long generation = 0;
-      bool shutdown = false;
+      std::atomic<bool> shutdown{false};
 
+      // Job description: written under `m` by the slot owner, read under `m`
+      // by workers together with `generation`.
       void (*curBody)(Int, Int, void *) = nullptr;
       void *curCtx = nullptr;
       Int curTotal = 0;
       Int curChunks = 0;
-      Int remaining = 0;
+
+      std::atomic<uint32_t> generation{0}; // bumped once per job
+      std::atomic<uint64_t> claim{0};      // (generation << 32) | next slice
+      std::atomic<Int> pending{0};         // slices of the current job not yet finished
     };
 
     ThreadPool &Pool()
