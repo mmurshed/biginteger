@@ -159,7 +159,34 @@ namespace BigMath
 #define BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR 1
 #endif
 
+// 64-bit-limb dispatch (see build/DispatchThresholds.h for the rule and the
+// sweep behind it; these fallbacks must stay value-identical).
+#ifndef BIGMATH_DIV_BZ_MIN_B
+#define BIGMATH_DIV_BZ_MIN_B 96
+#endif
+#ifndef BIGMATH_DIV_NEWTON_MIN_B
+#define BIGMATH_DIV_NEWTON_MIN_B 1536
+#endif
+#ifndef BIGMATH_DIV_NEWTON_SKEW_MIN_B
+#define BIGMATH_DIV_NEWTON_SKEW_MIN_B 768
+#endif
+#ifndef BIGMATH_DIV_NEWTON_SKEW_RATIO
+#define BIGMATH_DIV_NEWTON_SKEW_RATIO 3
+#endif
+#ifndef BIGMATH_DIV_NEWTON_NEAR2_MIN_B
+#define BIGMATH_DIV_NEWTON_NEAR2_MIN_B 3072
+#endif
+#ifndef BIGMATH_DIV_QSIZED_MIN_QUOTIENT
+#define BIGMATH_DIV_QSIZED_MIN_QUOTIENT 3072
+#endif
+
   extern const SizeT NEWTON_MEDIUM_B;
+  extern const SizeT DIV_BZ_MIN_B;
+  extern const SizeT DIV_NEWTON_MIN_B;
+  extern const SizeT DIV_NEWTON_SKEW_MIN_B;
+  extern const SizeT DIV_NEWTON_SKEW_RATIO;
+  extern const SizeT DIV_NEWTON_NEAR2_MIN_B;
+  extern const SizeT DIV_QSIZED_MIN_QUOTIENT;
   extern const SizeT NEWTON_RATIO20_B;
   extern const SizeT NEWTON_RATIO20_NUMERATOR;
   extern const SizeT NEWTON_RATIO20_DENOMINATOR;

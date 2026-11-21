@@ -37,6 +37,12 @@ namespace BigMath
   const SizeT NEWTON_HIGH_SKEW_B = BIGMATH_NEWTON_HIGH_SKEW_B;
   const SizeT NEWTON_HIGH_SKEW_NUMERATOR = BIGMATH_NEWTON_HIGH_SKEW_NUMERATOR;
   const SizeT NEWTON_HIGH_SKEW_DENOMINATOR = BIGMATH_NEWTON_HIGH_SKEW_DENOMINATOR;
+  const SizeT DIV_BZ_MIN_B = BIGMATH_DIV_BZ_MIN_B;
+  const SizeT DIV_NEWTON_MIN_B = BIGMATH_DIV_NEWTON_MIN_B;
+  const SizeT DIV_NEWTON_SKEW_MIN_B = BIGMATH_DIV_NEWTON_SKEW_MIN_B;
+  const SizeT DIV_NEWTON_SKEW_RATIO = BIGMATH_DIV_NEWTON_SKEW_RATIO;
+  const SizeT DIV_NEWTON_NEAR2_MIN_B = BIGMATH_DIV_NEWTON_NEAR2_MIN_B;
+  const SizeT DIV_QSIZED_MIN_QUOTIENT = BIGMATH_DIV_QSIZED_MIN_QUOTIENT;
 
   std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
       std::vector<DataT> const &a,
@@ -59,6 +65,37 @@ namespace BigMath
     if (cmp < 0)
       return {std::vector<DataT>{0}, computeRemainder ? a : std::vector<DataT>()};
 
+    if (base == Base2_64)
+    {
+      // 64-bit limbs: rule and measurements in build/DispatchThresholds.h.
+      const ULong nb = b.size();
+      const ULong na = a.size();
+      const ULong delta = na > nb ? na - nb : 0; // quotient has delta + 1 limbs
+
+      if (nb < DIV_BZ_MIN_B)
+        return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+
+      if (delta >= nb)
+      {
+        // Ratio >= 2: a full-size reciprocal pays off from DIV_NEWTON_MIN_B,
+        // earlier when there are several quotient blocks to amortize it over.
+        if (nb >= DIV_NEWTON_MIN_B ||
+            (nb >= DIV_NEWTON_SKEW_MIN_B && na >= (ULong)DIV_NEWTON_SKEW_RATIO * nb))
+          return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+        return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      }
+
+      // Quotient shorter than the divisor. Long quotients: divide the operand
+      // tops with Newton and back-multiply once. (QuotientSizedDivision needs
+      // delta + GUARD < nb; the margin here keeps well inside that.)
+      if (delta >= DIV_QSIZED_MIN_QUOTIENT && delta + 2 * QuotientSizedDivision::GUARD < nb)
+        return QuotientSizedDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      if (nb >= DIV_NEWTON_NEAR2_MIN_B && 4 * delta >= 3 * nb)
+        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
+    }
+
+    // Legacy 32-in-64 layout and other bases: the pre-2026-11 bands.
     // Newton handles any ratio via blockwise mode; pick when divisor is large enough
     // for reciprocal-setup amortization and skew is in band.
     bool newton_medium_skew =
