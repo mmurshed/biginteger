@@ -6,7 +6,11 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 ## Performance
 
-The figure compares BigMath and GMP 6.3.0 with **one thread per library** on an Apple M1 Max. BigMath’s worker pool was disabled at compile time. Both libraries ran on the same operands, with fresh GMP timings. The timings below use repeat calls on the same input.
+Both runs used the same operands on an Apple M1 Max. GMP 6.3.0 used one thread in each run. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
+
+### Single-threaded BigMath and GMP
+
+BigMath’s worker pool was disabled at compile time. The timings below are from warm calls.
 
 - **Multiplication.** GMP was faster at 13 of the 14 equal-length sizes. BigMath won at 10 million digits per operand (139 ms versus 203 ms). At 200 million digits per operand, GMP took 2.86 s and BigMath took 10.72 s.
 - **Division.** BigMath was faster in both output modes at 50 million ÷ 10 million and 100 million ÷ 20 million digits. At 200 million ÷ 40 million, BigMath took 1.50× GMP’s time for the quotient and 1.42× for quotient and remainder.
@@ -14,7 +18,11 @@ The figure compares BigMath and GMP 6.3.0 with **one thread per library** on an 
 
 ![Single-thread BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp_single_thread.png)
 
-Below 1×, BigMath was faster. The arithmetic panels show warm calls. Decimal conversion shows first and warm calls separately. Most large cases had one warm measurement. The default build uses up to eight BigMath threads. [Single-thread data and methodology](BENCHMARK.md#single-thread-comparison) · [Default-build figure](docs/images/bigmath_vs_gmp.png)
+### Multithreaded BigMath (up to eight threads) and single-threaded GMP
+
+![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
+
+[Single-thread data and methodology](BENCHMARK.md#single-thread-comparison) · [Multithreaded data and methodology](BENCHMARK.md#default-build-with-up-to-eight-bigmath-threads)
 
 ---
 
