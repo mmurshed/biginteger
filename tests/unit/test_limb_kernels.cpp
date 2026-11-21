@@ -212,3 +212,63 @@ REGISTER_TEST(LimbKernels, BasecaseMultiplyAndSquareMatchReference)
       ASSERT_TRUE(ref == got);
     }
 }
+
+REGISTER_TEST(LimbKernels, SubMul1MatchesReference)
+{
+  std::mt19937_64 gen(0x5B4D554CULL);
+  const DataT multipliers[] = {0, 1, 2, ~(DataT)0, (DataT)1 << 63, 0x9E3779B97F4A7C15ULL};
+  for (SizeT n = 0; n <= 41; ++n)
+    for (int ka = 0; ka < 4; ++ka)
+      for (int kr = 0; kr < 4; ++kr)
+        for (DataT m : multipliers)
+        {
+          auto a = Pattern(n, ka, gen), r0 = Pattern(n, kr, gen);
+          // Reference: r - a*m one limb at a time, borrow limb returned.
+          std::vector<DataT> ref = r0;
+          DataT borrow = 0;
+          for (SizeT i = 0; i < n; ++i)
+          {
+            ULong128 p = (ULong128)a[i] * m + borrow;
+            DataT low = (DataT)p;
+            borrow = (DataT)(p >> 64);
+            if (ref[i] < low)
+              ++borrow;
+            ref[i] -= low;
+          }
+          std::vector<DataT> got = r0;
+          DataT gb = LimbKernel::SubMul1(got.data(), a.data(), n, m);
+          ASSERT_TRUE(ref == got);
+          ASSERT_EQ(borrow, gb);
+        }
+}
+
+REGISTER_TEST(LimbKernels, ShiftsMatchReference)
+{
+  std::mt19937_64 gen(0x5A1F7ULL);
+  for (SizeT n = 1; n <= 23; ++n)
+    for (int kind = 0; kind < 4; ++kind)
+      for (unsigned count : {1u, 7u, 31u, 32u, 33u, 63u})
+      {
+        auto a = Pattern(n, kind, gen);
+        std::vector<DataT> ref(n), got(n);
+        // Left: limb i takes its own bits shifted up and the limb below's top bits.
+        for (SizeT i = 0; i < n; ++i)
+          ref[i] = (a[i] << count) | (i > 0 ? a[i - 1] >> (64 - count) : 0);
+        DataT out = LimbKernel::Lshift(got.data(), a.data(), n, count);
+        ASSERT_TRUE(ref == got);
+        ASSERT_EQ(out, (DataT)(a[n - 1] >> (64 - count)));
+        got = a; // in place
+        LimbKernel::Lshift(got.data(), got.data(), n, count);
+        ASSERT_TRUE(ref == got);
+
+        for (SizeT i = 0; i < n; ++i)
+          ref[i] = (a[i] >> count) | (i + 1 < n ? a[i + 1] << (64 - count) : 0);
+        out = LimbKernel::Rshift(got.data(), a.data(), n, count);
+        ASSERT_TRUE(ref == got);
+        ASSERT_EQ(out, (DataT)(a[0] << (64 - count)));
+        got = a;
+        LimbKernel::Rshift(got.data(), got.data(), n, count);
+        ASSERT_TRUE(ref == got);
+      }
+}
+

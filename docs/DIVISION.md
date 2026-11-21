@@ -754,6 +754,54 @@ _(M-G 3/2 for Base2_64 FastDivision was landed 2026-05-26 — see [Optimizations
 
 ---
 
+## 2026-11-21 division pass
+
+Measured the whole (divisor size, ratio) grid against GMP `mpn_tdiv_qr`
+before touching anything. Divisors of 2–1000 limbs were 2–6× behind — the
+band below every NTT-era algorithm — and the dispatch frontier had gone
+stale after the multiplication pass. The entries below are that pass.
+
+### Basecase on raw buffers with a flag-chain `submul_1` (PR #142)
+
+`FastDivision`'s inner loop was
+
+```cpp
+ULong128 product = (ULong128)v[i] * qhat + borrow;
+DataT low = lo(product);  borrow = hi(product);
+if (u[j + i] < low) { u[j + i] -= low; ++borrow; } else u[j + i] -= low;
+```
+
+— a limb-valued carry through the multiplier *and* a data-dependent branch
+per limb. Measured 2.9–4.0 cycles/limb against 1.3–1.8 for GMP's assembly.
+`LimbKernel::SubMul1` (same two-chain shape as `AddMul1`: products along an
+add chain, then subtracted along a borrow chain) runs at 1.6–1.8, at parity
+with GMP from 128 limbs.
+
+Around the kernel, the 64-bit-limb path now works on raw buffers:
+`FastDivision::DivideNormalized64(q, u, nu, v, n, vinv)` does Knuth D in
+place with the Möller–Granlund 3/2 quotient digit, and the wrapper shifts
+both operands into one workspace (on the stack up to 192 limbs) with
+`LimbKernel::Lshift`, so a division allocates only its two results. The
+single-limb-divisor case inside `FastDivision` uses the invariant-divisor
+reciprocal instead of a 128/64 library division per limb. `BigInteger`
+`DivideAndRemainder`/`Divide` move the limb vectors into their results.
+
+Dispatcher vs GMP, quotient + remainder (M1 Max):
+
+| divisor × dividend limbs | before µs | after µs | GMP µs | before/GMP | after/GMP |
+|---|---:|---:|---:|---:|---:|
+| 2 × 3 | 0.160 | 0.063 | 0.022 | 7.3× | 2.9× |
+| 8 × 16 | 0.314 | 0.181 | 0.110 | 2.8× | 1.6× |
+| 16 × 32 | 0.638 | 0.377 | 0.284 | 2.3× | 1.3× |
+| 32 × 64 | 1.95 | 1.01 | 0.870 | 2.2× | 1.2× |
+| 64 × 128 | 6.05 | 3.11 | 2.54 | 2.4× | 1.2× |
+| 64 × 640 | 52.6 | 26.5 | 24.8 | 2.1× | 1.07× |
+| 128 × 256 | 23.1 | 10.7 | 7.83 | 2.9× | 1.4× |
+| 256 × 512 | 85.2 | 39.2 | 24.5 | 3.5× | 1.6× |
+
+Below ~8 limbs the two result allocations dominate; from 128 limbs GMP is on
+its divide-and-conquer code, which is the next entry's subject.
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.

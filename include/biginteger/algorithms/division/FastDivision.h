@@ -2,6 +2,8 @@
 #define FAST_DIVISION
 
 #include <algorithm>
+#include <cstring>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -9,6 +11,7 @@
 
 #include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
+#include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
 #include "ClassicDivision.h"
@@ -336,6 +339,129 @@ namespace BigMath
     }
 
   public:
+    // ─── 64-bit-limb basecase ───────────────────────────────────────────────
+    //
+    // Knuth Algorithm D on raw limb arrays: Möller–Granlund 3/2 reciprocal for
+    // the quotient digit, the flag-chain SubMul1 kernel for the multiply-
+    // subtract, AddN for the (rare) add-back. Everything happens in two
+    // caller-provided buffers — no per-digit branching on limb data, no
+    // intermediate vectors. This is the routine Burnikel–Ziegler bottoms out
+    // in as well.
+    //
+    // In:  v[0..n)   divisor, n >= 2, top bit of v[n-1] set (normalized).
+    //      u[0..nu]  dividend with one extra top limb (nu + 1 limbs, nu >= n)
+    //                such that the top n+1 limbs are < v * B. Shifting an
+    //                nu-limb dividend left by the normalizing count and
+    //                putting the bits shifted out in u[nu] satisfies this.
+    //      vinv      Reciprocal3by2_Base64(v[n-1], v[n-2]).
+    // Out: q[0..nu-n]  quotient (nu - n + 1 limbs),
+    //      u[0..n)     remainder; u[n..nu] is left as scratch.
+    static void DivideNormalized64(DataT *q, DataT *u, SizeT nu, const DataT *v, SizeT n, ULong vinv)
+    {
+      const ULong d1 = v[n - 1];
+      const ULong d0 = v[n - 2];
+      for (SizeT j = nu - n + 1; j-- > 0;)
+      {
+        const ULong u2 = u[j + n];
+        const ULong u1 = u[j + n - 1];
+        const ULong u0 = u[j + n - 2];
+        // The 3/2 step needs (u2:u1) < (d1:d0); the loop invariant gives only
+        // <=. On equality the digit is exactly B - 1 (see the comment in the
+        // generic loop below; GMP's sbpi1_div_qr special-cases it the same).
+        ULong qhat = (u2 == d1 && u1 == d0) ? ~(ULong)0
+                                            : MGQhat_Base64(u2, u1, u0, d1, d0, vinv);
+
+        const DataT borrow = LimbKernel::SubMul1(u + j, v, n, qhat);
+        u[j + n] = u2 - borrow;
+        if (u2 < borrow)
+        {
+          // qhat was one too large: add the divisor back.
+          --qhat;
+          u[j + n] += LimbKernel::AddN(u + j, u + j, v, n);
+        }
+        q[j] = qhat;
+      }
+    }
+
+    static ULong Reciprocal3by2(ULong d1, ULong d0)
+    {
+      return Reciprocal3by2_Base64(d1, d0);
+    }
+
+  private:
+    // Base2_64 entry: a > b > 0 (already checked by the caller).
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder64(
+        std::span<const DataT> a,
+        std::span<const DataT> b,
+        bool computeRemainder)
+    {
+      SizeT na = (SizeT)a.size();
+      while (na > 1 && a[na - 1] == 0) --na;
+      SizeT n = (SizeT)b.size();
+      while (n > 1 && b[n - 1] == 0) --n;
+
+      if (n == 1)
+      {
+        // Single-limb divisor: invariant-divisor reciprocal, one multiply-high
+        // per limb instead of a 128/64 library division.
+        ClassicDivision::GranlundMollerDivider gm((ULong)b[0]);
+        std::vector<DataT> q(na);
+        ULong rem = 0;
+        for (SizeT i = na; i-- > 0;)
+          q[i] = (DataT)gm.DivMod(rem, (ULong)a[i], rem);
+        TrimZerosToOne(q);
+        std::vector<DataT> r;
+        if (computeRemainder)
+          r.assign(1, (DataT)rem);
+        return {std::move(q), std::move(r)};
+      }
+
+      // One workspace for the shifted dividend (na + 1 limbs) and divisor (n
+      // limbs); on the stack for small operands.
+      constexpr SizeT StackLimbs = 192;
+      DataT stackBuf[StackLimbs];
+      std::unique_ptr<DataT[]> heapBuf;
+      const size_t need = (size_t)na + 1 + n;
+      DataT *work = stackBuf;
+      if (need > StackLimbs)
+      {
+        heapBuf.reset(new DataT[need]);
+        work = heapBuf.get();
+      }
+      DataT *u = work;
+      DataT *v = work + na + 1;
+
+      const unsigned shift = (unsigned)__builtin_clzll((unsigned long long)b[n - 1]);
+      if (shift != 0)
+      {
+        u[na] = LimbKernel::Lshift(u, a.data(), na, shift);
+        LimbKernel::Lshift(v, b.data(), n, shift);
+      }
+      else
+      {
+        std::memcpy(u, a.data(), (size_t)na * sizeof(DataT));
+        u[na] = 0;
+        std::memcpy(v, b.data(), (size_t)n * sizeof(DataT));
+      }
+
+      std::vector<DataT> q((size_t)na - n + 1);
+      DivideNormalized64(q.data(), u, na, v, n, Reciprocal3by2_Base64((ULong)v[n - 1], (ULong)v[n - 2]));
+      TrimZerosToOne(q);
+
+      std::vector<DataT> r;
+      if (computeRemainder)
+      {
+        r.resize(n);
+        if (shift != 0)
+          LimbKernel::Rshift(r.data(), u, n, shift);
+        else
+          std::memcpy(r.data(), u, (size_t)n * sizeof(DataT));
+        TrimZerosToOne(r);
+      }
+      return {std::move(q), std::move(r)};
+    }
+
+  public:
     // Span-based primary entry. Zero-copy for read-only inputs; internal u/v/q/r vectors hold mutable state.
     static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
         std::span<const DataT> a,
@@ -354,6 +480,9 @@ namespace BigMath
         return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end()) : std::vector<DataT>()};
       if (cmp == 0)
         return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
+
+      if (base == Base2_64)
+        return DivideAndRemainder64(a, b, computeRemainder);
 
       if (b.size() == 1)
       {
@@ -510,7 +639,7 @@ namespace BigMath
         TrimZerosToOne(r);
       }
 
-      return {q, r};
+      return {std::move(q), std::move(r)};
     }
 
     static std::vector<DataT> Divide(std::span<const DataT> a, std::span<const DataT> b, BaseT base)
