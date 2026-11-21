@@ -9,6 +9,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,7 @@ static std::string HashBigInteger(const BigInteger &v) {
 
 struct Row {
     Entry e;
+    double first_ms = 0, gmp_first_ms = 0;
     double bm_ms = 0;
     double gmp_ms = 0;
     std::string correct = "n/a"; // ok / FAIL / n/a
@@ -62,8 +64,8 @@ int main(int argc, char **argv) {
     int run_id = std::stoi(argv[4]);
     std::string machine = argv[5], profile = argv[6], history_md = argv[7];
 
-    std::vector<Entry> entries = ReadManifest(dir);
-    std::vector<GmpResult> gmp = ReadGmpResults(gmp_csv);
+    std::vector<Entry> entries = TimingCases(dir);
+    std::vector<GmpResult> gmp = ReadGmpResults(gmp_csv, entries);
     if (gmp.size() != entries.size()) {
         fprintf(stderr, "[bigmath] gmp results (%zu) != manifest entries (%zu); "
                         "regenerate the GMP run for this dataset\n",
@@ -72,7 +74,7 @@ int main(int argc, char **argv) {
     }
 
     printf("%-9s %-22s %14s %14s %10s %8s\n",
-           "op", "size", "BigMath ms", "GMP ms", "BM/GMP", "check");
+           "op", "size", "BM warm ms", "GMP warm ms", "BM/GMP", "check");
     printf("%-9s %-22s %14s %14s %10s %8s\n",
            "----", "----", "----------", "------", "------", "-----");
     fflush(stdout);
@@ -84,6 +86,7 @@ int main(int argc, char **argv) {
         const Entry &e = entries[i];
         Row &row = rows[i];
         row.e = e;
+        row.gmp_first_ms = gmp[i].first_ms;
         row.gmp_ms = gmp[i].gmp_ms;
         fprintf(stderr, "  e%-4d %-9s %-22s ...\n", e.id, OpName(e.op), e.Label().c_str());
 
@@ -92,28 +95,37 @@ int main(int argc, char **argv) {
                 BigInteger a = Parse(LoadOperand(dir, e.id, 0).c_str());
                 BigInteger b = Parse(LoadOperand(dir, e.id, 1).c_str());
                 BigInteger c;
-                row.bm_ms = BestMs([&] { c = a * b; if (c.GetInteger().empty()) abort(); }, e.reps);
+                row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; if (c.GetInteger().empty()) abort(); }, e.reps);
                 row.correct = (HashBigInteger(c) == gmp[i].hash) ? "ok" : "FAIL";
                 break;
             }
-            case Op::Div: {
+            case Op::Div:
+            case Op::DivQR: {
                 BigInteger a = Parse(LoadOperand(dir, e.id, 0).c_str());
                 BigInteger b = Parse(LoadOperand(dir, e.id, 1).c_str());
-                BigInteger q;
-                row.bm_ms = BestMs([&] { q = a / b; if (q.GetInteger().empty()) abort(); }, e.reps);
-                row.correct = (HashBigInteger(q) == gmp[i].hash) ? "ok" : "FAIL";
+                std::string answer;
+                if (e.op == Op::Div) {
+                    BigInteger q;
+                    row.bm_ms = BestWarmMs(row.first_ms, [&] { q = a / b; }, e.reps);
+                    answer = HashBigInteger(q);
+                } else {
+                    std::pair<BigInteger, BigInteger> qr;
+                    row.bm_ms = BestWarmMs(row.first_ms, [&] { qr = DivideAndRemainder(a, b); }, e.reps);
+                    answer = HashBigInteger(qr.first) + "/" + HashBigInteger(qr.second);
+                }
+                row.correct = answer == gmp[i].hash ? "ok" : "FAIL";
                 break;
             }
             case Op::Parse: {
                 std::string sa = LoadOperand(dir, e.id, 0);
-                row.bm_ms = BestMs([&] {
+                row.bm_ms = BestWarmMs(row.first_ms, [&] {
                     BigInteger b = Parse(sa.c_str()); if (b.GetInteger().empty()) abort();
                 }, e.reps);
                 break;
             }
             case Op::ToStr: {
                 BigInteger b = Parse(LoadOperand(dir, e.id, 0).c_str());
-                row.bm_ms = BestMs([&] {
+                row.bm_ms = BestWarmMs(row.first_ms, [&] {
                     std::string o = ToString(b); if (o.empty()) abort();
                 }, e.reps);
                 break;
@@ -123,24 +135,24 @@ int main(int argc, char **argv) {
                 BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 1));
                 BigDecimal c;
                 if (e.op == Op::DecAdd)
-                    row.bm_ms = BestMs([&] { c = a + b; }, e.reps);
+                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a + b; }, e.reps);
                 else if (e.op == Op::DecMul)
-                    row.bm_ms = BestMs([&] { c = a * b; }, e.reps);
+                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; }, e.reps);
                 else
-                    row.bm_ms = BestMs([&] { c = a.Divide(b, e.scale, RoundingMode::HALF_EVEN); }, e.reps);
+                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a.Divide(b, e.scale, RoundingMode::HALF_EVEN); }, e.reps);
                 if (c.Scale() < -1000000) abort();
                 break;
             }
             case Op::DecParse: {
                 std::string sa = LoadOperand(dir, e.id, 0);
-                row.bm_ms = BestMs([&] {
+                row.bm_ms = BestWarmMs(row.first_ms, [&] {
                     BigDecimal b = BigDecimal::FromString(sa); if (b.Scale() < -1000000) abort();
                 }, e.reps);
                 break;
             }
             case Op::DecToStr: {
                 BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 0));
-                row.bm_ms = BestMs([&] {
+                row.bm_ms = BestWarmMs(row.first_ms, [&] {
                     std::string o = b.ToPlainString(); if (o.empty()) abort();
                 }, e.reps);
                 break;
@@ -148,7 +160,7 @@ int main(int argc, char **argv) {
         }
         if (row.correct == "FAIL") ++failures;
 
-        double ratio = row.gmp_ms > 0 ? row.bm_ms / row.gmp_ms : 0.0;
+        double ratio = row.gmp_ms > 0 ? row.bm_ms / row.gmp_ms : std::numeric_limits<double>::quiet_NaN();
         printf("%-9s %-22s %14.3f %14.3f %9.2fx %8s\n",
                OpName(e.op), e.Label().c_str(), row.bm_ms, row.gmp_ms, ratio,
                row.correct.c_str());
@@ -160,11 +172,11 @@ int main(int argc, char **argv) {
         std::ofstream out(out_csv);
         out << "# run_id=" << run_id << " machine=" << machine
             << " profile=" << profile << "\n";
-        out << "id,op,label,reps,bigmath_ms,gmp_ms,ratio,correct\n";
+        out << "id,op,label,warm_reps,bigmath_first_ms,gmp_first_ms,bigmath_warm_ms,gmp_warm_ms,warm_ratio,correct\n";
         for (const Row &r : rows) {
-            double ratio = r.gmp_ms > 0 ? r.bm_ms / r.gmp_ms : 0.0;
+            double ratio = r.gmp_ms > 0 ? r.bm_ms / r.gmp_ms : std::numeric_limits<double>::quiet_NaN();
             out << r.e.id << ',' << OpName(r.e.op) << ',' << r.e.Label() << ','
-                << r.e.reps << ',' << r.bm_ms << ',' << r.gmp_ms << ','
+                << r.e.reps << ',' << r.first_ms << ',' << r.gmp_first_ms << ',' << r.bm_ms << ',' << r.gmp_ms << ','
                 << ratio << ',' << r.correct << '\n';
         }
         fprintf(stderr, "[bigmath] wrote %s\n", out_csv.c_str());
@@ -177,15 +189,15 @@ int main(int argc, char **argv) {
         if (fresh) {
             hist << "# BigMath vs GMP — historical comparison\n\n"
                  << "Selected large-size results, one block per run. Lower ratio is better "
-                 << "(BigMath ms / GMP ms).\n";
+                 << "(warm BigMath ms / warm GMP ms).\n";
         }
         hist << "\n## run " << run_id << " — machine=" << machine
              << " profile=" << profile << "\n\n"
-             << "| op | size | BigMath ms | GMP ms | BM/GMP | check |\n"
+             << "| op | size | BigMath warm ms | GMP warm ms | BM/GMP | check |\n"
              << "|----|------|-----------:|-------:|-------:|:-----:|\n";
         for (const Row &r : rows) {
             if (!r.e.historical) continue;
-            double ratio = r.gmp_ms > 0 ? r.bm_ms / r.gmp_ms : 0.0;
+            double ratio = r.gmp_ms > 0 ? r.bm_ms / r.gmp_ms : std::numeric_limits<double>::quiet_NaN();
             char line[256];
             snprintf(line, sizeof(line), "| %s | %s | %.3f | %.3f | %.2fx | %s |\n",
                      OpName(r.e.op), r.e.Label().c_str(), r.bm_ms, r.gmp_ms, ratio,

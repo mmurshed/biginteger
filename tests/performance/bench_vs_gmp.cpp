@@ -1,18 +1,17 @@
 // Benchmark BigMath vs GMP (mpz) on multiplication, division, decimal parse, ToString.
 //
-// Build:
-//   c++ -std=c++20 -O2 -I/opt/homebrew/include -L/opt/homebrew/lib \
-//       tests/performance/bench_vs_gmp.cpp -o /private/tmp/bench_vs_gmp -lgmp \
-//       && /private/tmp/bench_vs_gmp
-//
-// Linux: drop the -I/-L for /opt/homebrew; ensure libgmp-dev installed.
+// Build with cmake --build build --target bench_vs_gmp (requires GMP).
 
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <vector>
 
 #include <gmp.h>
@@ -26,7 +25,7 @@
 using namespace std;
 using namespace BigMath;
 
-using Clock = chrono::high_resolution_clock;
+using Clock = chrono::steady_clock;
 
 static string GenerateRandomDigits(int length, uint64_t seed)
 {
@@ -42,7 +41,7 @@ static string GenerateRandomDigits(int length, uint64_t seed)
     return s;
 }
 
-// Run `fn` once if `single_shot`, otherwise repeat `iters` times and report the minimum.
+// Report the fastest of the requested iterations.
 template <typename F>
 static double TimeMs(F &&fn, int iters)
 {
@@ -72,19 +71,21 @@ struct Row
     string size_label;
     double bm_ms;
     double gmp_ms;
+    int reps;
+    const char *phase = "best";
 };
 
 static void PrintHeader()
 {
-    printf("%-10s %-22s %14s %14s %10s\n", "op", "size", "BigMath ms", "GMP ms", "BM/GMP");
-    printf("%-10s %-22s %14s %14s %10s\n", "----", "----", "----------", "------", "------");
+    printf("%-10s %-22s %14s %14s %10s %6s %8s\n", "op", "size", "BigMath ms", "GMP ms", "BM/GMP", "reps", "phase");
+    printf("%-10s %-22s %14s %14s %10s %6s %8s\n", "----", "----", "----------", "------", "------", "----", "-----");
 }
 
 static void PrintRow(const Row &r)
 {
-    double ratio = (r.gmp_ms > 0.0) ? r.bm_ms / r.gmp_ms : 0.0;
-    printf("%-10s %-22s %14.3f %14.3f %10.2fx\n",
-           r.op.c_str(), r.size_label.c_str(), r.bm_ms, r.gmp_ms, ratio);
+    double ratio = (r.gmp_ms > 0.0) ? r.bm_ms / r.gmp_ms : numeric_limits<double>::quiet_NaN();
+    printf("%-10s %-22s %14.3f %14.3f %10.2fx %6d %8s\n",
+           r.op.c_str(), r.size_label.c_str(), r.bm_ms, r.gmp_ms, ratio, r.reps, r.phase);
     fflush(stdout);
 }
 
@@ -115,7 +116,7 @@ static void BenchMul(int digits_a, int digits_b, vector<Row> &rows)
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%dx%d digits", digits_a, digits_b);
-    Row row{"mul", buf, bm, gp};
+    Row row{"mul", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
@@ -141,20 +142,35 @@ static void BenchDiv(int digits_a, int digits_b, vector<Row> &rows)
 
     int iters = IterationsForDigits(max(digits_a, digits_b));
 
-    double bm = TimeMs([&]() {
-        BigInteger q = a / b;
-        if (q.size() == 0) abort();
-    }, iters);
-
-    double gp = TimeMs([&]() {
-        mpz_tdiv_qr(gq, gr, ga, gb);
-    }, iters);
-
     char buf[64];
     snprintf(buf, sizeof(buf), "%dx%d digits", digits_a, digits_b);
-    Row row{"div", buf, bm, gp};
-    rows.push_back(row);
-    PrintRow(row);
+    auto check = [](const BigInteger &value, mpz_srcptr reference) {
+        mpz_t z;
+        mpz_init(z);
+        mpz_import(z, value.size(), -1, sizeof(DataT), 0, 64 - LimbBits, value.GetInteger().data());
+        if (value.IsNegative()) mpz_neg(z, z);
+        if (mpz_cmp(z, reference)) throw runtime_error("division result differs from GMP");
+        mpz_clear(z);
+    };
+    for (bool withRemainder : {false, true}) {
+        BigInteger q, r;
+        for (bool warm : {false, true}) {
+            int reps = warm ? iters : 1;
+            double bm = TimeMs([&]() {
+                if (withRemainder) tie(q, r) = DivideAndRemainder(a, b);
+                else q = a / b;
+            }, reps);
+            double gp = TimeMs([&]() {
+                if (withRemainder) mpz_tdiv_qr(gq, gr, ga, gb);
+                else mpz_tdiv_q(gq, ga, gb);
+            }, reps);
+            check(q, gq);
+            if (withRemainder) check(r, gr);
+            rows.push_back({withRemainder ? "div_qr" : "div_q", buf, bm, gp, reps,
+                            warm ? "warm" : "first"});
+            PrintRow(rows.back());
+        }
+    }
 
     mpz_clear(ga);
     mpz_clear(gb);
@@ -184,7 +200,7 @@ static void BenchParse(int digits, vector<Row> &rows)
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d digits", digits);
-    Row row{"parse", buf, bm, gp};
+    Row row{"parse", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 }
@@ -215,7 +231,7 @@ static void BenchToString(int digits, vector<Row> &rows)
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d digits", digits);
-    Row row{"tostr", buf, bm, gp};
+    Row row{"tostr", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
@@ -256,7 +272,7 @@ static void BenchBigDecimalAdd(int int_digits, int frac_digits, vector<Row> &row
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d.%d digits", int_digits, frac_digits);
-    Row row{"dec_add", buf, bm, gp};
+    Row row{"dec_add", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
@@ -299,7 +315,7 @@ static void BenchBigDecimalMul(int int_digits, int frac_digits, vector<Row> &row
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d.%d digits", int_digits, frac_digits);
-    Row row{"dec_mul", buf, bm, gp};
+    Row row{"dec_mul", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
@@ -342,7 +358,7 @@ static void BenchBigDecimalDiv(int int_digits, int frac_digits, int scale, vecto
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d.%d / %d dp", int_digits, frac_digits, scale);
-    Row row{"dec_div", buf, bm, gp};
+    Row row{"dec_div", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
@@ -374,7 +390,7 @@ static void BenchBigDecimalParse(int digits, vector<Row> &rows)
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d digits", digits);
-    Row row{"dec_parse", buf, bm, gp};
+    Row row{"dec_parse", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 }
@@ -407,19 +423,35 @@ static void BenchBigDecimalToString(int digits, vector<Row> &rows)
 
     char buf[64];
     snprintf(buf, sizeof(buf), "%d digits", digits);
-    Row row{"dec_tostr", buf, bm, gp};
+    Row row{"dec_tostr", buf, bm, gp, iters};
     rows.push_back(row);
     PrintRow(row);
 
     mpf_clear(g);
 }
 
-int main()
+int main(int argc, char **argv)
 {
-    cout << "BigMath vs GMP " << gmp_version << " (Apple Silicon / brew gmp)\n\n";
+    cout << "BigMath vs GMP " << gmp_version << "\n\n";
     PrintHeader();
 
     vector<Row> rows;
+
+    if (argc != 1) {
+        auto readDigits = [](string_view text, int &digits) {
+            auto end = text.data() + text.size();
+            auto result = from_chars(text.data(), end, digits);
+            return result.ec == errc{} && result.ptr == end && digits > 0;
+        };
+        int a, b;
+        if (argc == 4 && string_view(argv[1]) == "--div" &&
+            readDigits(argv[2], a) && readDigits(argv[3], b)) {
+            BenchDiv(a, b, rows);
+            return 0;
+        }
+        cerr << "usage: bench_vs_gmp [--div dividend_digits divisor_digits]\n";
+        return 2;
+    }
 
     // ===== Multiplication =====
     cout << "\n[multiplication, balanced]\n";

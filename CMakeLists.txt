@@ -136,10 +136,9 @@ if(BIGMATH_BUILD_TESTS)
 
     # Split benchmark suite — dataset gen + BigMath run (GMP run added below).
     # Primary interface is tests/performance/benchsuite/run_benchmark.sh, which
-    # compiles these standalone; these targets exist for IDE/CI parity.
+    # configures and builds these targets before measuring.
     set(BENCHSUITE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests/performance/benchsuite)
     add_executable(bench_gen_dataset ${BENCHSUITE_DIR}/gen_dataset.cpp)
-    target_link_libraries(bench_gen_dataset PRIVATE bigmath::bigmath)
     target_include_directories(bench_gen_dataset PRIVATE ${BENCHSUITE_DIR})
 
     add_executable(bench_run_bigmath ${BENCHSUITE_DIR}/run_bigmath.cpp)
@@ -164,8 +163,12 @@ if(BIGMATH_BUILD_TESTS)
         target_include_directories(mfa_mul_gmp_probe PRIVATE ${GMP_INCLUDE_DIR})
         target_include_directories(bench_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
 
+        add_executable(division_half_reciprocal_probe EXCLUDE_FROM_ALL tests/performance/division_half_reciprocal_probe.cpp)
+        target_link_libraries(division_half_reciprocal_probe PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(division_half_reciprocal_probe PRIVATE ${GMP_INCLUDE_DIR})
+
         add_executable(bench_run_gmp ${BENCHSUITE_DIR}/run_gmp.cpp)
-        target_link_libraries(bench_run_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_link_libraries(bench_run_gmp PRIVATE ${GMP_LIBRARY})
         target_include_directories(bench_run_gmp PRIVATE ${BENCHSUITE_DIR} ${GMP_INCLUDE_DIR})
     else()
         message(STATUS "GMP not found; bench_vs_gmp target skipped")
