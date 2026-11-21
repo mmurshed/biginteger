@@ -1219,13 +1219,48 @@ transform (M1 Max, µs):
 Between `1.25·H` and `1.5·H` (`L = H/2`) the gain is 1.0–1.35×. Outside the
 window the full transform runs as before: below `H = 2048` it is as fast
 (`H = 1024` falls under the serial gate), and above `H = 2^20` the fused-MFA
-full transform wins (`H = 2^21` measured 1.0–1.16×). The fused-MFA band itself
-(`n ≥ 2^22`) still has the power-of-two staircase.
+full transform wins (`H = 2^21` measured 1.0–1.16×). With more than one thread
+the fused-MFA band itself (`n ≥ 2^22`) still has the power-of-two staircase.
+
+### Single-threaded: cache-blocked H + L above 2^20
+
+With one thread (a `-DBIGMATH_USE_THREADS=0` build, or a pool of one) the
+scheme continues for `2^21 ≤ H ≤ 2^25` (`BIGMATH_NTT_TRUNC_SERIAL_MAX`) as
+`CrtTruncSerial`. Same arithmetic, two changes:
+
+- Every transform of length ≥ `BIGMATH_NTT_MFA_THRESHOLD` runs through the
+  fused MFA stages; a shorter `L` keeps the whole-array chain.
+- One prime runs start to finish — pack, forward, pointwise, inverse,
+  recombine — before the next. `b`'s spectrum is multiplied into `a`'s as its
+  last stage writes it, so four planes of `H + L` entries and one of `H` are
+  live, against nine of `2H` for the full fused transform.
+
+Its band is the whole octave (`BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT = 0`,
+`c ≤ 2H`): at `L = H` the transform work equals the full transform's, but two
+length-`H` transforms on five planes still cost less than one length-`2H`
+transform on nine. Single-threaded against the full `2H` fused-MFA transform
+(M1 Max, `H = 2^21 … 2^24`):
+
+| `c / H` | ≤ 1.25 | 1.25 – 1.5 | 1.5 – 2 |
+|---|---:|---:|---:|
+| time vs full transform | 0.45–0.55× | 0.61–0.67× | 0.82–0.88× |
+
+At `H = 2^20` the whole-array scheme is still 10–14% ahead, so the boundary
+stays at `BIGMATH_NTT_TRUNC_MAX`. Squares take a one-operand flow (one forward
+transform, spectrum squared in place).
+
+The threaded build does not use it: the full transform's stages are split
+into six row-chunked units that scale across cores, and this pipeline has no
+such split. `NttCrt::MultiplyTruncSerial` exposes the pipeline with explicit
+`H`, `L` and MFA cutover so tests reach it in any build.
 
 `tests/unit/test_ntt_crt_truncated.cpp` pins the product against Karatsuba
 across the band, at the `L` boundaries and band edges, for skewed operands
 whose own coefficients spill past `H`, and for squaring; a size sweep against
-GMP `mpn_mul_n` was run to 420k limbs per operand.
+GMP `mpn_mul_n` was run to 420k limbs per operand. The `NttCrtTruncatedSerial`
+tests do the same for the single-thread variant with the MFA cutover lowered
+to 2^14, and check `H = 2^21` products by residues and against
+`NttCrt::Multiply`; `mfa_mul_gmp_probe` compares it with GMP at `H = 2^23`.
 
 
 ## Dispatch re-sweep: area rule for the NTT entry (2026-11-20)
