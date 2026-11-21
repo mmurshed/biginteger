@@ -5,7 +5,7 @@
  * operand size. Mirrors Multiplication.h thresholds but uses operand size
  * directly (not the sum), since for a · a both sides are equal.
  *
- * NTT_SQUARE_THRESHOLD defaults to 640 limbs (LIMB_64) based on the
+ * NTT_SQUARE_THRESHOLD defaults to 352 limbs (LIMB_64; 640 before 2026-11-20) based on the
  * KaratsubaSquare vs CRT-NTT self-multiply crossover.
  *
  * S. M. Mahbub Murshed (murshed@gmail.com)
@@ -28,7 +28,7 @@ namespace BigMath
 // self-multiply at 512 limbs, loses 1.3x+ from 768. Under LIMB_64=0 the
 // crossover stays at 512. Canonical copy: build/DispatchThresholds.h.
 #if BIGMATH_LIMB_64
-#define BIGMATH_NTT_SQUARE_THRESHOLD 640
+#define BIGMATH_NTT_SQUARE_THRESHOLD 352
 #else
 #define BIGMATH_NTT_SQUARE_THRESHOLD 512
 #endif

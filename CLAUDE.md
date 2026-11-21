@@ -32,10 +32,11 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Multiplication dispatch** (`algorithms/Multiplication.h`):
 - single-limb operand → `ClassicMultiplication::Multiply(vec, scalar, base)`
-- `a.size()+b.size() <= 56` (re-swept 96 → 64 → 56 on 2026-11-20; Karatsuba leaf cutoff `BIGMATH_KARATSUBA_THRESHOLD = 24`), or heavy skew (`min <= 64` and `max >= 10·min`) → classic schoolbook
-- below `NTT_MULTIPLICATION_THRESHOLD = 1280` total limbs → `KaratsubaMultiplication` (dropped from 5120 on 2026-06-12 after the NEON Shoup butterflies made CRT NTT ~2.5× faster in the small-mid band)
-- otherwise → `NTTMultiplication` (3-prime CRT effectively always: `BIGMATH_NTT_CRT_THRESHOLD = 256`); transform length is `bit_ceil(coeffs)`, except just above a power of two `H` (coeffs ≤ 1.5·H, 2048 ≤ H ≤ 2^20) where the truncated `H + L` scheme (product mod `x^H+1` and mod `x^L−1`, recombined) replaces the `2H` transform
-- `ToomCookMultiplication` exists as an alternate exercised by tests; its dispatch window was retired 2026-06-12 (CRT+NEON beats it everywhere).
+- `a.size()+b.size() <= 56`, or `min <= 24` (`BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD`, the Karatsuba leaf cutoff `BIGMATH_KARATSUBA_THRESHOLD`) → classic schoolbook
+- `sum >= 640` and `min >= 64` and `la·lb >= 96000` (`NTT_MULTIPLICATION_THRESHOLD` / `NTT_MIN_LIMB_THRESHOLD` / `NTT_AREA_THRESHOLD`; balanced from ~310 limbs per operand) → `NTTMultiplication` (3-prime CRT effectively always: `BIGMATH_NTT_CRT_THRESHOLD = 256`); transform length is `bit_ceil(coeffs)`, except just above a power of two `H` (coeffs ≤ 1.5·H, 2048 ≤ H ≤ 2^20) where the truncated `H + L` scheme (product mod `x^H+1` and mod `x^L−1`, recombined) replaces the `2H` transform
+- otherwise → `KaratsubaMultiplication`, which slices operands that are ≥ 2:1 apart into balanced pieces (the area test, not the sum alone, decides NTT because sliced Karatsuba's cost follows `max · K(min)/min`: a short operand keeps it ahead — 48 × 6144 limbs still favors Karatsuba)
+- Re-swept 2026-11-20 over a (min, max) shape grid; the old `min <= 64 and max >= 10·min → classic` skew guard is retired (`BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD = 0`), NTT entry was `sum >= 1280` before.
+- `ToomCookMultiplication` exists as an alternate exercised by tests; its dispatch window `[TOOM3_MULTIPLICATION_THRESHOLD, NTT_MULTIPLICATION_THRESHOLD)` was retired 2026-06-12 by keeping the two equal (CRT+NEON beats it everywhere).
 
 **Why no Schönhage-Strassen.** The default NTT is the 3-prime CRT with 32-bit split and a hard 2^26-coefficient transform ceiling (~640M decimal digits, guarded with a throw); the single-prime Goldilocks path (`P = 2^64 - 2^32 + 1`, 16-bit split, overflow-safe to ~2^31 limbs) remains as the `-DBIGMATH_NTT_CRT=0` fallback. Either way NTT covers every practical size. SSA's asymptotic edge is `log log n`; at any size below ~2^40 limbs the constant-factor cost of mod-2^N+1 arithmetic loses to NTT. The ~700+ lines of SSA aren't justified for this codebase — if you need more big-int wins, look at block-recursive Mulders division or Schönhage's subquadratic GCD instead.
 

@@ -71,32 +71,36 @@ flowchart TD
     B -- yes --> Z[return &#123;0&#125;]
     B -- no --> C{a or b<br/>single limb?}
     C -- yes --> Sc[ClassicMultiplication::Multiply&#40;scalar&#41;]
-    C -- no --> D{size ≤ CLASSIC_THRESHOLD<br/>OR minSize ≤ CLASSIC_MIN_LIMB<br/>OR tiny high-skew shape?}
+    C -- no --> D{size ≤ CLASSIC_THRESHOLD &#40;56&#41;<br/>OR minSize ≤ CLASSIC_MIN_LIMB &#40;24&#41;?}
     D -- yes --> Cl[ClassicMultiplication::Multiply]
-    D -- no --> E{size &lt; NTT_THRESHOLD &#40;1280&#41;?}
-    E -- yes --> K[KaratsubaMultiplication::Multiply]
-    E -- no --> N[NTTMultiplication::Multiply]
+    D -- no --> E{size ≥ 640 AND minSize ≥ 64<br/>AND la·lb ≥ 96000?}
+    E -- no --> K[KaratsubaMultiplication::Multiply<br/>&#40;slices operands ≥ 2:1 apart&#41;]
+    E -- yes --> N[NTTMultiplication::Multiply]
 
     N --> C1{CRT enabled<br/>AND size ≥ CRT_THRESHOLD &#40;256 — effectively always&#41;?}
     C1 -- no --> G[Goldilocks NTT]
     C1 -- yes --> C2[3-prime CRT NTT]
-    C2 --> C3{transform n ≥ 2^20?}
-    C3 -- yes --> MFA[MFA / Bailey 6-step]
-    C3 -- no --> R8[radix-8 CRT NTT]
+    C2 --> C3{coeffs ≤ 1.5·H,<br/>2048 ≤ H ≤ 2^20?}
+    C3 -- yes --> TR[truncated H + L transform]
+    C3 -- no --> C4{transform n ≥ 2^20?}
+    C4 -- yes --> MFA[MFA / Bailey 6-step]
+    C4 -- no --> R8[radix-8 CRT NTT]
 ```
 
-`size = a.size() + b.size()`, `minSize = min(a.size(), b.size())`, `maxSize = max(a.size(), b.size())`. The tiny high-skew Classic guard is `minSize ≤ 64 && maxSize ≥ 10·minSize`.
+`size = a.size() + b.size()`, `minSize = min(a.size(), b.size())`, `la·lb` is the schoolbook area, `H = bit_ceil(coeffs) / 2`. The rule was re-swept on 2026-11-20 over a `(min, max)` shape grid — see [Dispatch re-sweep](#dispatch-re-sweep-area-rule-for-the-ntt-entry-2026-11-20).
 
 Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
 | `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `56` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 → 56 on 2026-11-20) |
-| `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Secondary Classic guard |
-| `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `64` | min of limbs | Classic for tiny high-skew products |
-| `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | tiny high-skew Classic guard |
-| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `1280` | sum of limbs | Karatsuba below (Toom-3 window retired post-NEON) |
-| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `1280` | sum of limbs | Karatsuba below, NTT above |
+| `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `24` under LIMB_64 | min of limbs | Classic whenever the shorter operand is at or below the Karatsuba leaf cutoff |
+| `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `0` under LIMB_64 | min of limbs | Legacy high-skew Classic guard — retired 2026-11-20 (sliced Karatsuba wins) |
+| `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | Legacy high-skew Classic guard |
+| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `640` under LIMB_64 | sum of limbs | Start of the Toom-3 window; equal to the NTT threshold, so the window is empty |
+| `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `640` under LIMB_64 | sum of limbs | Floor on the total for NTT (5120 → 1280 on 2026-06-12, → 640 on 2026-11-20) |
+| `BIGMATH_NTT_MIN_LIMB_THRESHOLD` | `64` under LIMB_64 | min of limbs | NTT needs the shorter operand at least this long |
+| `BIGMATH_NTT_AREA_THRESHOLD` | `96000` under LIMB_64 | limbs² | NTT needs `la·lb` at least this large |
 | `BIGMATH_NTT_CRT_THRESHOLD` | `256` | sum of limbs | CRT NTT vs Goldilocks NTT (CRT effectively always) |
 | `BIGMATH_NTT_MFA_THRESHOLD` | `2^20` | transform coefficients | MFA vs radix-8 CRT NTT (2^24 → 2^20 in PR #109) |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `24` under LIMB_64 | per-operand limbs | Inside Karatsuba: base-case cutoff (48 → 32 on 2026-06-12, → 24 on 2026-11-20 with the limb kernels) |
@@ -111,12 +115,12 @@ flowchart TD
     B -- yes --> Z[return &#123;0&#125;]
     B -- no --> C{a.size&#40;&#41; == 1?}
     C -- yes --> Sc[ClassicSquare]
-    C -- no --> D{a.size&#40;&#41; &lt; NTT_SQUARE_THRESHOLD &#40;640&#41;?}
+    C -- no --> D{a.size&#40;&#41; &lt; NTT_SQUARE_THRESHOLD &#40;352&#41;?}
     D -- yes --> K[KaratsubaSquare]
     D -- no --> N[NttCrt::Multiply&#40;a, a&#41; — CRT self-multiply]
 ```
 
-`NTT_SQUARE_THRESHOLD` defaults to `640` limbs under LIMB_64 (retuned from `2048` on 2026-06-12 when the square dispatch moved to the CRT+NEON self-multiply: KaratsubaSquare ties CRT at 512 limbs and loses 1.3×+ from 768). The threshold uses operand size directly, not the sum. Legacy LIMB_32 builds keep the older `512`-limb default. Above the threshold the dispatcher calls `NttCrt::Multiply(a, a)`: the CRT path detects `&a == &b` and skips the duplicate forward transforms (3 forwards instead of 6; NEON Shoup butterflies and MFA apply). The single-prime Goldilocks `NTTSquare` remains the `-DBIGMATH_NTT_CRT=0` fallback.
+`NTT_SQUARE_THRESHOLD` defaults to `352` limbs under LIMB_64 (`2048` → `640` on 2026-06-12 when the square dispatch moved to the CRT+NEON self-multiply; → `352` on 2026-11-20: KaratsubaSquare ties the CRT self-multiply at 352 limbs and loses 1.2× at 384, 1.8× at 512). The threshold uses operand size directly, not the sum. Legacy LIMB_32 builds keep the older `512`-limb default. Above the threshold the dispatcher calls `NttCrt::Multiply(a, a)`: the CRT path detects `&a == &b` and skips the duplicate forward transforms (3 forwards instead of 6; NEON Shoup butterflies and MFA apply). The single-prime Goldilocks `NTTSquare` remains the `-DBIGMATH_NTT_CRT=0` fallback.
 
 ---
 
@@ -1167,3 +1171,86 @@ full transform wins (`H = 2^21` measured 1.0–1.16×). The fused-MFA band itsel
 across the band, at the `L` boundaries and band edges, for skewed operands
 whose own coefficients spill past `H`, and for squaring; a size sweep against
 GMP `mpn_mul_n` was run to 420k limbs per operand.
+
+
+## Dispatch re-sweep: area rule for the NTT entry (2026-11-20)
+
+After the limb kernels, the Karatsuba slicing path and the NTT kernel /
+threading / truncated-length work, every crossover had moved. The dispatcher
+was re-swept on a `(min, max)` grid (`min` 8–256 limbs, ratios 1–128) rather
+than on balanced operands only.
+
+**Balanced.** NTT now ties Karatsuba at ~304 limbs per operand and wins from
+320 (22.0 vs 23.6 µs; at 512 limbs 23.7 vs 50.3 µs). The entry was 640 limbs
+per operand, so 320–639 was running Karatsuba at up to 2.6× the NTT's cost.
+
+**Skewed.** The competitor for a skewed product is sliced Karatsuba, whose
+cost is `max · K(min)/min` — linear in the long operand, with a per-limb rate
+set by the short one (26 ns at `min = 64`, 41 ns at 128, 64 ns at 256). The
+NTT's cost follows the *total*. So how long the product must be before the
+NTT wins depends strongly on `min`:
+
+| min | NTT wins from (max) | la·lb at the crossover |
+|---:|---:|---:|
+| 48 | never (48 × 6144: 139 vs 146 µs) | — |
+| 64 | ~1500–2000 | 96k–128k |
+| 80 | ~1000–1300 | 80k–104k |
+| 128 | ~750 | 96k |
+| 160 | ~630 | 101k |
+| 256 | ~450 | 115k |
+| balanced | ~310 | 96k |
+
+The crossover sits at a nearly constant schoolbook area, which gives the rule
+
+```
+NTT  ⇔  la + lb ≥ 640  ∧  min(la, lb) ≥ 64  ∧  la·lb ≥ 96000
+```
+
+with everything else that is not schoolbook going to Karatsuba.
+
+**Schoolbook.** It is best exactly when the shorter operand is at or below
+the Karatsuba leaf cutoff (24), where Karatsuba would hand the whole product
+to the same kernel anyway. For `min` 32–64 sliced Karatsuba beats schoolbook
+by 7–25% at every ratio, so the old "`min ≤ 64` and `max ≥ 10·min` → classic"
+skew guard is retired; `minSize ≤ 24 → classic` replaces it.
+
+**Squares.** `NTT_SQUARE_THRESHOLD` 640 → 352.
+
+Because the dispatcher can now send arbitrarily long products to Karatsuba
+(short `min`), `KaratsubaMultiplication::Multiply` sizes its workspace from
+the shape — nothing at the leaf, `10·min + 1024` when sliced, `16·max` when
+balanced — instead of always `16·max`.
+
+Remaining known mis-routes are near-ties at the rule's edge (≤ 17%): 96 × 768
+and 80 × 960 would be slightly better on the NTT, 64 × 1536 on Karatsuba.
+`NewtonDivision`'s top-limbs-estimate gate used to read
+`NTT_MULTIPLICATION_THRESHOLD`; it now has its own
+`BIGMATH_NEWTON_APPROX_THRESHOLD` pinned at the old value (1280), because the
+division frontier has not been re-swept against the faster multiply.
+
+End-to-end through the public API, old `main` (7dfb87f) vs this tree, same
+machine and session, warm best-of-rounds, with GMP 6.3 on the same operands:
+
+| op | digits | before ms | after ms | GMP ms | speedup | before/GMP | after/GMP |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| mul | 1 000 | 0.0024 | 0.0013 | 0.0009 | 1.79× | 2.63 | 1.47 |
+| mul | 5 000 | 0.0295 | 0.0168 | 0.0120 | 1.75× | 2.46 | 1.41 |
+| mul | 10 000 | 0.0902 | 0.0282 | 0.0283 | 3.20× | 3.19 | 1.00 |
+| mul | 20 000 | 0.2194 | 0.0483 | 0.0809 | 4.55× | 2.71 | 0.60 |
+| mul | 100 000 | 0.670 | 0.230 | 0.602 | 2.92× | 1.11 | 0.38 |
+| mul | 1 000 000 | 5.78 | 2.58 | 9.04 | 2.24× | 0.64 | 0.29 |
+| mul | 10 000 000 | 49.3 | 27.9 | 202.3 | 1.77× | 0.24 | 0.14 |
+| mul | 20 000 000 | 98.9 | 65.9 | 269.5 | 1.50× | 0.37 | 0.24 |
+| mul 10:1 | 1 000 000 | 2.46 | 1.13 | 4.43 | 2.18× | 0.56 | 0.26 |
+| square | 100 000 | 0.670 | 0.227 | 0.399 | 2.96× | 1.68 | 0.57 |
+| div 5:1 | 200 000 | 4.65 | 1.67 | 1.53 | 2.78× | 3.03 | 1.09 |
+| div 5:1 | 1 000 000 | 14.5 | 5.33 | 9.79 | 2.72× | 1.48 | 0.54 |
+| div 5:1 | 20 000 000 | 280 | 141 | 344 | 1.99× | 0.81 | 0.41 |
+| parse | 1 000 000 | 13.3 | 7.34 | 20.5 | 1.81× | 0.65 | 0.36 |
+| ToString | 1 000 000 | 28.3 | 15.4 | 49.0 | 1.84× | 0.58 | 0.31 |
+
+Division, parse and ToString were not touched; they are faster because they
+are built on `Multiply`. The one row that did not move is division of a
+40 000-digit dividend (0.88 ms before and after, 4.4× behind GMP): that band
+runs `FastDivision`'s own `submul` loops, which still use the old carry idiom.
+

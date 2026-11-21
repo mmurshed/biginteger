@@ -22,24 +22,48 @@
 #endif
 #endif
 
+// Multiplication dispatch, re-swept 2026-11-20 over a (min, max) shape grid
+// after the limb kernels, the Karatsuba slicing path and the NTT kernel /
+// threading / truncated-length work (M1 Max):
+//
+//   - Schoolbook is best exactly when the shorter operand is at or below the
+//     Karatsuba leaf cutoff (24): Karatsuba would hand the whole product to
+//     the same kernel anyway. For min 32-64 sliced Karatsuba now beats
+//     schoolbook by 7-25% at every ratio, so the old "min <= 64 and
+//     max >= 10*min -> classic" skew guard is retired (threshold 0).
+//   - NTT beats Karatsuba when the shorter operand has at least 64 limbs and
+//     the schoolbook area la*lb reaches ~96k limb^2: balanced from ~310 limbs
+//     per operand (was 640), 128 x 768, 64 x ~1500. Below min 64 sliced
+//     Karatsuba wins at every measured length (48 x 6144: 139 vs 146 us).
+//   - BIGMATH_NTT_MULTIPLICATION_THRESHOLD stays as a floor on the total.
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 24
+#else
 #define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 0
+#endif
 #endif
 
 #ifndef BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD 0
+#else
 #define BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD 64
+#endif
 #endif
 
 #ifndef BIGMATH_CLASSIC_SKEW_RATIO
 #define BIGMATH_CLASSIC_SKEW_RATIO 10
 #endif
 
-// Post-NEON (PR #96) retune: CRT NTT with NEON Shoup butterflies beats
-// Karatsuba from ~384 limbs per operand (sum 768) and Toom-3 everywhere,
-// so the Toom-3 window is retired from dispatch (kept as a cross-check
-// algorithm) and the NTT entry drops 5120 -> 1280 (sum 896-1024 also favors CRT but sits one bit_ceil tier below sum 1040-1250 where Karatsuba still edges it - 1280 keeps the dispatch cliff-free).
+// The Toom-3 window is [TOOM3, NTT) on the total; equal values keep it
+// retired (CRT NTT beats Toom-3 everywhere it used to win).
 #ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 640
+#else
 #define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
+#endif
 #endif
 
 #ifndef BIGMATH_TOOM3_SKEW_RATIO
@@ -47,7 +71,29 @@
 #endif
 
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 640
+#else
 #define BIGMATH_NTT_MULTIPLICATION_THRESHOLD 1280
+#endif
+#endif
+
+// NTT additionally requires min(la, lb) >= NTT_MIN_LIMB and
+// la * lb >= NTT_AREA (limb^2). 0 / 0 reduces the rule to the total alone.
+#ifndef BIGMATH_NTT_MIN_LIMB_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_MIN_LIMB_THRESHOLD 64
+#else
+#define BIGMATH_NTT_MIN_LIMB_THRESHOLD 0
+#endif
+#endif
+
+#ifndef BIGMATH_NTT_AREA_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_AREA_THRESHOLD 96000
+#else
+#define BIGMATH_NTT_AREA_THRESHOLD 0
+#endif
 #endif
 
 // CRT+NEON beats single-prime Goldilocks at every measured size (512/op:
@@ -70,11 +116,13 @@
 #endif
 
 // Retuned 2048 -> 640 on 2026-06-12 when the square dispatch moved from the
-// single-prime Goldilocks NTTSquare to the CRT+NEON NttCrt self-multiply:
-// KaratsubaSquare ties CRT at 512 limbs and loses 1.3x+ from 768.
+// single-prime Goldilocks NTTSquare to the CRT+NEON NttCrt self-multiply, and
+// 640 -> 352 on 2026-11-20 after the NTT kernel/threading work: KaratsubaSquare
+// ties the CRT self-multiply at 352 limbs (19.5 vs 19.4 us) and loses 1.2x at
+// 384, 1.8x at 512.
 #ifndef BIGMATH_NTT_SQUARE_THRESHOLD
 #if BIGMATH_LIMB_64
-#define BIGMATH_NTT_SQUARE_THRESHOLD 640
+#define BIGMATH_NTT_SQUARE_THRESHOLD 352
 #else
 #define BIGMATH_NTT_SQUARE_THRESHOLD 512
 #endif
