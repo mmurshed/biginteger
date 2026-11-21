@@ -12,8 +12,9 @@ canonical ratios for comparison.
 
 ![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
 
-*The figures were generated from the v13.0 run and have not been
-regenerated; the tables below are current.*
+*Figure uses the canonical tables below: multiplication 2026-11-20;
+division and decimal I/O 2026-11-21. Multiplication at ≥50M digits uses
+warm timings; ToString cold and measured warm timings are shown separately.*
 
 **Headlines:**
 
