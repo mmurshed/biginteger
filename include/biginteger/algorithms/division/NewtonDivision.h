@@ -48,7 +48,27 @@ namespace BigMath
   // BZ's O(M(na)·log) at sizes where M(n) is NTT-dominated.
   class NewtonDivision
   {
+  public:
+    // Number of times this thread's Newton divisions gave up on the
+    // reciprocal path (a quotient estimate outside its fixup budget, or a
+    // block-size invariant violated) and fell back to schoolbook division.
+    // The result is still correct when that happens, only quadratic — which
+    // is exactly why it needs counting: a silent fallback once cost an 8x
+    // ToString regression. Tests assert it stays at zero.
+    static long &FallbackCount()
+    {
+      static thread_local long count = 0;
+      return count;
+    }
+
   private:
+    static std::pair<std::vector<DataT>, std::vector<DataT>> Fallback(
+        std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base, bool computeRemainder)
+    {
+      ++FallbackCount();
+      return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+    }
+
     struct ScratchBuffers
     {
       std::vector<DataT> v0;
@@ -66,15 +86,20 @@ namespace BigMath
       return scratch;
     }
 
+  public:
     // ApproxReciprocal: given n-limb normalized D (top bit of D[n-1] set),
-    // returns R such that R*D ≈ B^(2n), off by at most a small constant.
-    // R has up to n+1 limbs. Implementation: 2-limb hardware seed, then
-    // precision-doubling Newton iteration R_new = R * (2S - D*R) / S.
+    // returns R ≈ floor(B^(2n) / D), n+1 limbs.
     //
-    // `high_precision`: when true, run one extra Newton iter at full precision after main
-    // convergence. Doubles the correct-bit count (Newton is quadratic) — needed only when
-    // the caller will use R against an `a` of size 2n+1 (the +1-limb bump band from the
-    // normalize shift). Skipped otherwise to avoid a ~20% cost on the common case.
+    // Contract on 64-bit limbs (pinned by tests/unit/test_newton_division.cpp):
+    //   0 ≤ floor(B^(2n) / D) − R ≤ 3
+    // i.e. R never overestimates and is within 3 ulps — at every n, without
+    // the extra iteration. Implementation: exact reciprocal of the top ≤ 32
+    // limbs by schoolbook division, then Newton steps along a guarded
+    // precision schedule (see the body).
+    //
+    // `high_precision` runs one more Newton step at full precision. The
+    // legacy 32-in-64 layout still needs it for chunks of 2n limbs (its tower
+    // doubles exactly and drifts); 64-bit callers no longer pass it.
     static std::vector<DataT> ApproxReciprocal(std::vector<DataT> const &D, bool high_precision = false)
     {
       SizeT n = (SizeT)D.size();
@@ -115,18 +140,39 @@ namespace BigMath
       }
 
 #if BIGMATH_LIMB_64
-      // 64-bit limbs: bootstrap from top single limb. R_seed ≈ B^2 / D[n-1]
-      // gives a 1-2-limb reciprocal at cur_n = 1, then Newton's quadratic
-      // doubling reaches full n-limb precision in ceil(log2(n)) iterations.
-      ULong128 D_top = (ULong128)D[n - 1];
-      ULong128 R_seed = (~(ULong128)0) / D_top; // floor((2^128 - 1) / D[n-1])
+      // 64-bit limbs: precision schedule with guard limbs.
+      //
+      // A Newton step squares the relative error, so a seed good to p limbs
+      // yields 2p limbs minus a few bits. The old schedule asked for exactly
+      // 2p each time, so that shortfall doubled at every step — the tower
+      // drifted by ~B^6 at n = 1024 (measured against floor(B^2n / D)) and
+      // callers needing a tight reciprocal paid for one more full-size
+      // iteration to repair it. Instead: work back from n, each earlier
+      // precision being ceil((p + G) / 2), so every step's doubled accuracy
+      // covers its target with G limbs to spare, and start from an EXACT
+      // reciprocal of the top limbs (schoolbook division) rather than a
+      // one-limb estimate. The result is good to a few ulps at every size
+      // without the extra iteration.
+      constexpr SizeT RecipGuard = 2;
+      constexpr SizeT RecipBase = 32;
+      SizeT schedule[72];
+      int steps = 0;
+      for (SizeT pcur = n;; pcur = (pcur + RecipGuard + 1) / 2)
+      {
+        schedule[steps++] = pcur;
+        if (pcur <= RecipBase)
+          break;
+      }
 
+      // Base: R = floor(B^(2p) / D_top) for the top p limbs of D.
+      SizeT cur_n = schedule[--steps];
       std::vector<DataT> R;
-      R.push_back((DataT)R_seed);
-      if ((ULong)(R_seed >> 64))
-        R.push_back((DataT)(R_seed >> 64));
-
-      SizeT cur_n = 1;
+      {
+        std::vector<DataT> num(2 * cur_n + 1, 0);
+        num[2 * cur_n] = 1;
+        std::vector<DataT> dTop(D.end() - cur_n, D.end());
+        R = FastDivision::DivideAndRemainder(num, dTop, CurrentBase, false).first;
+      }
 #else
       // Bootstrap from top 2 limbs: R_seed ≈ B^4 / D_top.
       ULong128 D_top = ((ULong128)D[n - 1] << 32) | D[n - 2];
@@ -148,7 +194,11 @@ namespace BigMath
         SizeT extend;
         if (cur_n < n)
         {
+#if BIGMATH_LIMB_64
+          new_n = schedule[--steps];
+#else
           new_n = std::min((SizeT)(2 * cur_n), n);
+#endif
           extend = new_n - cur_n;
         }
         else
@@ -157,6 +207,113 @@ namespace BigMath
           extend = 0;
           ++extra_iters_done;
         }
+
+#if BIGMATH_LIMB_64
+        if (CurrentBase == Base2_64)
+        {
+          // One Newton step from precision cur_n to new_n = m, on the
+          // UNPADDED seed. With e = m − cur and R_pad = R·B^e the exact step
+          //   R_new = R_pad + floor(R_pad · (B^(2m) − D_m·R_pad) / B^(2m))
+          // is, since B^(2m) − D_m·R_pad = B^e · E' with
+          //   E' = B^(m+cur) − D_m · R,
+          // exactly
+          //   R_new = R·B^e + floor(R · E' / B^(2cur)).
+          // So the step needs (1) the m × (cur+1) product D_m·R — half the
+          // size of the padded m × (m+1) product — and (2) the top e+2 limbs
+          // of R·E', which only the top e+4 limbs of each factor can reach.
+          // The padded form multiplied (m+1) × (2m+1) for (2).
+          //
+          // |E'| < 4·B^m (the seed is good to a few ulps at cur limbs), so
+          // E' fits m+1 limbs; that is what the cyclic window below relies on.
+          const SizeT m = new_n;
+          const SizeT cur = cur_n;
+          const SizeT e = m - cur;
+          D_new.assign(D.begin() + (n - m), D.end());
+          TrimZerosToOne(R);
+
+          // (1) E' with its sign. Either the plain product, or — when a
+          // cyclic transform is strictly shorter — its residue mod B^L − 1,
+          // which determines E' because |E'| < B^(m+2) ≤ B^(L−4).
+          std::vector<DataT> E;
+          bool eNeg = false;
+          bool haveE = false;
+          {
+            const ULong linCoeffs = (ULong)2 * ((ULong)m + R.size());
+            const ULong linFull = std::bit_ceil(linCoeffs);
+            ULong linCost = linFull;
+            {
+              const ULong H = linFull / 2;
+              const Int Lt = NttCrt::TruncCyclicLength(linCoeffs, (Int)H);
+              if (Lt != 0)
+                linCost = H + (ULong)Lt;
+            }
+            const ULong cycCoeffs = std::bit_ceil((ULong)2 * ((ULong)m + 6));
+            const SizeT L = (SizeT)(cycCoeffs / 2);
+            if ((SizeT)m + (SizeT)R.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
+                cycCoeffs < linCost && cycCoeffs <= (1u << 26) && R.size() <= L)
+            {
+              std::vector<DataT> W = NTTMultiplication::MultiplyMod2km1(D_new, R, L, CurrentBase);
+              const std::vector<DataT> M(L, ~(DataT)0); // B^L − 1
+              const SizeT rexp = (SizeT)(((ULong)m + cur) % L);
+              std::vector<DataT> Br(rexp + 1, 0);
+              Br[rexp] = 1;
+              E = (Compare(Br, W) >= 0) ? Subtract(Br, W, CurrentBase)
+                                        : Subtract(Add(Br, M, CurrentBase), W, CurrentBase);
+              // E' ≥ 0 lands below B^(m+2); E' < 0 lands within B^(m+2) of M.
+              eNeg = (TrimmedSize(E) > m + 2);
+              if (eNeg)
+                E = Subtract(M, E, CurrentBase);
+              haveE = (TrimmedSize(E) <= m + 2);
+            }
+          }
+          if (!haveE)
+          {
+            T = Multiply(D_new, R, CurrentBase);
+            two_S.assign((size_t)m + cur + 1, 0);
+            two_S[(size_t)m + cur] = 1; // B^(m+cur)
+            eNeg = Compare(two_S, T) < 0;
+            E = eNeg ? Subtract(T, two_S, CurrentBase) : Subtract(two_S, T, CurrentBase);
+          }
+          TrimZerosToOne(E);
+
+          // (2) C = floor(R · |E'| / B^(2cur)) from top slices. Dropping E'
+          // below limb cur−2 and R below limb cur−e−3 perturbs C by less
+          // than B^−2 each, so C is the exact value or one less.
+          std::vector<DataT> C{0};
+          if (!IsZero(E))
+          {
+            const SizeT sE = cur >= 2 ? cur - 2 : 0;
+            const SizeT sR = cur >= e + 3 ? cur - e - 3 : 0;
+            if (E.size() > sE && R.size() > sR)
+            {
+              std::vector<DataT> Et(E.begin() + sE, E.end());
+              std::vector<DataT> Xt(R.begin() + sR, R.end());
+              std::vector<DataT> P = Multiply(Xt, Et, CurrentBase);
+              const SizeT back = 2 * cur - sE - sR;
+              if (P.size() > back)
+                C.assign(P.begin() + back, P.end());
+            }
+          }
+
+          // R_new = R·B^e ± C, keeping R an underestimate of the reciprocal.
+          R_pad.assign(R.size() + e, 0);
+          std::memcpy(R_pad.data() + e, R.data(), R.size() * sizeof(DataT));
+          if (!eNeg)
+          {
+            R = Add(R_pad, C, CurrentBase);
+          }
+          else
+          {
+            static const std::vector<DataT> two{2};
+            std::vector<DataT> adj = Add(C, two, CurrentBase);
+            R = (Compare(R_pad, adj) >= 0) ? Subtract(R_pad, adj, CurrentBase)
+                                           : std::vector<DataT>{0};
+          }
+          TrimZerosToOne(R);
+          cur_n = new_n;
+          continue;
+        }
+#endif
 
         // Pad R as seed at new_n precision: shift up by (new_n - cur_n) limbs.
         R_pad.assign(R.size() + extend, 0);
@@ -297,6 +454,7 @@ namespace BigMath
       return R;
     }
 
+  private:
     // Sentinel for "fixup loop blew the cap" — caller should fall back to FastDivision.
     struct DivideResult
     {
@@ -538,7 +696,7 @@ namespace BigMath
       {
         DivideResult res = DivideChunk(a_norm, b_norm, R);
         if (!res.ok)
-          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+          return Fallback(a, b, base, computeRemainder);
 
         std::vector<DataT> rem_final;
         if (computeRemainder)
@@ -566,7 +724,7 @@ namespace BigMath
       {
         DivideResult res = DivideChunk(chunk, b_norm, R);
         if (!res.ok)
-          return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+          return Fallback(a, b, base, computeRemainder);
 
         std::vector<DataT> Q_block = std::move(res.q);
         rem = std::move(res.rem);
@@ -580,7 +738,7 @@ namespace BigMath
           if (Q_block.size() > n)
           {
             // Should be unreachable given the invariant — bail defensively.
-            return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
+            return Fallback(a, b, base, computeRemainder);
           }
         }
         q_pieces.push_back(std::move(Q_block));
@@ -646,10 +804,10 @@ namespace BigMath
         b_norm = (shift > 0) ? ShiftLeftBits(divisor, shift, LimbBitsFor(base)) : divisor;
         TrimZeros(b_norm);
 
-        // Precompute the high-precision reciprocal once. It is valid for both single-block
-        // and blockwise division and avoids recomputing the expensive Newton setup for
-        // repeated divisions by the same divisor.
-        reciprocal = ApproxReciprocal(b_norm, true);
+        // Precompute the reciprocal once. It is valid for both single-block and blockwise
+        // division and avoids recomputing the Newton setup for repeated divisions by the
+        // same divisor. (No extra refinement iteration: see ApproxReciprocal's schedule.)
+        reciprocal = ApproxReciprocal(b_norm, /*high_precision=*/ !BIGMATH_LIMB_64);
         can_use_newton = true;
       }
 
@@ -739,11 +897,17 @@ namespace BigMath
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
 
-      // High-precision reciprocal needed whenever the divide will pit R against a chunk of
-      // size ≥ 2n. For single-block ratio-2 (na ≥ 2n), standard Newton precision (~half-bits
-      // accurate at large n due to integer rounding) makes Q_est off by O(n) — fixup loop
-      // can't catch up. The extra refinement iter at full precision drops Q error to ≤ 1.
+      // The reciprocal is good to a few ulps at every size (guarded precision
+      // schedule in ApproxReciprocal), so chunks of up to 2n limbs keep the
+      // quotient estimate within the fixup budget without an extra full-size
+      // refinement iteration. The legacy 32-in-64 layout still has the old
+      // exact-doubling tower and keeps the refinement for na >= 2n.
+#if BIGMATH_LIMB_64
+      bool need_high_precision = false;
+      (void)na;
+#else
       bool need_high_precision = (na >= 2 * n);
+#endif
 
       std::vector<DataT> R = ApproxReciprocal(b_norm, need_high_precision);
       return DivideNormalizedWithReciprocal(a, b, base, shift, a_norm, b_norm, R, computeRemainder);
