@@ -9,6 +9,7 @@
 #include "biginteger/common/Parser.h"
 #include "biginteger/BigInteger.h"
 #include "biginteger/algorithms/Addition.h"
+#include "biginteger/algorithms/Division.h"
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/Squaring.h"
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
@@ -384,8 +385,30 @@ namespace BigMath
 #define BIGMATH_TOSTR_PARALLEL_THRESHOLD 100000
 #endif
 
-  // Chain entry: 10^digits + its precomputed Newton-reciprocal divider.
-  // Built top-down so each level splits its parent in half — balanced T(N) = 2T(N/2) + M(N).
+// Smallest chain level (power-of-ten divisor, in decimal digits) that divides
+// through its cached Newton reciprocal. Smaller levels go through the regular
+// division dispatcher (Knuth D / Burnikel-Ziegler), which needs no reciprocal
+// and costs about half as much there: dividing a (2d − 1)-digit value by 10^d
+// on M1 Max, single-threaded, the dispatcher took 0.43-0.59x the cached-Newton
+// time up to d = 6144 (319 limbs) and 0.75-0.79x at 11000-12000; the two meet
+// near 13000 digits (675 limbs); above that Newton is ahead by 1.0-1.7x up to
+// 22000 digits and 1.3-2.2x from 24576. With a warm thread pool Newton's
+// products thread and the crossover halves (0.83-0.88x at 5500-6000 digits,
+// 1.04x at 6500, 1.16-1.69x at 7500-11000).
+// The threaded value applies to divisions on the calling thread; subtrees
+// converted inside the parallel fan-out run serially on a worker and use the
+// single-thread value. Reciprocals are built only for levels that use them.
+#ifndef BIGMATH_TOSTR_NEWTON_MIN_DIGITS
+#define BIGMATH_TOSTR_NEWTON_MIN_DIGITS 13000
+#endif
+#ifndef BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED
+#define BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED 6500
+#endif
+
+  // Chain entry: 10^digits, plus its precomputed Newton-reciprocal divider
+  // when the level is large enough to use one (see
+  // BIGMATH_TOSTR_NEWTON_MIN_DIGITS). Built top-down so each level splits its
+  // parent in half — balanced T(N) = 2T(N/2) + M(N).
   namespace
   {
     constexpr int ToStringParallelSplits = BIGMATH_TOSTR_PARALLEL_SPLITS;
@@ -407,11 +430,45 @@ namespace BigMath
     {
       SizeT digits;
       std::vector<DataT> value;
-      std::shared_ptr<NewtonDivision::Divider> divider;
+      std::shared_ptr<NewtonDivision::Divider> divider; // null below the Newton minimum
     };
+
+    static_assert(BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED <= BIGMATH_TOSTR_NEWTON_MIN_DIGITS,
+                  "the threaded Newton minimum must not exceed the single-thread one");
+
+    // Newton minimum for divisions made on the calling thread, for a chain
+    // whose top level is `topDigits`. Below the threaded minimum no level can
+    // use Newton in any build, so the thread count is not asked for: the
+    // first ParallelNumThreads() call constructs the pool and starts its
+    // workers, which would cost a small first conversion tens of µs.
+    SizeT ToStringNewtonMinDigits(SizeT topDigits)
+    {
+      if (topDigits < (SizeT)BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED)
+        return (SizeT)BIGMATH_TOSTR_NEWTON_MIN_DIGITS;
+      return ParallelNumThreads() > 1 ? (SizeT)BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED
+                                      : (SizeT)BIGMATH_TOSTR_NEWTON_MIN_DIGITS;
+    }
+
+    // q, r = n divmod chain[level].value: through the cached reciprocal when
+    // the level has one and is at least newtonMinDigits, else the dispatcher.
+    void SplitAtLevel(std::vector<DataT> const &n, DecimalDcEntry const &e, SizeT newtonMinDigits,
+                      std::vector<DataT> &q, std::vector<DataT> &r)
+    {
+      if (e.divider && e.digits >= newtonMinDigits)
+      {
+        e.divider->DivideAndRemainderInto(n, q, r);
+        return;
+      }
+      auto qr = DivideAndRemainder(n, e.value, CurrentBase);
+      q = std::move(qr.first);
+      r = std::move(qr.second);
+    }
 
     std::vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits)
     {
+      // The lowest minimum any caller uses (the parallel fan-out's workers
+      // use the higher single-thread one).
+      const SizeT buildMin = ToStringNewtonMinDigits(topDigits);
       std::vector<DecimalDcEntry> chain;
       for (SizeT d = topDigits; d >= ToStringDcThreshold / 2; d /= 2)
       {
@@ -422,7 +479,8 @@ namespace BigMath
         // (2026-06-12) and REGRESSES cold ToString 10-55%: the level-1/2
         // reciprocal builds lose their internal threaded NTT when run
         // serial-inline on a worker, which costs more than the fan-out wins.
-        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
+        if (d >= buildMin)
+          e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
       }
       return chain;
@@ -444,6 +502,7 @@ namespace BigMath
         std::vector<DecimalDcEntry> const &chain,
         SizeT level,
         SizeT padTo,
+        SizeT newtonMinDigits,
         std::string &out)
     {
       if (IsZero(n))
@@ -464,17 +523,17 @@ namespace BigMath
       // n smaller than this level's divisor → top half empty; descend.
       if (Compare(n, chain[level].value) < 0)
       {
-        ToStringDivConquer(std::move(n), chain, level + 1, padTo, out);
+        ToStringDivConquer(std::move(n), chain, level + 1, padTo, newtonMinDigits, out);
         return;
       }
 
       std::vector<DataT> q;
       std::vector<DataT> r;
-      chain[level].divider->DivideAndRemainderInto(n, q, r);
+      SplitAtLevel(n, chain[level], newtonMinDigits, q, r);
       SizeT half = chain[level].digits;
       SizeT topPad = (padTo > half) ? padTo - half : 0;
-      ToStringDivConquer(std::move(q), chain, level + 1, topPad, out);
-      ToStringDivConquer(std::move(r), chain, level + 1, half, out);
+      ToStringDivConquer(std::move(q), chain, level + 1, topPad, newtonMinDigits, out);
+      ToStringDivConquer(std::move(r), chain, level + 1, half, newtonMinDigits, out);
     }
 
 #if BIGMATH_USE_THREADS
@@ -515,7 +574,7 @@ namespace BigMath
       }
       std::vector<DataT> q;
       std::vector<DataT> r;
-      chain[level].divider->DivideAndRemainderInto(n, q, r);
+      SplitAtLevel(n, chain[level], ToStringNewtonMinDigits(chain[0].digits), q, r);
       SizeT half = chain[level].digits;
       SizeT topPad = (padTo > half) ? padTo - half : 0;
       CollectToStringSubtrees(std::move(q), chain, level + 1, topPad, splits - 1, items);
@@ -534,7 +593,8 @@ namespace BigMath
       // Head subtree carries padTo = 0 (variable width — no leading zeros) so
       // its length is unknown until converted; do it serially. Everything
       // after it is fixed-width.
-      ToStringDivConquer(std::move(items[0].n), chain, items[0].level, items[0].padTo, out);
+      ToStringDivConquer(std::move(items[0].n), chain, items[0].level, items[0].padTo,
+                         ToStringNewtonMinDigits(chain[0].digits), out);
 
       SizeT m = (SizeT)items.size();
       if (m <= 1)
@@ -555,7 +615,10 @@ namespace BigMath
           SizeT i = (SizeT)t + 1;
           std::string part;
           part.reserve(items[i].padTo);
-          ToStringDivConquer(std::move(items[i].n), chain, items[i].level, items[i].padTo, part);
+          // Serial on the worker (nested dispatches run inline), so the
+          // single-thread Newton minimum applies.
+          ToStringDivConquer(std::move(items[i].n), chain, items[i].level, items[i].padTo,
+                             (SizeT)BIGMATH_TOSTR_NEWTON_MIN_DIGITS, part);
           if (part.size() != items[i].padTo)
             std::abort(); // fixed-width invariant broken — corrupt output otherwise
           std::memcpy(&out[offset[i]], part.data(), part.size());
@@ -606,7 +669,7 @@ namespace BigMath
       return s;
     }
 #endif
-    ToStringDivConquer(std::move(r), chain, 0, 0, s);
+    ToStringDivConquer(std::move(r), chain, 0, 0, ToStringNewtonMinDigits(chain[0].digits), s);
     return s;
   }
 

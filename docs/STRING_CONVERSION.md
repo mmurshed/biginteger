@@ -332,29 +332,33 @@ vs the linear formatter's `O(L²)`. At L = 100 000 the empirical win is **8.4×*
 
 The D&C formatter divides repeatedly by a small set of `10^k` constants — exactly the cached-reciprocal use case that [`NewtonDivision::Divider`](DIVISION.md#reciprocal-cached-division) is designed for.
 
-`BuildDecimalDcChain(topDigits)` (in `src/common/Parser.cpp`) constructs a chain of entries, each holding a power of 10 and its precomputed Newton reciprocal:
+`BuildDecimalDcChain(topDigits)` (in `src/common/Parser.cpp`) constructs a chain of entries, each holding a power of 10 and, for the large levels, its precomputed Newton reciprocal:
 
 ```cpp
 struct DecimalDcEntry {
     SizeT digits;
     vector<DataT> value;                            // 10^digits in limb base
-    std::shared_ptr<NewtonDivision::Divider> divider;  // precomputed reciprocal
+    std::shared_ptr<NewtonDivision::Divider> divider;  // null below the Newton minimum
 };
 
 vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits) {
+    const SizeT buildMin = ToStringNewtonMinDigits(topDigits);
     vector<DecimalDcEntry> chain;
     for (SizeT d = topDigits; d >= ToStringDcThreshold / 2; d /= 2) {
         DecimalDcEntry e;
         e.digits = d;
         e.value = Pow10(d);                                          // from cache (or built)
-        e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
+        if (d >= buildMin)
+            e.divider = std::make_shared<NewtonDivision::Divider>(e.value, CurrentBase);
         chain.push_back(std::move(e));
     }
     return chain;
 }
 ```
 
-For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 500, 6 250, 3 125, 1 562, 781}` (until reaching `threshold / 2 = 512`). Seven chain entries, each with one `Pow10` build and one `Divider` setup. The `Divider` setup is the dominant cost of chain construction; it's amortized over every divmod at that level during the recursive descent.
+For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 500, 6 250, 3 125, 1 562, 781}` (until reaching `threshold / 2 = 512`). Seven chain entries, each with one `Pow10` build; the levels at or above the Newton minimum also get a `Divider`. The `Divider` setup is the dominant cost of chain construction; it's amortized over every divmod at that level during the recursive descent.
+
+**Small levels use the regular dispatcher (2026-11-21).** Below a few hundred limbs a cached reciprocal does not pay: dividing a `(2d − 1)`-digit value by `10^d`, the regular dispatcher (Knuth D, then Burnikel–Ziegler) took 0.43–0.59× the cached-Newton time up to `d = 6 144` single-threaded on an M1 Max, and the two meet near 13 000 digits (675 limbs). With a warm pool Newton's products thread and they meet near 6 500 digits. `SplitAtLevel` therefore divides a level through its `Divider` only from `BIGMATH_TOSTR_NEWTON_MIN_DIGITS = 13 000` (single-thread) or `BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED = 6 500` (more than one thread, divisions on the calling thread); subtrees converted inside the parallel fan-out run serially on a worker and use the single-thread value. Levels below the minimum get no `Divider` at all, which also makes the first conversion cheaper. Warm ToString went from 2.3× to 1.5× GMP's time at 10 000–20 000 digits.
 
 **Why this is the key to the 8.4× win.** Before `NewtonDivision::Divider` existed, the D&C formatter rebuilt the reciprocal at *every* divmod call, restoring quadratic behavior to each level and making the whole D&C approach *slower* than linear formatting. The earlier "recursive D&C ToString" attempt in this codebase's history was correctly recognized as worse than linear and was reverted. Only after the `Divider` API landed (which made per-divide cost `O(M(n))` rather than `O(M(n) + reciprocal_setup)`) did the D&C structure pay off.
 
@@ -389,6 +393,8 @@ Thresholds (overridable via `-D...`):
 |---|---|---|---|
 | `BIGMATH_PARSE_DC_THRESHOLD` (→ `DecimalDcThreshold` in `include/biginteger/common/Parser.h`) | `2 048` | parse | length below which linear parser runs |
 | `BIGMATH_TOSTR_DC_THRESHOLD` | `1 024` | format | estimated decimal length below which linear formatter runs |
+| `BIGMATH_TOSTR_NEWTON_MIN_DIGITS` | `13 000` | format | smallest chain level (digits of its power of ten) divided through a cached Newton reciprocal, single-threaded; smaller levels use the division dispatcher |
+| `BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED` | `6 500` | format | same, for divisions on the calling thread when the pool has more than one thread |
 
 The asymmetry between the parser and formatter thresholds reflects that the formatter has lower per-call setup cost (the `BuildDecimalDcChain` builds a chain of size proportional to `log(L)`, with `Pow10` cache hits making each entry cheap), so it pays to switch to D&C at a smaller threshold than the parser.
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased — ToString: regular division for small chain levels
+
+Above 1,024 digits ToString splits the number by powers of ten, and every
+split used a precomputed Newton reciprocal. Below a few hundred limbs the
+regular division dispatcher (Knuth D / Burnikel–Ziegler) is about twice as
+fast and needs no reciprocal. Chain levels now use Newton only from 13,000
+digits (6,500 with more than one thread, for divisions on the calling
+thread), and smaller levels build no reciprocal. ToString on an M1 Max,
+warm, ms, and ratio to GMP's `mpz_get_str`:
+
+| digits | 1 thread | 8 threads |
+|---:|---:|---:|
+| 5,000 | 0.059 → 0.041 (2.03× → 1.40×) | 0.059 → 0.040 (2.11× → 1.37×) |
+| 10,000 | 0.177 → 0.113 (2.27× → 1.46×) | 0.172 → 0.110 (2.28× → 1.46×) |
+| 20,000 | 0.502 → 0.327 (2.36× → 1.54×) | 0.434 → 0.319 (1.99× → 1.50×) |
+| 100,000 | 3.88 → 3.06 (1.66× → 1.30×) | 1.43 → 1.27 (0.61× → 0.53×) |
+| 1,000,000 | 56.4 → 49.8 (1.11× → 0.98×) | 18.2 → 16.0 (0.36× → 0.32×) |
+| 20,000,000 | 2806 → 2681 (1.32× → 1.24×) | 897 → 876 (0.41× → 0.40×) |
+
+First calls gain more, since the small reciprocals are no longer built
+(10,000 digits: 0.25 → 0.13 ms single-threaded, 0.32 → 0.16 ms threaded).
+
 ## Unreleased — single-threaded products above 20 million digits
 
 A product whose coefficient count lands above a power of two `H` can be
