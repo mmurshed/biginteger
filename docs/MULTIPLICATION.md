@@ -763,6 +763,32 @@ The 2026-05 rewrite verified Toom-3 is correct. A later focused band scan found 
 
 On that evidence the dispatcher used Toom-3 for total limb size `[2560, 5120)` with the NTT threshold at 5120, from 2026-05 until 2026-06-12 — when the NEON Shoup butterflies made CRT NTT faster than Toom-3 everywhere it used to win, the window was retired, and the NTT entry dropped to 1280. Earlier broad Toom-3 dispatch attempts had regressed small decimal benchmarks, which is why the band was kept narrow while it existed. The table above stays as the record of why the band existed.
 
+### Toom-3 on the limb kernels — re-evaluated 2026-11-20, still out
+
+The retired Toom-3 implementation allocates vectors at every step and
+recurses from 256 limbs, so its loss to Karatsuba said little about the
+algorithm. A pointer-based Toom-3 was prototyped on the flag-chain limb
+kernels (evaluation at 0, 1, −1, 2, ∞, the five-point interpolation with one
+exact division by 3, sub-products through Karatsuba's pointer recursion, no
+allocation) and timed against `KaratsubaMultiplication::MultiplyRecursive`:
+
+| limbs | Karatsuba µs | Toom-3 µs | Toom-3 / Karatsuba |
+|---:|---:|---:|---:|
+| 64 | 1.57 | 1.80 | 1.15 |
+| 96 | 3.25 | 3.16 | 0.97 |
+| 128 | 5.07 | 5.31 | 1.05 |
+| 192 | 10.45 | 9.68 | 0.93 |
+| 256 | 16.11 | 15.98 | 0.99 |
+| 288 | 20.33 | 18.63 | 0.92 |
+| 320 | 23.37 | 22.41 | 0.96 |
+| 512 | 50.23 | 46.09 | 0.92 |
+
+Below ~96 limbs it loses; from 192 it wins 1–8%, in a sawtooth. But the CRT
+NTT now takes over at ~310 limbs per operand (22 µs at 320, 24 µs at 512), so
+the only window left is roughly 190–310 limbs at an average gain of about
+4%. Not worth a second sub-quadratic algorithm on the production path. The
+prototype was not merged.
+
 ### Toom-5 in dispatch
 
 The 2026-05 Toom-5 prototype was benchmarked in `dispatch_tuner --full`:
