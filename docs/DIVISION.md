@@ -959,6 +959,18 @@ Dispatcher time relative to GMP, geometric mean over the 11 ratios:
 The legacy 32-in-64 layout keeps its previous bands (its BZ and Newton
 implementations are unchanged).
 
+### Single-limb divisor kernel (PR #146)
+
+`ClassicDivision::DivRem1` does one Möller–Granlund 2/1 step per limb against
+the normalized divisor, normalizing the dividend limbs on the fly so the
+running remainder — the loop-carried value — never leaves normalized form.
+The previous loop called `GranlundMollerDivider::DivMod`, which re-shifts a
+128-bit (remainder : limb) pair and un-shifts the remainder on every call,
+all of it on the dependency chain. 6.4 → 4.9 ns per dividend limb (GMP's
+assembly `mpn_divrem_1`: 3.1). Used by every 64-bit single-limb path:
+`ClassicDivision::Divide` / `DivideAndRemainder` / `DivModTo` and the
+one-limb case inside `FastDivision`.
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.

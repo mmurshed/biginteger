@@ -64,6 +64,61 @@ namespace BigMath
             }
         };
 
+        // q[0..n) = a[0..n) / d for full 64-bit limbs; returns the remainder.
+        // d != 0, n >= 1. q may alias a exactly.
+        //
+        // One Möller–Granlund 2/1 step per limb against the normalized
+        // divisor. The dividend limbs are normalized on the fly, so the
+        // running remainder — the loop-carried value — stays in normalized
+        // form from start to finish. (GranlundMollerDivider::DivMod above
+        // re-shifts a 128-bit (remainder : limb) pair and un-shifts the
+        // remainder on every call; in a loop that sits on the dependency
+        // chain and roughly doubles the per-limb time.)
+        static DataT DivRem1(DataT *q, const DataT *a, SizeT n, DataT d)
+        {
+            const int s = __builtin_clzll((unsigned long long)d);
+            const ULong dn = (ULong)d << s;
+            const ULong v = (ULong)((~(ULong128)0) / dn); // floor((2^128 - 1) / dn) - 2^64
+
+            // (r : u0) / dn with r < dn: quotient returned, r updated.
+            auto step = [dn, v](ULong &r, ULong u0) -> ULong {
+                ULong128 qq = (ULong128)v * r + (((ULong128)r << 64) | u0);
+                ULong q1 = (ULong)(qq >> 64) + 1;
+                const ULong q0 = (ULong)qq;
+                ULong rr = u0 - q1 * dn;
+                const ULong over = (ULong)0 - (ULong)(rr > q0); // all ones if q1 was one too big
+                q1 += over;
+                rr += over & dn;
+                if (__builtin_expect(rr >= dn, 0))
+                {
+                    ++q1;
+                    rr -= dn;
+                }
+                r = rr;
+                return q1;
+            };
+
+            ULong r;
+            if (s == 0)
+            {
+                r = 0;
+                for (SizeT i = n; i-- > 0;)
+                    q[i] = (DataT)step(r, (ULong)a[i]);
+                return (DataT)r;
+            }
+            const int back = 64 - s;
+            ULong hi = (ULong)a[n - 1];
+            r = hi >> back; // < 2^s <= dn
+            for (SizeT i = n - 1; i > 0; --i)
+            {
+                const ULong lo = (ULong)a[i - 1];
+                q[i] = (DataT)step(r, (hi << s) | (lo >> back));
+                hi = lo;
+            }
+            q[0] = (DataT)step(r, hi << s);
+            return (DataT)(r >> s);
+        }
+
         static void DivideTo(std::vector<DataT> &u, DataT d, BaseT base)
         {
             Divide(u, 0, u.size() - 1, d, u, 0, u.size() - 1, base);
@@ -136,20 +191,12 @@ namespace BigMath
                 return;
             }
 
-            // Base-2^64 fast path. Same GM trick: dividend = (r * 2^64 + u[i]).
+            // Base-2^64 fast path: the DivRem1 kernel straight into w (which
+            // was sized above to hold all n quotient limbs).
             if (base == Base2_64)
             {
-                GranlundMollerDivider gm(d);
-                ULong r = 0;
-                for (Int i = (Int)uEnd; i >= (Int)uStart; i--)
-                {
-                    DataT q = (DataT)gm.DivMod(r, u[i], r);
-                    SizeT wPos = wStart + (i - uStart);
-                    if (wPos <= wEnd)
-                        w[wPos] = q;
-                    else
-                        w.push_back(q);
-                }
+                (void)wEnd;
+                DivRem1(w.data() + wStart, u.data() + uStart, n, d);
                 TrimZeros(w);
                 return;
             }
@@ -202,15 +249,10 @@ namespace BigMath
 
             if (base == Base2_64)
             {
-                GranlundMollerDivider gm(d);
-                ULong r = 0;
-                for (Int i = (Int)u.size() - 1; i >= 0; --i)
-                {
-                    u[i] = (DataT)gm.DivMod(r, u[i], r);
-                }
+                DataT r = DivRem1(u.data(), u.data(), (SizeT)u.size(), d);
                 while (u.size() > 1 && u.back() == 0)
                     u.pop_back();
-                return (DataT)r;
+                return r;
             }
 
             ULong r = 0;
@@ -250,13 +292,8 @@ namespace BigMath
             }
             else if (base == Base2_64)
             {
-                GranlundMollerDivider gm(d);
-                ULong r = 0;
-                for (Int i = (Int)u.size() - 1; i >= 0; i--)
-                {
-                    w[i] = (DataT)gm.DivMod(r, u[i], r);
-                }
-                v[0] = (DataT)r;
+                if (n > 0)
+                    v[0] = DivRem1(w.data(), u.data(), n, d);
             }
             else
             {
