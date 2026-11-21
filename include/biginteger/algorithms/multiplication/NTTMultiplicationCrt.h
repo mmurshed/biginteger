@@ -49,9 +49,9 @@
 // length, NOT operand limb count. Opt out via -DBIGMATH_NTT_MFA=0.
 // NEON acceleration of the radix-8 butterfly layers (aarch64 only). The
 // 30-bit CRT primes fit 32-bit lanes; twiddle multiplies use Shoup's method
-// (precomputed floor(w*2^32/P) tables) so only 32x32->64 widening multiplies
-// are needed — the primitive NEON actually has. Microbenched 4x per butterfly
-// pass vs the scalar (a*b) % P loop. Opt out via -DBIGMATH_NEON=0.
+// with a precomputed floor(w*2^31/P) companion, so the quotient estimate is
+// one doubling-multiply-high (vqdmulhq_s32) per four lanes. Opt out via
+// -DBIGMATH_NEON=0.
 //
 // The interleaved (twiddle, shoup) tables keep the strided gathers at one
 // cache line per pair, so NEON wins or ties at every transform size
@@ -207,7 +207,7 @@ namespace BigMath
       std::vector<UInt> inverseRoots;
 #if BIGMATH_NEON
       // Interleaved twiddle/Shoup pairs: il[2k] = roots[k],
-      // il[2k+1] = floor(roots[k] * 2^32 / P). One cache line serves both the
+      // il[2k+1] = ShoupCompanion(roots[k]) = floor(roots[k] * 2^31 / P). One cache line serves both the
       // twiddle and its Shoup companion — with separate arrays the strided
       // gathers above L2 doubled twiddle traffic and erased the NEON win at
       // n >= 2^21.
@@ -218,6 +218,14 @@ namespace BigMath
     };
 
 #if BIGMATH_NEON
+    // Shoup companion of a fixed multiplier w < P: floor(w * 2^31 / P), which
+    // is < 2^31 and therefore a non-negative int32 — see NeonShoupMul.
+    template <typename F>
+    static inline UInt ShoupCompanion(UInt w)
+    {
+      return (UInt)(((ULong)w << 31) / F::Prime);
+    }
+
     template <typename F>
     inline std::vector<UInt> BuildInterleaved(const std::vector<UInt> &roots)
     {
@@ -229,7 +237,7 @@ namespace BigMath
         for (Int k = start; k < end; ++k)
         {
           ip[2 * k] = rp[k];
-          ip[2 * k + 1] = (UInt)(((ULong)rp[k] << 32) / F::Prime);
+          ip[2 * k + 1] = ShoupCompanion<F>(rp[k]);
         }
       };
       if ((SizeT)count >= ParallelMinSize()) ParallelFor(count, body);
@@ -409,36 +417,48 @@ namespace BigMath
     // Radix-8 fused DIF: three layers (len, len/2, len/4) in one load/store.
 #if BIGMATH_NEON
     // ─── NEON butterfly primitives ──────────────────────────────────────────
-    // All values in [0, P), P < 2^31. ShoupMul computes (w*x) mod P from the
-    // precomputed ws = floor(w*2^32/P): q = mulhi32(ws, x), t = w*x − q*P with
-    // t in [0, 2P), then one conditional subtract.
+    // All values in [0, P), P < 2^31.
+    //
+    // ShoupMul computes (w*x) mod P from the precomputed companion
+    // ws = floor(w * 2^31 / P). Both ws and x are < 2^31, i.e. non-negative
+    // as int32, so the doubling multiply-high vqdmulhq_s32(ws, x) =
+    // floor(2*ws*x / 2^32) = floor(ws*x / 2^31) cannot saturate and yields
+    // the quotient estimate for all four lanes in ONE instruction (the
+    // unsigned 2^32 form needed two widening multiplies, two narrowing
+    // shifts and a combine). Since ws*x/2^31 lies in (w*x/P - 1, w*x/P], the
+    // estimate q is floor(w*x/P) or one less, so t = w*x - q*P (mod 2^32) is
+    // the true value in [0, 2P) — the same bound as classic Shoup — and one
+    // conditional subtract finishes it. Bit-exact with (w*x) % P.
+    //
+    // Conditional subtract / add use an unsigned min instead of
+    // compare + mask: for t in [0, 2P), t - P wraps above t exactly when
+    // t < P, so min(t, t - P) selects the reduced value in two ops.
     template <typename F>
     static inline uint32x4_t NeonShoupMul(uint32x4_t w, uint32x4_t ws, uint32x4_t x)
     {
       const uint32x4_t vP = vdupq_n_u32(F::Prime);
-      uint64x2_t lo = vmull_u32(vget_low_u32(ws), vget_low_u32(x));
-      uint64x2_t hi = vmull_u32(vget_high_u32(ws), vget_high_u32(x));
-      uint32x4_t q = vcombine_u32(vshrn_n_u64(lo, 32), vshrn_n_u64(hi, 32));
-      uint32x4_t t = vsubq_u32(vmulq_u32(w, x), vmulq_u32(q, vP));
-      uint32x4_t ge = vcgeq_u32(t, vP);
-      return vsubq_u32(t, vandq_u32(ge, vP));
+      uint32x4_t q = vreinterpretq_u32_s32(
+          vqdmulhq_s32(vreinterpretq_s32_u32(ws), vreinterpretq_s32_u32(x)));
+      uint32x4_t t = vmlsq_u32(vmulq_u32(w, x), q, vP);
+      return vminq_u32(t, vsubq_u32(t, vP));
     }
 
     template <typename F>
     static inline uint32x4_t NeonAdd(uint32x4_t a, uint32x4_t b)
     {
       const uint32x4_t vP = vdupq_n_u32(F::Prime);
-      uint32x4_t sum = vaddq_u32(a, b);
-      uint32x4_t ge = vcgeq_u32(sum, vP);
-      return vsubq_u32(sum, vandq_u32(ge, vP));
+      uint32x4_t sum = vaddq_u32(a, b); // < 2P < 2^32
+      return vminq_u32(sum, vsubq_u32(sum, vP));
     }
 
     template <typename F>
     static inline uint32x4_t NeonSub(uint32x4_t a, uint32x4_t b)
     {
       const uint32x4_t vP = vdupq_n_u32(F::Prime);
-      uint32x4_t lt = vcltq_u32(a, b);
-      return vaddq_u32(vsubq_u32(a, b), vandq_u32(lt, vP));
+      // a >= b: d in [0, P) and d + P > d. a < b: d wrapped above 2^32 - P
+      // and d + P wraps back to the reduced value below it.
+      uint32x4_t d = vsubq_u32(a, b);
+      return vminq_u32(d, vaddq_u32(d, vP));
     }
 
     // Strided gather of 4 consecutive-j (twiddle, shoup) pairs from the
@@ -479,7 +499,7 @@ namespace BigMath
     {
       const UInt gw = roots[n / 4];
       const uint32x4_t vgw = vdupq_n_u32(gw);
-      const uint32x4_t vgws = vdupq_n_u32((UInt)(((ULong)gw << 32) / F::Prime));
+      const uint32x4_t vgws = vdupq_n_u32(ShoupCompanion<F>(gw));
       Int i = 0;
       for (; i + 16 <= n; i += 16)
       {
@@ -514,7 +534,7 @@ namespace BigMath
     {
       const UInt gw = roots[n / 4];
       const uint32x4_t vgw = vdupq_n_u32(gw);
-      const uint32x4_t vgws = vdupq_n_u32((UInt)(((ULong)gw << 32) / F::Prime));
+      const uint32x4_t vgws = vdupq_n_u32(ShoupCompanion<F>(gw));
       Int i = 0;
       for (; i + 16 <= n; i += 16)
       {
@@ -580,12 +600,6 @@ namespace BigMath
     // exactly as ForwardRadix4LayerNeon does through vld4q/vst4q. All
     // arithmetic is exact mod P, so the output is bit-identical to the
     // radix-2 chain regardless of how the layers are grouped.
-
-    template <typename F>
-    static inline UInt ShoupCompanion(UInt w)
-    {
-      return (UInt)(((ULong)w << 32) / F::Prime);
-    }
 
     // In-place 4x4 transpose of four rows (an involution).
     static inline void NeonTranspose4(uint32x4_t &r0, uint32x4_t &r1, uint32x4_t &r2, uint32x4_t &r3)
@@ -770,7 +784,7 @@ namespace BigMath
     inline void NeonScale(UInt *a, Int n, UInt c)
     {
       const uint32x4_t vc = vdupq_n_u32(c);
-      const uint32x4_t vcs = vdupq_n_u32((UInt)(((ULong)c << 32) / F::Prime));
+      const uint32x4_t vcs = vdupq_n_u32(ShoupCompanion<F>(c));
       Int i = 0;
       for (; i + 4 <= n; i += 4)
         vst1q_u32(a + i, NeonShoupMul<F>(vc, vcs, vld1q_u32(a + i)));
