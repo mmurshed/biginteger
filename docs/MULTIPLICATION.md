@@ -13,6 +13,7 @@ A technical reference for the multiplication subsystem of this BigInteger librar
    - [Classic schoolbook](#classic-schoolbook)
    - [Karatsuba](#karatsuba)
    - [Toom-Cook 3](#toom-cook-3)
+   - [Toom-3 and Toom-4 inside the Karatsuba recursion](#toom-3-and-toom-4-inside-the-karatsuba-recursion-2026-11-21)
    - [NTT (Goldilocks prime)](#ntt-goldilocks-prime)
    - [Squaring](#squaring)
 5. [Benchmark results vs GMP](#benchmark-results-vs-gmp)
@@ -249,6 +250,26 @@ These eliminate per-iteration branches that the compiler was not consistently ho
 **Why the dispatch band was narrow (historical — window retired 2026-06-12).** Toom-3's useful window was the gap between Karatsuba's recursion overhead and NTT's next-power-of-two setup cost. The 2026-05 dispatcher sweeps kept Karatsuba below total size 2560, used Toom-3 for `[2560, 5120)`, and switched to NTT at 5120+; the main production win was avoiding an NTT length-boundary regression near total size 4608. The NEON Shoup butterflies (2026-06-11) made CRT NTT ~2.5× faster in that band, so the window closed and the NTT entry dropped to 1280.
 
 Toom-3 is also kept callable directly for cross-checking in `tests/mult_correctness.cpp`. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
+
+### Toom-3 and Toom-4 inside the Karatsuba recursion (2026-11-21)
+
+**Location:** `algorithms/multiplication/KaratsubaMultiplication.h` (`Toom3`, `Toom4`), `KaratsubaSquare.h` (squares), shared kernels in `algorithms/multiplication/ToomKernels.h`.
+
+Unlike the vector-based `ToomCookMultiplication` above, this tier is a split choice inside the pointer-based Karatsuba recursion, so every near-balanced sub-product picks the best split for its own size — including the balanced pieces of sliced unbalanced products and the products inside Burnikel–Ziegler division. With 64-bit limbs, a level whose shorter operand has at least `BIGMATH_MUL_TOOM33_THRESHOLD = 168` limbs (squares: `BIGMATH_SQR_TOOM3_THRESHOLD = 160`) splits three ways when both operands have a nonempty top third; otherwise it halves as before.
+
+- **Toom-3:** points 0, 1, −1, 2, ∞; five products of about n/3 limbs. Bodrato's interpolation sequence turns out to keep every intermediate a non-negative combination of the product's coefficients (e.g. `(v2 − v−1)/3 = r1 + r2 + 3r3 + 5r4`), so it runs entirely on unsigned limbs with the flag-chain kernels; only `v(−1)` carries a sign, folded into the first two steps.
+- **Toom-4:** points 0, ±1, ±2, ½, ∞; seven products of about n/4. Solved through even/odd splits (`E = (P(x) + P(−x))/2`, `O = (P(x) − P(−x))/2`) plus the ½ point, again with every value after the first sums non-negative; divisions by 3 and 5 are exact multiplications by the inverse mod 2^64. **Off by default** (`BIGMATH_MUL_TOOM44_THRESHOLD = 1000000`): against Toom-3 it was −2.5% at 320 limbs, +5% at 384, flat at 448–512, and balanced products past 512 limbs go to the NTT on this machine. Kept for platforms whose NTT starts later.
+
+Sweep (Apple M1 Max, header-only `tests/performance/toom_threshold_sweep.cpp`, µs per balanced product, Karatsuba only → with Toom-3 at 168):
+
+| limbs | 160 | 168 | 176 | 192 | 224 | 256 | 384 | 448 | 512 | 768 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Karatsuba | 7.38 | 8.36 | 9.20 | 10.21 | 13.40 | 15.84 | 31.60 | 41.09 | 48.76 | 96.44 |
+| + Toom-3 | 7.37 | 8.07 | 8.60 | 9.55 | 12.64 | 15.97 | 28.76 | 38.02 | 45.73 | 86.53 |
+
+Squares (µs, Karatsuba square → Toom-3 from 160): 192 limbs 7.32 → 6.98, 320 16.72 → 15.70, 384 22.66 → 20.90, 512 35.55 → 32.49, 608 46.85 → 42.44.
+
+Through the public API (best of 4 × 9 rounds, `main` → this tier): products 192×192 −5.9%, 288×288 −5.6%, 168×168 −2.4%; squares 192 −4.0%, 256 −2.9%, 288 −2.3%; 2000 ÷ 1000-limb division −1.4%, 800 ÷ 400 −2.6%, 1600 ÷ 400 −2.5%; decimal parse/format at 10k–50k digits within ±1.6%. 256×256 products are 1–2.5% slower (86-limb pieces against Karatsuba's clean halving at a power of two). Sizes from ~310 limbs per operand go to the NTT when the pool is warm, so the tier matters there only for cold calls (up to 512 limbs) and unbalanced pieces. The NTT entry points were rechecked and left unchanged: the warm crossover is still ~300 limbs (Karatsuba + Toom-3 18.8 µs vs NTT 19.2 µs at 288; 22.8 vs 19.5 at 320).
 
 ### Toom-5
 
