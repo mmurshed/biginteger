@@ -404,11 +404,8 @@ namespace BigMath
       {
         // Single-limb divisor: invariant-divisor reciprocal, one multiply-high
         // per limb instead of a 128/64 library division.
-        ClassicDivision::GranlundMollerDivider gm((ULong)b[0]);
         std::vector<DataT> q(na);
-        ULong rem = 0;
-        for (SizeT i = na; i-- > 0;)
-          q[i] = (DataT)gm.DivMod(rem, (ULong)a[i], rem);
+        const DataT rem = ClassicDivision::DivRem1(q.data(), a.data(), na, b[0]);
         TrimZerosToOne(q);
         std::vector<DataT> r;
         if (computeRemainder)
