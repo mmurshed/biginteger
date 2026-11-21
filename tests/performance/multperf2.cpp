@@ -90,8 +90,8 @@ int main(int argc, char *argv[])
     /*
     start = clock();
     vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
@@ -107,8 +107,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     vector<DataT> nttm = NTTMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;

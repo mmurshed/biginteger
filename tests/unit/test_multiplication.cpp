@@ -149,9 +149,9 @@ static void CrossCheckAgainstClassic(int digits)
   std::mt19937 gen(0xF66 + digits);
   BigInteger a = BigIntegerBuilder::From(RandomDigits(digits, gen));
   BigInteger b = BigIntegerBuilder::From(RandomDigits(digits, gen));
-  std::vector<DataT> dispatched = Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  std::vector<DataT> dispatched = Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   std::vector<DataT> classic = ClassicMultiplication::Multiply(
-      a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      a.AsVector(), b.AsVector(), BigInteger::Base());
   ASSERT_EQ(Compare(dispatched, classic), 0);
 }
 
@@ -166,9 +166,9 @@ REGISTER_TEST(MulDispatch, AsymmetricSizes)
   std::mt19937 gen(0x123);
   BigInteger a = BigIntegerBuilder::From(RandomDigits(8000, gen));
   BigInteger b = BigIntegerBuilder::From(RandomDigits(50, gen));
-  std::vector<DataT> dispatched = Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  std::vector<DataT> dispatched = Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   std::vector<DataT> classic = ClassicMultiplication::Multiply(
-      a.GetInteger(), b.GetInteger(), BigInteger::Base());
+      a.AsVector(), b.AsVector(), BigInteger::Base());
   ASSERT_EQ(Compare(dispatched, classic), 0);
 }
 

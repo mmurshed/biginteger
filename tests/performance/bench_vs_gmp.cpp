@@ -147,7 +147,7 @@ static void BenchDiv(int digits_a, int digits_b, vector<Row> &rows)
     auto check = [](const BigInteger &value, mpz_srcptr reference) {
         mpz_t z;
         mpz_init(z);
-        mpz_import(z, value.size(), -1, sizeof(DataT), 0, 64 - LimbBits, value.GetInteger().data());
+        mpz_import(z, value.size(), -1, sizeof(DataT), 0, 64 - LimbBits, value.Limbs().data());
         if (value.IsNegative()) mpz_neg(z, z);
         if (mpz_cmp(z, reference)) throw runtime_error("division result differs from GMP");
         mpz_clear(z);

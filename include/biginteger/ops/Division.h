@@ -24,7 +24,7 @@ namespace BigMath
   public:
     CachedDivision(BigInteger const &b)
         : divisor(b),
-          divider(b.GetInteger(), BigInteger::Base())
+          divider(b.AsVector().get(), BigInteger::Base())
     {
     }
 
@@ -32,7 +32,7 @@ namespace BigMath
         BigInteger const &a,
         bool computeRemainder = true) const
     {
-      auto [qv, rv] = divider.DivideAndRemainder(a.GetInteger(), computeRemainder);
+      auto [qv, rv] = divider.DivideAndRemainder(a.AsVector().get(), computeRemainder);
       BigInteger q(std::move(qv), a.IsNegative() != divisor.IsNegative());
       // Truncated division: remainder takes the dividend's sign.
       BigInteger r(std::move(rv), a.IsNegative());
@@ -41,7 +41,7 @@ namespace BigMath
 
     BigInteger Divide(BigInteger const &a) const
     {
-      auto qv = divider.Divide(a.GetInteger());
+      auto qv = divider.Divide(a.AsVector().get());
       return BigInteger(std::move(qv), a.IsNegative() != divisor.IsNegative());
     }
 

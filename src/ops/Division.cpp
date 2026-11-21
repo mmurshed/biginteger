@@ -5,12 +5,19 @@
  */
 
 #include "biginteger/ops/Division.h"
+#include "biginteger/ops/SmallOps.h"
 
 namespace BigMath
 {
   std::pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, BigInteger const &b)
   {
-    auto [qv, rv] = DivideAndRemainder(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+    if (SmallOps::Fits(a, b))
+    {
+      std::pair<BigInteger, BigInteger> qr;
+      SmallOps::DivRem(a, b, &qr.first, &qr.second);
+      return qr;
+    }
+    auto [qv, rv] = DivideAndRemainder(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
     BigInteger q(std::move(qv), a.IsNegative() != b.IsNegative());
     // Truncated division: remainder takes the dividend's sign.
     BigInteger r(std::move(rv), a.IsNegative());
@@ -19,7 +26,13 @@ namespace BigMath
 
   BigInteger Divide(BigInteger const &a, BigInteger const &b)
   {
-    auto qv = Divide(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+    if (SmallOps::Fits(a, b))
+    {
+      BigInteger q;
+      SmallOps::DivRem(a, b, &q, nullptr);
+      return q;
+    }
+    auto qv = Divide(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
     return BigInteger(std::move(qv), a.IsNegative() != b.IsNegative());
   }
 
@@ -30,6 +43,12 @@ namespace BigMath
 
   BigInteger operator%(BigInteger const &a, BigInteger const &b)
   {
+    if (SmallOps::Fits(a, b))
+    {
+      BigInteger r;
+      SmallOps::DivRem(a, b, nullptr, &r);
+      return r;
+    }
     return DivideAndRemainder(a, b).second;
   }
 }

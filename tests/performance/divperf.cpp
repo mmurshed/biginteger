@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     tie(q, r) = KnuthDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     timeTakenKnuth = (double)(end - start) / CLOCKS_PER_SEC;
@@ -79,8 +79,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     tie(q, r) = FastDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     timeTakenFast = (double)(end - start) / CLOCKS_PER_SEC;
@@ -90,8 +90,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     tie(q, r) = BurnikelZieglerDivision::DivideAndRemainder(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     timeTakenBZ = (double)(end - start) / CLOCKS_PER_SEC;

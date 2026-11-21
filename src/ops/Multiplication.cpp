@@ -5,6 +5,7 @@
  */
 
 #include "biginteger/ops/Multiplication.h"
+#include "biginteger/ops/SmallOps.h"
 
 #include <utility>
 
@@ -12,7 +13,9 @@ namespace BigMath
 {
   BigInteger Multiply(BigInteger const &a, BigInteger const &b)
   {
-    auto result = Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+    if (SmallOps::Fits(a, b))
+      return SmallOps::MulMagnitudes(a, b, a.IsNegative() != b.IsNegative());
+    auto result = Multiply(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
     return BigInteger(std::move(result), a.IsNegative() != b.IsNegative());
   }
 

@@ -5,20 +5,17 @@
  */
 
 #include "biginteger/ops/Subtraction.h"
+#include "biginteger/ops/SmallOps.h"
 
 namespace BigMath
 {
   BigInteger SubtractCompared(BigInteger const &a, BigInteger const &b)
   {
-    int cmp = Compare(a.GetInteger(), b.GetInteger());
+    int cmp = Compare(a.Limbs(), b.Limbs());
     if (cmp > 0)
-      return BigInteger(
-          Subtract(a.GetInteger(), b.GetInteger(), BigInteger::Base()),
-          false);
+      return SmallOps::SubMagnitudes(a, b, false);
     if (cmp < 0)
-      return BigInteger(
-          Subtract(b.GetInteger(), a.GetInteger(), BigInteger::Base()),
-          true);
+      return SmallOps::SubMagnitudes(b, a, true);
     return BigInteger();
   }
 
@@ -45,9 +42,7 @@ namespace BigMath
 
     // Opposite signs → magnitude-add, sign from `a`.
     if (aNeg != bNeg)
-      return BigInteger(
-          Add(a.GetInteger(), b.GetInteger(), BigInteger::Base()),
-          aNeg && !bNeg);
+      return SmallOps::AddMagnitudes(a, b, aNeg && !bNeg);
 
     // Same sign: a - b = ±(|a| - |b|) where the outer sign is `aNeg`.
     // SubtractCompared treats inputs as magnitudes and signs the result by

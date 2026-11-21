@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
                 BigInteger a = Parse(LoadOperand(dir, e.id, 0).c_str());
                 BigInteger b = Parse(LoadOperand(dir, e.id, 1).c_str());
                 BigInteger c;
-                row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; if (c.GetInteger().empty()) abort(); }, e.reps);
+                row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; if (c.Limbs().empty()) abort(); }, e.reps);
                 row.correct = (HashBigInteger(c) == gmp[i].hash) ? "ok" : "FAIL";
                 break;
             }
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
             case Op::Parse: {
                 std::string sa = LoadOperand(dir, e.id, 0);
                 row.bm_ms = BestWarmMs(row.first_ms, [&] {
-                    BigInteger b = Parse(sa.c_str()); if (b.GetInteger().empty()) abort();
+                    BigInteger b = Parse(sa.c_str()); if (b.Limbs().empty()) abort();
                 }, e.reps);
                 break;
             }
