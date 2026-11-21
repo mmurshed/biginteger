@@ -1,28 +1,34 @@
 # BigMath vs GMP — full benchmark suite
 
-Canonical run **2026-06-12 evening at v13.0** (post #120–#126: codebase audit
-fixes, CRT-NTT squaring, dedup refactors, header hygiene). Single
-`bench_vs_gmp` pass on a quiet machine, with warm steady-state re-measurement
+Canonical run **2026-11-20** (post #129–#139: the multiplication pass — limb
+kernels, NTT kernel/threading/truncated-length work, pool rewrite, dispatch
+re-sweep). Single `bench_vs_gmp` pass, with warm steady-state re-measurement
 for the chain-/plan-heavy rows where single-iteration cold timing is not
-representative (see Methodology).
+representative (see Methodology). Every table carries the previous canonical
+ratio (2026-06-12, v13.0) for comparison.
 
 ![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
 
-![Session before/after](docs/images/session_2026_06_11.png)
+*The figures were generated from the v13.0 run and have not been
+regenerated; the tables below are current.*
 
 **Headlines:**
 
-- **Balanced multiplication beats GMP at every size from 500k digits up** —
-  peaking at 3.2× faster (10M×10M digits: 64 vs 209 ms) and staying at or
-  below GMP through 200M digits warm (0.89–0.97×).
-- **Skewed multiplication wins every measured shape from 500k×50k up**
-  (0.40–0.73×).
-- **Skewed division beats GMP from 20M-digit dividends (0.45–0.82×)**, parity
-  at 5M (200M÷40M digits: 3.1 s vs GMP's 4.5 s).
-- **Decimal I/O beats GMP from 500k digits in both directions**: parse
-  0.38–0.69×, warm ToString 0.49–0.62×.
-- Sub-NTT sizes (≲ 13k digits) remain 2–3× behind GMP's hand-tuned basecase —
-  the documented portable-C++ wall.
+- **Balanced multiplication beats GMP from 10k digits up** (was 500k) —
+  0.21–0.63× from 50k to 20M digits, peaking at 4.8× faster (10M×10M digits:
+  43 vs 207 ms), and 0.63–0.72× warm through 200M digits.
+- **Skewed multiplication wins every measured shape** (0.27–0.51×), including
+  100k×10k, which was 1.21×.
+- **Skewed division beats GMP from 500k-digit dividends** (was 20M):
+  0.26–0.78×; parity at 200k (1.02×).
+- **Decimal I/O**: parse beats GMP from 100k digits (0.23–0.66×; was from
+  500k); ToString from 1M digits cold (0.47–0.65×) and from 100k warm
+  (0.31–0.63×).
+- Below ~10k digits BigMath is now 1.4–1.5× behind GMP instead of 2.3–3.2×.
+  The earlier "portable-C++ wall" was a loop idiom, not a language limit —
+  see [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md). What still trails:
+  division below ~200k-digit dividends (2–2.9×), small decimal I/O
+  (1.5–2.4×), and 1–4-limb products where the result allocation dominates.
 
 For per-subsystem deep dives — algorithms, dispatch, optimization history,
 rejected approaches — see [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md),
@@ -36,19 +42,23 @@ This file is the raw numbers, all subsystems in one place.
 ## Methodology
 
 - **Hardware:** Apple M1 Max (10-core, 8 performance + 2 efficiency), 64 GB RAM.
-- **OS:** macOS (Darwin 25.5.0).
-- **Build:** CMake Release (`-O3 -march=native`), Apple Clang, C++20.
+- **OS:** macOS (Darwin 27.2.0).
+- **Build:** CMake Release (`-O3 -march=native`), Apple Clang 21, C++20.
 - **Reference:** GMP 6.3.0 (Homebrew), timed in-process on the same operands.
+  GMP is single-threaded; BigMath uses its 8-thread pool on NTT-sized work.
 - **Default stack:** `BIGMATH_LIMB_64=1` (64-bit limbs), `BIGMATH_NTT_CRT=1`
   (3-prime CRT NTT), `BIGMATH_USE_THREADS=1` (8-thread pool),
   `BIGMATH_NEON=1` on aarch64, MFA gate `2^20` coefficients.
 - **Timing:** min over 1–1000+ iterations depending on size
   (`tests/performance/bench_vs_gmp.cpp`); rows ≥100k digits are single-iter.
+  The machine was not idle for this run (load average 3–5 from desktop
+  processes), so treat single-iteration rows as ±10%.
 - **Warm steady state:** rows marked *warm* discard the first call (NTT plan
-  build, divider-chain build, first-touch page faults) and take best-of-3.
-  This is the authoritative comparison for ≥50M-digit multiplication and
-  ≥100k-digit ToString: BigMath amortizes per-process caches that GMP doesn't
-  have, so cold-vs-cold pays them once per process and never again.
+  build, divider-chain build, first-touch page faults) and take the best of
+  the following runs. This is the authoritative comparison for ≥50M-digit
+  multiplication and ≥100k-digit ToString: BigMath amortizes per-process
+  caches that GMP doesn't have, so cold-vs-cold pays them once per process
+  and never again.
 - **Random inputs:** mt19937_64 seeded per case, full digit/limb range.
 
 ---
@@ -57,48 +67,52 @@ This file is the raw numbers, all subsystems in one place.
 
 Balanced (`a.size() == b.size()`):
 
-| digits | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| 1 000 × 1 000 | 0.002 | 0.001 | 2.33× |
-| 5 000 × 5 000 | 0.033 | 0.013 | 2.56× |
-| 10 000 × 10 000 | 0.100 | 0.031 | 3.19× |
-| 50 000 × 50 000 | 0.363 | 0.292 | 1.24× |
-| 100 000 × 100 000 | 0.797 | 0.617 | 1.29× |
-| **500 000 × 500 000** | **4.081** | **4.595** | **0.89×** ← BigMath faster |
-| **1 000 000 × 1 000 000** | **7.867** | **9.298** | **0.85×** |
-| **2 000 000 × 2 000 000** | **16.606** | **21.030** | **0.79×** |
-| **5 000 000 × 5 000 000** | **32.854** | **63.502** | **0.52×** ← 1.9× faster |
-| **10 000 000 × 10 000 000** | **64.334** | **208.649** | **0.31×** ← 3.2× faster |
-| **20 000 000 × 20 000 000** | **128.586** | **275.484** | **0.47×** ← 2.1× faster |
-| **50 000 000 × 50 000 000** | **606.2 (warm)** | **684.5** | **0.89×** ← cold single-iter 1.08× |
-| **100 000 000 × 100 000 000** | **1 302.5 (warm)** | **1 439.1** | **0.91×** ← cold 1.12× |
-| **200 000 000 × 200 000 000** | **2 808.5 (warm)** | **2 907.3** | **0.97×** ← cold-state scatter up to 1.6× |
+| digits | BigMath ms | GMP ms | BM/GMP | v13.0 BM/GMP |
+|---|---:|---:|---:|---:|
+| 1 000 × 1 000 | 0.001 | 0.001 | 1.39× | 2.33× |
+| 5 000 × 5 000 | 0.018 | 0.012 | 1.48× | 2.56× |
+| **10 000 × 10 000** | **0.027** | **0.030** | **0.90×** | **3.19×** |
+| **50 000 × 50 000** | **0.182** | **0.291** | **0.63×** | **1.24×** |
+| **100 000 × 100 000** | **0.253** | **0.597** | **0.42×** | **1.29×** |
+| **500 000 × 500 000** | **2.620** | **4.398** | **0.60×** | **0.89×** |
+| **1 000 000 × 1 000 000** | **4.828** | **9.568** | **0.50×** | **0.85×** |
+| **2 000 000 × 2 000 000** | **12.535** | **22.636** | **0.55×** | **0.79×** |
+| **5 000 000 × 5 000 000** | **19.746** | **63.223** | **0.31×** | **0.52×** |
+| **10 000 000 × 10 000 000** | **43.395** | **207.4** | **0.21×** | **0.31×** |
+| **20 000 000 × 20 000 000** | **92.591** | **275.6** | **0.34×** | **0.47×** |
+| **50 000 000 × 50 000 000** | **430.9 (warm)** | **684.9** | **0.63×** | **0.89× (warm)** | ← cold single-iter 621.4 ms
+| **100 000 000 × 100 000 000** | **958.1 (warm)** | **1 407** | **0.68×** | **0.91× (warm)** | ← cold single-iter 1 655 ms
+| **200 000 000 × 200 000 000** | **2 121 (warm)** | **2 957** | **0.72×** | **0.97× (warm)** | ← cold single-iter 4 420 ms
 
 Skewed (`a.size() >> b.size()`):
 
-| digits | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| 100 000 × 10 000 | 0.365 | 0.303 | 1.21× |
-| **500 000 × 50 000** | **1.463** | **2.149** | **0.68×** ← BigMath faster |
-| **1 000 000 × 100 000** | **2.784** | **4.576** | **0.61×** |
-| **2 000 000 × 200 000** | **5.694** | **9.414** | **0.60×** |
-| **5 000 000 × 500 000** | **23.489** | **32.139** | **0.73×** |
-| **10 000 000 × 1 000 000** | **46.937** | **70.970** | **0.66×** |
-| **20 000 000 × 2 000 000** | **93.993** | **160.704** | **0.58×** |
-| **50 000 000 × 5 000 000** | **271.616** | **677.097** | **0.40×** ← 2.5× faster |
-| **100 000 000 × 10 000 000** | **620.034** | **1 019.765** | **0.61×** |
-| **200 000 000 × 20 000 000** | **1 376.823** | **1 949.539** | **0.71×** |
+| digits | BigMath ms | GMP ms | BM/GMP | v13.0 BM/GMP |
+|---|---:|---:|---:|---:|
+| **100 000 × 10 000** | **0.139** | **0.300** | **0.46×** | **1.21×** |
+| **500 000 × 50 000** | **0.569** | **2.105** | **0.27×** | **0.68×** |
+| **1 000 000 × 100 000** | **1.370** | **4.727** | **0.29×** | **0.61×** |
+| **2 000 000 × 200 000** | **3.394** | **10.029** | **0.34×** | **0.60×** |
+| **5 000 000 × 500 000** | **8.902** | **31.633** | **0.28×** | **0.73×** |
+| **10 000 000 × 1 000 000** | **21.659** | **73.174** | **0.30×** | **0.66×** |
+| **20 000 000 × 2 000 000** | **73.793** | **175.9** | **0.42×** | **0.58×** |
+| **50 000 000 × 5 000 000** | **204.1** | **676.8** | **0.30×** | **0.40×** |
+| **100 000 000 × 10 000 000** | **448.8** | **999.4** | **0.45×** | **0.61×** |
+| **200 000 000 × 20 000 000** | **989.2** | **1 930** | **0.51×** | **0.71×** |
 
 Observations:
 
-- The 500k–20M-digit balanced band is carried by the NEON Shoup butterflies +
-  radix-8 fused chain + threaded 3-prime CRT; the fused-MFA pipeline
-  (gate 2^20 coefficients) extends the win through 200M digits warm.
-- Sub-50k digits stay on Karatsuba, where GMP's hand-tuned assembly basecase
-  keeps a 2.3–3.2× lead; 50k–100k digits sit at 1.2–1.3×.
+- The crossover against GMP moved from ~500k digits to ~10k. Below it the
+  flag-chain limb kernels put Karatsuba within 1.4–1.5× of GMP's assembly
+  basecase plus Toom tiers; at 10k digits the product already runs on the
+  CRT NTT (entry at ~310 limbs per operand, was 640).
+- 50k–20M digits: NEON tail kernels and the leaner Shoup butterfly on the
+  transforms, the six-unit inverse, the parallel finalize pass and the
+  thread-pool rewrite; just above each power-of-two transform length the
+  truncated `H + L` scheme removes most of the old staircase.
 - 50M+ cold rows include the one-time MFA plan build and first-touch page
-  faults for multi-GB buffers; run-to-run cold scatter at 200M digits reaches
-  ±60%, which is why the warm numbers are authoritative there.
+  faults for multi-GB buffers, which is why the warm numbers are
+  authoritative there. Same-session warm comparison against the previous
+  `main`: 50M 602 → 431 ms, 100M 1288 → 958 ms, 200M 2782 → 2121 ms.
 
 ---
 
@@ -107,20 +121,20 @@ Observations:
 Skewed (`a.size() >> b.size()`) — the Newton/BZ/quotient-sized bands, real
 algorithmic work:
 
-| digits | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| 40 000 × 10 000 | 0.576 | 0.218 | 2.64× |
-| 100 000 × 10 000 | 1.754 | 0.460 | 3.81× |
-| 200 000 × 50 000 | 4.054 | 1.755 | 2.31× |
-| 500 000 × 100 000 | 7.671 | 4.810 | 1.59× |
-| 1 000 000 × 200 000 | 14.465 | 10.056 | 1.44× |
-| 2 000 000 × 500 000 | 28.920 | 24.466 | 1.18× |
-| **5 000 000 × 1 000 000** | **69.446** | **69.387** | **1.00×** ← parity |
-| 10 000 000 × 2 000 000 | 180.657 | 153.320 | 1.18× |
-| **20 000 000 × 4 000 000** | **285.714** | **348.436** | **0.82×** ← BigMath faster |
-| **50 000 000 × 10 000 000** | **589.797** | **1 317.839** | **0.45×** ← 2.2× faster |
-| **100 000 000 × 20 000 000** | **1 263.489** | **2 581.606** | **0.49×** ← 2× faster |
-| **200 000 000 × 40 000 000** | **3 119.348** | **4 543.900** | **0.69×** ← BigMath faster |
+| digits | BigMath ms | GMP ms | BM/GMP | v13.0 BM/GMP |
+|---|---:|---:|---:|---:|
+| 40 000 × 10 000 | 0.440 | 0.221 | 1.99× | 2.64× |
+| 100 000 × 10 000 | 1.282 | 0.441 | 2.91× | 3.81× |
+| 200 000 × 50 000 | 1.748 | 1.716 | 1.02× | 2.31× |
+| **500 000 × 100 000** | **3.564** | **4.597** | **0.78×** | **1.59×** |
+| **1 000 000 × 200 000** | **6.165** | **10.029** | **0.61×** | **1.44×** |
+| **2 000 000 × 500 000** | **12.849** | **25.220** | **0.51×** | **1.18×** |
+| **5 000 000 × 1 000 000** | **33.418** | **69.044** | **0.48×** | **1.00×** |
+| **10 000 000 × 2 000 000** | **87.825** | **155.5** | **0.56×** | **1.18×** |
+| **20 000 000 × 4 000 000** | **141.9** | **353.4** | **0.40×** | **0.82×** |
+| **50 000 000 × 10 000 000** | **337.3** | **1 302** | **0.26×** | **0.45×** |
+| **100 000 000 × 20 000 000** | **817.6** | **2 530** | **0.32×** | **0.49×** |
+| **200 000 000 × 40 000 000** | **2 123** | **4 492** | **0.47×** | **0.69×** |
 
 Balanced equal-size rows are degenerate — the quotient is 0–2 limbs and both
 libraries short-circuit; absolute times are sub-15 µs through 1M digits and
@@ -128,69 +142,62 @@ the ratios are allocation noise, so the table is omitted.
 
 Observations:
 
-- **Beats GMP from 20M-digit dividends, parity at 5M.** Newton division
-  inherits every multiplication win (its reciprocal iterations and wrapped
-  remainders run cyclic mod-`B^L−1` products at half transform length on the
-  fused MFA pipeline).
-- The residual sub-200k-digit gap (2.3–3.8×) is the ≤520-limb-divisor
-  basecase band below all NTT-era algorithms — the same portable-C++ wall as
-  small multiplication, documented as accepted in
-  [docs/DIVISION.md](docs/DIVISION.md).
-- These canonical shapes land on even-ish divisor limb counts. Odd divisor
-  sizes — ~half of real inputs — were 1.3–10× worse until the BZ odd-size
-  padding fix (#116); they now track this table.
-
-In-tree algorithm cross-check (`divperf_simple 5`, no GMP, limb shapes):
-FastDivision vs BurnikelZiegler at `1024×512` 0.355/0.275 ms, `4096×2048`
-7.99/2.20 ms (BZ 3.6×), `8192×512` 5.25/3.08 ms, `16384×512` 10.36/6.18 ms.
+- **Beats GMP from 500k-digit dividends, parity at 200k.** No division code
+  changed in this run: Newton and Burnikel–Ziegler inherit every
+  multiplication win.
+- The residual sub-200k-digit gap (2–2.9×) is the basecase band below the
+  NTT-era algorithms. `FastDivision`'s `submul` loops still use the
+  limb-carry idiom that the multiplication kernels dropped; the same
+  restructuring applies and has not been done.
+- The Newton/BZ dispatch frontier was tuned against the old multiply and has
+  not been re-swept, so some of these shapes are likely not on their best
+  algorithm.
 
 ---
 
 ## Decimal parse (string → BigInteger)
 
-| digits | BigMath ms | GMP ms | BM/GMP |
-|---|---:|---:|---:|
-| 1 000 | 0.002 | 0.002 | 1.55× |
-| 10 000 | 0.087 | 0.038 | 2.26× |
-| 50 000 | 1.081 | 0.390 | 2.77× |
-| 100 000 | 1.739 | 1.072 | 1.62× |
-| **500 000** | **6.234** | **8.989** | **0.69×** ← BigMath faster |
-| **1 000 000** | **12.544** | **20.949** | **0.60×** |
-| **2 000 000** | **26.787** | **48.148** | **0.56×** |
-| **5 000 000** | **66.231** | **150.320** | **0.44×** |
-| **10 000 000** | **141.762** | **350.371** | **0.40×** ← 2.5× faster |
-| **20 000 000** | **306.340** | **814.925** | **0.38×** ← 2.7× faster |
-| **50 000 000** | **1 451.183** | **2 744.997** | **0.53×** |
+| digits | BigMath ms | GMP ms | BM/GMP | v13.0 BM/GMP |
+|---|---:|---:|---:|---:|
+| 1 000 | 0.002 | 0.002 | 1.51× | 1.55× |
+| 10 000 | 0.064 | 0.038 | 1.70× | 2.26× |
+| 50 000 | 0.620 | 0.392 | 1.58× | 2.77× |
+| **100 000** | **0.701** | **1.062** | **0.66×** | **1.62×** |
+| **500 000** | **3.243** | **9.159** | **0.35×** | **0.69×** |
+| **1 000 000** | **7.238** | **21.990** | **0.33×** | **0.60×** |
+| **2 000 000** | **18.899** | **47.509** | **0.40×** | **0.56×** |
+| **5 000 000** | **36.469** | **146.9** | **0.25×** | **0.44×** |
+| **10 000 000** | **80.995** | **346.6** | **0.23×** | **0.40×** |
+| **20 000 000** | **183.9** | **815.9** | **0.23×** | **0.38×** |
+| **50 000 000** | **707.6** | **2 655** | **0.27×** | **0.53×** |
 
-Parse beats GMP from 500k digits (the parallel leaf fan-out threshold sits at
-100k digits; below it the serial divide-and-conquer numbers stand, and below
-~50k GMP's basecase edge shows).
+Parse beats GMP from 100k digits (the parallel leaf fan-out threshold; it was
+500k). Below ~50k GMP's basecase edge shows.
 
 ---
 
 ## ToString (BigInteger → string)
 
 Cold = single run including the divider-chain build (a per-process cache GMP
-has no equivalent of); warm = steady state, authoritative from 100k digits up.
+has no equivalent of); warm = steady state, measured at three sizes in this
+run.
 
-| digits | BigMath cold ms | BigMath warm ms | GMP ms | warm BM/GMP |
-|---|---:|---:|---:|---:|
-| 1 000 | 0.006 | — | 0.003 | 1.83× |
-| 10 000 | 0.262 | — | 0.078 | 3.37× |
-| 50 000 | 2.509 | — | 0.893 | 2.81× |
-| 100 000 | 7.904 | 3.41 | 2.337 | 1.46× |
-| 200 000 | 14.422 | — | 6.342 | 2.27× (cold) |
-| **500 000** | **35.363** | **13.5** | **21.884** | **0.62×** ← BigMath faster |
-| **1 000 000** | **64.697** | **27.7** | **50.271** | **0.55×** |
-| **2 000 000** | **128.493** | **58.4** | **119.721** | **0.49×** |
-| **5 000 000** | **504.249** | **224.5** | **385.7** | **0.58×** |
-| **10 000 000** | **913.196** | **488.3** | **901.2** | **0.54×** |
-| **20 000 000** | **1 901.726** | **1 035.3** | **2 130.4** | **0.49×** ← faster even cold (0.88×) |
+| digits | BigMath cold ms | BigMath warm ms | GMP ms | cold BM/GMP | v13.0 BM/GMP |
+|---|---:|---:|---:|---:|---:|
+| 1 000 | 0.006 | — | 0.004 | 1.83× | 1.83× |
+| 10 000 | 0.191 | — | 0.079 | 2.41× | 3.37× |
+| 50 000 | 1.490 | — | 0.847 | 1.76× | 2.81× |
+| **100 000** | **5.248** | **1.437 (0.63×)** | **2.441** | **2.15×** | **1.46× (warm)** |
+| 200 000 | 8.403 | — | 6.306 | 1.33× | 2.27× (cold) |
+| 500 000 | 21.500 | — | 20.894 | 1.03× | 0.62× (warm) |
+| **1 000 000** | **33.193** | **15.360 (0.31×)** | **51.355** | **0.65×** | **0.55× (warm)** |
+| **2 000 000** | **70.187** | **—** | **121.7** | **0.58×** | **0.49× (warm)** |
+| **5 000 000** | **251.8** | **125.4 (0.33×)** | **387.2** | **0.65×** | **0.58× (warm)** |
+| **10 000 000** | **478.5** | **—** | **909.9** | **0.53×** | **0.54× (warm)** |
+| **20 000 000** | **1 010** | **—** | **2 151** | **0.47×** | **0.49× (warm)** |
 
-Warm ToString beats GMP from 500k digits (0.49–0.62×) via the parallel D&C
-subtree fan-out (#118) on top of the cached Newton divider chains. The cold
-chain build is the deferred one-shot-conversion lever; it only matters the
-first time a process formats a given magnitude.
+ToString now beats GMP cold from 1M digits (it needed the warm state before)
+and warm from 100k digits.
 
 ---
 
@@ -201,25 +208,39 @@ GMP has no native BigDecimal; compared against `mpf_t` at matching precision
 
 | op | size | BigMath ms | GMP (mpf) ms | BM/GMP |
 |---|---|---:|---:|---:|
-| add | 5000.500 | 0.001 | 0.000 | 5.0× |
-| add | 20000.2000 | 0.002 | 0.001 | 4.3× |
-| mul | 1000.100 | 0.002 | 0.001 | 2.23× |
-| mul | 5000.500 | 0.031 | 0.013 | 2.46× |
-| mul | 20000.2000 | 0.240 | 0.090 | 2.66× |
-| div | 1000.100 / 100 dp | 0.002 | 0.002 | 1.16× |
-| **div** | **5000.500 / 500 dp** | **0.020** | **0.024** | **0.82×** ← BigMath faster |
-| div | 20000.2000 / 2000 dp | 0.207 | 0.197 | 1.05× |
-| parse | 10 000 digits | 0.106 | 0.108 | 0.98× |
-| parse | 50 000 digits | 1.064 | 1.004 | 1.06× |
-| tostr | 10 000 digits | 0.261 | 0.109 | 2.41× |
-| tostr | 50 000 digits | 2.439 | 1.156 | 2.11× |
+| add | 100.10 | 0.000 | 0.000 | 3.05× |
+| add | 1000.100 | 0.000 | 0.000 | 0.00× |
+| add | 5000.500 | 0.001 | 0.000 | 4.33× |
+| add | 20000.2000 | 0.002 | 0.000 | 4.00× |
+| mul | 100.10 | 0.000 | 0.000 | 2.02× |
+| mul | 1000.100 | 0.002 | 0.001 | 1.39× |
+| mul | 5000.500 | 0.020 | 0.013 | 1.58× |
+| mul | 20000.2000 | 0.060 | 0.095 | 0.63× |
+| div | 100.10 / 10 dp | 0.001 | 0.000 | 6.00× |
+| div | 1000.100 / 100 dp | 0.002 | 0.002 | 1.00× |
+| div | 5000.500 / 500 dp | 0.017 | 0.024 | 0.70× |
+| div | 20000.2000 / 2000 dp | 0.128 | 0.195 | 0.66× |
+| parse | 100 digits | 0.000 | 0.001 | 0.83× |
+| parse | 1000 digits | 0.005 | 0.004 | 1.03× |
+| parse | 10000 digits | 0.087 | 0.105 | 0.83× |
+| parse | 50000 digits | 0.706 | 1.004 | 0.70× |
+| tostr | 100 digits | 0.000 | 0.000 | 0.64× |
+| tostr | 1000 digits | 0.006 | 0.004 | 1.40× |
+| tostr | 10000 digits | 0.196 | 0.101 | 1.94× |
+| tostr | 50000 digits | 1.436 | 1.082 | 1.33× |
 
-Scale-aware division avoids unnecessary high-precision work — at small target
-scales it runs up to 5× faster than `mpf_div` (2000.200-digit operand: 0 dp
-0.18×, 10 dp 0.38×, 100 dp 0.65×); at deep scales (≥1000 dp) `mpf` leads
-1.5–1.7×. Addition is allocation-bound at these sizes (≤2 µs absolute).
-BigDecimal parse tracks GMP at ~1.0×; ToString carries the BigInteger
-formatter's sub-100k-digit ratios.
+Scale-aware division, 2000.200-digit operand at varying target scales:
+
+| target scale | BigMath ms | GMP (mpf) ms | BM/GMP |
+|---|---:|---:|---:|
+| 0 dp | 0.001 | 0.005 | 0.16× |
+| 10 dp | 0.002 | 0.005 | 0.36× |
+| 100 dp | 0.003 | 0.005 | 0.56× |
+| 1000 dp | 0.012 | 0.009 | 1.36× |
+| 5000 dp | 0.053 | 0.034 | 1.54× |
+
+Addition is allocation-bound at these sizes (≤2 µs absolute; the timer
+resolution makes those ratios coarse).
 
 ---
 
@@ -229,13 +250,14 @@ formatter's sub-100k-digit ratios.
 
 | digits | Classical ms | Karatsuba ms | Karatsuba× | NTT ms | NTT× |
 |---:|---:|---:|---:|---:|---:|
-| 10 000 | 0.342 | 0.119 | 2.9× | 0.208 | 1.6× |
-| 100 000 | 29.349 | 3.475 | 8.4× | 0.865 | 33.9× |
-| 500 000 | 691.111 | 45.561 | 15.2× | 2.965 | 233.1× |
+| 10 000 | 0.158 | 0.055 | 2.9× | 0.093 | 1.7× |
+| 100 000 | 14.943 | 2.133 | 7.0× | 0.477 | 31.3× |
+| 500 000 | 378.445 | 28.359 | 13.3× | 1.606 | 235.7× |
 
-Dispatch enters NTT at 1280 total limbs (~13k digits in the default 64-bit
-limb build); by 500k digits the CRT NTT is 233× over schoolbook and 15×
-over Karatsuba.
+(v13.0: Classical 0.342 / 29.3 / 691 ms, Karatsuba 0.119 / 3.48 / 45.6 ms,
+NTT 0.208 / 0.865 / 2.97 ms — all three algorithms are about 2× faster.)
+Dispatch enters the NTT when `la·lb ≥ 96000` with the shorter operand at
+least 64 limbs — balanced, ~310 limbs per operand (~6k digits).
 
 ---
 
@@ -255,6 +277,7 @@ summary in [CHANGELOG.md](CHANGELOG.md). The major steps, in order:
 | #116–#117 | **BZ odd-size bottom-padding fix** (odd divisor limb counts fell back to quadratic Knuth D — 1.3–10× on ~half of real shapes), basecase 512 → 128, full Newton frontier re-sweep | 12289-limb divisor ratio 1.5: 95 → 8.1 ms |
 | #118–#119 | parallel D&C subtree fan-out for ToString and parse | both directions flipped to a 1.4–2.6× win ≥500k digits |
 | #120–#124 | codebase audit: FastDivision MG top-equal qhat fix (silent wrong quotients on structured operands), remainder-sign fix, CRT-squaring dispatch (2.5–5.8× on Square, parse-cold −14…25%), dedups, header hygiene | correctness + Square/parse-cold wins |
+| #129–#139 | **multiplication pass** (2026-11-20): flag-chain limb kernels (`addmul_1` 2.5–3.3 → 1.7 cycles/limb), NEON tail kernels + leaner Shoup butterfly, thread-pool rewrite (claim-based, spin-before-park; also fixes concurrent callers), NEON + parallel Garner finalize, six-unit inverse, truncated `H + L` transform length, area-rule dispatch; **fix: Karatsuba workspace heap overflow on skewed operands** | mul 1.5–4.5× at every size, GMP crossover 500k → 10k digits; div/parse/ToString 1.3–2.8× for free |
 
 Two history figures are kept with their original data:
 
@@ -281,6 +304,13 @@ Process lessons recorded along the way:
   FastDivision fallbacks).
 - Warm-state-only measurement for chain-/plan-heavy ops; single-iter cold
   rows on those shapes scatter ±20–60% with process state.
+- A documented "wall" deserves a kernel-level measurement before it is
+  accepted: the sub-NTT gap to GMP was attributed to assembly for months, and
+  cycles-per-limb on `addmul_1` showed it was the carry idiom (#136).
+- Wall-clock is not CPU time: the finalize pass looked like 3–5% in summed
+  profiles and was 17–33% of a threaded multiply's wall-clock (#134).
+- There is no sanitizer job in CI. The Karatsuba workspace overflow (#137)
+  shipped for months and was only caught when a later change made it crash.
 - Random-input cross-checks miss structured-operand bug classes entirely —
   the seeded adversarial-limb fuzz (`test_adversarial_fuzz.cpp`, #125) now
   gates every ctest run.

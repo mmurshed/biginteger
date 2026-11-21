@@ -1,5 +1,66 @@
 # Changelog
 
+## Unreleased — 2026-11-20 multiplication pass (PRs #129–#139)
+
+A top-to-bottom pass over multiplication. Through the public API, old `main`
+vs this tree on the same machine: multiplication is **1.5–4.5× faster at
+every size** and now beats GMP from ~10k decimal digits (was ~500k);
+division, parse and ToString — untouched, but built on `Multiply` — are
+1.3–2.8× faster from 100k–200k digits. Tables in
+[docs/MULTIPLICATION.md](docs/MULTIPLICATION.md) and
+[BENCHMARK.md](BENCHMARK.md).
+
+### Correctness
+
+- **Karatsuba heap overflow on skewed operands** (#137). The split clamp made
+  the recursion `la/lb` levels deep when one operand was ≥ 2× the other, and
+  from about `la > 16·lb` the parked temporaries ran past the `16n`
+  workspace — on shapes the dispatcher routed there (e.g. 1214 × 65 limbs).
+  Such operands are now sliced into balanced pieces.
+- **Thread pool unsafe under concurrent callers** (#133). A second user
+  thread dispatching while a job was in flight overwrote it; two threads
+  doing NTT-sized multiplies hung. One caller now owns the pool's slot and
+  any other runs its work inline.
+- Linux build of the unit tests restored (#130; ambiguous
+  `BigIntegerBuilder::From` overload since #128).
+
+### Performance
+
+- **Limb kernels** (#136): `common/LimbKernels.h` — `add_n`/`sub_n`/`mul_1`/
+  `addmul_1` in 4-limb straight-line blocks on the carry builtins, with the
+  low and high product halves on separate carry chains. `addmul_1` 2.5–3.3 →
+  1.64–1.76 cycles/limb, within ~1.2× of GMP's assembly, no assembly here.
+  The documented "portable-C++ wall" below the NTT band was the loop idiom.
+  Karatsuba leaf cutoff 32 → 24.
+- **CRT NTT kernels**: NEON tail kernels so every transform size class is
+  all-NEON (#131, two thirds of sizes ran 3–4 scalar layers); leaner Shoup
+  butterfly — `vqdmulhq_s32` quotient and `vminq_u32` reduce, ~11 ops instead
+  of ~19 (#132).
+- **Threading**: pool rewrite — claim-based dispatch and a 100 µs spin before
+  parking, `ParallelDo(6)` 22.5 → 2.9 µs (#133); Garner/carry finalize with
+  NEON digits and chunk-parallel carry, 27 → 0.9 ms at n = 2^22 (#134);
+  pack inside the forward units and a six-unit split inverse (#135).
+- **Truncated transform length** (#138): products just above a power of two
+  `H` use an `H + L` transform (mod `x^H + 1` and mod `x^L − 1`, recombined)
+  instead of `2H` — 1.3–2.2× in that band, removing most of the power-of-two
+  staircase below the MFA band.
+- **Dispatch** (#129, #139): product vector moved instead of copied into the
+  result `BigInteger`; NTT entry from an area rule (`la·lb ≥ 96000`,
+  `min ≥ 64`, total ≥ 640 — balanced from ~310 limbs per operand instead of
+  640); schoolbook only for `min ≤ 24`; square NTT threshold 640 → 352.
+
+### Not done / follow-ups
+
+- Division below ~200k-digit dividends is unchanged (`FastDivision`'s
+  `submul` loops still use the old carry idiom; the new kernels apply
+  directly), and the Newton/BZ dispatch frontier has not been re-swept
+  against the faster multiply.
+- 1–4-limb products are still 3–4× behind GMP: the result allocation
+  dominates.
+- The fused-MFA band (n ≥ 2^22) keeps its power-of-two staircase.
+- No sanitizer job in CI; the Karatsuba overflow was only caught because a
+  later change happened to make it crash.
+
 ## v13.0 — 2026-06-12
 
 The 2026 performance campaign (PRs #82–#119), the full-codebase audit
