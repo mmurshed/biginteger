@@ -900,6 +900,65 @@ step's `D_m·R` product lands one limb over a truncated-transform boundary
 there. A half-size reciprocal with two quotient blocks (GMP's `mu_div`
 shape) would be the next step for ratio ≈ 2; not done.
 
+### Dispatch re-sweep (PR #145)
+
+Every crossover had moved, so the frontier was re-measured on a grid of
+divisor lengths 32…262 144 limbs × ratios 1.02…10, each algorithm timed
+directly. Against the old bands the dispatcher was more than 10% off the best
+algorithm on 69 of 232 cells (up to 2.8×: e.g. 98 304 limbs at ratio 1.6 went
+to Newton where quotient-sized is 2.8× faster; 512-limb divisors still went to
+schoolbook where BZ is 1.6× faster).
+
+The 64-bit rule is now, with `nb` the divisor length and `δ = na − nb` (the
+quotient has `δ + 1` limbs):
+
+```
+nb < 96                                      → FastDivision (schoolbook)
+δ ≥ nb  (ratio ≥ 2):
+    nb ≥ 1536, or nb ≥ 768 and ratio ≥ 3     → Newton
+    otherwise                                → Burnikel–Ziegler
+δ < nb  (quotient shorter than the divisor):
+    δ ≥ 3072 (and δ + 8 < nb)                → quotient-sized
+    nb ≥ 3072 and ratio ≥ 7/4                → Newton
+    otherwise                                → Burnikel–Ziegler
+```
+
+What changed in substance:
+
+- **BZ replaces schoolbook from 96-limb divisors** at every ratio (it bottoms
+  out in the same kernel, so there is no small-quotient penalty any more); the
+  old entry was 512 with shape conditions.
+- **One Newton floor per regime** instead of seven ratio bands: the bands had
+  been hand-fitted around BZ's old odd-size and power-of-two pathologies.
+- **Short quotients belong to BZ, long ones to quotient-sized.** In-place BZ
+  on a quotient shorter than the divisor is already "divide the tops, one
+  δ × nb back-multiply" — the quotient-sized cost shape — so the thin-quotient
+  band is gone. `QuotientSizedDivision` proper (Newton on the tops) wins from
+  a quotient of ~3 072 limbs: at δ = 3 072 it runs at 0.78–0.87× of the better
+  of BZ and Newton, at δ = 2 703 at 1.11×.
+- Newton is no longer used for ratio < 7/4: it computes a reciprocal of the
+  whole divisor to produce a quotient that only the divisor's top limbs
+  determine.
+
+After the re-sweep 3 of 232 cells are more than 10% off (all under 16%).
+Dispatcher time relative to GMP, geometric mean over the 11 ratios:
+
+| divisor limbs | before this PR | after |
+|---:|---:|---:|
+| 32–96 | 1.24–1.27× | 1.24–1.26× |
+| 192 | 1.48× | 1.33× |
+| 384 | 1.83× | 1.35× |
+| 512 | 2.12× | 1.44× |
+| 768 | 2.19× | 1.37× |
+| 1024 | 1.43× | 1.34× |
+| 2048 | 1.11× | 1.08× |
+| 4096 | 0.90× | 0.85× |
+| 12288 | 0.61× | 0.55× |
+| 32768 | 0.69× | 0.61× |
+
+The legacy 32-in-64 layout keeps its previous bands (its BZ and Newton
+implementations are unchanged).
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.

@@ -294,4 +294,50 @@
 #define BIGMATH_CYCLIC_NTT_THRESHOLD 1280
 #endif
 
+// ─── 64-bit-limb division dispatch (re-swept 2026-11-21) ─────────────────────
+// Measured on a (divisor limbs 32..262144) x (ratio 1.02..10) grid after the
+// raw-buffer basecase, the in-place Burnikel-Ziegler and the Newton reciprocal
+// rework, each algorithm timed directly (M1 Max). With nb = divisor limbs,
+// delta = dividend limbs - nb (the quotient has delta + 1 limbs):
+//
+//   nb < DIV_BZ_MIN_B                     -> FastDivision (schoolbook)
+//   delta >= nb (ratio >= 2):
+//     nb >= DIV_NEWTON_MIN_B, or
+//     nb >= DIV_NEWTON_SKEW_MIN_B and ratio >= DIV_NEWTON_SKEW_RATIO
+//                                         -> Newton
+//     otherwise                           -> Burnikel-Ziegler
+//   delta < nb (quotient shorter than the divisor):
+//     delta >= DIV_QSIZED_MIN_QUOTIENT    -> quotient-sized (Newton on the tops)
+//     nb >= DIV_NEWTON_NEAR2_MIN_B and ratio >= 7/4
+//                                         -> Newton
+//     otherwise                           -> Burnikel-Ziegler
+//
+// In-place BZ ties schoolbook below ~96 limbs (it bottoms out in the same
+// kernel) and beats it from there, at every ratio. For a short quotient BZ
+// already has the quotient-sized cost shape (recursive divide of the tops plus
+// one delta x nb product), so the old thin-quotient band is gone; quotient-
+// sized division proper wins once the quotient is long enough (~3k limbs) for
+// a Newton tops-divide to beat BZ's recursion (delta 3072: 0.78-0.87x of the
+// better of BZ/Newton; delta 2703: 1.11x). At ratio ~1.75 it trades places
+// with Newton within +-20% depending on whether nb is a power of two. The legacy 32-in-64 layout
+// keeps the NEWTON_* / QSIZED_* / BZ_DIVISOR_THRESHOLD bands above.
+#ifndef BIGMATH_DIV_BZ_MIN_B
+#define BIGMATH_DIV_BZ_MIN_B 96
+#endif
+#ifndef BIGMATH_DIV_NEWTON_MIN_B
+#define BIGMATH_DIV_NEWTON_MIN_B 1536
+#endif
+#ifndef BIGMATH_DIV_NEWTON_SKEW_MIN_B
+#define BIGMATH_DIV_NEWTON_SKEW_MIN_B 768
+#endif
+#ifndef BIGMATH_DIV_NEWTON_SKEW_RATIO
+#define BIGMATH_DIV_NEWTON_SKEW_RATIO 3
+#endif
+#ifndef BIGMATH_DIV_NEWTON_NEAR2_MIN_B
+#define BIGMATH_DIV_NEWTON_NEAR2_MIN_B 3072
+#endif
+#ifndef BIGMATH_DIV_QSIZED_MIN_QUOTIENT
+#define BIGMATH_DIV_QSIZED_MIN_QUOTIENT 3072
+#endif
+
 #endif
