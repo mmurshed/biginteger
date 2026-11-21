@@ -72,6 +72,53 @@ namespace BigMath
       const ULong na = a.size();
       const ULong delta = na > nb ? na - nb : 0; // quotient has delta + 1 limbs
 
+      // Quotient only, quotient shorter than the divisor: the operands' top
+      // limbs determine it. With t = delta + 4 and s = nb - t, let
+      // a' = floor(a / B^s), b' = floor(b / B^s) and (q', r') their quotient
+      // and remainder. Then
+      //   a/b < (a' + 1) / b'  = q' + (r' + 1) / b' <= q' + 1
+      //   a/b > a' / (b' + 1)  > a'/b' - B^-2 = q' + r'/b' - B^-2
+      // (a' < B^(delta+t) and b' >= B^(t-1), so a' / (b'(b'+1)) < B^-2).
+      // So q is q' or q' - 1, and it is q' whenever r' >= B^(delta+2) — for
+      // random operands all but ~2^-128 of the time. That costs a
+      // (2*delta+4)-by-(delta+4) division instead of work proportional to
+      // delta * nb. Otherwise (exact multiples of b always land here: their
+      // r' is tiny) one delta x nb product settles it, which is what the
+      // full division would have cost anyway.
+      constexpr ULong QGuard = 4;
+      if (!computeRemainder && delta + QGuard < nb && a.back() != 0 && b.back() != 0)
+      {
+        const size_t s = (size_t)(nb - (delta + QGuard));
+        std::pair<std::vector<DataT>, std::vector<DataT>> top;
+        if (delta + QGuard < DIV_BZ_MIN_B)
+        {
+          // Schoolbook range: divide the tops in place, no operand copies.
+          top = FastDivision::DivideAndRemainder(
+              std::span<const DataT>(a).subspan(s), std::span<const DataT>(b).subspan(s), base, true);
+        }
+        else
+        {
+          std::vector<DataT> aTop(a.begin() + s, a.end());
+          std::vector<DataT> bTop(b.begin() + s, b.end());
+          top = DivideAndRemainder(aTop, bTop, base, true);
+        }
+        std::vector<DataT> &q = top.first;
+        TrimZerosToOne(q);
+        TrimZerosToOne(top.second);
+        if (top.second.size() < delta + 3) // r' < B^(delta+2)
+        {
+          std::vector<DataT> product = Multiply(q, b, base);
+          TrimZerosToOne(product);
+          if (Compare(product, a) > 0)
+          {
+            static const std::vector<DataT> one{1};
+            q = Subtract(q, one, base);
+            TrimZerosToOne(q);
+          }
+        }
+        return {std::move(q), std::vector<DataT>()};
+      }
+
       if (nb < DIV_BZ_MIN_B)
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
