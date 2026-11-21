@@ -24,7 +24,7 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 ## Architecture
 
-**Number representation.** `BigInteger` (in `include/biginteger/BigInteger.h`) wraps `vector<DataT>` (little-endian limbs) plus a sign bool. `DataT = uint64_t` and limbs hold true 64-bit values by default (`BIGMATH_LIMB_64=1`, `BigInteger::Base()` returns the `Base2_64` sentinel `0`); carry/borrow chains use `__uint128_t`. `-DBIGMATH_LIMB_64=0` restores the legacy base-2^32-in-64-bit layout. Type aliases (`DataT`, `SizeT`, `BaseT`, `Long`, etc.) come from `include/biginteger/common/Constants.h`.
+**Number representation.** `BigInteger` (in `include/biginteger/BigInteger.h`) wraps `vector<DataT>` (little-endian limbs) plus a sign bool. `DataT = uint64_t` and limbs hold true 64-bit values by default (`BIGMATH_LIMB_64=1`, `BigInteger::Base()` returns the `Base2_64` sentinel `0`); carry/borrow chains use `__uint128_t`, except the multiplication basecase loops, which go through the flag-chain kernels in `include/biginteger/common/LimbKernels.h` (`AddN`/`SubN`/`Mul1`/`AddMul1`/`MulBasecase`/`SqrBasecase`). `-DBIGMATH_LIMB_64=0` restores the legacy base-2^32-in-64-bit layout. Type aliases (`DataT`, `SizeT`, `BaseT`, `Long`, etc.) come from `include/biginteger/common/Constants.h`.
 
 **Layer split — `ops/` vs `algorithms/`:**
 - `include/biginteger/ops/*.h` (+ `src/ops/*.cpp`) — top-level entry points operating on `BigInteger` (sign handling, IO, `Operations.h` umbrella).
@@ -32,7 +32,7 @@ CI (`.github/workflows/qa.yaml`) runs `nanoclaw-task qa-agent` on PRs against `o
 
 **Multiplication dispatch** (`algorithms/Multiplication.h`):
 - single-limb operand → `ClassicMultiplication::Multiply(vec, scalar, base)`
-- `a.size()+b.size() <= 64` (re-swept from 96 on 2026-11-20 to follow the Karatsuba leaf cutoff of 32), or heavy skew (`min <= 64` and `max >= 10·min`) → classic schoolbook
+- `a.size()+b.size() <= 56` (re-swept 96 → 64 → 56 on 2026-11-20; Karatsuba leaf cutoff `BIGMATH_KARATSUBA_THRESHOLD = 24`), or heavy skew (`min <= 64` and `max >= 10·min`) → classic schoolbook
 - below `NTT_MULTIPLICATION_THRESHOLD = 1280` total limbs → `KaratsubaMultiplication` (dropped from 5120 on 2026-06-12 after the NEON Shoup butterflies made CRT NTT ~2.5× faster in the small-mid band)
 - otherwise → `NTTMultiplication` (3-prime CRT effectively always: `BIGMATH_NTT_CRT_THRESHOLD = 256`)
 - `ToomCookMultiplication` exists as an alternate exercised by tests; its dispatch window was retired 2026-06-12 (CRT+NEON beats it everywhere).

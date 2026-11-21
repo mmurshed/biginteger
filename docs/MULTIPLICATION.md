@@ -91,7 +91,7 @@ Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
-| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `64` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 on 2026-11-20, following the Karatsuba leaf cutoff of 32) |
+| `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `56` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 → 56 on 2026-11-20) |
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `0` | min of limbs | Secondary Classic guard |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `64` | min of limbs | Classic for tiny high-skew products |
 | `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | tiny high-skew Classic guard |
@@ -99,7 +99,7 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `1280` | sum of limbs | Karatsuba below, NTT above |
 | `BIGMATH_NTT_CRT_THRESHOLD` | `256` | sum of limbs | CRT NTT vs Goldilocks NTT (CRT effectively always) |
 | `BIGMATH_NTT_MFA_THRESHOLD` | `2^20` | transform coefficients | MFA vs radix-8 CRT NTT (2^24 → 2^20 in PR #109) |
-| `BIGMATH_KARATSUBA_THRESHOLD` | `32` | per-operand limbs | Inside Karatsuba: base-case cutoff (re-swept 48 → 32 post-NEON, 2026-06-12) |
+| `BIGMATH_KARATSUBA_THRESHOLD` | `24` under LIMB_64 | per-operand limbs | Inside Karatsuba: base-case cutoff (48 → 32 on 2026-06-12, → 24 on 2026-11-20 with the limb kernels) |
 
 `Toom-Cook 3`'s dispatch window was retired on 2026-06-12 (CRT+NEON beats it everywhere it used to win); it remains implemented and correctness-tested as a cross-check alternate. `Toom-5` is implemented and correctness-tested but **not in the default dispatch** — see [Toom-5](#toom-5) for why. The canonical home for all dispatch threshold defaults is `include/biginteger/build/DispatchThresholds.h` — its `#define`s win over the `#ifndef` fallbacks in the algorithm headers.
 
@@ -198,7 +198,7 @@ The implementation uses pointer-based recursion with a shared workspace (`unique
    step 5:  c[m..] += t3
 ```
 
-Base case (`min(la, lb) ≤ KARATSUBA_THRESHOLD = 32`; re-swept from 48 post-NEON, 2026-06-12) hands off to `MultiplyClassicPtr` (the hybrid 64-bit basecase above).
+Base case (`min(la, lb) ≤ KARATSUBA_THRESHOLD = 24`; 48 → 32 on 2026-06-12, → 24 on 2026-11-20) hands off to `MultiplyClassicPtr`, which under 64-bit limbs is `LimbKernel::MulBasecase` — see [Flag-chain limb kernels](#flag-chain-limb-kernels-the-portable-c-wall-was-the-idiom-2026-11-20).
 
 Helpers `AddPtr`, `AddToPtr`, `SubtractFromPtr` were rewritten in the same optimization pass with:
 
@@ -1046,3 +1046,64 @@ allocation, `mulx`-style chains) and is not reachable from portable C++ on
 this core. `BIGMATH_KARATSUBA_THRESHOLD` re-swept post-NEON: 48 → 32
 (~3% at 10k digits; deeper recursion reaches the NEON-fast NTT band sooner
 via the dispatcher's lower entry).
+
+
+## Flag-chain limb kernels: the "portable-C++ wall" was the idiom (2026-11-20)
+
+The section above concluded that GMP's 2–3× lead below the NTT band was out of
+reach without hand-written assembly. Measuring the kernels directly says
+otherwise — the cost was in how the loops were written, not in the language.
+
+Cycles per limb on an M1 P-core (3.2 GHz), 16–256-limb operands:
+
+| kernel | old loop | GMP 6.3 asm | new kernel |
+|---|---:|---:|---:|
+| `addmul_1` | 2.5–3.3 | 1.3–1.8 | **1.64–1.76** |
+| `add_n` | 2.2–3.3 | 0.65–0.9 | **1.1–1.7** |
+
+The old formulation,
+`ULong128 p = (ULong128)a[j]*b + r[j] + carry; r[j] = lo(p); carry = hi(p);`,
+threads a *limb-valued* carry through every iteration: the next limb cannot
+start its additions until the previous limb's high half is known, and every
+step materializes a flag back into a register. (That is also why the 2-row
+unrolling experiment was flat — it kept the same chain.)
+
+`include/biginteger/common/LimbKernels.h` restructures the carries instead:
+
+- **Straight-line blocks of four limbs** built on `__builtin_addcll` /
+  `__builtin_subcll` (or `_addcarry_u64` on older GCC/x86-64), so the carry
+  stays in the flags register from limb to limb — an `adcs` chain — and is
+  materialized once per block.
+- **Two carry chains in the multiply kernels.** `AddMul1` first forms
+  `t_k = lo(p_k) + hi(p_{k-1})` along one chain, then `r_k += t_k` along a
+  second, instead of one chain through the multiplier.
+- `MulBasecase` is `Mul1` for the first row and `AddMul1` for the rest (no
+  zero-fill, inner loop over the longer operand); `SqrBasecase` does the
+  off-diagonal rows the same way and folds the doubling and the diagonal into
+  one pass.
+
+Wired into `ClassicMultiplication`, the Karatsuba leaf and its add/subtract
+passes, `ClassicSquare` and `KaratsubaSquare` (64-bit limbs only; the legacy
+32-in-64 layout keeps its loops). No assembly.
+
+With the cheaper add/sub passes one more Karatsuba level pays:
+`BIGMATH_KARATSUBA_THRESHOLD` 32 → 24 (3–7% at 32/64/128/256/512 limbs; 24
+and 28 tie) and `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` 64 → 56
+(Karatsuba wins from 32×32: 519 vs 556 ns). `BIGMATH_KARATSUBA_SQUARE_THRESHOLD`
+re-swept and stays at 48.
+
+Balanced multiply through the dispatcher vs GMP `mpn_mul_n` (M1 Max):
+
+| limbs | before ns | after ns | before / GMP | after / GMP |
+|---:|---:|---:|---:|---:|
+| 16 | 282 | 166 | 2.30× | 1.36× |
+| 32 | 866 | 522 | 2.10× | 1.28× |
+| 64 | 2 892 | 1 648 | 2.40× | 1.37× |
+| 128 | 9 169 | 5 213 | 2.37× | 1.37× |
+| 256 | 28 589 | 16 324 | 2.51× | 1.44× |
+| 512 | 88 648 | 51 212 | 3.20× | 1.86× |
+
+The remaining 1.3–1.4× is GMP's assembly basecase plus its Toom-3/4 tiers.
+`tests/unit/test_limb_kernels.cpp` checks every kernel against the
+one-limb-at-a-time loops across all block remainders, all-ones carry runs,
+maximal multipliers and in-place aliasing.

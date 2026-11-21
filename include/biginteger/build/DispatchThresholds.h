@@ -9,14 +9,14 @@
 // repo. Each macro is only defined when the build has not supplied its own
 // -DBIGMATH_* override.
 
-// Re-swept 96 -> 64 on 2026-11-20: the Karatsuba leaf cutoff had moved 48 -> 32
-// without this following it, so balanced 33-48-limb products stayed on
-// schoolbook while Karatsuba was already 4-27% faster there (M1 Max: 36 limbs
-// 1017 vs 1162 ns, 48 limbs 1689 vs 2140 ns). 32x32 and below still favor
-// schoolbook.
+// Re-swept twice on 2026-11-20. 96 -> 64: the Karatsuba leaf cutoff had moved
+// 48 -> 32 without this following it, so balanced 33-48-limb products stayed
+// on schoolbook while Karatsuba was already 4-27% faster there. 64 -> 56 with
+// the flag-chain limb kernels and the leaf cutoff at 24: Karatsuba now wins
+// from 32x32 (519 vs 556 ns), schoolbook still wins at 28x28 (433 vs 452 ns).
 #ifndef BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD
 #if BIGMATH_LIMB_64
-#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 64
+#define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 56
 #else
 #define BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD 0
 #endif

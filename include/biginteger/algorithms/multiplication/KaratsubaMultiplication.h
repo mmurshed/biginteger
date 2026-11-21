@@ -12,6 +12,7 @@
 #include <cstring>
 #include <memory>
 
+#include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
 
@@ -20,8 +21,16 @@ namespace BigMath
     class KaratsubaMultiplication
     {
     private:
+// Leaf cutoff: operands at or below this go to the schoolbook kernel.
+// 64-bit limbs: re-swept 32 -> 24 on 2026-11-20 with the flag-chain limb
+// kernels (common/LimbKernels.h) — the add/sub passes got ~2x cheaper, so one
+// more recursion level pays (3-7% at 32/64/128/256/512 limbs; 24 and 28 tie).
 #ifndef BIGMATH_KARATSUBA_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_KARATSUBA_THRESHOLD 24
+#else
 #define BIGMATH_KARATSUBA_THRESHOLD 32
+#endif
 #endif
         static const SizeT KARATSUBA_THRESHOLD = BIGMATH_KARATSUBA_THRESHOLD;
 
@@ -63,25 +72,8 @@ namespace BigMath
             }
             else if (base == Base2_64)
             {
-                // ULong128 sum to capture the carry bit on full 64-bit limbs.
-                ULong128 carry = 0;
-                for (SizeT i = 0; i < minLen; ++i)
-                {
-                    ULong128 sum = (ULong128)a[i] + b[i] + carry;
-                    r[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
-                    carry = sum >> 64;
-                }
-                for (SizeT i = minLen; i < maxLen; ++i)
-                {
-                    ULong128 sum = (ULong128)longer[i] + carry;
-                    r[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
-                    carry = sum >> 64;
-                }
-                for (SizeT i = maxLen; i < lenR; ++i)
-                {
-                    r[i] = (DataT)(carry & 0xFFFFFFFFFFFFFFFFULL);
-                    carry = 0;
-                }
+                // Flag-chain kernels — see common/LimbKernels.h.
+                LimbKernel::AddExt(r, lenR, a, lenA, b, lenB);
             }
             else
             {
@@ -133,20 +125,7 @@ namespace BigMath
             }
             else if (base == Base2_64)
             {
-                ULong128 carry = 0;
-                SizeT i = 0;
-                for (; i < shared; ++i)
-                {
-                    ULong128 sum = (ULong128)dest[i] + src[i] + carry;
-                    dest[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
-                    carry = sum >> 64;
-                }
-                for (; i < destLen && carry; ++i)
-                {
-                    ULong128 sum = (ULong128)dest[i] + carry;
-                    dest[i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
-                    carry = sum >> 64;
-                }
+                LimbKernel::AddInPlace(dest, destLen, src, srcLen);
             }
             else
             {
@@ -196,28 +175,7 @@ namespace BigMath
             }
             else if (base == Base2_64)
             {
-                // 64-bit limbs don't fit in signed Long; use unsigned with
-                // two-step borrow detection (matches Subtraction.cpp pattern).
-                ULong borrow = 0;
-                SizeT i = 0;
-                for (; i < shared; ++i)
-                {
-                    ULong ai = dest[i];
-                    ULong bi = src[i];
-                    ULong t1 = ai - borrow;
-                    ULong borrow1 = (ai < borrow) ? 1 : 0;
-                    ULong diff = t1 - bi;
-                    ULong borrow2 = (t1 < bi) ? 1 : 0;
-                    borrow = borrow1 + borrow2;
-                    dest[i] = (DataT)diff;
-                }
-                for (; i < destLen && borrow; ++i)
-                {
-                    ULong ai = dest[i];
-                    ULong diff = ai - borrow;
-                    borrow = (ai < borrow) ? 1 : 0;
-                    dest[i] = (DataT)diff;
-                }
+                LimbKernel::SubInPlace(dest, destLen, src, srcLen);
             }
             else
             {
@@ -252,6 +210,14 @@ namespace BigMath
             DataT* r,
             BaseT base)
         {
+            if (base == Base2_64 && lenA != 0 && lenB != 0)
+            {
+                // mul_1 for the first row, addmul_1 for the rest: writes every
+                // limb of r, so no zero-fill. See common/LimbKernels.h.
+                LimbKernel::MulBasecase(r, a, lenA, b, lenB);
+                return;
+            }
+
             std::memset(r, 0, (lenA + lenB) * sizeof(DataT));
 
             if (base == Base2_32)
@@ -321,20 +287,7 @@ namespace BigMath
             }
             else if (base == Base2_64)
             {
-                // Plain 64×64→128 schoolbook. No pack-to-larger trick available
-                // (would need 256-bit primitives), so just one multiply per cell.
-                for (SizeT i = 0; i < lenB; ++i)
-                {
-                    if (b[i] == 0) continue;
-                    ULong carry = 0;
-                    for (SizeT j = 0; j < lenA; ++j)
-                    {
-                        ULong128 prod = (ULong128)a[j] * b[i] + r[i + j] + carry;
-                        r[i + j] = (DataT)(prod & 0xFFFFFFFFFFFFFFFFULL);
-                        carry = (ULong)(prod >> 64);
-                    }
-                    r[i + lenA] = (DataT)carry;
-                }
+                // Only reached with an empty operand; r is already zeroed.
             }
             else
             {

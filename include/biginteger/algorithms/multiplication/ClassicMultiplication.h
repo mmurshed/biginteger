@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 
+#include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
 
 namespace BigMath
@@ -143,6 +144,17 @@ namespace BigMath
         DataT b,
         BaseT base)
     {
+      if (base == Base2_64 && !a.empty())
+      {
+        // mul_1 kernel straight into the result; the extra limb takes the
+        // carry. (Zero operands trim to an empty vector, as below.)
+        const SizeT n = (SizeT)a.size();
+        std::vector<DataT> w(n + 1);
+        w[n] = LimbKernel::Mul1(w.data(), a.data(), n, b);
+        TrimZeros(w);
+        return w;
+      }
+
       std::vector<DataT> w(a.size());
       Multiply(
           a, 0, a.size() - 1,
@@ -318,19 +330,15 @@ namespace BigMath
         // 64×64→128 product plus 64-bit accumulator (existing result limb) plus
         // 64-bit carry: max sum ≤ (2^64-1)² + (2^64-1) + (2^64-1) = 2^128 - 1.
         // Fits ULong128.
+        // Same contract as before — each row accumulates into result and
+        // *assigns* its carry limb — on the addmul_1 kernel.
+        const DataT *ap = a.data() + aStart;
+        DataT *rp = result.data();
         for (SizeT i = bStart; i <= bEnd; i++)
         {
-          ULong carry = 0;
           SizeT jStart = rStart + (i - bStart);
-          for (SizeT j = aStart; j <= aEnd; j++)
-          {
-            SizeT kk = jStart + (j - aStart);
-            ULong128 p = (ULong128)a[j] * b[i] + result[kk] + carry;
-            result[kk] = LowDigit128(p);
-            carry = NextCarry128(p);
-          }
           k = jStart + lenA;
-          result[k] = (DataT)carry;
+          rp[k] = LimbKernel::AddMul1(rp + jStart, ap, lenA, b[i]);
         }
         return k;
       }
