@@ -1,0 +1,85 @@
+\chapter{Design decisions and roads not taken}
+\label{ch:decisions}
+
+A library is shaped as much by what it leaves out as by what it includes. Each item below was
+tried or seriously considered, and each has a concrete reason for its current status. The full
+records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
+\file{docs/STRING\_CONVERSION.md}.
+
+\section{Principles that recur}
+
+\begin{enumerate}
+  \item \textbf{Measure end to end, on the shapes that really occur.} Microbenchmarks of one
+        algorithm in isolation repeatedly gave wrong crossovers: they missed setup costs, the
+        pool's sleep state, or lopsided shapes. The thresholds come from timing the dispatcher's
+        actual choices over grids of sizes and shapes.
+  \item \textbf{Re-measure when a building block changes.} Faster kernels moved the Karatsuba
+        leaf from 48 to 24 limbs; faster NTT butterflies retired the Toom-3 band and moved the
+        NTT entry from 2560 to 320 limbs per operand. A threshold is only correct for the code it
+        was measured with.
+  \item \textbf{Change the dependency structure, not the instruction count.} The biggest
+        small-size gains (two carry chains, fused NTT layers, interleaved twiddle tables, fused
+        pointwise products) came from shortening dependency chains and memory passes.
+  \item \textbf{Build big algorithms on the dispatcher.} Division and conversion ask
+        \code{Multiply} for their products, so every multiplication improvement propagates.
+  \item \textbf{Silent slow paths are bugs.} A correct-but-quadratic fallback is invisible to
+        correctness tests, so fallbacks are counted and tested for (\cref{sec:newton}).
+\end{enumerate}
+
+\section{Rejected or retired}
+
+\begin{description}[leftmargin=0pt,style=nextline,itemsep=6pt]
+  \item[Schönhage--Strassen multiplication]
+        GMP uses it for its largest products; its growth rate $n \log n \log\log n$ is
+        asymptotically better than an NTT bounded by fixed primes. But its arithmetic modulo
+        $2^N + 1$ carries a large constant factor. A parameter sweep found no size band where a
+        single-level version would beat the three-prime NTT, and a competitive recursive version
+        is 700--1000 lines of delicate code. The NTT covers every practical size (up to about
+        646 million product digits). GMP is still 1.2--1.5 times faster single-threaded above
+        about 50 million digits; this is the main reason.
+  \item[Toom-3 as a top-level band]
+        Once a separate band between Karatsuba and NTT (total 2560--5120 limbs). The vectorized NTT
+        overtook it everywhere, so the band was retired. Toom-3 now lives inside the Karatsuba
+        recursion instead (\cref{sec:toom}).
+  \item[Toom-4 and Toom-5]
+        Toom-4 is implemented but off: no gain on the M1 before the NTT starts. Toom-5 was
+        3 times slower than Karatsuba at its first active size (512 limbs): its evaluation and
+        interpolation cost more than the multiplications they save.
+  \item[Two-row unrolled schoolbook]
+        Measured flat (\cref{sec:flagchain}): it kept the limb-sized carry chain.
+  \item[Barrett reduction for the NTT primes]
+        Slower than the compiler's own code for division by a constant in this loop. Shoup's
+        method (precomputed per twiddle) replaced both.
+  \item[Montgomery reduction for the Goldilocks prime]
+        That prime already has a special-form reduction of a few additions; Montgomery would only
+        add conversions.
+  \item[Short (high-half-only) products in Newton division]
+        Implemented exactly and measured flat. At the sizes where Newton runs, products go through
+        the NTT, where computing ``half a product'' as two smaller products costs about the same as
+        one full product. Shortening the \emph{transform} (wrap-around products) worked instead
+        (\cref{sec:wrap}).
+  \item[Reusing a prepared transform inside Newton chunks]
+        Cut the number of transforms but not the wall-clock time: the three primes already run in
+        parallel, so fewer transforms did not shorten the critical path.
+  \item[Splitting decimal conversion at powers $10^{18 \cdot 2^i}$]
+        Unbalanced splits made it slower than the quadratic method (\cref{ch:conv}).
+  \item[Per-layer threading of the NTT]
+        Starting threads for every butterfly layer spent most of its time in synchronization.
+        Coarse units (whole transforms, or large row ranges) replaced it.
+  \item[Profile-guided optimization]
+        No measurable change: the hot loops are already fully inlined and unrolled.
+  \item[Storing numbers in base $10^{18}$]
+        Would make printing trivial and all arithmetic slower; arithmetic dominates real work.
+\end{description}
+
+\section{Open opportunities}
+
+The project's notes name these as the most promising remaining directions:
+
+\begin{itemize}
+  \item a half-size reciprocal with two quotient blocks for divisions of ratio about 2 (the shape
+        of GMP's \code{mu\_div});
+  \item block-recursive (Mulders) division and Schönhage's subquadratic GCD, if a workload needs
+        them;
+  \item removing the power-of-two staircase above $2^{20}$ coefficients in threaded builds.
+\end{itemize}

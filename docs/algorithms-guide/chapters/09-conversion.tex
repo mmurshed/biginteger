@@ -1,0 +1,179 @@
+\chapter{Converting to and from decimal}
+\label{ch:conv}
+
+Numbers are stored in base $2^{64}$ but read and written in base 10. Because 10 is not a power
+of two, converting is real arithmetic: every output digit depends on every input limb. Done
+the obvious way it costs $n^2$; BigMath does it with a divide-and-conquer scheme that costs
+a logarithmic factor more than one multiplication. The code is in \file{src/common/Parser.cpp}.
+
+\section{Why the obvious method is slow}
+
+The schoolbook way to parse is ``for each digit: $r \leftarrow 10r + \text{digit}$''. With $L$
+digits that is $L$ big-number operations, each on a number of up to $L/19$ limbs: about
+$L^2/19$ limb operations. Printing the schoolbook way (``divide by 10, emit the remainder'') is
+equally quadratic. At a million digits that is around $10^{10}$ operations.
+
+The library removes this cost in two layers: a constant-factor speedup (handle 18--19 digits
+at a time) and an asymptotic one (divide and conquer).
+
+\section{Small numbers: 18 or 19 digits at a time}
+\label{sec:linparse}
+
+\textbf{Parsing.} Instead of one digit, take 18 at a time: $10^{18} < 2^{63}$, so 18 digits fit in
+one limb with headroom. Each step is $r \leftarrow r \cdot 10^{18} + \text{chunk}$: one
+multiply-by-one-limb and one add over the current value. That is 18 times fewer big-number
+operations than digit by digit.
+
+\begin{example}[: parsing a 25-digit number]
+\code{"1234567890123456789012345"} has 25 digits. $25 = 7 + 18$, so the first chunk is the
+leading 7 digits and then one full 18-digit chunk:
+\begin{align*}
+r &= 1\,234\,567\\
+r &= 1\,234\,567 \cdot 10^{18} + 890\,123\,456\,789\,012\,345 .
+\end{align*}
+Two steps instead of 25.
+\end{example}
+
+\textbf{Printing.} Divide by $10^{19}$ (the largest power of ten that fits in a limb) repeatedly;
+each remainder is a block of 19 digits. Each division is the fast single-limb division of
+\cref{sec:shortdiv}.
+
+\begin{example}[: printing $2^{64}$]
+$2^{64}$ is the limbs $[0, 1]$. Dividing by $10^{19}$ gives quotient $1$ and remainder
+$8\,446\,744\,073\,709\,551\,616$. The quotient is printed without padding and the remainder is
+padded to 19 digits: \code{"1" + "8446744073709551616"} $= 18\,446\,744\,073\,709\,551\,616$.
+\end{example}
+
+These ``linear'' routines are still quadratic overall, but with a small constant. They handle
+numbers up to 2048 digits for parsing (\code{BIGMATH\_PARSE\_DC\_THRESHOLD}) and below 1024
+digits for printing (\code{BIGMATH\_TOSTR\_DC\_THRESHOLD}), and the leaves of the
+divide-and-conquer recursion below.
+
+\section{Large numbers: divide and conquer}
+
+\subsection{Parsing}
+
+Split the digit string in the middle. Parse each half (recursively), then combine:
+\[
+\text{value} = \text{high} \times 10^{\,\text{digits in low half}} + \text{low} .
+\]
+Each level costs one big multiplication of about half the total size, and the recursion has
+$\log_2 L$ levels: $T(L) = 2\,T(L/2) + \M(L)$, about $\M(L)\log L$ in total.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[level distance=12mm,
+  level 1/.style={sibling distance=62mm},
+  level 2/.style={sibling distance=31mm},
+  every node/.style={box,font=\footnotesize\ttfamily}]
+  \node[fill=sBlue!15] {12345678}
+    child {node[fill=sBlue!10] {1234}
+      child {node[fill=paper] {12}}
+      child {node[fill=paper] {34}}
+      edge from parent node[draw=none,fill=none,left,font=\footnotesize\rmfamily] {high}}
+    child {node[fill=sBlue!10] {5678}
+      child {node[fill=paper] {56}}
+      child {node[fill=paper] {78}}
+      edge from parent node[draw=none,fill=none,right,font=\footnotesize\rmfamily] {low}};
+\end{tikzpicture}
+
+\smallskip
+{\small Parse upward: $12 \cdot 10^2 + 34 = 1234$, \ $56\cdot 10^2 + 78 = 5678$, \
+$1234 \cdot 10^4 + 5678 = 12\,345\,678$.}
+\caption{Divide-and-conquer parsing. Leaves use the 18-digit method; each join is one
+multiplication by a power of ten.}
+\end{figure}
+
+The powers of ten come from \code{Pow10}, which caches them per thread and builds even powers
+by \emph{squaring} ($10^{2k} = (10^k)^2$, using the faster square path). After the first
+conversion of a given size, the powers are free.
+
+\subsection{Printing}
+
+Printing is the same tree read downward: divide by $10^{k}$, where $k$ is half the digit count.
+The quotient gives the top half of the digits, the remainder the bottom half. Recurse on both.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[level distance=12mm,
+  level 1/.style={sibling distance=62mm},
+  level 2/.style={sibling distance=31mm},
+  every node/.style={box,font=\footnotesize\ttfamily}]
+  \node[fill=sOrange!15] {10000005}
+    child {node[fill=sOrange!10] {1000}
+      child {node[fill=paper] {10}}
+      child {node[fill=paper] {00}}
+      edge from parent node[draw=none,fill=none,left,font=\footnotesize\rmfamily] {$\div 10^4$}}
+    child {node[fill=sOrange!10] {0005}
+      child {node[fill=paper] {00}}
+      child {node[fill=paper] {05}}
+      edge from parent node[draw=none,fill=none,right,font=\footnotesize\rmfamily] {$\bmod 10^4$}};
+\end{tikzpicture}
+\caption{Divide-and-conquer printing of $10\,000\,005$. The remainder $5$ must be written as
+\code{0005}: every lower half is padded with zeros to its full width. Only the very top
+piece is printed without leading zeros.}
+\end{figure}
+
+The divisions are by the same few powers of ten again and again, which is exactly the case
+for cached reciprocals (\cref{sec:cached}). For each level of the tree the library stores a
+\emph{divider}: the power $10^{k}$ and its Newton reciprocal. The chain of dividers is cached
+per thread and reused by later conversions of similar size: the chain's top size is rounded
+up to a grid of 16 steps per doubling, so numbers of slightly different lengths share one
+chain.
+
+\begin{perfnote}
+Before the cached dividers existed, every division in the tree rebuilt its reciprocal, and the
+divide-and-conquer printer was \emph{slower} than the quadratic one; it had been tried and
+reverted. With cached reciprocals, printing a 100\,000-digit number went from 383\,ms to
+45.5\,ms; caching whole divider chains across calls halved warm times again. For small tree
+levels (below 13\,000 digits single-threaded, 6\,500 with threads) a cached Newton reciprocal
+does not pay, and those levels use the ordinary division dispatcher instead.
+\end{perfnote}
+
+\begin{pitfall}
+An early version split by $10^{18}, 10^{36}, 10^{72}, \dots$, powers of two times 18 digits,
+hoping fewer distinct divisors would help. The splits came out lopsided: a 500\,000-digit
+number split into 363\,000 and 137\,000 digits instead of two halves. The recursion lost its
+balance and became slower than the quadratic printer (1899\,ms against 1700\,ms). Splits must
+be close to the middle; the current rounding keeps them within 56/44.
+\end{pitfall}
+
+\subsection{Using several cores}
+
+From 100\,000 digits (\code{BIGMATH\_PARSE\_PARALLEL\_THRESHOLD},
+\code{BIGMATH\_TOSTR\_PARALLEL\_THRESHOLD}), both directions descend three levels of the tree on
+the calling thread, then hand the $2^3 = 8$ independent subtrees to the thread pool in one
+batch. Each worker converts its subtree serially. The calling thread then does the remaining
+joins (parsing) or assembles the string (printing). Because every lower half has a known,
+fixed width, each subtree can write straight into its slot of the output string.
+
+\section{Cost in practice}
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+operation & BigMath, 1 thread & GMP, 1 thread & default build $\div$ GMP \\
+\midrule
+parse 100\,000 digits & 1.60\,ms & 1.06\,ms & 0.52$\times$ \\
+parse 20\,000\,000 digits & 927\,ms & 803\,ms & 0.22$\times$ \\
+print 100\,000 digits & 3.06\,ms & 2.27\,ms & 0.51$\times$ \\
+print 20\,000\,000 digits & 2\,567\,ms & 2\,094\,ms & 0.28$\times$ \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+{\footnotesize Warm timings, M1 Max, November 2026 (\file{docs/benchmarks/}). The last column is
+time of the default build (up to eight threads) divided by single-thread GMP time.}
+\end{center}
+
+\begin{practice}
+\begin{itemize}
+  \item The first conversion at a new size builds powers of ten and dividers; later ones reuse
+        them. Benchmark the second call, and expect the first to be slower.
+  \item The caches are per thread. A worker thread that converts large numbers pays its own
+        first-call cost once.
+  \item If no human needs to read the number (storage, hashing, sending it to another
+        program), use its limbs directly (\code{x.Limbs()}): that needs no conversion at all.
+\end{itemize}
+\end{practice}

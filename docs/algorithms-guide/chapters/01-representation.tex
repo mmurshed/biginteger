@@ -1,0 +1,179 @@
+\chapter{How a big number is stored}
+\label{ch:repr}
+
+\section{Limbs: digits in base $2^{64}$}
+
+On paper we write numbers in base 10: each digit is $0$--$9$ and each position is
+worth ten times the one to its right. A computer can do the same thing with a much
+bigger base. BigMath uses base $B = 2^{64}$: each ``digit'', called a \emph{limb}, is a
+whole 64-bit machine word and can be anything from $0$ to
+$18\,446\,744\,073\,709\,551\,615$.
+
+\begin{keyidea}
+A \code{BigInteger} is a list of 64-bit limbs plus a sign. The value is
+$a_0 + a_1 B + a_2 B^2 + \dots$ with $B = 2^{64}$: exactly like decimal digits, but each
+``digit'' is a 64-bit word.
+\end{keyidea}
+
+The limbs are stored \emph{little-endian}: the least significant limb comes first,
+at index 0.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+  \foreach \i/\v in {0/a_0,1/a_1,2/a_2,3/a_3} {
+    \node[limb,minimum width=18mm] (L\i) at (\i*1.9,0) {$\v$};
+    \node[lbl,below=1pt of L\i] {index \i};
+  }
+  \node[lbl,above=2pt of L0] {$\times B^0$};
+  \node[lbl,above=2pt of L1] {$\times B^1$};
+  \node[lbl,above=2pt of L2] {$\times B^2$};
+  \node[lbl,above=2pt of L3] {$\times B^3$};
+  \draw[arr] (-0.9,-0.95) -- node[below,lbl]{memory order: least significant first} (6.6,-0.95);
+\end{tikzpicture}
+\caption{A four-limb number in memory. Limb $i$ is worth $B^i = 2^{64 i}$.}
+\label{fig:limbs}
+\end{figure}
+
+\begin{example}[: writing $2^{130} + 5$ in limbs]
+Divide by $B = 2^{64}$ repeatedly, as you would to convert to any base:
+\begin{itemize}
+  \item $2^{130} + 5 = 2^{66}\cdot B + 5$, so $a_0 = 5$ and the rest is $2^{66}$.
+  \item $2^{66} = 4 \cdot B + 0$, so $a_1 = 0$ and the rest is $4$.
+  \item $4 < B$, so $a_2 = 4$.
+\end{itemize}
+The limbs are $[5,\ 0,\ 4]$. Check: $5 + 0\cdot 2^{64} + 4 \cdot 2^{128} = 2^{130} + 5$.
+\end{example}
+
+\subsection{Why base $2^{64}$?}
+
+\begin{itemize}
+  \item \textbf{The hardware already does it.} A 64-bit processor multiplies two
+        64-bit words and returns the full 128-bit result in one or two
+        instructions (\code{MUL}+\code{UMULH} on ARM, \code{MUL} on x86). So a
+        limb-by-limb product is as cheap as it can be.
+  \item \textbf{Fewer limbs means less work.} Many algorithms cost about $n^2$
+        limb operations for $n$-limb inputs. Halving the number of limbs
+        (base $2^{64}$ instead of $2^{32}$) quarters that work. The library used
+        32-bit values in 64-bit slots for years; moving to full 64-bit limbs was
+        the biggest single speedup in its history. The old layout is still
+        available with \code{-DBIGMATH\_LIMB\_64=0} for comparison.
+  \item \textbf{Binary operations are free.} Shifts, bit tests, and conversion
+        to hexadecimal work directly on the stored bits.
+\end{itemize}
+
+The price is decimal conversion: turning limbs into decimal digits is real work
+(\cref{ch:conv}). Storing numbers in base $10^{18}$ would make printing trivial but
+every arithmetic operation slower; arithmetic happens far more often than printing.
+
+\subsection{Why little-endian?}
+
+Carries flow from the least significant limb to the most significant. With the low
+limb at index 0, every loop runs forward through memory, which is what processors
+prefetch best. A result that grows by one limb (a final carry) just gets one more
+element appended at the end; nothing has to move.
+
+\section{Sign and magnitude}
+
+The sign is stored separately as a flag; the limbs hold the absolute value. So $-5$ is
+the limbs $[5]$ with the sign flag set. Algorithms work on the magnitudes and the
+operator layer (\file{include/biginteger/ops/}) works out the sign of the result:
+for example, the product is negative when exactly one input is negative.
+
+Division truncates toward zero, as in C and C++: the quotient is rounded toward zero
+and the remainder has the sign of the dividend.
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+$a$ & $b$ & $a / b$ & $a \% b$ \\
+\midrule
+$7$ & $2$ & $3$ & $1$ \\
+$-7$ & $2$ & $-3$ & $-1$ \\
+$7$ & $-2$ & $-3$ & $1$ \\
+$-7$ & $-2$ & $3$ & $-1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In every row $b \cdot (a/b) + (a \% b) = a$.
+
+\section{Small numbers stay inside the object}
+\label{sec:smallops}
+
+Most programs that use big integers also use many \emph{small} ones: counters,
+loop bounds, intermediate values that happen to be short. If every value needed a
+heap allocation, copying the number $3$ would cost as much as calling \code{malloc}.
+
+BigMath therefore keeps numbers of up to four limbs (256 bits,
+\code{BIGMATH\_INLINE\_LIMBS}) \emph{inside} the \code{BigInteger} object. Only longer
+numbers use a \code{std::vector}. The rule is strict: after trimming leading zero
+limbs, a value is stored inline exactly when it has at most four limbs. So copying a
+small value never allocates.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+  \node[box,minimum width=60mm,minimum height=14mm,anchor=west] (obj) at (0,0) {};
+  \node[lbl,anchor=south west] at (obj.north west) {\code{BigInteger} object};
+  \foreach \i in {0,1,2,3} \node[limb,minimum width=11mm] at (0.75+\i*1.2,0) {$a_\i$};
+  \node[lbl,anchor=west] at (obj.east) {\quad $\le 4$ limbs: stored inline, no heap};
+  \node[box,minimum width=60mm,minimum height=14mm,anchor=west] (obj2) at (0,-2.2) {};
+  \node[limb,minimum width=20mm] (p) at (1.3,-2.2) {pointer};
+  \node[lbl] at (4.1,-2.2) {sign, length};
+  \foreach \i in {0,...,7} \node[limb,minimum width=9mm] (h\i) at (7.5+\i*0.9,-3.4) {\scriptsize$a_{\i}$};
+  \draw[arr] (p.south) |- (h0.west);
+  \node[lbl,anchor=west] at (obj2.east) {\quad $\ge 5$ limbs: heap vector};
+\end{tikzpicture}
+\caption{Inline storage for short values, heap storage for long ones.}
+\end{figure}
+
+The operators go one step further. When both operands have at most 16 limbs
+(\code{BIGMATH\_SMALL\_OPS\_MAX\_LIMBS}), \code{+}, \code{-}, \code{*}, \code{/}
+and \code{\%} compute the result in a buffer on the stack using the limb kernels of
+\cref{ch:basics}, then build the result object directly. No temporary vectors are
+created; the only possible allocation is the result itself when it has more than four
+limbs.
+
+\begin{perfnote}
+Before inline storage, a one-limb product took 5.7 times as long as GMP's, and copying
+a small value 5.3 times as long. After it, the product takes 2.1 times GMP's time and a
+copy 0.12 times (it is cheaper than GMP's because GMP has to allocate). For 1--16 limb
+operands the cost is now dominated by the arithmetic, not by memory management.
+\end{perfnote}
+
+\begin{practice}
+You do not need to do anything to benefit: the fast path is automatic. But it does
+mean that code full of small \code{BigInteger} temporaries is fine; there is no reason
+to fall back to \code{int64\_t} ``for speed'' unless you are in a very tight loop.
+\end{practice}
+
+\section{Two layers: operators and algorithms}
+
+The code is split into two layers, and the split matters when you read the rest of
+this guide.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[node distance=7mm]
+  \node[box,minimum width=95mm] (ops) {\textbf{Operators} \quad \file{ops/}\\ \footnotesize sign handling, small-operand stack path, \code{operator*}, \code{operator/}, \code{ToString}};
+  \node[box,minimum width=95mm,below=of ops] (disp) {\textbf{Dispatchers} \quad \file{src/algorithms/*.cpp}\\ \footnotesize look at the sizes and pick an algorithm};
+  \node[box,minimum width=95mm,below=of disp] (alg) {\textbf{Algorithms} \quad \file{algorithms/multiplication/}, \file{algorithms/division/}\\ \footnotesize schoolbook, Karatsuba, Toom-3, NTT, Knuth D, Burnikel--Ziegler, Newton};
+  \node[box,minimum width=95mm,below=of alg] (ker) {\textbf{Limb kernels} \quad \file{common/LimbKernels.h}\\ \footnotesize add, subtract, multiply-by-one-limb, shift on raw arrays};
+  \draw[arr] (ops) -- (disp);
+  \draw[arr] (disp) -- (alg);
+  \draw[arr] (alg) -- (ker);
+  \draw[arr] (alg.east) -- ++(0.8,0) |- node[pos=0.25,right,lbl,align=left]{division and\\conversion call\\the dispatcher\\for sub-products} (disp.east);
+\end{tikzpicture}
+\caption{Layers of the library. The upward arrow matters: a division step or a decimal
+conversion calls the multiplication dispatcher for its sub-products, so each sub-product
+gets the best algorithm for its own size.}
+\label{fig:layers}
+\end{figure}
+
+The upward arrow in \cref{fig:layers} is a central design choice. Large algorithms
+are built from smaller multiplications, and they ask the dispatcher for them rather
+than hard-coding a method. When a faster multiplication lands, division, decimal
+conversion, and everything else speed up without being touched. (This happened in
+November 2026: a multiplication-only change made parsing and printing 1.8 times
+faster.)
