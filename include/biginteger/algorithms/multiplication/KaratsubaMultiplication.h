@@ -15,6 +15,7 @@
 #include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
 #include "../multiplication/ClassicMultiplication.h"
+#include "ToomKernels.h"
 
 namespace BigMath
 {
@@ -33,6 +34,19 @@ namespace BigMath
 #endif
 #endif
         static const SizeT KARATSUBA_THRESHOLD = BIGMATH_KARATSUBA_THRESHOLD;
+
+// Toom-3 split inside the recursion (64-bit limbs): a near-balanced product
+// whose shorter operand has at least this many limbs is split in three
+// instead of two. See Toom3 below.
+#ifndef BIGMATH_MUL_TOOM33_THRESHOLD
+#define BIGMATH_MUL_TOOM33_THRESHOLD 168 // canonical value: build/DispatchThresholds.h
+#endif
+        static const SizeT TOOM33_THRESHOLD = BIGMATH_MUL_TOOM33_THRESHOLD;
+// Toom-4 split (64-bit limbs): shorter operand at least this many limbs.
+#ifndef BIGMATH_MUL_TOOM44_THRESHOLD
+#define BIGMATH_MUL_TOOM44_THRESHOLD 1000000 // canonical value: build/DispatchThresholds.h
+#endif
+        static const SizeT TOOM44_THRESHOLD = BIGMATH_MUL_TOOM44_THRESHOLD;
 
         // Adds a[0..lenA-1] and b[0..lenB-1] and writes to r[0..lenR-1].
         // Base check hoisted out of loop; per-position branches replaced by phase split:
@@ -306,6 +320,77 @@ namespace BigMath
             }
         }
 
+        // Toom-3 (points 0, 1, -1, 2, inf). Operands are split into three
+        // pieces of k = ceil(max(la, lb) / 3) limbs (the top piece shorter);
+        // both must have a nonempty top piece: la > 2k and lb > 2k. Five
+        // products of about k limbs replace Karatsuba's three of n/2.
+        //
+        // Interpolation in ToomKernel::Toom3Interpolate.
+        //
+        // Workspace: 12k + 12 limbs here, then the sub-products' own.
+        static void Toom3(const DataT *a, SizeT la, const DataT *b, SizeT lb, DataT *c, DataT *w, BaseT base)
+        {
+            const SizeT k = (std::max(la, lb) + 2) / 3;
+            const SizeT ra = la - 2 * k, rb = lb - 2 * k;
+            const SizeT e = k + 1;    // evaluation length
+            const SizeT L = 2 * e;    // product length at the inner points
+            const SizeT total = la + lb;
+
+            DataT *s1a = w, *sm1a = s1a + e, *s2a = sm1a + e;
+            DataT *s1b = s2a + e, *sm1b = s1b + e, *s2b = sm1b + e;
+            DataT *v1 = s2b + e, *vm1 = v1 + L, *v2 = vm1 + L;
+            DataT *next = v2 + L;
+
+            const int sign = ToomKernel::Toom3Evaluate(a, k, ra, s1a, sm1a, s2a) * ToomKernel::Toom3Evaluate(b, k, rb, s1b, sm1b, s2b);
+
+            DataT *v0 = c;            // 2k limbs
+            DataT *vinf = c + 4 * k;  // ra + rb limbs
+            MultiplyRecursive(a, k, b, k, v0, next, base);
+            MultiplyRecursive(a + 2 * k, ra, b + 2 * k, rb, vinf, next, base);
+            MultiplyRecursive(s1a, e, s1b, e, v1, next, base);
+            MultiplyRecursive(sm1a, e, sm1b, e, vm1, next, base);
+            MultiplyRecursive(s2a, e, s2b, e, v2, next, base);
+
+            ToomKernel::Toom3Interpolate(c, k, ra + rb, total, v1, vm1, v2, L, sign);
+        }
+
+        // Toom-4 (points 0, +-1, +-2, 1/2, inf). Pieces of k = ceil(max/4)
+        // limbs; needs la > 3k and lb > 3k. Seven products of about k limbs.
+        //
+        // Interpolation in ToomKernel::Toom4Interpolate. Off by default
+        // (BIGMATH_MUL_TOOM44_THRESHOLD): on Apple M1 it gains nothing over
+        // Toom-3 below the NTT entry; kept for platforms whose NTT starts
+        // later. Workspace: 26k + 26 limbs here, then the sub-products' own.
+        static void Toom4(const DataT *a, SizeT la, const DataT *b, SizeT lb, DataT *c, DataT *w, BaseT base)
+        {
+            const SizeT k = (std::max(la, lb) + 3) / 4;
+            const SizeT ra = la - 3 * k, rb = lb - 3 * k;
+            const SizeT e = k + 1, L = 2 * e, total = la + lb;
+
+            DataT *ea = w;            // 5 evaluations of a
+            DataT *eb = ea + 5 * e;   // 5 evaluations of b
+            DataT *P1 = eb + 5 * e, *Pm1 = P1 + L, *P2 = Pm1 + L, *Pm2 = P2 + L, *Q = Pm2 + L;
+            DataT *T1 = Q + L, *T2 = T1 + L, *T3 = T2 + L;
+            DataT *next = T3 + L;
+
+            int sa1, sa2, sb1, sb2;
+            ToomKernel::Toom4Evaluate(a, k, ra, ea, ea + e, ea + 2 * e, ea + 3 * e, ea + 4 * e, sa1, sa2, T1, T2);
+            ToomKernel::Toom4Evaluate(b, k, rb, eb, eb + e, eb + 2 * e, eb + 3 * e, eb + 4 * e, sb1, sb2, T1, T2);
+            const int s1 = sa1 * sb1, s2 = sa2 * sb2;
+
+            DataT *r0 = c, *r6 = c + 6 * k;
+            const SizeT l6 = ra + rb;
+            MultiplyRecursive(a, k, b, k, r0, next, base);
+            MultiplyRecursive(a + 3 * k, ra, b + 3 * k, rb, r6, next, base);
+            MultiplyRecursive(ea, e, eb, e, P1, next, base);
+            MultiplyRecursive(ea + e, e, eb + e, e, Pm1, next, base);
+            MultiplyRecursive(ea + 2 * e, e, eb + 2 * e, e, P2, next, base);
+            MultiplyRecursive(ea + 3 * e, e, eb + 3 * e, e, Pm2, next, base);
+            MultiplyRecursive(ea + 4 * e, e, eb + 4 * e, e, Q, next, base);
+
+            ToomKernel::Toom4Interpolate(c, k, l6, total, P1, Pm1, P2, Pm2, Q, T1, T2, T3, L, s1, s2);
+        }
+
         static void MultiplyRecursive(
             const DataT* a, SizeT lenA,
             const DataT* b, SizeT lenB,
@@ -361,6 +446,25 @@ namespace BigMath
                     AddToPtr(c + off, lx + ly - off, t, len + ly, base);
                 }
                 return;
+            }
+
+            if (base == Base2_64 && std::min(la, lb) >= TOOM44_THRESHOLD)
+            {
+                const SizeT k = (std::max(la, lb) + 3) / 4;
+                if (la > 3 * k && lb > 3 * k)
+                {
+                    Toom4(a, la, b, lb, c, w, base);
+                    return;
+                }
+            }
+            if (base == Base2_64 && std::min(la, lb) >= TOOM33_THRESHOLD)
+            {
+                const SizeT k = (std::max(la, lb) + 2) / 3;
+                if (la > 2 * k && lb > 2 * k)
+                {
+                    Toom3(a, la, b, lb, c, w, base);
+                    return;
+                }
             }
 
             SizeT m = (std::max(la, lb) + 1) / 2;
@@ -428,6 +532,23 @@ namespace BigMath
                                  DataT *out, DataT *scratch, BaseT base)
         {
             MultiplyRecursive(a, la, b, lb, out, scratch, base);
+        }
+
+        // Test hook: one Toom-3 (way 3) or Toom-4 (way 4) level on top of
+        // the normal recursion, whatever the thresholds. 64-bit limbs; the
+        // split's preconditions must hold (la, lb > 2k for Toom-3 with
+        // k = ceil(max/3); > 3k for Toom-4 with k = ceil(max/4)).
+        static std::vector<DataT> MultiplyToomLevel(std::vector<DataT> const &a, std::vector<DataT> const &b, int way)
+        {
+            const SizeT la = (SizeT)a.size(), lb = (SizeT)b.size();
+            std::vector<DataT> c(la + lb);
+            std::vector<DataT> w(ScratchLimbs(la, lb) + 32 * std::max(la, lb) + 64);
+            if (way == 4)
+                Toom4(a.data(), la, b.data(), lb, c.data(), w.data(), Base2_64);
+            else
+                Toom3(a.data(), la, b.data(), lb, c.data(), w.data(), Base2_64);
+            TrimZeros(c);
+            return c;
         }
 
         static std::vector<DataT> Multiply(

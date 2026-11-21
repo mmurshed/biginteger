@@ -143,6 +143,29 @@
 // 640 -> 352 on 2026-11-20 after the NTT kernel/threading work: KaratsubaSquare
 // ties the CRT self-multiply at 352 limbs (19.5 vs 19.4 us) and loses 1.2x at
 // 384, 1.8x at 512.
+// Toom-Cook splits inside the Karatsuba recursion (64-bit limbs; swept
+// 2026-11-21 on Apple M1 Max, header-only probes of KaratsubaMultiplication /
+// KaratsubaSquare). A level whose shorter operand has at least this many
+// limbs splits in three (Toom-3) instead of two:
+//   products: neutral at 144-160 limbs, -3.5% at 168, -7% at 176-224,
+//             -9% at 384, -7% at 448-512, -10% at 768 (256 flat);
+//   squares (threshold 160; 128 was +2.4% at 128 limbs in a public-API
+//             A/B): neutral at 96-160, -4.5% at 192, -6% at 320, -9% at 384,
+//             -8.5% at 512, -9% at 608.
+// Toom-4 is implemented but off: below the NTT entry it was -2.5% at 320
+// limbs, +5% at 384 and flat at 448-512 against Toom-3, and balanced
+// products past 512 limbs go to the NTT. Platforms whose NTT starts later
+// may want it (try ~500).
+#ifndef BIGMATH_MUL_TOOM33_THRESHOLD
+#define BIGMATH_MUL_TOOM33_THRESHOLD 168
+#endif
+#ifndef BIGMATH_MUL_TOOM44_THRESHOLD
+#define BIGMATH_MUL_TOOM44_THRESHOLD 1000000
+#endif
+#ifndef BIGMATH_SQR_TOOM3_THRESHOLD
+#define BIGMATH_SQR_TOOM3_THRESHOLD 160
+#endif
+
 #ifndef BIGMATH_NTT_SQUARE_THRESHOLD
 #if BIGMATH_LIMB_64
 #define BIGMATH_NTT_SQUARE_THRESHOLD 352

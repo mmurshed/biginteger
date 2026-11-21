@@ -17,6 +17,7 @@
 #include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
 #include "ClassicSquare.h"
+#include "ToomKernels.h"
 
 namespace BigMath
 {
@@ -27,6 +28,12 @@ namespace BigMath
 #define BIGMATH_KARATSUBA_SQUARE_THRESHOLD 48
 #endif
     static const SizeT THRESHOLD = BIGMATH_KARATSUBA_SQUARE_THRESHOLD;
+// Toom-3 split for squares (64-bit limbs): operands of at least this many
+// limbs are split in three (five squares of about n/3 limbs).
+#ifndef BIGMATH_SQR_TOOM3_THRESHOLD
+#define BIGMATH_SQR_TOOM3_THRESHOLD 160 // canonical value: build/DispatchThresholds.h
+#endif
+    static const SizeT TOOM3_THRESHOLD = BIGMATH_SQR_TOOM3_THRESHOLD;
 
     // r[0..lenR-1] = a[0..lenA-1] + b[0..lenB-1].
     static void AddPtr(
@@ -124,6 +131,24 @@ namespace BigMath
       if (n <= THRESHOLD)
       {
         ClassicSquare::SquarePtr(a, n, c, base);
+        return;
+      }
+
+      if (base == Base2_64 && n >= TOOM3_THRESHOLD && n >= 6)
+      {
+        // Toom-3: evaluate once, square at 0, 1, -1, 2, inf (the value at
+        // -1 is squared, so its sign is +). Workspace 9k + 9 here.
+        const SizeT k = (n + 2) / 3, r = n - 2 * k;
+        const SizeT e = k + 1, L = 2 * e;
+        DataT *s1 = w, *sm1 = s1 + e, *s2 = sm1 + e;
+        DataT *v1 = s2 + e, *vm1 = v1 + L, *v2 = vm1 + L, *next = v2 + L;
+        ToomKernel::Toom3Evaluate(a, k, r, s1, sm1, s2);
+        SquareRec(a, k, c, next, base);
+        SquareRec(a + 2 * k, r, c + 4 * k, next, base);
+        SquareRec(s1, e, v1, next, base);
+        SquareRec(sm1, e, vm1, next, base);
+        SquareRec(s2, e, v2, next, base);
+        ToomKernel::Toom3Interpolate(c, k, 2 * r, 2 * n, v1, vm1, v2, L, 1);
         return;
       }
 
