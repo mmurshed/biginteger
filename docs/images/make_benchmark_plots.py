@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the checked-in full-profile CSV. Use --ratio-only for the README figure."""
+"""Plot the single-thread and default-build ratios from the checked-in benchmark CSVs."""
 import argparse
 import csv
 from pathlib import Path
@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
 
 HERE = Path(__file__).resolve().parent
-RESULTS = HERE.parent / "benchmarks" / "2026-11-21-pr152-m1-max.csv"
+BENCHMARKS = HERE.parent / "benchmarks"
 
 # Session progress: BigMath/GMP ratio at the 2026-05-30 baseline vs after the
 # 2026-06 runs (PRs #82-#99, #107-#114, then #116-#119).
@@ -26,8 +26,8 @@ BEFORE_AFTER = [
 ]
 
 
-def ratio_plot(path):
-    with RESULTS.open(newline="") as src:
+def ratio_plot(path, results, figure_title, threads, legend_location="upper right"):
+    with results.open(newline="") as src:
         rows = list(csv.DictReader(line for line in src if not line.startswith("#")))
 
     def series(op, phase, shape=None):
@@ -72,17 +72,20 @@ def ratio_plot(path):
         ax.spines[["bottom", "left"]].set_color("#a9b1b9")
         ax.tick_params(labelsize=9)
         ax.yaxis.set_minor_formatter(NullFormatter())
-        ax.legend(loc="upper right", frameon=False, fontsize=9)
+        ax.legend(loc=legend_location, frameon=False, fontsize=9)
     ticks = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
     lo, hi = axes[0, 0].get_ylim()
+    if lo > 0.5:
+        lo = 0.5
+        axes[0, 0].set_ylim(bottom=lo)
     visible = [t for t in ticks if lo <= t <= hi]
     axes[0, 0].set_yticks(visible, [f"{t:g}×" for t in visible])
     axes[0, 0].set_xticks([1e3, 1e4, 1e5, 1e6, 1e7, 1e8],
                           ["1k", "10k", "100k", "1M", "10M", "100M"])
-    fig.suptitle("BigMath vs GMP 6.3.0 on Apple M1 Max", fontsize=17, fontweight="bold", y=0.98)
+    fig.suptitle(figure_title, fontsize=17, fontweight="bold", y=0.98)
     fig.text(0.5, 0.918, "Time relative to GMP  ·  Below 1× means BigMath is faster", ha="center", fontsize=11)
     fig.supxlabel("Decimal digits in the first operand", fontsize=11, y=0.066)
-    fig.text(0.5, 0.021, "November 21, 2026  ·  Up to 8 BigMath threads, 1 GMP thread  ·  "
+    fig.text(0.5, 0.021, f"November 21, 2026  ·  {threads}  ·  "
              "Arithmetic panels show warm calls", ha="center", fontsize=9, color="#384655")
     fig.subplots_adjust(left=0.075, right=0.978, top=0.845, bottom=0.15, hspace=0.3, wspace=0.13)
     fig.savefig(path)
@@ -116,8 +119,14 @@ def progress_plot(path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ratio-only", action="store_true", help="Generate only the README figure")
+    parser.add_argument("--ratio-only", action="store_true", help="Generate both GMP comparison figures and skip the history figure")
     args = parser.parse_args()
-    ratio_plot(HERE / "bigmath_vs_gmp.png")
+    ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
+               BENCHMARKS / "2026-11-21-m1-max-single-thread.csv",
+               "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
+               legend_location="best")
+    ratio_plot(HERE / "bigmath_vs_gmp.png",
+               BENCHMARKS / "2026-11-21-pr152-m1-max.csv",
+               "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread")
     if not args.ratio_only:
         progress_plot(HERE / "session_2026_06_11.png")
