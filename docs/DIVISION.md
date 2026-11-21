@@ -839,6 +839,67 @@ implementation is kept for the 32-in-64 layout.
 | 2048 × 4096 | 1060 | 679 | 504 | 1.35× |
 | 4096 × 8192 | 2302 | 1492 | 1189 | 1.25× |
 
+### Newton reciprocal: guarded schedule, unpadded step (PR #144)
+
+Profiling Newton division in units of `M(n)` (one balanced n×n multiply)
+showed the reciprocal at 4–7 `M(n)`, plus roughly one more for the "high
+precision" refinement that every division with `na ≥ 2n` requested.
+
+**Why the refinement existed.** A Newton step squares the relative error: a
+seed good to `p` limbs gives `2p` limbs minus a few bits. The schedule asked
+for exactly `2p` each time, starting from a one-limb estimate, so the
+shortfall doubled at every step. Measured against `floor(B^(2n)/D)` from GMP,
+the result was off by ~`B^5.5` at `n = 1024` and 930 ulps at `n = 2048`
+(usually 0–2 ulps — the later wrapped iterations happened to repair most of
+it). The extra full-size iteration was the patch.
+
+**Schedule.** Precisions are now derived backwards from `n`, each earlier one
+being `ceil((p + 2) / 2)`, so every step's doubled accuracy covers its target
+with guard limbs to spare; the tower starts from an *exact* reciprocal of the
+top ≤ 32 limbs (schoolbook division). Result: `0 ≤ floor(B^(2n)/D) − R ≤ 2`
+at every size and pattern tested, never an overestimate, no refinement.
+
+**Step.** With `e = m − cur` and `R_pad = R·B^e`, the exact step
+`R_new = R_pad + floor(R_pad·(B^(2m) − D_m·R_pad) / B^(2m))` equals
+
+```
+E'    = B^(m+cur) − D_m · R            (|E'| < 4·B^m)
+R_new = R·B^e + floor(R · E' / B^(2cur))
+```
+
+so it needs the `m × (cur+1)` product `D_m·R` — half the padded `m × (m+1)`
+one — and the top `e+2` limbs of `R·E'`, which only the top `e+4` limbs of
+each factor can reach. The old exact path multiplied `(m+1) × (2m+1)` for the
+second part. `E'` comes from the plain product, or from its residue modulo
+`B^L − 1` when a cyclic transform of `L ≥ m + 6` limbs is strictly shorter
+(the old window needed `L ≈ 1.5·m`).
+
+`NewtonDivision::FallbackCount()` now counts every time a division abandons
+the reciprocal path for schoolbook. The result is still correct when that
+happens, only quadratic — a silent fallback once cost an 8× ToString
+regression — so `tests/unit/test_newton_division.cpp` asserts it stays zero,
+alongside the reciprocal's accuracy contract. A sweep of 5 380 shapes against
+GMP (divisors to 262 144 limbs, five operand patterns) found no mismatch and
+no fallback.
+
+µs, M1 Max (`recip` = `ApproxReciprocal`; `newton` = `DivideAndRemainder` at
+ratio 2):
+
+| divisor limbs | recip before | recip after | newton before | newton after | GMP |
+|---:|---:|---:|---:|---:|---:|
+| 256 | 68.8 (+41 refine) | 28.6 | 154 | 73.1 | 24.5 |
+| 512 | 141 (+73) | 74.3 | 287 | 159 | 70.1 |
+| 1024 | 219 (+57) | 154 | 405 | 302 | 197 |
+| 2048 | 428 (+152) | 308 | 720 | 536 | 489 |
+| 4096 | 673 (+180) | 581 | 1300 | 1048 | 1182 |
+| 8192 | 1178 (+398) | 1032 | 2426 | 1895 | 2542 |
+| 65536 | 9755 (+3554) | 9091 | 23633 | 19277 | 30950 |
+
+The reciprocal is still ~3.5–4 `M(n)` at large power-of-two sizes: the top
+step's `D_m·R` product lands one limb over a truncated-transform boundary
+there. A half-size reciprocal with two quotient blocks (GMP's `mu_div`
+shape) would be the next step for ratio ≈ 2; not done.
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
