@@ -12,9 +12,9 @@ Both runs used the same operands on an Apple M1 Max and share one GMP 6.3.0 pass
 
 BigMath’s worker pool was disabled at compile time. The timings below are from warm calls.
 
-- **Multiplication.** GMP was faster at 12 of the 14 equal-length sizes. BigMath won at 5 million digits per operand (59.5 ms versus 62.8 ms) and 10 million (136 ms versus 200 ms). At 200 million digits per operand, GMP took 2.83 s and BigMath took 10.60 s.
-- **Division.** BigMath was faster in both output modes at 50 million ÷ 10 million and 100 million ÷ 20 million digits. At 200 million ÷ 40 million, BigMath took 1.47× GMP’s time for the quotient and 1.36× for quotient and remainder.
-- **Decimal conversion.** GMP was faster at every sampled size for both parsing and formatting. At 20 million digits, BigMath took 928 ms to parse and 2.84 s to format, versus 803 ms and 2.09 s for GMP.
+- **Multiplication.** GMP was faster at 11 of the 14 equal-length sizes. BigMath won at 5 million digits per operand (56.9 ms versus 62.8 ms), 10 million (129 ms versus 200 ms) and 20 million (255 ms versus 265 ms). Above that GMP led by 1.24× at 50 million digits and 1.52× at 200 million (4.30 s versus 2.83 s).
+- **Division.** BigMath was faster in both output modes at 50 million ÷ 10 million and 100 million ÷ 20 million digits. At 200 million ÷ 40 million, BigMath took 1.08× GMP’s time for the quotient and 1.003× for quotient and remainder.
+- **Decimal conversion.** GMP was faster at every sampled size for both parsing and formatting. At 20 million digits, BigMath took 926 ms to parse and 2.77 s to format, versus 802 ms and 2.09 s for GMP.
 
 ![Single-thread BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp_single_thread.png)
 
@@ -147,30 +147,31 @@ Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations th
 
 ## Performance numbers
 
-Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-toom-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-toom-m1-max.csv)
+Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-ntt-trunc-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-ntt-trunc-m1-max.csv)
 
 | Operation | Decimal digits | BigMath 1 thread (ms) | GMP 1 thread (ms) | 1-thread ratio | Default-build ratio |
 |---|---:|---:|---:|---:|---:|
-| Multiply | 10,000 × 10,000 | 0.05179 | 0.02804 | 1.85× | 0.80× |
-| Multiply | 1,000,000 × 1,000,000 | 9.509 | 8.847 | 1.07× | 0.32× |
-| Multiply | 5,000,000 × 5,000,000 | 59.51 | 62.79 | 0.95× | 0.19× |
-| Multiply | 10,000,000 × 10,000,000 | 135.7 | 199.9 | 0.68× | 0.14× |
-| Multiply | 20,000,000 × 20,000,000 | 306.5 | 265.3 | 1.16× | 0.26× |
-| Multiply | 200,000,000 × 200,000,000 | 10,598 | 2,828 | 3.75× | 0.75× |
-| Multiply | 5,000,000 × 500,000 | 23.53 | 30.84 | 0.76× | 0.27× |
-| Multiply | 200,000,000 × 20,000,000 | 4,829 | 1,890 | 2.55× | 0.53× |
-| Divide, quotient | 200,000 ÷ 50,000 | 2.521 | 1.507 | 1.67× | 0.66× |
-| Divide, quotient | 10,000,000 ÷ 2,000,000 | 158.1 | 144.5 | 1.09× | 0.37× |
-| Divide, quotient | 50,000,000 ÷ 10,000,000 | 987.8 | 1,213 | 0.81× | 0.18× |
-| Divide, quotient | 200,000,000 ÷ 40,000,000 | 6,067 | 4,137 | 1.47× | 0.32× |
-| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.521 | 1.626 | 1.55× | 0.62× |
-| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 164.8 | 154.2 | 1.07× | 0.35× |
-| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 991.2 | 1,276 | 0.78× | 0.18× |
-| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 6,072 | 4,452 | 1.36× | 0.29× |
-| Parse | 100,000 | 1.596 | 1.061 | 1.50× | 0.54× |
-| Parse | 20,000,000 | 927.8 | 802.5 | 1.16× | 0.22× |
-| ToString | 100,000 | 3.781 | 2.267 | 1.67× | 0.59× |
-| ToString | 20,000,000 | 2,836 | 2,094 | 1.35× | 0.29× |
+| Multiply | 10,000 × 10,000 | 0.05025 | 0.02804 | 1.79× | 0.80× |
+| Multiply | 1,000,000 × 1,000,000 | 9.511 | 8.847 | 1.08× | 0.32× |
+| Multiply | 5,000,000 × 5,000,000 | 56.86 | 62.79 | 0.91× | 0.18× |
+| Multiply | 10,000,000 × 10,000,000 | 129.1 | 199.9 | 0.65× | 0.14× |
+| Multiply | 20,000,000 × 20,000,000 | 254.9 | 265.3 | 0.96× | 0.24× |
+| Multiply | 50,000,000 × 50,000,000 | 804.3 | 650.7 | 1.24× | 0.53× |
+| Multiply | 200,000,000 × 200,000,000 | 4,298 | 2,828 | 1.52× | 0.61× |
+| Multiply | 5,000,000 × 500,000 | 23.66 | 30.84 | 0.77× | 0.26× |
+| Multiply | 200,000,000 × 20,000,000 | 2,168 | 1,890 | 1.15× | 0.44× |
+| Divide, quotient | 200,000 ÷ 50,000 | 2.551 | 1.507 | 1.69× | 0.67× |
+| Divide, quotient | 10,000,000 ÷ 2,000,000 | 160.3 | 144.5 | 1.11× | 0.38× |
+| Divide, quotient | 50,000,000 ÷ 10,000,000 | 944.9 | 1,213 | 0.78× | 0.18× |
+| Divide, quotient | 200,000,000 ÷ 40,000,000 | 4,466 | 4,137 | 1.08× | 0.28× |
+| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.699 | 1.626 | 1.66× | 0.60× |
+| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 160 | 154.2 | 1.04× | 0.35× |
+| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 946.5 | 1,276 | 0.74× | 0.17× |
+| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 4,465 | 4,452 | 1.00× | 0.26× |
+| Parse | 100,000 | 1.6 | 1.061 | 1.51× | 0.53× |
+| Parse | 20,000,000 | 925.6 | 802.5 | 1.15× | 0.22× |
+| ToString | 100,000 | 3.815 | 2.267 | 1.68× | 0.59× |
+| ToString | 20,000,000 | 2,773 | 2,094 | 1.32× | 0.29× |
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 
