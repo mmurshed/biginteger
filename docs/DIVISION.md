@@ -971,6 +971,47 @@ assembly `mpn_divrem_1`: 3.1). Used by every 64-bit single-limb path:
 `ClassicDivision::Divide` / `DivideAndRemainder` / `DivModTo` and the
 one-limb case inside `FastDivision`.
 
+### Quotient-only division from the operand tops (PR #147)
+
+`Divide(a, b)` — and `BigInteger::operator/` on top of it — used to run the
+full division and drop the remainder. When the quotient is shorter than the
+divisor that wastes almost all of the work: the quotient is determined by
+the operands' top limbs.
+
+With `δ = na − nb`, `t = δ + 4` and `s = nb − t`, let `a' = ⌊a / B^s⌋`,
+`b' = ⌊b / B^s⌋` and `(q', r')` their quotient and remainder. Then
+
+```
+a/b < (a' + 1) / b'  = q' + (r' + 1)/b' ≤ q' + 1
+a/b > a' / (b' + 1)  > q' + r'/b' − B^-2
+```
+
+so `q` is `q'` or `q' − 1`, and it is `q'` whenever `r' ≥ B^(δ+2)` — for
+random operands all but ~2^-128 of the time. The dispatcher therefore does a
+`(2δ+4)`-by-`(δ+4)` division (through itself, so it picks schoolbook / BZ /
+Newton by size) instead of work proportional to `δ · nb`. Only when `r'` is
+too small to decide — exact multiples of `b` always land there — does it pay
+one `δ × nb` product to settle the last unit, which is what the full division
+would have cost anyway.
+
+Quotient-only time, µs (M1 Max):
+
+| divisor limbs | quotient limbs | before | after | GMP `mpz_tdiv_q` |
+|---:|---:|---:|---:|---:|
+| 512 | 11 | 3.56 | 0.29 | 0.17 |
+| 512 | 52 | 15.6 | 2.26 | 1.28 |
+| 512 | 257 | 47.8 | 31.5 | 17.9 |
+| 1024 | 21 | 12.4 | 0.58 | 0.32 |
+| 1024 | 103 | 44.0 | 7.27 | 3.97 |
+| 4096 | 83 | 89.7 | 4.94 | 2.74 |
+| 4096 | 411 | 156 | 70.3 | 36.9 |
+| 16384 | 329 | 332 | 47.3 | 25.7 |
+| 16384 | 1639 | 784 | 539 | 274 |
+| 16384 | 8193 | 2471 | 2194 | 2075 |
+
+Quotients at least as long as the divisor (ratio ≥ 2) are unchanged: there
+the remainder falls out of the division anyway.
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
