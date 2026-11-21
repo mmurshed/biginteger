@@ -284,7 +284,7 @@ These two changes cut a butterfly from about 19 vector instructions to 11.
 
 \begin{perfnote}
 The vector butterflies run about 4 times faster than scalar code. Twiddles and their
-companions are stored interleaved, so each pair is one cache line. Special ``tail'' kernels
+companions are interleaved, so a butterfly can fetch both from the same cache line. Special tail kernels
 handle the last layers of every transform size four lanes wide, so every transform with
 $N \ge 16$ is vectorized end to end. Each step was checked bit-for-bit against the plain
 scalar transform for all three primes at every length from $2^1$ to $2^{16}$.
@@ -321,12 +321,43 @@ $N = N_1 \times N_2$ transform as a grid:
 plus a twiddle pass and transposes.}
 \end{figure}
 
-Each short transform (at most $2^{13}$ entries, \code{BIGMATH\_NTT\_MFA\_LEAF}) fits in the
-fastest cache, so the butterflies run at cache speed. BigMath goes further and
-\emph{fuses} the transposes, the packing of input limbs, and even the pointwise
-multiplication into these passes, so the second operand's transform never gets written to
-memory at all. The method is used from transform length $2^{20}$
-(\code{BIGMATH\_NTT\_MFA\_THRESHOLD}); at $2^{22}$ it made products 3 times faster.
+Each leaf transform has at most $2^{13}$ entries (\code{BIGMATH\_NTT\_MFA\_LEAF}).
+The fused stages gather a tile, transform its rows in cache and scatter the result.
+The forward stage reads coefficients directly from the input limbs. Its final stage
+multiplies the second operand's transformed row into the first operand's row.
+Balanced products enter the matrix method at $N=2^{20}$, subject to the truncated
+product rule in \cref{sec:trunc}.
+
+\subsection{Factoring the cross-twiddles}
+
+Row $r$ needs a multiplier $\omega^{rk}$ at frequency $k$. Looking up one power for
+every coefficient walks the roots table in strides of $r$. At large $N$, a single row
+can bring thousands of widely separated cache lines into the processor.
+
+For rows of $N_2\ge256$ coefficients, the NEON kernel uses blocks of 32. Let
+$g=N_2/32$ and write the physical column as $32b+j$. The row transform stores
+frequencies in bit-reversed order. Reversing the five bits of $j$ and the
+$\log_2 g$ bits of $b$ gives the following factorization:
+\[
+ k=g\,\mathrm{rev}_5(j)+\mathrm{rev}_{\log_2 g}(b),
+ \qquad
+ \omega^{rk}=
+ \omega^{rg\,\mathrm{rev}_5(j)}
+ \;\omega^{r\,\mathrm{rev}_{\log_2 g}(b)} .
+\]
+Only the first factor changes within a block. The plan stores 32 lane factors and
+$g$ block factors per row, each beside its Shoup companion. Four adjacent coefficients
+can then be multiplied at once. The inverse uses the same layout with inverse roots.
+
+\begin{example}[ for a row of 256 coefficients]
+Column 35 is block 1, lane 3. Reversing the binary index gives frequency
+$8\cdot24+4=196$. In row $r$, lane 3 supplies $\omega^{192r}$ and block 1 supplies
+$\omega^{4r}$. The row needs only $32+8=40$ stored factors per direction.
+\end{example}
+
+At 200 million digits per operand the threaded transform has $N=2^{26}$ and
+$N_1=N_2=8192$. Across all three primes and both directions, the top-level tables
+take 108\,MiB, down from 2,304\,MiB. Leaf plans and transform buffers are additional.
 
 \section{The power-of-two staircase and the $H + L$ trick}
 \label{sec:trunc}
@@ -342,6 +373,21 @@ needing 4096. Plotted against size, the cost is a staircase (\cref{fig:trunc}).
 with the $H+L$ scheme, which fills in the steps just above each power of two (for
 $2048 \le H \le 2^{20}$, up to $1.5H$). Computed from the length rules in the source.}
 \label{fig:trunc}
+\end{figure}
+
+For two equal $m$-limb operands the product has $4m-1$ coefficient slots.
+At 10 million decimal digits per operand it fills 99\% of a $2^{21}$-point transform.
+The threaded transform doubles near 10.10 million digits and again near 20.20 million.
+At 50, 100 and 200 million digits the product fills about 62\% of each selected length.
+Figure~\ref{fig:largefill} shows where the benchmark cases land between doublings.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/large_transform_fill.pdf}
+\caption{Fraction of the threaded transform occupied by an equal-length product,
+computed from the 64-bit limb count. Each dotted drop marks the next power of two.
+The dots mark input sizes from the full benchmark.}
+\label{fig:largefill}
 \end{figure}
 
 For a product just above a power of two $H$, BigMath computes it in two smaller pieces and
@@ -388,57 +434,47 @@ fused stages split better across cores.
 \section{Using all the cores}
 \label{sec:nttthreads}
 
-A product needs six forward transforms (two operands times three primes), and they are
-independent. BigMath runs them as six work units on its thread pool, then the pointwise
-products, then the inverse transforms. Three inverse transforms would leave cores idle, so
-each is split into two halves (a length-$N$ inverse is two length-$N/2$ inverses plus one
-combining layer), giving six units again. Finally the carry pass is cut into per-thread
-ranges: each range runs with carry-in zero and reports its carry-out, and a quick ripple
-adds the carry-outs at the range boundaries.
+For two distinct inputs the ordinary CRT product has six independent forward
+transforms, one per operand and prime. A threaded inverse of length at least
+4096 can split each prime's transform into two halves when at least four threads
+are available. Below 2048 points the ordinary forward transforms run on the caller.
+
+The fused matrix method schedules smaller units. At each stage the caller partitions
+the rows of each plane into transpose tiles (32 rows by default). Workers process
+ranges of whole tiles, so two workers can operate on different rows of the same
+prime. The scratch tile has 16 extra 32-bit entries per row. This padding keeps
+successive rows from mapping to the same cache set. Each stage completes before
+the next one reads its output. Finally, each carry range reports its carry-out
+for propagation across range boundaries.
 
 \begin{figure}[ht]
 \centering
-\begin{tikzpicture}[x=1cm,y=0.55cm]
-  \foreach \t/\l in {0/$a$ mod $P_1$,1/$a$ mod $P_2$,2/$a$ mod $P_3$,3/$b$ mod $P_1$,4/$b$ mod $P_2$,5/$b$ mod $P_3$} {
-    \node[lbl,anchor=east] at (-0.1,-\t) {core \the\numexpr\t+1\relax};
-    \fill[sBlue!40] (0,-\t-0.35) rectangle (3,-\t+0.35);
-    \node[font=\tiny] at (1.5,-\t) {forward: \l};
-    \fill[sOrange!40] (3.1,-\t-0.35) rectangle (3.8,-\t+0.35);
-    \fill[sViolet!40] (3.9,-\t-0.35) rectangle (6.4,-\t+0.35);
-    \fill[sAqua!50] (6.5,-\t-0.35) rectangle (7.3,-\t+0.35);
-  }
-  \node[lbl] at (3.45,1) {pointwise};
-  \node[lbl] at (5.15,1) {inverse halves};
-  \node[lbl] at (6.9,1) {carry};
+\begin{tikzpicture}[node distance=4mm]
+  \node[box,fill=sBlue!12,text width=11.5cm] (a)
+    {\textbf{Forward A}\quad Six operand--prime planes. Pack coefficients, transform rows
+     and apply the cross-twiddles.};
+  \node[box,fill=sOrange!12,text width=11.5cm,below=of a] (b)
+    {\textbf{Forward B}\quad Three prime planes. Transform matching rows of both operands
+     and multiply them pointwise.};
+  \node[box,fill=sViolet!12,text width=11.5cm,below=of b] (c)
+    {\textbf{Inverse A and B}\quad Three prime planes in each stage. Complete the first
+     stage before reading its transposed output in the second.};
+  \node[box,fill=sAqua!12,text width=11.5cm,below=of c] (d)
+    {\textbf{Finalize}\quad Combine the three residues for each coefficient and
+     propagate carries into the output limbs.};
+  \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d);
 \end{tikzpicture}
-\caption{Work units of one threaded NTT product: six forward transforms, pointwise
-products, six inverse half-transforms, and a range-split carry pass.}
+\caption{Scheduling a fused matrix product. Each transform stage distributes tiles
+across the pool, which includes the caller and supports up to eight threads by default.}
 \end{figure}
 
-Small transforms (under 2048 coefficients, \code{BIGMATH\_NTT\_PARALLEL\_MIN}) run on the
-calling thread, because waking threads for a 25\,\textmu s product is not worth it. Larger
-ones use up to eight threads (\code{BIGMATH\_MAX\_THREADS}). The result is bit-for-bit the
-same whether one or eight threads run; threads change only the time.
-
-\begin{center}
-\small
-\begin{tabular}{lrrr}
-\toprule
-transform length & serial-era original (\textmu s) & now, threaded (\textmu s) & speedup \\
-\midrule
-$2^{12}$ & 136 & 42 & 3.2$\times$ \\
-$2^{16}$ & 1\,374 & 646 & 2.1$\times$ \\
-$2^{20}$ & 24\,557 & 11\,358 & 2.2$\times$ \\
-$2^{24}$ & 649\,997 & 443\,428 & 1.5$\times$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
+\clearpage
 \section{Squares and reused operands}
+\label{sec:nttreuse}
 
-\textbf{Squares.} When both operands are the same object, only three forward transforms are
-needed instead of six, and the pointwise step squares each value. The square dispatcher
-(\cref{sec:sqdispatch}) sends large squares here.
+\textbf{Squares.} The ordinary CRT and truncated paths can transform one operand
+and square its spectrum when both inputs refer to the same vector. The fused matrix
+path uses the same paired-row forward stages for squares as for other products.
 
 \textbf{Reused operands.} If you multiply many numbers by the same large number, its
 transforms can be computed once:
@@ -462,9 +498,9 @@ parallel.
 \begin{tikzpicture}[node distance=3mm,every node/.style={box,font=\footnotesize,minimum width=118mm,align=left}]
   \node[fill=paper] (s1) {\textbf{Pack:} split each 64-bit limb into two 32-bit coefficients, reduce mod $P_1, P_2, P_3$};
   \node[below=of s1] (s2) {\textbf{Choose length:} power of two, or $H + L$ just above a power of two};
-  \node[fill=paper,below=of s2] (s3) {\textbf{Forward transforms:} 6 units (3 if squaring); radix-8 NEON butterflies; matrix method from $2^{20}$};
+  \node[fill=paper,below=of s2] (s3) {\textbf{Forward transforms:} operand--prime batches or tiled matrix stages with factored NEON cross-twiddles};
   \node[below=of s3] (s4) {\textbf{Pointwise multiply} (fused into the last forward stage in the matrix method)};
-  \node[fill=paper,below=of s4] (s5) {\textbf{Inverse transforms:} 6 half-units, scaling by $1/N$ fused into the last layer};
+  \node[fill=paper,below=of s4] (s5) {\textbf{Inverse transforms:} per-prime transforms, split into halves or matrix tiles according to the path};
   \node[below=of s5] (s6) {\textbf{Finalize:} Garner reconstruction (vectorized), carries split across threads};
 \end{tikzpicture}
 \caption{The whole NTT product, as implemented in \file{NTTMultiplicationCrt.h}.}
