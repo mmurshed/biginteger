@@ -285,7 +285,7 @@ REGISTER_TEST(Serialization, OddLengthByteArrays)
   {
     std::vector<uint8_t> be = {0x01, 0x02, 0x03, 0x04, 0x05};
     BigInteger x = BigInteger::FromByteArray(be, false);
-    ASSERT_EQ(x, BigIntegerBuilder::From(0x0102030405ULL));
+    ASSERT_EQ(x, BigIntegerBuilder::From((ULong)0x0102030405ULL));
 
     auto rt = x.ToByteArray();
     ASSERT_EQ(rt.size(), be.size());
@@ -343,7 +343,7 @@ REGISTER_TEST(Serialization, LeadingZeroBytes)
 {
   using ByteOrder = BigInteger::ByteOrder;
 
-  BigInteger expected = BigIntegerBuilder::From(0x0102ULL);
+  BigInteger expected = BigIntegerBuilder::From((ULong)0x0102ULL);
 
   // Big-endian input with leading zero bytes parses to the same value.
   std::vector<uint8_t> paddedBE = {0x00, 0x00, 0x00, 0x01, 0x02};
