@@ -186,7 +186,7 @@
 // process has a single thread (a -DBIGMATH_USE_THREADS=0 build, or a pool of
 // one), up to this H, with the length-H and length-L transforms run through
 // the fused MFA stages (CrtTruncSerial). The threaded build keeps the full 2H
-// fused-MFA transform there: its six-unit row-chunked stages scale across
+// fused-MFA transform there: its tile-parallel stages scale across
 // cores, the truncated pipeline has no such split, and with 8 threads the
 // full transform wins. 2^25 is the largest H the 2^26 length ceiling admits.
 // Set to BIGMATH_NTT_TRUNC_MAX or lower to turn the path off.
@@ -2526,30 +2526,95 @@ namespace BigMath
     // Forward decl so BuildMfaPlanTree can reference it. Defined later.
     inline void MFAFactor(Int n, Int &n1, Int &n2);
 
-    // Pre-built plan tree for MFA. Must be populated in the main thread before
-    // dispatching ParallelDo: the per-prime thread_local Plan cache in
-    // GetPlan() is invisible to worker threads, and a cold-cache GetPlan call
-    // from a worker would call BuildRoots → ParallelFor and re-enter the
-    // (non-reentrant) pool — deadlock.
+    // A long MFA node only applies cross-twiddles between its two axes.
+    // Only the leaves need a butterfly plan.
+    struct MfaRoots
+    {
+      std::vector<UInt> forward;
+      std::vector<UInt> inverse;
+    };
+
+#if BIGMATH_NEON
+    constexpr Int MfaTwiddleBlock = 32;
+    inline bool UseFactoredMfaRoots(Int n2) { return n2 >= 256; }
+#endif
+
+    template <typename F, UInt G>
+    inline std::vector<UInt> BuildMfaRoots(Int n, [[maybe_unused]] Int n2, bool invert)
+    {
+#if BIGMATH_NEON
+      if (UseFactoredMfaRoots(n2))
+      {
+        // For storage index b*Block + j, reversing the bits gives
+        // reverse(b) + groups*reverse(j). Cache the two factors of
+        // omega^(row*frequency), each with its Shoup companion. A row
+        // needs just Block + groups multipliers for its n2 coefficients.
+        constexpr Int Block = MfaTwiddleBlock;
+        const Int groups = n2 / Block;
+        const Int stride = 2 * (Block + groups);
+        const Int n1 = n / n2;
+        const auto &laneOrder = GetBitReverseTable(Block);
+        const auto &blockOrder = GetBitReverseTable(groups);
+        UInt root = F::Power(G, (F::Prime - 1) / (UInt)n);
+        if (invert) root = F::Inv(root);
+        std::vector<UInt> factors((SizeT)n1 * stride);
+        UInt step = 1;
+        for (Int r = 0; r < n1; ++r)
+        {
+          UInt *row = factors.data() + (SizeT)r * stride;
+          const UInt laneStep = F::Power(step, (UInt)groups);
+          UInt w = 1;
+          for (Int j : laneOrder)
+          {
+            row[2 * j] = w;
+            row[2 * j + 1] = ShoupCompanion<F>(w);
+            w = F::Mul(w, laneStep);
+          }
+          w = 1;
+          for (Int b : blockOrder)
+          {
+            row[2 * (Block + b)] = w;
+            row[2 * (Block + b) + 1] = ShoupCompanion<F>(w);
+            w = F::Mul(w, step);
+          }
+          step = F::Mul(step, root);
+        }
+        return factors;
+      }
+#endif
+      return BuildRoots<F, G>(n, invert);
+    }
+
+    // Build on the calling thread. Workers read these immutable tables while
+    // the caller owns their thread-local caches.
     template <typename F>
     struct MfaPlanTree
     {
-      std::unordered_map<Int, const Plan<F> *> bySize;
-      const Plan<F> &Get(Int sz) const { return *bySize.at(sz); }
+      std::unordered_map<Int, const Plan<F> *> leaves;
+      std::unordered_map<Int, const MfaRoots *> cross;
+      const Plan<F> &Leaf(Int sz) const { return *leaves.at(sz); }
+      const MfaRoots &Roots(Int sz) const { return *cross.at(sz); }
     };
 
     template <typename F, UInt G>
     inline void BuildMfaPlanTree(Int n, MfaPlanTree<F> &tree)
     {
-      if (tree.bySize.count(n)) return;
-      tree.bySize[n] = &GetPlan<F, G>(n);
-      if (n > BIGMATH_NTT_MFA_LEAF)
+      if (n <= BIGMATH_NTT_MFA_LEAF)
       {
-        Int n1, n2;
-        MFAFactor(n, n1, n2);
-        BuildMfaPlanTree<F, G>(n1, tree);
-        BuildMfaPlanTree<F, G>(n2, tree);
+        tree.leaves[n] = &GetPlan<F, G>(n);
+        return;
       }
+      if (tree.cross.count(n)) return;
+      Int n1, n2;
+      MFAFactor(n, n1, n2);
+      static thread_local std::unordered_map<Int, MfaRoots> cache;
+      auto it = cache.find(n);
+      if (it == cache.end())
+        it = cache.emplace(n, MfaRoots{BuildMfaRoots<F, G>(n, n2, false),
+                                       BuildMfaRoots<F, G>(n, n2, true)}).first;
+      tree.cross[n] = &it->second;
+      BuildMfaPlanTree<F, G>(n1, tree);
+      if (n2 != n1) BuildMfaPlanTree<F, G>(n2, tree);
     }
 
     template <typename F>
@@ -2632,10 +2697,32 @@ namespace BigMath
     template <typename F>
     inline void MfaTwiddleApplyRow(UInt *row, Int rowIndex, Int n2, Int nFull, const UInt *roots, const Int *br)
     {
-      Int half = nFull >> 1;
-      UInt P = F::Prime;
       if (rowIndex == 0) return;
 
+#if BIGMATH_NEON
+      if (UseFactoredMfaRoots(n2))
+      {
+        constexpr Int Block = MfaTwiddleBlock;
+        const Int groups = n2 / Block;
+        const UInt *lanes = roots + (SizeT)rowIndex * 2 * (Block + groups);
+        const UInt *blocks = lanes + 2 * Block;
+        for (Int b = 0; b < groups; ++b)
+        {
+          const auto w = vdupq_n_u32(blocks[2 * b]);
+          const auto ws = vdupq_n_u32(blocks[2 * b + 1]);
+          UInt *values = row + b * Block;
+          for (Int j = 0; j < Block; j += 4)
+          {
+            const auto lane = vld2q_u32(lanes + 2 * j);
+            const auto x = NeonShoupMul<F>(lane.val[0], lane.val[1], vld1q_u32(values + j));
+            vst1q_u32(values + j, NeonShoupMul<F>(w, ws, x));
+          }
+        }
+        return;
+      }
+#endif
+      const Int half = nFull >> 1;
+      const UInt P = F::Prime;
       Int posCount = (half + rowIndex - 1) / rowIndex;
       if (posCount > n2) posCount = n2;
 
@@ -2813,9 +2900,7 @@ namespace BigMath
     // row is multiplied into the already-transformed operand-A plane:
     // acc[i] = acc[i] * Bhat[i]. B's spectrum never reaches DRAM and the
     // separate full-plane pointwise sweep disappears.
-    // Precondition: acc already holds A's COMPLETE forward transform — the
-    // caller must order A's forward before this stage (per-prime pairing in
-    // NttCrt::Multiply's fwdBody).
+    // The caller must finish A's forward for these same rows first.
     template <typename F>
     inline void FusedForwardBMul(UInt *acc, const UInt *scratch, Int n1, Int n2,
                                  const Plan<F> &planN1, Int r0s, Int r0e)
@@ -2920,7 +3005,7 @@ namespace BigMath
     {
       if (n <= BIGMATH_NTT_MFA_LEAF)
       {
-        ForwardPtr<F>(a, n, tree.Get(n));
+        ForwardPtr<F>(a, n, tree.Leaf(n));
         return;
       }
 
@@ -2930,10 +3015,10 @@ namespace BigMath
 #if BIGMATH_NTT_MFA_FUSE
       if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
       {
-        const Plan<F> &planN_f = tree.Get(n);
-        const Plan<F> &planN2_f = tree.Get(n2);
-        const Plan<F> &planN1_f = tree.Get(n1);
-        const UInt *fwdRoots_f = planN_f.forwardRoots.data();
+        const MfaRoots &roots = tree.Roots(n);
+        const Plan<F> &planN2_f = tree.Leaf(n2);
+        const Plan<F> &planN1_f = tree.Leaf(n1);
+        const UInt *fwdRoots_f = roots.forward.data();
         const Int *br_f = GetBitReverseTable(n2).data();
         auto fa = [a, scratch, n, n1, n2, &planN2_f, fwdRoots_f, br_f](Int s, Int e) {
           FusedForwardA<F>(a, scratch, n, n1, n2, planN2_f, fwdRoots_f, br_f, s, e);
@@ -2957,19 +3042,19 @@ namespace BigMath
 
       // Step 2: n1 forward sub-FFTs of length n2 on rows of scratch.
       // Each sub-call uses the matching slice of `a` as its own scratch.
-      const Plan<F> &planN = tree.Get(n);
-      const Plan<F> &planN2 = tree.Get(n2);
+      const MfaRoots &roots = tree.Roots(n);
+      const Plan<F> *planN2 = n2 <= BIGMATH_NTT_MFA_LEAF ? &tree.Leaf(n2) : nullptr;
       const std::vector<Int> &brTable = GetBitReverseTable(n2);
       const Int *br = brTable.data();
-      auto step2 = [scratch, a, n2, parallel, &planN, &planN2, &tree, br, n](Int rStart, Int rEnd) {
+      auto step2 = [scratch, a, n2, parallel, &roots, planN2, &tree, br, n](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = scratch + (SizeT)r * n2;
           if (n2 <= BIGMATH_NTT_MFA_LEAF)
-            ForwardPtr<F>(row, n2, planN2);
+            ForwardPtr<F>(row, n2, *planN2);
           else
             ForwardMFA<F>(row, n2, a + (SizeT)r * n2, parallel, tree);
-          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.forwardRoots.data(), br);
+          MfaTwiddleApplyRow<F>(row, r, n2, n, roots.forward.data(), br);
         }
       };
 #if BIGMATH_USE_THREADS
@@ -2983,13 +3068,13 @@ namespace BigMath
       Transpose(scratch, a, n1, n2);
 
       // Step 5: n2 forward sub-FFTs of length n1 on rows of a.
-      const Plan<F> &planN1 = tree.Get(n1);
-      auto step5 = [a, scratch, n1, parallel, &planN1, &tree](Int rStart, Int rEnd) {
+      const Plan<F> *planN1 = n1 <= BIGMATH_NTT_MFA_LEAF ? &tree.Leaf(n1) : nullptr;
+      auto step5 = [a, scratch, n1, parallel, planN1, &tree](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = a + (SizeT)r * n1;
           if (n1 <= BIGMATH_NTT_MFA_LEAF)
-            ForwardPtr<F>(row, n1, planN1);
+            ForwardPtr<F>(row, n1, *planN1);
           else
             ForwardMFA<F>(row, n1, scratch + (SizeT)r * n1, parallel, tree);
         }
@@ -3019,10 +3104,10 @@ namespace BigMath
         MFAFactor(n, n1, n2);
         if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
         {
-          const Plan<F> &planN_f = tree.Get(n);
-          const Plan<F> &planN2_f = tree.Get(n2);
-          const Plan<F> &planN1_f = tree.Get(n1);
-          const UInt *fwdRoots_f = planN_f.forwardRoots.data();
+          const MfaRoots &roots = tree.Roots(n);
+          const Plan<F> &planN2_f = tree.Leaf(n2);
+          const Plan<F> &planN1_f = tree.Leaf(n1);
+          const UInt *fwdRoots_f = roots.forward.data();
           const Int *br_f = GetBitReverseTable(n2).data();
           auto fa = [b, scratch, n, n1, n2, &planN2_f, fwdRoots_f, br_f](Int s, Int e) {
             FusedForwardA<F>(b, scratch, n, n1, n2, planN2_f, fwdRoots_f, br_f, s, e);
@@ -3051,7 +3136,7 @@ namespace BigMath
     {
       if (n <= BIGMATH_NTT_MFA_LEAF)
       {
-        InversePtr<F>(a, n, tree.Get(n), /*scale=*/ true);
+        InversePtr<F>(a, n, tree.Leaf(n), /*scale=*/ true);
         return;
       }
 
@@ -3061,10 +3146,10 @@ namespace BigMath
 #if BIGMATH_NTT_MFA_FUSE
       if (n1 <= BIGMATH_NTT_MFA_LEAF && n2 <= BIGMATH_NTT_MFA_LEAF)
       {
-        const Plan<F> &planN_f = tree.Get(n);
-        const Plan<F> &planN2_f = tree.Get(n2);
-        const Plan<F> &planN1_f = tree.Get(n1);
-        const UInt *invRoots_f = planN_f.inverseRoots.data();
+        const MfaRoots &roots = tree.Roots(n);
+        const Plan<F> &planN2_f = tree.Leaf(n2);
+        const Plan<F> &planN1_f = tree.Leaf(n1);
+        const UInt *invRoots_f = roots.inverse.data();
         const Int *br_f = GetBitReverseTable(n2).data();
         auto ia = [a, scratch, n1, n2, &planN1_f](Int s, Int e) {
           FusedInverseA<F>(a, scratch, n1, n2, planN1_f, s, e);
@@ -3084,13 +3169,13 @@ namespace BigMath
 #endif
 
       // Reverse step 5: n2 inverse sub-FFTs of length n1 on rows of a.
-      const Plan<F> &planN1 = tree.Get(n1);
-      auto invStep5 = [a, scratch, n1, parallel, &planN1, &tree](Int rStart, Int rEnd) {
+      const Plan<F> *planN1 = n1 <= BIGMATH_NTT_MFA_LEAF ? &tree.Leaf(n1) : nullptr;
+      auto invStep5 = [a, scratch, n1, parallel, planN1, &tree](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = a + (SizeT)r * n1;
           if (n1 <= BIGMATH_NTT_MFA_LEAF)
-            InversePtr<F>(row, n1, planN1, /*scale=*/ true);
+            InversePtr<F>(row, n1, *planN1, /*scale=*/ true);
           else
             InverseMFA<F>(row, n1, scratch + (SizeT)r * n1, parallel, tree);
         }
@@ -3106,11 +3191,11 @@ namespace BigMath
       Transpose(a, scratch, n2, n1);
 
       // Reverse step 2: n1 inverse sub-FFTs of length n2 on rows of scratch.
-      const Plan<F> &planN = tree.Get(n);
-      const Plan<F> &planN2 = tree.Get(n2);
+      const MfaRoots &roots = tree.Roots(n);
+      const Plan<F> *planN2 = n2 <= BIGMATH_NTT_MFA_LEAF ? &tree.Leaf(n2) : nullptr;
       const std::vector<Int> &brTable = GetBitReverseTable(n2);
       const Int *br = brTable.data();
-      auto invStep2 = [scratch, a, n2, parallel, &planN, &planN2, &tree, br, n](Int rStart, Int rEnd) {
+      auto invStep2 = [scratch, a, n2, parallel, &roots, planN2, &tree, br, n](Int rStart, Int rEnd) {
         for (Int r = rStart; r < rEnd; ++r)
         {
           UInt *row = scratch + (SizeT)r * n2;
@@ -3121,9 +3206,9 @@ namespace BigMath
           // after the row inverse, breaking forward·inverse identity at every
           // MFA size — latent because the 2^24 gate sits above all routine
           // correctness tests.
-          MfaTwiddleApplyRow<F>(row, r, n2, n, planN.inverseRoots.data(), br);
+          MfaTwiddleApplyRow<F>(row, r, n2, n, roots.inverse.data(), br);
           if (n2 <= BIGMATH_NTT_MFA_LEAF)
-            InversePtr<F>(row, n2, planN2, /*scale=*/ true);
+            InversePtr<F>(row, n2, *planN2, /*scale=*/ true);
           else
             InverseMFA<F>(row, n2, a + (SizeT)r * n2, parallel, tree);
         }
@@ -3157,23 +3242,28 @@ namespace BigMath
     }
 
 #if BIGMATH_NTT_MFA_FUSE
-    // Fused forward + pointwise for one operand pair across all three primes
-    // (pass fusion F1, mem_pass_fusion.md), parallelism-preserving form:
-    //   P1 — ParallelDo(6): stage A (gather + row FFT(n2) + cross-twiddle)
-    //        for all six operand×prime planes; independent units.
-    //   P2 — ParallelDo(6): unit = (prime, half of the n2 output rows).
-    //        Each unit runs fa's stage B on its row range, then fb's stage B
-    //        over the same range with the pointwise multiply fused into the
-    //        scatter (FusedForwardBMul): fa[i] = fa[i] · fb^[i]. fb's
-    //        spectrum never reaches DRAM and no standalone pointwise sweep
-    //        is needed, while the forward keeps six concurrent work units
-    //        throughout.
-    // A first cut paired fa/fb whole-prime in ParallelDo(3); warm-state
-    // benches showed a 1.47× regression — this band does NOT saturate
-    // bandwidth from 3 cores. Row-level ParallelFor inside the stages can't
-    // restore the parallelism either: MFA stage row counts (n1, n2 ≤ 2^13)
-    // sit below ParallelMinSize() = 65536, so the internal gate never
-    // fires. ParallelDo bypasses MinSize.
+    // Split the tiles of all planes across the pool. At each barrier a worker
+    // can own part of a plane, so the number of primes or operands does
+    // not cap parallelism. Adjacent ranges never share a transpose tile.
+    template <typename Body>
+    inline void MfaParallelRows(Int planes, Int rows, Body body)
+    {
+      constexpr Int Tile = BIGMATH_NTT_MFA_FUSE_TILE;
+      const Int tiles = (rows + Tile - 1) / Tile;
+      ParallelDo(planes * tiles, [&](Int start, Int end) {
+        while (start < end)
+        {
+          const Int plane = start / tiles;
+          const Int first = plane * tiles;
+          const Int stop = std::min(end, first + tiles);
+          body(plane, (start - first) * Tile, std::min(rows, (stop - first) * Tile));
+          start = stop;
+        }
+      });
+    }
+
+    // Forward stage A packs both operands for all three primes. Stage B
+    // transforms matching rows of a and b, multiplying b into a on scatter.
     // a/b are zero-copy limb views (pass fusion F3 — stage A packs each
     // gathered element on the fly; no pre-packed input planes, no zero
     // fills). fa = {fa1, fa2, fa3} output planes — written in full by stage
@@ -3190,67 +3280,47 @@ namespace BigMath
     {
       Int n1 = 0, n2 = 0;
       MFAFactor(n, n1, n2);
-      const UInt *fwd1 = tree1.Get(n).forwardRoots.data();
-      const UInt *fwd2 = tree2.Get(n).forwardRoots.data();
-      const UInt *fwd3 = tree3.Get(n).forwardRoots.data();
-      const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
-      const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
-      const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+      const UInt *fwd1 = tree1.Roots(n).forward.data();
+      const UInt *fwd2 = tree2.Roots(n).forward.data();
+      const UInt *fwd3 = tree3.Roots(n).forward.data();
+      const Plan<F1> *pn2_1 = &tree1.Leaf(n2), *pn1_1 = &tree1.Leaf(n1);
+      const Plan<F2> *pn2_2 = &tree2.Leaf(n2), *pn1_2 = &tree2.Leaf(n1);
+      const Plan<F3> *pn2_3 = &tree3.Leaf(n2), *pn1_3 = &tree3.Leaf(n1);
       const Int *br = GetBitReverseTable(n2).data();
 
-      auto stageA = [&a, &b, scrs, n, n1, n2, fwd1, fwd2, fwd3,
-                     pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
-        for (Int idx = s; idx < e; ++idx)
+      MfaParallelRows(6, n1, [&](Int plane, Int start, Int end) {
+        switch (plane)
         {
-          switch (idx)
-          {
-            case 0: FusedForwardAPack<F1>(a, scrs[0], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-            case 1: FusedForwardAPack<F1>(b, scrs[1], n, n1, n2, *pn2_1, fwd1, br, 0, n1); break;
-            case 2: FusedForwardAPack<F2>(a, scrs[2], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-            case 3: FusedForwardAPack<F2>(b, scrs[3], n, n1, n2, *pn2_2, fwd2, br, 0, n1); break;
-            case 4: FusedForwardAPack<F3>(a, scrs[4], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
-            case 5: FusedForwardAPack<F3>(b, scrs[5], n, n1, n2, *pn2_3, fwd3, br, 0, n1); break;
-          }
+          case 0: FusedForwardAPack<F1>(a, scrs[0], n, n1, n2, *pn2_1, fwd1, br, start, end); break;
+          case 1: FusedForwardAPack<F1>(b, scrs[1], n, n1, n2, *pn2_1, fwd1, br, start, end); break;
+          case 2: FusedForwardAPack<F2>(a, scrs[2], n, n1, n2, *pn2_2, fwd2, br, start, end); break;
+          case 3: FusedForwardAPack<F2>(b, scrs[3], n, n1, n2, *pn2_2, fwd2, br, start, end); break;
+          case 4: FusedForwardAPack<F3>(a, scrs[4], n, n1, n2, *pn2_3, fwd3, br, start, end); break;
+          case 5: FusedForwardAPack<F3>(b, scrs[5], n, n1, n2, *pn2_3, fwd3, br, start, end); break;
         }
-      };
-      ParallelDo(6, stageA);
+      });
 
-      const Int half = n2 >> 1;
-      auto stageB = [fa, scrs, n1, n2, half,
-                     pn1_1, pn1_2, pn1_3](Int s, Int e) {
-        for (Int idx = s; idx < e; ++idx)
+      MfaParallelRows(3, n2, [&](Int prime, Int start, Int end) {
+        switch (prime)
         {
-          Int r0s = (idx & 1) ? half : 0;
-          Int r0e = (idx & 1) ? n2 : half;
-          switch (idx >> 1)
-          {
-            case 0:
-              FusedForwardB<F1>(fa[0], scrs[0], n1, n2, *pn1_1, r0s, r0e);
-              FusedForwardBMul<F1>(fa[0], scrs[1], n1, n2, *pn1_1, r0s, r0e);
-              break;
-            case 1:
-              FusedForwardB<F2>(fa[1], scrs[2], n1, n2, *pn1_2, r0s, r0e);
-              FusedForwardBMul<F2>(fa[1], scrs[3], n1, n2, *pn1_2, r0s, r0e);
-              break;
-            case 2:
-              FusedForwardB<F3>(fa[2], scrs[4], n1, n2, *pn1_3, r0s, r0e);
-              FusedForwardBMul<F3>(fa[2], scrs[5], n1, n2, *pn1_3, r0s, r0e);
-              break;
-          }
+          case 0:
+            FusedForwardB<F1>(fa[0], scrs[0], n1, n2, *pn1_1, start, end);
+            FusedForwardBMul<F1>(fa[0], scrs[1], n1, n2, *pn1_1, start, end);
+            break;
+          case 1:
+            FusedForwardB<F2>(fa[1], scrs[2], n1, n2, *pn1_2, start, end);
+            FusedForwardBMul<F2>(fa[1], scrs[3], n1, n2, *pn1_2, start, end);
+            break;
+          case 2:
+            FusedForwardB<F3>(fa[2], scrs[4], n1, n2, *pn1_3, start, end);
+            FusedForwardBMul<F3>(fa[2], scrs[5], n1, n2, *pn1_3, start, end);
+            break;
         }
-      };
-      ParallelDo(6, stageB);
+      });
     }
 
-    // Row-chunked fused inverse for the three product planes. The 2-process
-    // probe showed a single multiply uses only ~64% of DRAM bandwidth, so
-    // ParallelDo(3) whole-transform units (3 cores busy) leave wall-clock on
-    // the table. Each fused inverse stage runs as (prime, half-row-range)
-    // units — 6 concurrent units per phase, same math; the barrier between
-    // the two ParallelDo calls is load-bearing (stage B row j reads scatter
-    // output from every stage A unit).
-    // bufs = {fa1, fa2, fa3}; scrs = three scratch planes. Same caller
-    // contract as MfaFusedForwardPointwise.
+    // Stage B reads scattered results from every stage A range. Returning
+    // from the first parallel dispatch provides the required barrier.
     inline void MfaFusedInverse(UInt *const bufs[3], UInt *const scrs[3], Int n,
                                 const MfaPlanTree<F1> &tree1,
                                 const MfaPlanTree<F2> &tree2,
@@ -3258,47 +3328,30 @@ namespace BigMath
     {
       Int n1 = 0, n2 = 0;
       MFAFactor(n, n1, n2);
-      const UInt *inv1 = tree1.Get(n).inverseRoots.data();
-      const UInt *inv2 = tree2.Get(n).inverseRoots.data();
-      const UInt *inv3 = tree3.Get(n).inverseRoots.data();
-      const Plan<F1> *pn2_1 = &tree1.Get(n2), *pn1_1 = &tree1.Get(n1);
-      const Plan<F2> *pn2_2 = &tree2.Get(n2), *pn1_2 = &tree2.Get(n1);
-      const Plan<F3> *pn2_3 = &tree3.Get(n2), *pn1_3 = &tree3.Get(n1);
+      const UInt *inv1 = tree1.Roots(n).inverse.data();
+      const UInt *inv2 = tree2.Roots(n).inverse.data();
+      const UInt *inv3 = tree3.Roots(n).inverse.data();
+      const Plan<F1> *pn2_1 = &tree1.Leaf(n2), *pn1_1 = &tree1.Leaf(n1);
+      const Plan<F2> *pn2_2 = &tree2.Leaf(n2), *pn1_2 = &tree2.Leaf(n1);
+      const Plan<F3> *pn2_3 = &tree3.Leaf(n2), *pn1_3 = &tree3.Leaf(n1);
       const Int *br = GetBitReverseTable(n2).data();
 
-      const Int halfA = n2 >> 1; // stage A iterates n2 rows of length n1
-      auto invStageA = [bufs, scrs, n1, n2, halfA,
-                        pn1_1, pn1_2, pn1_3](Int s, Int e) {
-        for (Int idx = s; idx < e; ++idx)
+      MfaParallelRows(3, n2, [&](Int prime, Int start, Int end) {
+        switch (prime)
         {
-          Int r0s = (idx & 1) ? halfA : 0;
-          Int r0e = (idx & 1) ? n2 : halfA;
-          switch (idx >> 1)
-          {
-            case 0: FusedInverseA<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, r0s, r0e); break;
-            case 1: FusedInverseA<F2>(bufs[1], scrs[1], n1, n2, *pn1_2, r0s, r0e); break;
-            case 2: FusedInverseA<F3>(bufs[2], scrs[2], n1, n2, *pn1_3, r0s, r0e); break;
-          }
+          case 0: FusedInverseA<F1>(bufs[0], scrs[0], n1, n2, *pn1_1, start, end); break;
+          case 1: FusedInverseA<F2>(bufs[1], scrs[1], n1, n2, *pn1_2, start, end); break;
+          case 2: FusedInverseA<F3>(bufs[2], scrs[2], n1, n2, *pn1_3, start, end); break;
         }
-      };
-      ParallelDo(6, invStageA);
-
-      const Int halfB = n1 >> 1; // stage B iterates n1 rows of length n2
-      auto invStageB = [bufs, scrs, n, n1, n2, halfB, inv1, inv2, inv3,
-                        pn2_1, pn2_2, pn2_3, br](Int s, Int e) {
-        for (Int idx = s; idx < e; ++idx)
+      });
+      MfaParallelRows(3, n1, [&](Int prime, Int start, Int end) {
+        switch (prime)
         {
-          Int r0s = (idx & 1) ? halfB : 0;
-          Int r0e = (idx & 1) ? n1 : halfB;
-          switch (idx >> 1)
-          {
-            case 0: FusedInverseB<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, inv1, br, r0s, r0e); break;
-            case 1: FusedInverseB<F2>(bufs[1], scrs[1], n, n1, n2, *pn2_2, inv2, br, r0s, r0e); break;
-            case 2: FusedInverseB<F3>(bufs[2], scrs[2], n, n1, n2, *pn2_3, inv3, br, r0s, r0e); break;
-          }
+          case 0: FusedInverseB<F1>(bufs[0], scrs[0], n, n1, n2, *pn2_1, inv1, br, start, end); break;
+          case 1: FusedInverseB<F2>(bufs[1], scrs[1], n, n1, n2, *pn2_2, inv2, br, start, end); break;
+          case 2: FusedInverseB<F3>(bufs[2], scrs[2], n, n1, n2, *pn2_3, inv3, br, start, end); break;
         }
-      };
-      ParallelDo(6, invStageB);
+      });
     }
 #endif // BIGMATH_NTT_MFA_FUSE
 #endif // BIGMATH_NTT_MFA
@@ -3334,14 +3387,14 @@ namespace BigMath
       MfaPlanTree<F> tree;
       if (mfaH) BuildMfaPlanTree<F, G>(H, tree);
       if (mfaL) BuildMfaPlanTree<F, G>(L, tree);
-      const Plan<F> &planH = GetPlan<F, G>(H);
-      const Plan<F> &planL = GetPlan<F, G>(L);
+      const Plan<F> *planH = mfaH ? nullptr : &GetPlan<F, G>(H);
+      const Plan<F> *planL = mfaL ? nullptr : &GetPlan<F, G>(L);
 
       TruncPackWeightFold<F>(a, base, pa, H, L, plan2H);
       if (mfaH) ForwardMFA<F>(pa, H, scratch, /*parallel=*/ false, tree);
-      else ForwardPtr<F>(pa, H, planH);
+      else ForwardPtr<F>(pa, H, *planH);
       if (mfaL) ForwardMFA<F>(pa + H, L, scratch, /*parallel=*/ false, tree);
-      else ForwardPtr<F>(pa + H, L, planL);
+      else ForwardPtr<F>(pa + H, L, *planL);
 
       if (b != nullptr)
       {
@@ -3350,14 +3403,14 @@ namespace BigMath
           ForwardMFAMul<F>(pb, H, scratch, /*parallel=*/ false, tree, pa);
         else
         {
-          ForwardPtr<F>(pb, H, planH);
+          ForwardPtr<F>(pb, H, *planH);
           for (Int i = 0; i < H; ++i) pa[i] = F::Mul(pa[i], pb[i]);
         }
         if (mfaL)
           ForwardMFAMul<F>(pb + H, L, scratch, /*parallel=*/ false, tree, pa + H);
         else
         {
-          ForwardPtr<F>(pb + H, L, planL);
+          ForwardPtr<F>(pb + H, L, *planL);
           for (Int i = 0; i < L; ++i) pa[H + i] = F::Mul(pa[H + i], pb[H + i]);
         }
       }
@@ -3368,9 +3421,9 @@ namespace BigMath
       }
 
       if (mfaH) InverseMFA<F>(pa, H, scratch, /*parallel=*/ false, tree);
-      else InversePtr<F>(pa, H, planH, /*scale=*/ true);
+      else InversePtr<F>(pa, H, *planH, /*scale=*/ true);
       if (mfaL) InverseMFA<F>(pa + H, L, scratch, /*parallel=*/ false, tree);
-      else InversePtr<F>(pa + H, L, planL, /*scale=*/ true);
+      else InversePtr<F>(pa + H, L, *planL, /*scale=*/ true);
       TruncUnweightReconstruct<F>(pa, H, L, plan2H);
     }
 
@@ -3457,21 +3510,23 @@ namespace BigMath
       // from the limb arrays and never touches fb at all.
       static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
 
-      const auto &plan1 = GetPlan<F1, G1>(n);
-      const auto &plan2 = GetPlan<F2, G2>(n);
-      const auto &plan3 = GetPlan<F3, G3>(n);
+      auto multiplySpectra = [&](Int length) {
+        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
+                            sameOperand ? fa1.data() : fb1.data(),
+                            sameOperand ? fa2.data() : fb2.data(),
+                            sameOperand ? fa3.data() : fb3.data(), length);
+      };
 
       // Just above a power of two: H + L instead of 2H (see TruncCyclicLength).
       if (const Int truncL = TruncCyclicLength(coeffCount, n >> 1); truncL != 0)
       {
+        const auto &plan1 = GetPlan<F1, G1>(n);
+        const auto &plan2 = GetPlan<F2, G2>(n);
+        const auto &plan3 = GetPlan<F3, G3>(n);
         const Int H = n >> 1;
         CrtTruncForwardBatch(a, sameOperand ? nullptr : &b, base, H, truncL,
                              fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
-        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
-                            sameOperand ? fa1.data() : fb1.data(),
-                            sameOperand ? fa2.data() : fb2.data(),
-                            sameOperand ? fa3.data() : fb3.data(),
-                            H + truncL);
+        multiplySpectra(H + truncL);
         CrtTruncInverseBatch(fa1, fa2, fa3, H, truncL, plan1, plan2, plan3);
         return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
       }
@@ -3486,17 +3541,12 @@ namespace BigMath
         return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
       }
 
-      const bool useMfa = UseMfaForShape(a.size(), b.size(), n);
-      // Six per-task scratch buffers, reused across calls on the invoking
-      // thread. The worker tasks only touch the raw pointers captured below,
-      // so persisting the vectors here does not change the parallel behavior.
-      static thread_local std::vector<UInt> mfaScratch[6];
-      MfaPlanTree<F1> tree1;
-      MfaPlanTree<F2> tree2;
-      MfaPlanTree<F3> tree3;
-      bool pointwiseFused = false;
-      if (useMfa)
+      if (UseMfaForShape(a.size(), b.size(), n))
       {
+        static thread_local std::vector<UInt> mfaScratch[6];
+        MfaPlanTree<F1> tree1;
+        MfaPlanTree<F2> tree2;
+        MfaPlanTree<F3> tree3;
         // Pre-warm all plans in main thread: worker threads cannot call
         // GetPlan() safely from inside ParallelDo (BuildRoots reenters pool).
         BuildMfaPlanTree<F1, G1>(n, tree1);
@@ -3519,7 +3569,7 @@ namespace BigMath
                            mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
           PackedOperandView va(a, base), vb(b, base);
           MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
-          pointwiseFused = true;
+          MfaFusedInverse(fap, scrs, n, tree1, tree2, tree3);
         }
         else
 #endif
@@ -3579,67 +3629,30 @@ namespace BigMath
             };
             ParallelDo(6, fwdBody);
           }
-        }
-      }
-      else
-#endif
-      {
-        // Cross-prime parallelism: 6 pack+forward units as one batch (3 when
-        // squaring). Each unit packs and zero-pads its own plane.
-        CrtPackForwardBatch(a, sameOperand ? nullptr : &b, base, n,
-                            fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
-      }
-
-      // The fused MFA path already multiplied fb into fa during forward
-      // stage B; the standalone pointwise sweep runs for every other path.
-      // When squaring, the b-side pointers alias fa and square it in place.
-#if BIGMATH_NTT_MFA
-      if (!pointwiseFused)
-#endif
-      {
-        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
-                            sameOperand ? fa1.data() : fb1.data(),
-                            sameOperand ? fa2.data() : fb2.data(),
-                            sameOperand ? fa3.data() : fb3.data(),
-                            n);
-      }
-
-#if BIGMATH_NTT_MFA
-      if (useMfa)
-      {
-        // Reuse the per-prime forward scratches. Each task gets its own.
-        UInt *bufs[3] = {fa1.data(), fa2.data(), fa3.data()};
-        UInt *scrs[3] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data()};
-
-#if BIGMATH_NTT_MFA_FUSE
-        if (MfaFusedWindow(n))
-        {
-          // Row-chunked fused inverse — see MfaFusedInverse.
-          MfaFusedInverse(bufs, scrs, n, tree1, tree2, tree3);
-        }
-        else
-#endif
-        {
+          multiplySpectra(n);
           auto invBody = [bufs, scrs, n, &tree1, &tree2, &tree3](Int s, Int e) {
             for (Int idx = s; idx < e; ++idx)
             {
               switch (idx)
               {
                 case 0: InverseMFA<F1>(bufs[0], n, scrs[0], /*parallel=*/false, tree1); break;
-                case 1: InverseMFA<F2>(bufs[1], n, scrs[1], /*parallel=*/false, tree2); break;
-                case 2: InverseMFA<F3>(bufs[2], n, scrs[2], /*parallel=*/false, tree3); break;
+                case 1: InverseMFA<F2>(bufs[2], n, scrs[1], /*parallel=*/false, tree2); break;
+                case 2: InverseMFA<F3>(bufs[4], n, scrs[2], /*parallel=*/false, tree3); break;
               }
             }
           };
           ParallelDo(3, invBody);
         }
+        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
       }
-      else
 #endif
-      {
-        CrtInverseBatch(fa1, fa2, fa3, plan1, plan2, plan3);
-      }
-
+      const auto &plan1 = GetPlan<F1, G1>(n);
+      const auto &plan2 = GetPlan<F2, G2>(n);
+      const auto &plan3 = GetPlan<F3, G3>(n);
+      CrtPackForwardBatch(a, sameOperand ? nullptr : &b, base, n,
+                          fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
+      multiplySpectra(n);
+      CrtInverseBatch(fa1, fa2, fa3, plan1, plan2, plan3);
       return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
     }
 
@@ -3679,10 +3692,6 @@ namespace BigMath
 
       static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
 
-      const auto &plan1 = GetPlan<F1, G1>(n);
-      const auto &plan2 = GetPlan<F2, G2>(n);
-      const auto &plan3 = GetPlan<F3, G3>(n);
-
 #if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
       // Same fused MFA pipeline as the linear path (forward + fused
       // pointwise via on-the-fly packing, row-chunked inverse). The MFA
@@ -3713,6 +3722,9 @@ namespace BigMath
       else
 #endif
       {
+        const auto &plan1 = GetPlan<F1, G1>(n);
+        const auto &plan2 = GetPlan<F2, G2>(n);
+        const auto &plan3 = GetPlan<F3, G3>(n);
         CrtPackForwardBatch(a, &b, base, n, fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
 
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
