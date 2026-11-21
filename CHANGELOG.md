@@ -1,5 +1,88 @@
 # Changelog
 
+## Unreleased — 2026-11-21 division pass (PRs #141–#149)
+
+The same treatment for division: measure the whole (divisor length, ratio)
+grid against GMP, then rebuild each layer. Quotient and remainder through
+the public API, dividend 5× the divisor, before → after the pass: 40k digits
+0.88 → 0.28 ms, 200k 1.67 → 1.18 ms, 1M 5.3 → 4.4 ms, 5M 39 → 25 ms, 20M
+141 → 104 ms. Division now **beats GMP from 200k-digit dividends** (was
+500k), at 0.19–0.67× on the canonical skewed rows, and trails by 1.4–2.0×
+below that (was 2.0–2.9×). ToString, which is built on division, beats GMP
+cold from 200k digits (was 1M). Tables in [BENCHMARK.md](BENCHMARK.md),
+write-ups in [docs/DIVISION.md](docs/DIVISION.md).
+
+### Performance
+
+- **Schoolbook basecase** (#142): `FastDivision` on 64-bit limbs is a
+  raw-buffer Knuth D loop on a flag-chain `SubMul1` kernel, with stack
+  workspace up to 192 limbs. 2.2–3.5× of GMP's basecase → 1.1–1.6×.
+- **Burnikel–Ziegler in place** (#143): rewritten in the shape of GMP's
+  `mpn_dcpi1_div_qr` — it works inside the shifted dividend buffer, splits
+  the divisor by pointer offset (no zero-padding for odd lengths) and bottoms
+  out in the new basecase at 64 limbs. 1.5–2.4× faster; a quotient shorter
+  than the divisor now costs what quotient-sized division costs.
+- **Newton reciprocal** (#144): a guarded precision schedule (exact base of
+  ≤ 32 limbs, each earlier precision `ceil((p+2)/2)`) with an unpadded Newton
+  step replaces exact doubling, whose error had drifted to ~B^5.5 at 1024
+  limbs and was being repaired by an extra full-size iteration. Contract
+  `0 ≤ ⌊B^2n/D⌋ − R ≤ 3`, no refinement pass.
+- **Dispatch re-sweep** (#145): one rule per regime instead of seven ratio
+  bands. BZ from 96-limb divisors (was 512, with shape conditions), Newton
+  from 1536 limbs at ratio ≥ 2 (768 at ratio ≥ 3), quotient-sized division
+  when the quotient is shorter than the divisor but ≥ 3072 limbs. The old
+  bands were more than 10% off the best algorithm on 69 of 232 grid cells,
+  by up to 2.8×; 3 cells remain, all under 16%.
+- **Single-limb divisor** (#146): `ClassicDivision::DivRem1` keeps the
+  running remainder normalized across the loop. 6.4 → 4.9 ns per limb.
+- **Quotient-only division** (#147): `Divide` / `operator/` with a quotient
+  shorter than the divisor computes it from the operands' top limbs — a
+  `(2δ+4)`-by-`(δ+4)` division instead of work proportional to `δ · nb`,
+  with one full-width product only when the top remainder cannot decide.
+  1024-limb divisor, 21-limb quotient: 12.4 → 0.58 µs.
+- **Newton leading block** (#149): a leading block of ≤ 32 quotient limbs
+  goes to schoolbook instead of a full-size Newton chunk. The normalization
+  shift pushes one limb out of a `k·n`-limb dividend for one random input in
+  three; those 8192 ÷ 4096-limb divisions are 16% faster.
+- **Thread pool** (#141, #148): small NTT products (≈ 310–512 limbs per
+  operand) are taken only while the pool is warm — isolated ones were up to
+  2.2× slower than Karatsuba because parked workers take as long to wake as
+  the whole multiply — and awake workers now pick a job up without a lock.
+  Every worker used to take the pool mutex on every job; the convoy cost
+  ~13 µs per warm dispatch (8 slices × 2 µs: 15.0 → 4.0 µs per job) and made
+  NTT timings depend on unrelated code layout: the same multiply ran 15–25%
+  slower in one build than in another.
+
+### Tests
+
+New unit suites for each change: `test_fast_division_basecase`,
+`test_bz_in_place`, `test_newton_division` (reciprocal contract, zero
+fallbacks, short leading block), `test_division_dispatch` (both sides of
+every dispatch edge), `test_div_single_limb`, `test_division_quotient_only`
+(`q·b + r` with `r = 0, 1, b − 1` and `q·b − 1`), and two pool tests (job
+descriptions never mix; every worker answers every dispatch). The dispatcher
+was also swept against GMP on 4612 shapes with no mismatch and no Newton
+fallback. ASan + UBSan on the division suites, ThreadSanitizer on the pool,
+NTT and Newton suites.
+
+### Not done / follow-ups
+
+- Divisors of a few hundred limbs at high ratio are still ~1.8–2.0× behind
+  GMP (100k ÷ 10k digits). Both BZ and Newton land there; closing it needs a
+  faster multiply below the NTT entry (GMP has Toom tiers and an assembly
+  basecase), not another division algorithm.
+- Quotient-only division with a short quotient is ~1.8× of GMP's
+  `mpz_tdiv_q`; the top division could use an approximate-quotient basecase.
+- Cold pool dispatch is unchanged (~45 µs until the last parked worker
+  arrives). Per-worker condition variables were measured and gave nothing:
+  the stagger is kernel wake latency.
+- `bench_vs_gmp` times `a / b` against `mpz_tdiv_qr`. On the skewed rows both
+  sides still do a full division, but the balanced rows are no longer
+  comparable; the harness should time like against like.
+- Ideas not pursued: a half-size ("mu") reciprocal for ratio ≈ 2; cyclic
+  residues plus a low-limb CRT to halve Newton's transforms at power-of-two
+  sizes; a 2/1 reciprocal without `__udivti3`.
+
 ## Unreleased — 2026-11-20 multiplication pass (PRs #129–#139)
 
 A top-to-bottom pass over multiplication. Through the public API, old `main`
@@ -54,7 +137,8 @@ division, parse and ToString — untouched, but built on `Multiply` — are
 - Division below ~200k-digit dividends is unchanged (`FastDivision`'s
   `submul` loops still use the old carry idiom; the new kernels apply
   directly), and the Newton/BZ dispatch frontier has not been re-swept
-  against the faster multiply.
+  against the faster multiply. *(Done in the 2026-11-21 division pass,
+  above.)*
 - 1–4-limb products are still 3–4× behind GMP: the result allocation
   dominates.
 - The fused-MFA band (n ≥ 2^22) keeps its power-of-two staircase.
