@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — cache-set aliasing in the large-transform transpose
+
+From a transform length of 2^20 the NTT runs as a two-pass matrix transform
+whose transposes go through a small tile of rows. The tile's rows were packed
+back to back, so they sat exactly one sub-transform length apart: from 4096
+entries that is 16 KB, one way of the 8-way L1 data cache on Apple P-cores,
+and all 16 rows competed for the same cache sets on every store. Rows are now
+one cache line further apart (`BIGMATH_NTT_MFA_FUSE_TILE_PAD = 16`), and the
+tile holds 32 rows instead of 16 (`BIGMATH_NTT_MFA_FUSE_TILE`). Results are
+unchanged bit for bit. `NttCrt::Multiply` on an M1 Max, equal operands, ms:
+
+| digits per operand | transform | 1 thread | 8 threads |
+|---:|---:|---:|---:|
+| 5 million | 2^20 | 59.5 → 57.0 | 11.6 → 11.0 |
+| 20 million | 2^22 | 310 → 290 | 65.0 → 63.8 |
+| 40 million | 2^23 | 948 → 678 | 191 → 151 |
+| 50 million | 2^24 | 2259 → 1668 | 438 → 337 |
+| 100 million | 2^25 | 5173 → 3729 | 958 → 758 |
+| 200 million | 2^26 | 11185 → 8263 | 2125 → 1688 |
+
 ## Unreleased — Toom-3 tier in the Karatsuba recursion
 
 Below the NTT entry, products and squares used plain Karatsuba. Inside the

@@ -108,10 +108,29 @@
 #define BIGMATH_NTT_MFA_FUSE 1
 #endif
 
-// Rows transposed per tile block. tile = TILE * maxSubFFT UInt must stay L2-
-// resident: 16 * 8192 * 4B = 512KB.
+// Rows transposed per tile block. tile = TILE * (maxSubFFT + PAD) UInt must
+// stay L2-resident: 32 * 8208 * 4B = 1.0 MB. Re-swept 2026-11-21 together with
+// the row padding below (was 16): at n >= 2^23 on M1 Max, 32 beats 16 by
+// 10-12% and 64 by 3-5% single-threaded; with 8 threads it beats 16 by 5-6%
+// and ties 64. Below 2^23 the three are within 7% of each other: 32 ahead
+// single-threaded, level with 8 threads.
 #ifndef BIGMATH_NTT_MFA_FUSE_TILE
-#define BIGMATH_NTT_MFA_FUSE_TILE 16
+#define BIGMATH_NTT_MFA_FUSE_TILE 32
+#endif
+
+// Extra UInt entries between consecutive tile rows (one 64-byte line). The
+// gather writes one element into every tile row per source column, so the
+// rows' write cursors advance together. With rows packed back to back they
+// sit exactly one sub-FFT length apart; from a sub-FFT of 4096 entries that
+// is 16 KB = one way of the 8-way 128 KB L1D on Apple P-cores, so all TILE
+// cursors map to the same cache set and evict each other on every store.
+// One line of padding per row walks the cursors across TILE distinct sets.
+// Measured on M1 Max: single-thread per-point cost at n = 2^22 / 2^23 / 2^24
+// was 73 / 114 / 131 ns unpadded and 73 / 89 / 104 ns padded (TILE = 16).
+// Keep it a multiple of 16 entries (whole cache lines) so every row keeps the
+// tile's alignment.
+#ifndef BIGMATH_NTT_MFA_FUSE_TILE_PAD
+#define BIGMATH_NTT_MFA_FUSE_TILE_PAD 16
 #endif
 
 // Output limbs from which the Garner/carry finalize pass is split across the
@@ -2598,6 +2617,13 @@ namespace BigMath
     // dominates the bandwidth-bound regime. Per-row math is identical to the
     // unfused step2/step5, so output is bit-exact.
 
+    // Distance in UInt entries between consecutive rows of a tile holding
+    // sub-FFT rows of `rowLen` entries (see BIGMATH_NTT_MFA_FUSE_TILE_PAD).
+    inline SizeT MfaTilePitch(Int rowLen)
+    {
+      return (SizeT)rowLen + (SizeT)BIGMATH_NTT_MFA_FUSE_TILE_PAD;
+    }
+
     // Forward stage A (step1+step2): for output rows r in [r0s,r0e), scratch row
     // r = FFT_n2(column r of a viewed n2×n1) then cross-twiddle(r). Reads `a`,
     // writes `scratch`.
@@ -2608,7 +2634,8 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n2);
+      const SizeT pitch = MfaTilePitch(n2);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
@@ -2618,11 +2645,11 @@ namespace BigMath
         {
           const UInt *s = a + (SizeT)c * n1 + r0;
           UInt *d = tile + c;
-          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n2] = s[t];
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = s[t];
         }
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n2;
+          UInt *row = tile + (SizeT)t * pitch;
           ForwardPtr<F>(row, n2, planN2);
           MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, fwdRoots, br);
           std::copy(row, row + n2, scratch + (SizeT)(r0 + t) * n2);
@@ -2638,7 +2665,8 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n1);
+      const SizeT pitch = MfaTilePitch(n1);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
@@ -2648,11 +2676,11 @@ namespace BigMath
         {
           const UInt *s = scratch + (SizeT)j * n2 + r0;
           UInt *d = tile + j;
-          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n1] = s[t];
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = s[t];
         }
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n1;
+          UInt *row = tile + (SizeT)t * pitch;
           ForwardPtr<F>(row, n1, planN1);
           std::copy(row, row + n1, a + (SizeT)(r0 + t) * n1);
         }
@@ -2706,7 +2734,8 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n2);
+      const SizeT pitch = MfaTilePitch(n2);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
@@ -2716,11 +2745,11 @@ namespace BigMath
         {
           SizeT base = (SizeT)c * n1 + r0;
           UInt *d = tile + c;
-          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n2] = src.Coeff<F>(base + t);
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = src.Coeff<F>(base + t);
         }
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n2;
+          UInt *row = tile + (SizeT)t * pitch;
           ForwardPtr<F>(row, n2, planN2);
           MfaTwiddleApplyRow<F>(row, r0 + t, n2, n, fwdRoots, br);
           std::copy(row, row + n2, scratch + (SizeT)(r0 + t) * n2);
@@ -2743,7 +2772,8 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n1);
+      const SizeT pitch = MfaTilePitch(n1);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
@@ -2753,11 +2783,11 @@ namespace BigMath
         {
           const UInt *s = scratch + (SizeT)j * n2 + r0;
           UInt *d = tile + j;
-          for (Int t = 0; t < tr; ++t) d[(SizeT)t * n1] = s[t];
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = s[t];
         }
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n1;
+          UInt *row = tile + (SizeT)t * pitch;
           ForwardPtr<F>(row, n1, planN1);
           UInt *d = acc + (SizeT)(r0 + t) * n1;
           for (Int j = 0; j < n1; ++j) d[j] = F::Mul(d[j], row[j]);
@@ -2774,14 +2804,15 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n1);
+      const SizeT pitch = MfaTilePitch(n1);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
         Int tr = std::min<Int>(TILE, r0e - r0);
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n1;
+          UInt *row = tile + (SizeT)t * pitch;
           std::copy(a + (SizeT)(r0 + t) * n1, a + (SizeT)(r0 + t) * n1 + n1, row);
           InversePtr<F>(row, n1, planN1, /*scale=*/ true);
         }
@@ -2790,7 +2821,7 @@ namespace BigMath
         {
           const UInt *s = tile + c;
           UInt *d = scratch + (SizeT)c * n2 + r0;
-          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * n1];
+          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * pitch];
         }
       }
     }
@@ -2805,14 +2836,15 @@ namespace BigMath
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
       static thread_local std::vector<UInt> tilebuf;
-      tilebuf.resize((SizeT)TILE * n2);
+      const SizeT pitch = MfaTilePitch(n2);
+      tilebuf.resize((SizeT)TILE * pitch);
       UInt *tile = tilebuf.data();
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
         Int tr = std::min<Int>(TILE, r0e - r0);
         for (Int t = 0; t < tr; ++t)
         {
-          UInt *row = tile + (SizeT)t * n2;
+          UInt *row = tile + (SizeT)t * pitch;
           std::copy(scratch + (SizeT)(r0 + t) * n2, scratch + (SizeT)(r0 + t) * n2 + n2, row);
           // Inverse cross-twiddle must precede the inverse row FFT (adjoint
           // of the forward fusion order; the bit-reversed addressing refers
@@ -2826,7 +2858,7 @@ namespace BigMath
         {
           const UInt *s = tile + c;
           UInt *d = a + (SizeT)c * n1 + r0;
-          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * n2];
+          for (Int t = 0; t < tr; ++t) d[t] = s[(SizeT)t * pitch];
         }
       }
     }
