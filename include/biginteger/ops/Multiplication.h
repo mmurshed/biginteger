@@ -22,13 +22,13 @@ namespace BigMath
   public:
     PreparedMultiplication(BigInteger const &a, SizeT maxOtherLimbs)
         : operand(a),
-          prepared(NTTMultiplication::PrepareOperand(a.GetInteger(), maxOtherLimbs, BigInteger::Base()))
+          prepared(NTTMultiplication::PrepareOperand(a.AsVector().get(), maxOtherLimbs, BigInteger::Base()))
     {
     }
 
     BigInteger Multiply(BigInteger const &b) const
     {
-      auto result = NTTMultiplication::Multiply(prepared, b.GetInteger());
+      auto result = NTTMultiplication::Multiply(prepared, b.AsVector().get());
       return BigInteger(std::move(result), operand.IsNegative() != b.IsNegative());
     }
 

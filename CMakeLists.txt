@@ -178,6 +178,10 @@ if(BIGMATH_BUILD_TESTS)
             endforeach()
         endif()
 
+        add_executable(small_ops_vs_gmp tests/performance/small_ops_vs_gmp.cpp)
+        target_link_libraries(small_ops_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(small_ops_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
+
         add_executable(mfa_vs_gmp_check tests/performance/mfa_vs_gmp_check.cpp)
         target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})

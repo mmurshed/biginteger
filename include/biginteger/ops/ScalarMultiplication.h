@@ -11,6 +11,7 @@
 
 #include "../BigInteger.h"
 #include "../algorithms/multiplication/ClassicMultiplication.h"
+#include "SmallOps.h"
 
 namespace BigMath
 {
@@ -18,7 +19,9 @@ namespace BigMath
   {
     if (b == 0 || a.Zero())
       return BigInteger();
-    std::vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
+    if (SmallOps::Fits(a))
+      return SmallOps::MulScalar(a, b, a.IsNegative());
+    std::vector<DataT> m = ClassicMultiplication::Multiply(a.AsVector().get(), b, BigInteger::Base());
     // DataT is unsigned; the b<0 branch was structurally dead. Sign comes solely from a.
     return BigInteger(std::move(m), a.IsNegative());
   }

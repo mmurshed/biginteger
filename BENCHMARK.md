@@ -2,9 +2,9 @@
 
 ## Single-thread comparison
 
-On November 21, 2026, BigMath and GMP 6.3.0 each used one thread on the Apple M1 Max (10 cores, 32 GiB). The full split benchmark ran the two libraries sequentially on the same 91 operand sets as the default-build run below. GMP was timed again. The Release build used Apple Clang 21, native arm64 instructions and the default 64-bit limbs. The library and its benchmark executable were both compiled with `-DBIGMATH_USE_THREADS=0`. [Measured revision](https://github.com/mmurshed/biginteger/tree/7fd44ea0c73330918ad7481da2f0bdc8247baac4)
+On November 21, 2026, BigMath and GMP 6.3.0 each used one thread on the Apple M1 Max (10 cores, 32 GiB). The full split benchmark ran the two libraries sequentially on the same 91 operand sets as the default-build run below, and both comparisons use the same GMP pass. The Release build used Apple Clang 21, native arm64 instructions and the default 64-bit limbs. The library and its benchmark executable were both compiled with `-DBIGMATH_USE_THREADS=0`. The measured revision adds inline storage for small values (at most 4 limbs), which none of these operands are, so these results are expected to match the previous run within noise. [Measured revision](https://github.com/mmurshed/biginteger/tree/43aa64f)
 
-The full CSV includes the first call, fastest subsequent call, warm repetition count and arithmetic check status for all 111 rows. Most large sizes have one warm observation per library. All 24 product checks and 40 division checks matched GMP’s reference hashes. Each division mode was checked against the corresponding GMP operation. [README performance table](README.md#performance-numbers) · [Single-thread CSV](docs/benchmarks/2026-11-21-m1-max-single-thread.csv) · [Single-thread figure](docs/images/bigmath_vs_gmp_single_thread.png)
+The full CSV includes the first call, fastest subsequent call, warm repetition count and arithmetic check status for all 111 rows. Most large sizes have one warm observation per library. All 24 product checks and 40 division checks matched GMP’s reference hashes. Each division mode was checked against the corresponding GMP operation. [README performance table](README.md#performance-numbers) · [Single-thread CSV](docs/benchmarks/2026-11-21-sbo-m1-max-single-thread.csv) · [Single-thread figure](docs/images/bigmath_vs_gmp_single_thread.png)
 
 To repeat the single-thread run, give the driver its own build and results directory. The figure generator uses the checked-in CSVs and requires Matplotlib.
 
@@ -17,7 +17,9 @@ python3 docs/images/make_benchmark_plots.py --ratio-only
 
 ## Default build with up to eight BigMath threads
 
-The November 21, 2026 run measured PR #152 on an Apple M1 Max, with balanced multiplication through 200 million digits per operand and skewed division through 200 million ÷ 40 million digits. Both libraries produced the requested outputs on the same inputs. All 24 product checks and 40 division checks matched the GMP reference hashes. [Full results CSV](docs/benchmarks/2026-11-21-pr152-m1-max.csv) · [Benchmarked revision](https://github.com/mmurshed/biginteger/tree/c9c3e56222a17f520f7725b65c03d33232c71416)
+The November 21, 2026 run measured the inline-storage revision on an Apple M1 Max, with balanced multiplication through 200 million digits per operand and skewed division through 200 million ÷ 40 million digits. Both libraries produced the requested outputs on the same inputs. All 24 product checks and 40 division checks matched the GMP reference hashes. [Full results CSV](docs/benchmarks/2026-11-21-sbo-m1-max.csv) · [Measured revision](https://github.com/mmurshed/biginteger/tree/43aa64f) · [Previous run (PR #152)](docs/benchmarks/2026-11-21-pr152-m1-max.csv)
+
+**Run-to-run variation.** The BigMath pass was run three times on the same build. The published CSV is the third run, the only one taken against a GMP pass whose small-size rows matched GMP in a tight loop (an earlier GMP pass measured 1.3 µs for the 1,000-digit product where a loop measures 0.88 µs). Rows with a single warm observation vary between runs. The largest spread was multithreaded parsing: 0.57–1.02 ms at 100,000 digits, 2.96–4.55 ms at 500,000 and 6.4–9.9 ms at 1,000,000 across the three runs, against 0.54, 3.46 and 6.39 ms in the previous published run. Single-thread parsing did not vary, which points at thread-pool timing rather than the arithmetic.
 
 ![Four plots of BigMath time divided by GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
@@ -37,7 +39,7 @@ To repeat the default-build run with fresh GMP timings, run the full profile fro
 bash tests/performance/benchsuite/run_benchmark.sh full --force-gmp
 ```
 
-A separate run of `./build/bench_vs_gmp` measured both libraries in one process on different seeded operands. It completed 151 measurements. Its single 200-million-digit balanced product took 3,721 ms in BigMath and 3,057 ms in GMP (1.22×). [In-process output](docs/benchmarks/2026-11-21-pr152-in-process.txt)
+A separate run of `./build/bench_vs_gmp` on PR #152 measured both libraries in one process on different seeded operands. It completed 151 measurements. Its single 200-million-digit balanced product took 3,721 ms in BigMath and 3,057 ms in GMP (1.22×). [In-process output](docs/benchmarks/2026-11-21-pr152-in-process.txt)
 
 ### Multiplication
 
@@ -47,35 +49,35 @@ The equal-length series measures two independently generated operands. The skewe
 
 | Operand digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 1,000 × 1,000 | 0.07642 | 0.007625 | 10.02× | 0.001291 | 0.000875 | 1.48× | 7 |
-| 5,000 × 5,000 | 0.022 | 0.01871 | 1.18× | 0.01696 | 0.01254 | 1.35× | 5 |
-| 10,000 × 10,000 | 0.5888 | 0.03133 | 18.79× | 0.02283 | 0.02783 | 0.82× | 5 |
-| 50,000 × 50,000 | 0.4726 | 0.2881 | 1.64× | 0.1107 | 0.2723 | 0.41× | 3 |
-| 100,000 × 100,000 | 0.9058 | 0.6348 | 1.43× | 0.2152 | 0.5928 | 0.36× | 3 |
-| 500,000 × 500,000 | 2.55 | 4.327 | 0.59× | 1.401 | 4.276 | 0.33× | 1 |
-| 1,000,000 × 1,000,000 | 4.763 | 9.495 | 0.50× | 3.247 | 9.379 | 0.35× | 1 |
-| 2,000,000 × 2,000,000 | 11.11 | 21.14 | 0.53× | 8.96 | 20.69 | 0.43× | 1 |
-| 5,000,000 × 5,000,000 | 19.67 | 63.53 | 0.31× | 12.23 | 62.4 | 0.20× | 1 |
-| 10,000,000 × 10,000,000 | 44.85 | 209.7 | 0.21× | 29.75 | 205.7 | 0.14× | 1 |
-| 20,000,000 × 20,000,000 | 96.73 | 276.4 | 0.35× | 67.6 | 270.1 | 0.25× | 1 |
-| 50,000,000 × 50,000,000 | 612.1 | 680.7 | 0.90× | 451.2 | 657.1 | 0.69× | 1 |
-| 100,000,000 × 100,000,000 | 1,322 | 1,415 | 0.93× | 992 | 1,391 | 0.71× | 1 |
-| 200,000,000 × 200,000,000 | 4,518 | 2,909 | 1.55× | 2,325 | 2,868 | 0.81× | 1 |
+| 1,000 × 1,000 | 0.008 | 0.1106 | 0.07× | 0.00125 | 0.000958 | 1.30× | 7 |
+| 5,000 × 5,000 | 0.02308 | 0.03571 | 0.65× | 0.01746 | 0.01246 | 1.40× | 5 |
+| 10,000 × 10,000 | 0.2233 | 0.03083 | 7.24× | 0.02446 | 0.02792 | 0.88× | 5 |
+| 50,000 × 50,000 | 0.4817 | 0.2775 | 1.74× | 0.1307 | 0.2717 | 0.48× | 3 |
+| 100,000 × 100,000 | 0.8899 | 0.6574 | 1.35× | 0.232 | 0.5921 | 0.39× | 3 |
+| 500,000 × 500,000 | 2.303 | 4.391 | 0.52× | 1.288 | 4.261 | 0.30× | 1 |
+| 1,000,000 × 1,000,000 | 4.842 | 8.986 | 0.54× | 2.787 | 8.977 | 0.31× | 1 |
+| 2,000,000 × 2,000,000 | 10.83 | 20.43 | 0.53× | 7.238 | 20.62 | 0.35× | 1 |
+| 5,000,000 × 5,000,000 | 18.8 | 62.68 | 0.30× | 12.16 | 62.29 | 0.20× | 1 |
+| 10,000,000 × 10,000,000 | 42.45 | 207.4 | 0.20× | 28.85 | 201.8 | 0.14× | 1 |
+| 20,000,000 × 20,000,000 | 99.7 | 268.8 | 0.37× | 72.37 | 267 | 0.27× | 1 |
+| 50,000,000 × 50,000,000 | 559.8 | 666.9 | 0.84× | 447.8 | 659.9 | 0.68× | 1 |
+| 100,000,000 × 100,000,000 | 1,216 | 1,399 | 0.87× | 973.4 | 1,390 | 0.70× | 1 |
+| 200,000,000 × 200,000,000 | 4,134 | 2,886 | 1.43× | 2,176 | 2,865 | 0.76× | 1 |
 
 #### Skewed lengths
 
 | Operand digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 100,000 × 10,000 | 0.2257 | 0.3299 | 0.68× | 0.1202 | 0.3011 | 0.40× | 3 |
-| 500,000 × 50,000 | 0.6862 | 2.112 | 0.32× | 0.4202 | 2.043 | 0.21× | 1 |
-| 1,000,000 × 100,000 | 1.303 | 4.488 | 0.29× | 1.279 | 4.437 | 0.29× | 1 |
-| 2,000,000 × 200,000 | 3.107 | 9.346 | 0.33× | 3.191 | 9.384 | 0.34× | 1 |
-| 5,000,000 × 500,000 | 10.11 | 31.88 | 0.32× | 7.651 | 31.79 | 0.24× | 1 |
-| 10,000,000 × 1,000,000 | 22.7 | 70.75 | 0.32× | 19.28 | 70.55 | 0.27× | 1 |
-| 20,000,000 × 2,000,000 | 70.97 | 157.8 | 0.45× | 69.07 | 157.6 | 0.44× | 1 |
-| 50,000,000 × 5,000,000 | 204.7 | 680.4 | 0.30× | 203.3 | 670.3 | 0.30× | 1 |
-| 100,000,000 × 10,000,000 | 471.3 | 1,022 | 0.46× | 450.2 | 1,009 | 0.45× | 1 |
-| 200,000,000 × 20,000,000 | 977.2 | 1,915 | 0.51× | 1,013 | 1,915 | 0.53× | 1 |
+| 100,000 × 10,000 | 0.1532 | 0.3157 | 0.49× | 0.1158 | 0.2985 | 0.39× | 3 |
+| 500,000 × 50,000 | 0.4852 | 2.065 | 0.23× | 0.476 | 2.085 | 0.23× | 1 |
+| 1,000,000 × 100,000 | 1.348 | 4.473 | 0.30× | 1.191 | 4.479 | 0.27× | 1 |
+| 2,000,000 × 200,000 | 3.234 | 9.374 | 0.34× | 2.939 | 9.34 | 0.31× | 1 |
+| 5,000,000 × 500,000 | 9.689 | 30.86 | 0.31× | 8.424 | 30.79 | 0.27× | 1 |
+| 10,000,000 × 1,000,000 | 21.48 | 70.32 | 0.31× | 18.85 | 69.58 | 0.27× | 1 |
+| 20,000,000 × 2,000,000 | 71.78 | 158.9 | 0.45× | 67.56 | 159 | 0.42× | 1 |
+| 50,000,000 × 5,000,000 | 200.7 | 665.1 | 0.30× | 199.1 | 661.7 | 0.30× | 1 |
+| 100,000,000 × 10,000,000 | 466 | 999.4 | 0.47× | 451.5 | 996.4 | 0.45× | 1 |
+| 200,000,000 × 20,000,000 | 1,030 | 1,910 | 0.54× | 1,006 | 1,911 | 0.53× | 1 |
 
 ### Division
 
@@ -85,18 +87,18 @@ Quotient-only uses BigMath `/` and GMP `mpz_tdiv_q`. Quotient and remainder uses
 
 | Dividend ÷ divisor digits | BigMath Q ms | GMP Q ms | Q ratio | BigMath QR ms | GMP QR ms | QR ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 40,000 ÷ 10,000 | 0.2941 | 0.1982 | 1.48× | 0.2863 | 0.2405 | 1.19× | 3 |
-| 100,000 ÷ 10,000 | 0.8523 | 0.4327 | 1.97× | 0.8488 | 0.4658 | 1.82× | 3 |
-| 200,000 ÷ 50,000 | 1.013 | 1.52 | 0.67× | 0.9871 | 1.642 | 0.60× | 1 |
-| 500,000 ÷ 100,000 | 2.287 | 4.3 | 0.53× | 2.247 | 4.5 | 0.50× | 1 |
-| 1,000,000 ÷ 200,000 | 4.794 | 9.531 | 0.50× | 4.769 | 10.14 | 0.47× | 1 |
-| 2,000,000 ÷ 500,000 | 8.051 | 22.69 | 0.35× | 7.947 | 24.24 | 0.33× | 1 |
-| 5,000,000 ÷ 1,000,000 | 23.99 | 64.15 | 0.37× | 25.14 | 68.85 | 0.37× | 1 |
-| 10,000,000 ÷ 2,000,000 | 55.32 | 142.9 | 0.39× | 52.26 | 150.6 | 0.35× | 1 |
-| 20,000,000 ÷ 4,000,000 | 104.7 | 321.1 | 0.33× | 107.2 | 341.4 | 0.31× | 1 |
-| 50,000,000 ÷ 10,000,000 | 245.6 | 1,232 | 0.20× | 230.6 | 1,306 | 0.18× | 1 |
-| 100,000,000 ÷ 20,000,000 | 532.9 | 2,316 | 0.23× | 538.6 | 2,515 | 0.21× | 1 |
-| 200,000,000 ÷ 40,000,000 | 1,359 | 4,183 | 0.32× | 1,380 | 4,443 | 0.31× | 1 |
+| 40,000 ÷ 10,000 | 0.2858 | 0.2007 | 1.42× | 0.2909 | 0.2266 | 1.28× | 3 |
+| 100,000 ÷ 10,000 | 0.8487 | 0.4285 | 1.98× | 0.8481 | 0.441 | 1.92× | 3 |
+| 200,000 ÷ 50,000 | 1.064 | 1.512 | 0.70× | 1.146 | 1.684 | 0.68× | 1 |
+| 500,000 ÷ 100,000 | 2.299 | 4.289 | 0.54× | 2.616 | 4.506 | 0.58× | 1 |
+| 1,000,000 ÷ 200,000 | 4.283 | 9.546 | 0.45× | 4.372 | 10.13 | 0.43× | 1 |
+| 2,000,000 ÷ 500,000 | 7.869 | 22.39 | 0.35× | 8.226 | 24.05 | 0.34× | 1 |
+| 5,000,000 ÷ 1,000,000 | 25.52 | 63.51 | 0.40× | 27.4 | 67.95 | 0.40× | 1 |
+| 10,000,000 ÷ 2,000,000 | 52.73 | 145 | 0.36× | 52.45 | 154.6 | 0.34× | 1 |
+| 20,000,000 ÷ 4,000,000 | 103 | 320.6 | 0.32× | 101.2 | 344.5 | 0.29× | 1 |
+| 50,000,000 ÷ 10,000,000 | 244.8 | 1,220 | 0.20× | 230.3 | 1,297 | 0.18× | 1 |
+| 100,000,000 ÷ 20,000,000 | 523.5 | 2,309 | 0.23× | 517.4 | 2,497 | 0.21× | 1 |
+| 200,000,000 ÷ 40,000,000 | 1,356 | 4,189 | 0.32× | 1,341 | 4,441 | 0.30× | 1 |
 
 At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× for quotient-only and 1.04× for quotient and remainder. Each suite took one warm measurement per library at that size. Both suites favored BigMath in both modes from the next sampled shape, 500,000 ÷ 100,000, through 200 million ÷ 40 million digits. [In-process output](docs/benchmarks/2026-11-21-pr152-in-process.txt)
 
@@ -104,46 +106,46 @@ At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× f
 
 | Dividend ÷ divisor digits | BigMath Q ms | GMP Q ms | Q ratio | BigMath QR ms | GMP QR ms | QR ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 1,000 ÷ 1,000 | 0.000083 | <1 tick | — | 0.000125 | 0.000083 | 1.51× | 7 |
-| 5,000 ÷ 5,000 | 0.000083 | <1 tick | — | 0.000417 | 0.000208 | 2.00× | 5 |
-| 10,000 ÷ 10,000 | <1 tick | <1 tick | — | 0.000208 | 0.000042 | 4.95× | 5 |
-| 50,000 ÷ 50,000 | 0.000083 | 0.000041 | 2.02× | 0.003958 | 0.00175 | 2.26× | 3 |
-| 100,000 ÷ 100,000 | 0.000084 | 0.000125 | 0.67× | 0.008042 | 0.0035 | 2.30× | 3 |
-| 500,000 ÷ 500,000 | 0.000083 | 0.000167 | 0.50× | 0.009375 | 0.004292 | 2.18× | 1 |
-| 1,000,000 ÷ 1,000,000 | 0.000125 | 0.000458 | 0.27× | 0.01604 | 0.008625 | 1.86× | 1 |
-| 5,000,000 ÷ 5,000,000 | 0.000084 | 0.000208 | 0.40× | 0.08446 | 0.043 | 1.96× | 1 |
+| 1,000 ÷ 1,000 | 0.000083 | <1 tick | — | 0.000166 | 0.000041 | 4.05× | 7 |
+| 5,000 ÷ 5,000 | 0.000084 | <1 tick | — | 0.000458 | 0.000208 | 2.20× | 5 |
+| 10,000 ÷ 10,000 | 0.000041 | <1 tick | — | 0.000208 | 0.000083 | 2.51× | 5 |
+| 50,000 ÷ 50,000 | 0.000125 | 0.000041 | 3.05× | 0.003917 | 0.001666 | 2.35× | 3 |
+| 100,000 ÷ 100,000 | 0.000125 | 0.000125 | 1.00× | 0.008459 | 0.003542 | 2.39× | 3 |
+| 500,000 ÷ 500,000 | 0.000084 | 0.000167 | 0.50× | 0.01025 | 0.004333 | 2.37× | 1 |
+| 1,000,000 ÷ 1,000,000 | 0.000292 | 0.000208 | 1.40× | 0.01667 | 0.008625 | 1.93× | 1 |
+| 5,000,000 ÷ 5,000,000 | 0.000209 | 0.000208 | 1.00× | 0.09942 | 0.04308 | 2.31× | 1 |
 
 ### Decimal parse (string → BigInteger)
 
 | Digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 1,000 | 0.007208 | 0.003458 | 2.08× | 0.002375 | 0.001583 | 1.50× | 7 |
-| 10,000 | 0.07496 | 0.05517 | 1.36× | 0.06383 | 0.03917 | 1.63× | 5 |
-| 50,000 | 0.5564 | 0.4261 | 1.31× | 0.5193 | 0.3922 | 1.32× | 3 |
-| 100,000 | 0.9724 | 1.149 | 0.85× | 0.5443 | 1.059 | 0.51× | 3 |
-| 500,000 | 3.578 | 9.147 | 0.39× | 3.464 | 9.109 | 0.38× | 1 |
-| 1,000,000 | 6.578 | 20.61 | 0.32× | 6.389 | 20.61 | 0.31× | 1 |
-| 2,000,000 | 15.46 | 47.61 | 0.32× | 15.04 | 47.29 | 0.32× | 1 |
-| 5,000,000 | 36.12 | 151.5 | 0.24× | 37.05 | 147.6 | 0.25× | 1 |
-| 10,000,000 | 77.92 | 344.1 | 0.23× | 82.61 | 341.9 | 0.24× | 1 |
-| 20,000,000 | 180.6 | 792.2 | 0.23× | 180 | 789.7 | 0.23× | 1 |
-| 50,000,000 | 707.4 | 2,633 | 0.27× | 718.5 | 2,647 | 0.27× | 1 |
+| 1,000 | 0.007958 | 0.003458 | 2.30× | 0.002459 | 0.001583 | 1.55× | 7 |
+| 10,000 | 0.07779 | 0.04779 | 1.63× | 0.06517 | 0.03733 | 1.75× | 5 |
+| 50,000 | 0.6757 | 0.4162 | 1.62× | 0.5443 | 0.3952 | 1.38× | 3 |
+| 100,000 | 1.091 | 1.072 | 1.02× | 1.023 | 1.058 | 0.97× | 3 |
+| 500,000 | 4.649 | 9.03 | 0.51× | 4.547 | 8.975 | 0.51× | 1 |
+| 1,000,000 | 9.408 | 20.98 | 0.45× | 9.931 | 20.93 | 0.47× | 1 |
+| 2,000,000 | 19.25 | 47.36 | 0.41× | 14.98 | 47.06 | 0.32× | 1 |
+| 5,000,000 | 39.97 | 146.4 | 0.27× | 38.22 | 147.7 | 0.26× | 1 |
+| 10,000,000 | 80.03 | 345.2 | 0.23× | 78.18 | 342.5 | 0.23× | 1 |
+| 20,000,000 | 177.9 | 801.3 | 0.22× | 177.1 | 799.8 | 0.22× | 1 |
+| 50,000,000 | 706.1 | 2,628 | 0.27× | 704.4 | 2,646 | 0.27× | 1 |
 
 ### ToString (BigInteger → string)
 
 | Digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 1,000 | 0.007833 | 0.006208 | 1.26× | 0.006292 | 0.003375 | 1.86× | 7 |
-| 10,000 | 0.3796 | 0.09775 | 3.88× | 0.1792 | 0.0765 | 2.34× | 5 |
-| 50,000 | 1.818 | 0.9104 | 2.00× | 1.348 | 0.843 | 1.60× | 3 |
-| 100,000 | 2.228 | 2.357 | 0.95× | 1.462 | 2.392 | 0.61× | 1 |
-| 200,000 | 4.335 | 6.117 | 0.71× | 2.732 | 6.039 | 0.45× | 1 |
-| 500,000 | 11 | 20.44 | 0.54× | 6.849 | 20.37 | 0.34× | 1 |
-| 1,000,000 | 22.06 | 49.42 | 0.45× | 14.94 | 49.8 | 0.30× | 1 |
-| 2,000,000 | 44.94 | 119.5 | 0.38× | 34.17 | 118.8 | 0.29× | 1 |
-| 5,000,000 | 165 | 381.9 | 0.43× | 123.1 | 382.5 | 0.32× | 1 |
-| 10,000,000 | 359 | 908.3 | 0.40× | 276.4 | 905.6 | 0.31× | 1 |
-| 20,000,000 | 796.3 | 2,128 | 0.37× | 613.8 | 2,127 | 0.29× | 1 |
+| 1,000 | 0.00825 | 0.006667 | 1.24× | 0.0065 | 0.003416 | 1.90× | 7 |
+| 10,000 | 0.4571 | 0.09833 | 4.65× | 0.1787 | 0.07687 | 2.33× | 5 |
+| 50,000 | 2.085 | 0.8882 | 2.35× | 1.323 | 0.8487 | 1.56× | 3 |
+| 100,000 | 2.169 | 2.281 | 0.95× | 1.341 | 2.271 | 0.59× | 1 |
+| 200,000 | 4.506 | 6.021 | 0.75× | 2.71 | 5.981 | 0.45× | 1 |
+| 500,000 | 10.48 | 20.22 | 0.52× | 6.499 | 20.14 | 0.32× | 1 |
+| 1,000,000 | 20.2 | 48.84 | 0.41× | 14.35 | 48.72 | 0.29× | 1 |
+| 2,000,000 | 44.41 | 117.8 | 0.38× | 31.47 | 117.5 | 0.27× | 1 |
+| 5,000,000 | 161 | 378.3 | 0.43× | 120.7 | 377.5 | 0.32× | 1 |
+| 10,000,000 | 360.8 | 892.5 | 0.40× | 269.7 | 892.5 | 0.30× | 1 |
+| 20,000,000 | 798 | 2,099 | 0.38× | 605.3 | 2,096 | 0.29× | 1 |
 
 ### BigDecimal
 
@@ -151,31 +153,74 @@ BigMath uses decimal fixed-point arithmetic and HALF_EVEN rounding for division.
 
 | Operation | Size | BigMath warm ms | GMP warm ms | Ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|
-| add | 100.10 digits | 0.000125 | <1 tick | — | 7 |
-| add | 1000.100 digits | 0.000166 | 0.000041 | 4.05× | 7 |
-| add | 5000.500 digits | 0.000375 | 0.000125 | 3.00× | 5 |
-| add | 20000.2000 digits | 0.00125 | 0.0005 | 2.50× | 3 |
-| mul | 100.10 digits | 0.000041 | 0.000041 | 1.00× | 7 |
-| mul | 1000.100 digits | 0.0015 | 0.001083 | 1.39× | 7 |
-| mul | 5000.500 digits | 0.0205 | 0.01275 | 1.61× | 5 |
-| mul | 20000.2000 digits | 0.05021 | 0.09546 | 0.53× | 3 |
-| div | 100.10 / 10 dp | 0.000458 | 0.000125 | 3.66× | 7 |
-| div | 1000.100 / 100 dp | 0.001 | 0.001875 | 0.53× | 7 |
-| div | 5000.500 / 500 dp | 0.00975 | 0.02554 | 0.38× | 5 |
-| div | 20000.2000 / 2000 dp | 0.06404 | 0.1923 | 0.33× | 3 |
-| div | 2000.200 / 0 dp | 0.000542 | 0.005209 | 0.10× | 5 |
-| div | 2000.200 / 10 dp | 0.00075 | 0.005208 | 0.14× | 5 |
-| div | 2000.200 / 100 dp | 0.001458 | 0.005459 | 0.27× | 5 |
-| div | 2000.200 / 1000 dp | 0.007375 | 0.00925 | 0.80× | 5 |
-| div | 2000.200 / 5000 dp | 0.03083 | 0.03358 | 0.92× | 5 |
-| parse | 100 digits | 0.000375 | 0.0005 | 0.75× | 7 |
-| parse | 1000 digits | 0.004666 | 0.004583 | 1.02× | 7 |
-| parse | 10000 digits | 0.08542 | 0.1109 | 0.77× | 5 |
-| parse | 50000 digits | 0.8206 | 1.002 | 0.82× | 3 |
+| add | 100.10 digits | 0.000084 | 0.000041 | 2.05× | 7 |
+| mul | 100.10 digits | 0.000042 | 0.000041 | 1.02× | 7 |
+| add | 1000.100 digits | 0.000125 | <1 tick | — | 7 |
+| mul | 1000.100 digits | 0.0015 | 0.001041 | 1.44× | 7 |
+| add | 5000.500 digits | 0.000333 | 0.000125 | 2.66× | 5 |
+| mul | 5000.500 digits | 0.02033 | 0.01258 | 1.62× | 5 |
+| add | 20000.2000 digits | 0.001166 | 0.0005 | 2.33× | 3 |
+| mul | 20000.2000 digits | 0.0505 | 0.09375 | 0.54× | 3 |
+| div | 100.10 / 10 dp | 0.000291 | 0.000084 | 3.46× | 7 |
+| div | 1000.100 / 100 dp | 0.000916 | 0.001791 | 0.51× | 7 |
+| div | 5000.500 / 500 dp | 0.009625 | 0.02475 | 0.39× | 5 |
+| div | 20000.2000 / 2000 dp | 0.06571 | 0.1919 | 0.34× | 3 |
+| div | 2000.200 / 0 dp | 0.0005 | 0.004875 | 0.10× | 5 |
+| div | 2000.200 / 10 dp | 0.000708 | 0.004875 | 0.15× | 5 |
+| div | 2000.200 / 100 dp | 0.001375 | 0.00525 | 0.26× | 5 |
+| div | 2000.200 / 1000 dp | 0.007375 | 0.009041 | 0.82× | 5 |
+| div | 2000.200 / 5000 dp | 0.02996 | 0.03288 | 0.91× | 5 |
+| parse | 100 digits | 0.000375 | 0.000459 | 0.82× | 7 |
+| parse | 1000 digits | 0.004625 | 0.004458 | 1.04× | 7 |
+| parse | 10000 digits | 0.08733 | 0.1048 | 0.83× | 5 |
+| parse | 50000 digits | 0.6247 | 1.001 | 0.62× | 3 |
 | tostr | 100 digits | 0.000291 | 0.000458 | 0.64× | 7 |
-| tostr | 1000 digits | 0.006583 | 0.004666 | 1.41× | 7 |
-| tostr | 10000 digits | 0.1809 | 0.1014 | 1.78× | 5 |
-| tostr | 50000 digits | 1.346 | 1.086 | 1.24× | 3 |
+| tostr | 1000 digits | 0.006625 | 0.004541 | 1.46× | 7 |
+| tostr | 10000 digits | 0.1768 | 0.1013 | 1.74× | 5 |
+| tostr | 50000 digits | 1.308 | 1.089 | 1.20× | 3 |
+
+## Small operands
+
+`tests/performance/small_ops_vs_gmp.cpp` times the BigInteger operators against GMP on operands of 1–16 limbs (up to about 300 decimal digits), where per-call overhead and allocation decide the cost. It ran single-threaded on the same machine against two builds: **before** is `main` at 3dafa62, where every value lives in a heap-allocated vector; **after** is the revision measured above, which stores values of up to 4 limbs inside the object and computes operands of up to 16 limbs in a stack buffer. Each figure is the fastest of seven rounds of 400,000 calls. BigMath operators return a new value each call; the GMP loop writes into an output it reuses, which is GMP's usual pattern. Division and remainder use a 2n-limb dividend and an n-limb divisor. [CSV](docs/benchmarks/2026-11-21-small-operands.csv)
+
+![Six plots of BigMath time divided by GMP time on 1 to 16 limb operands, before and after inline storage](docs/images/bigmath_vs_gmp_small.png)
+
+| Operation | Limbs | Before ns | After ns | GMP ns | Before ratio | After ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| Multiply | 1 | 21.1 | 8.0 | 3.8 | 5.71× | 2.11× |
+| Multiply | 2 | 31.0 | 10.6 | 9.1 | 3.44× | 1.17× |
+| Multiply | 4 | 41.1 | 29.4 | 14.7 | 2.82× | 2.00× |
+| Multiply | 8 | 73.0 | 60.9 | 39.5 | 1.87× | 1.54× |
+| Multiply | 16 | 170.6 | 152.5 | 128.1 | 1.31× | 1.19× |
+| Add | 1 | 22.5 | 9.6 | 3.7 | 6.25× | 2.62× |
+| Add | 2 | 23.4 | 9.8 | 3.7 | 6.27× | 2.63× |
+| Add | 4 | 24.9 | 10.6 | 4.0 | 6.06× | 2.65× |
+| Add | 8 | 27.1 | 26.2 | 4.8 | 5.82× | 5.46× |
+| Add | 16 | 29.1 | 30.3 | 6.2 | 4.70× | 4.89× |
+| Subtract | 1 | 23.6 | 10.9 | 3.7 | 6.12× | 2.92× |
+| Subtract | 2 | 25.0 | 11.6 | 3.9 | 6.02× | 2.96× |
+| Subtract | 4 | 26.3 | 12.4 | 4.3 | 6.05× | 2.86× |
+| Subtract | 8 | 27.1 | 25.9 | 5.2 | 5.36× | 4.95× |
+| Subtract | 16 | 31.4 | 30.0 | 6.8 | 4.59× | 4.43× |
+| Divide (2n ÷ n) | 1 | 34.6 | 16.3 | 20.1 | 2.90× | 0.81× |
+| Divide (2n ÷ n) | 2 | 68.2 | 47.8 | 22.7 | 3.02× | 2.10× |
+| Divide (2n ÷ n) | 4 | 94.0 | 89.8 | 63.1 | 1.49× | 1.42× |
+| Divide (2n ÷ n) | 8 | 170.7 | 163.9 | 113.5 | 1.50× | 1.44× |
+| Divide (2n ÷ n) | 16 | 368.2 | 367.3 | 225.2 | 1.61× | 1.63× |
+| Remainder (2n ÷ n) | 1 | 49.0 | 14.1 | 12.5 | 3.94× | 1.13× |
+| Remainder (2n ÷ n) | 2 | 88.2 | 48.1 | 24.3 | 3.67× | 1.98× |
+| Remainder (2n ÷ n) | 4 | 115.4 | 77.8 | 70.5 | 1.64× | 1.10× |
+| Remainder (2n ÷ n) | 8 | 194.3 | 166.8 | 134.9 | 1.44× | 1.24× |
+| Remainder (2n ÷ n) | 16 | 397.6 | 398.6 | 300.9 | 1.31× | 1.32× |
+| Copy | 1 | 13.2 | 0.3 | 2.5 | 5.32× | 0.12× |
+| Copy | 2 | 13.5 | 0.3 | 2.5 | 5.43× | 0.12× |
+| Copy | 4 | 15.0 | 0.3 | 2.8 | 5.36× | 0.11× |
+| Copy | 8 | 14.5 | 14.3 | 2.8 | 5.19× | 5.13× |
+| Copy | 16 | 15.8 | 15.7 | 3.8 | 4.22× | 4.16× |
+
+Values of up to 4 limbs no longer allocate: a copy takes 0.3 ns instead of 13 ns and is faster than GMP's `mpz_set`, and a 1-limb product takes 8 ns instead of 21 ns. Above 4 limbs every result still needs one allocation, so addition stays about 5× behind GMP there; the products and quotients gain only where the stack path replaced the dispatcher's temporary vectors.
+
+To repeat: `cmake --build build --target small_ops_vs_gmp && ./build/small_ops_vs_gmp after`.
 
 ## Internal algorithm crossovers
 
