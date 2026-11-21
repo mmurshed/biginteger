@@ -946,6 +946,54 @@ The interleaved twiddle tables keep their layout; only the stored companion
 changes. Precondition for callers: the multiplicand must be `< 2^31` (every
 call site passes a canonical residue).
 
+## Finalize: NEON Garner digits + chunk-parallel carry (2026-11-20)
+
+`FinalizeProduct` turns the three residue planes into limbs: Garner gives each
+coefficient's value `x_i < p1·p2·p3 ≈ 2^90.5`, and the product is
+`Σ x_i · 2^(32 i)`. It was a single scalar loop on the calling thread — eight
+`% P` reductions per coefficient and a serial carry chain, 6.4 ns per
+coefficient. Once the transforms ran in parallel that serial pass was
+**17–33% of a threaded multiply's wall-clock** (27 ms of 100 ms at
+`n = 2^22`); the "butterflies are 95–97% of cost" figure quoted elsewhere in
+this document is CPU time summed across threads, not wall time.
+
+Two changes, both in `NTTMultiplicationCrt.h`:
+
+- **`NeonGarnerDigits`** computes the mixed-radix digits `u2`, `u3` for four
+  coefficients at a time with constant-multiplier Shoup products. `r2 − r1`
+  is formed as `r2 + 5·P2 − r1 ∈ (0, 6·P2)` (no reduction of `r1` mod `P2`),
+  then one conditional subtract of `3·P2` brings it under `2^31`; `r1 mod P3`
+  is one conditional subtract because `P1 < 2·P3`. The numeric facts are
+  `static_assert`ed next to the code. Only the 96-bit assembly
+  `x = r1 + p1·u2 + p1·p2·u3` and the carry stay scalar. Serial cost:
+  6.4 → 1.33 ns per coefficient.
+- **`GarnerCarry64`** cuts the carry chain into per-thread limb ranges from
+  `BIGMATH_NTT_FINALIZE_PARALLEL_MIN = 4096` output limbs. Each range runs
+  with carry-in 0 and reports its carry-out; the sum is linear, so adding
+  carry-out `k` at the first limb of range `k+1` with an ordinary ripple
+  reconstructs the exact result. The cyclic path (`MultiplyMod2km1`) uses the
+  same core and keeps its wrap-around loop for the top carry.
+
+Finalize alone, threaded build: `n = 2^16` 418 → 18 µs, `n = 2^22`
+27.1 → 0.94 ms. Whole multiply, threaded, cumulative with the NEON tail
+kernels, the lean butterfly and the thread-pool rewrite (M1 Max, best of
+rounds):
+
+| n | original µs | now µs | speedup |
+|---:|---:|---:|---:|
+| 2^12 | 136 | 42 | 3.2× |
+| 2^14 | 353 | 156 | 2.3× |
+| 2^16 | 1 374 | 646 | 2.1× |
+| 2^19 | 12 911 | 7 544 | 1.7× |
+| 2^20 | 24 557 | 11 358 | 2.2× |
+| 2^22 | 99 697 | 64 328 | 1.55× |
+| 2^24 | 649 997 | 443 428 | 1.47× |
+
+`tests/unit/test_ntt_crt_finalize.cpp` compares against the original
+one-coefficient-at-a-time loop on random and extreme residues, on the largest
+representable coefficient values, and on inputs built so a carry ripples
+across every range boundary and out of the top limb.
+
 ## Karatsuba leaf — 2-row unrolling rejected, threshold 48 → 32 (2026-06-12)
 
 Closing the sub-13k-digit gap vs GMP (2.2–3.3×) was attempted at the

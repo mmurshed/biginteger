@@ -114,6 +114,13 @@
 #define BIGMATH_NTT_MFA_FUSE_TILE 16
 #endif
 
+// Output limbs from which the Garner/carry finalize pass is split across the
+// thread pool. Below it one NEON pass over the residues costs less than a
+// dispatch (≈ 2.5 ns per coefficient serial).
+#ifndef BIGMATH_NTT_FINALIZE_PARALLEL_MIN
+#define BIGMATH_NTT_FINALIZE_PARALLEL_MIN 4096
+#endif
+
 #ifndef NTT_MULTIPLICATION_CRT
 #define NTT_MULTIPLICATION_CRT
 
@@ -1436,6 +1443,161 @@ namespace BigMath
       }
     }
 
+    // ─── Garner + carry for 64-bit limbs (NEON digits, chunk-parallel) ──────
+    //
+    // The finalize pass turns the three residue planes into limbs: Garner
+    // gives each coefficient's value x_i < p1·p2·p3 ≈ 2^90.5, and the product
+    // is sum_i x_i · 2^(32 i). It used to be one scalar loop on the calling
+    // thread — eight `% P` reductions per coefficient and a serial carry
+    // chain — which after the transforms went parallel was 17-33% of a
+    // threaded multiply's wall-clock (27 ms of 100 ms at n = 2^22).
+    //
+    // Two changes:
+    //   * The mixed-radix digits u2, u3 are computed four coefficients at a
+    //     time with constant-multiplier Shoup products (NeonGarnerDigits);
+    //     only the 96-bit assembly x = r1 + p1·u2 + p1·p2·u3 and the carry
+    //     stay scalar.
+    //   * The carry chain is cut into per-thread limb ranges. Each range
+    //     runs with carry-in 0 and reports its carry-out; because the sum is
+    //     linear, adding carry-out_k at the first limb of range k+1 (with an
+    //     ordinary ripple) reconstructs the exact result.
+
+    static_assert((ULong)5 * P2 > P1, "Garner: r2 + 5*P2 - r1 must stay positive");
+    static_assert((ULong)6 * P2 < ((ULong)1 << 32), "Garner: r2 + 5*P2 - r1 must fit 32 bits");
+    static_assert((ULong)3 * P2 < ((ULong)1 << 31), "Garner: reduced difference must be < 2^31 for NeonShoupMul");
+    static_assert(P1 < (ULong)2 * P3, "Garner: r1 mod P3 is one conditional subtract");
+    static_assert(P2 < P3, "Garner: u2 is already reduced mod P3");
+    static_assert((ULong128)P1 * P2 < ((ULong128)1 << 63), "Garner: r1 + p1*u2 fits 64 bits");
+
+#if BIGMATH_NEON
+    struct GarnerNeonConsts
+    {
+      uint32x4_t fiveP2, threeP2, p3;
+      uint32x4_t inv12, inv12s, inv13, inv13s, inv23, inv23s;
+
+      explicit GarnerNeonConsts(const InvTable &inv)
+          : fiveP2(vdupq_n_u32(5u * P2)), threeP2(vdupq_n_u32(3u * P2)), p3(vdupq_n_u32(P3)),
+            inv12(vdupq_n_u32(inv.p1_inv_mod_p2)), inv12s(vdupq_n_u32(ShoupCompanion<F2>(inv.p1_inv_mod_p2))),
+            inv13(vdupq_n_u32(inv.p1_inv_mod_p3)), inv13s(vdupq_n_u32(ShoupCompanion<F3>(inv.p1_inv_mod_p3))),
+            inv23(vdupq_n_u32(inv.p2_inv_mod_p3)), inv23s(vdupq_n_u32(ShoupCompanion<F3>(inv.p2_inv_mod_p3)))
+      {
+      }
+    };
+
+    // Mixed-radix digits for four coefficients:
+    //   u2 = (r2 − r1) · p1^-1                (mod p2)
+    //   u3 = ((r3 − r1) · p1^-1 − u2) · p2^-1 (mod p3)
+    // Bit-identical to the scalar Garner() digits.
+    static inline void NeonGarnerDigits(uint32x4_t r1, uint32x4_t r2, uint32x4_t r3,
+                                        const GarnerNeonConsts &k, uint32x4_t &u2, uint32x4_t &u3)
+    {
+      // r2 + 5·P2 − r1 lies in (0, 6·P2) — no reduction of r1 mod P2 needed.
+      // One conditional subtract of 3·P2 brings it below 3·P2 < 2^31, the
+      // multiplicand bound NeonShoupMul needs.
+      uint32x4_t d2 = vsubq_u32(vaddq_u32(r2, k.fiveP2), r1);
+      d2 = vminq_u32(d2, vsubq_u32(d2, k.threeP2));
+      u2 = NeonShoupMul<F2>(k.inv12, k.inv12s, d2);
+
+      uint32x4_t r1m3 = vminq_u32(r1, vsubq_u32(r1, k.p3)); // r1 mod P3
+      uint32x4_t t3 = NeonShoupMul<F3>(k.inv13, k.inv13s, NeonSub<F3>(r3, r1m3));
+      u3 = NeonShoupMul<F3>(k.inv23, k.inv23s, NeonSub<F3>(t3, u2));
+    }
+#endif
+
+    // Limbs [ls, le) of sum_i x_i · 2^(32 i) restricted to coefficients
+    // 2·ls .. 2·le − 1, computed with carry-in 0. Coefficients at index
+    // ≥ coeffCount are zero (only the last limb of an odd-length product).
+    // Returns the carry out of limb le − 1; it is < 2^59.
+    inline ULong GarnerCarryRange64(const UInt *f1, const UInt *f2, const UInt *f3,
+                                    SizeT coeffCount, DataT *out, SizeT ls, SizeT le,
+                                    const InvTable &inv)
+    {
+      ULong carry = 0;
+      SizeT i = ls;
+#if BIGMATH_NEON
+      const GarnerNeonConsts k(inv);
+      const ULong p1 = P1;
+      const ULong p1p2 = (ULong)inv.p1p2;
+      for (; i + 2 <= le && (ULong)2 * i + 4 <= coeffCount; i += 2)
+      {
+        const SizeT c = 2 * i;
+        uint32x4_t u2v, u3v;
+        NeonGarnerDigits(vld1q_u32(f1 + c), vld1q_u32(f2 + c), vld1q_u32(f3 + c), k, u2v, u3v);
+        UInt u2[4], u3[4];
+        vst1q_u32(u2, u2v);
+        vst1q_u32(u3, u3v);
+        for (SizeT h = 0; h < 2; ++h)
+        {
+          ULong128 x0 = (ULong128)p1p2 * u3[2 * h] + ((ULong)f1[c + 2 * h] + p1 * u2[2 * h]);
+          ULong128 x1 = (ULong128)p1p2 * u3[2 * h + 1] + ((ULong)f1[c + 2 * h + 1] + p1 * u2[2 * h + 1]);
+          ULong128 t = x0 + (x1 << 32) + carry; // < 2^123
+          out[i + h] = (DataT)t;
+          carry = (ULong)(t >> 64);
+        }
+      }
+#endif
+      for (; i < le; ++i)
+      {
+        const ULong c = (ULong)2 * i;
+        ULong128 x0 = c < coeffCount ? Garner(f1[c], f2[c], f3[c], inv) : (ULong128)0;
+        ULong128 x1 = c + 1 < coeffCount ? Garner(f1[c + 1], f2[c + 1], f3[c + 1], inv) : (ULong128)0;
+        ULong128 t = x0 + (x1 << 32) + carry;
+        out[i] = (DataT)t;
+        carry = (ULong)(t >> 64);
+      }
+      return carry;
+    }
+
+    // out[0 .. nLimbs) = the low nLimbs limbs of sum_i x_i · 2^(32 i); returns
+    // the carry out of the top limb. Splits across the pool from
+    // BIGMATH_NTT_FINALIZE_PARALLEL_MIN limbs.
+    inline ULong GarnerCarry64(const UInt *f1, const UInt *f2, const UInt *f3,
+                               SizeT coeffCount, DataT *out, SizeT nLimbs)
+    {
+      const InvTable &inv = GarnerInverses();
+      constexpr SizeT MaxChunks = 64;
+      SizeT chunks = 1;
+      if (nLimbs >= (SizeT)BIGMATH_NTT_FINALIZE_PARALLEL_MIN)
+        chunks = std::min<SizeT>({(SizeT)ParallelNumThreads(), MaxChunks,
+                                  nLimbs / ((SizeT)BIGMATH_NTT_FINALIZE_PARALLEL_MIN / 4)});
+      if (chunks <= 1)
+        return GarnerCarryRange64(f1, f2, f3, coeffCount, out, 0, nLimbs, inv);
+
+      // Even range length keeps every range on a 4-coefficient NEON boundary.
+      const SizeT per = (((nLimbs + chunks - 1) / chunks) + 1) & ~(SizeT)1;
+      chunks = (nLimbs + per - 1) / per;
+      ULong carries[MaxChunks];
+      const InvTable *invPtr = &inv;
+      ULong *carriesPtr = carries;
+      ParallelDo((Int)chunks, [=](Int s, Int e) {
+        for (Int kIdx = s; kIdx < e; ++kIdx)
+        {
+          SizeT ls = (SizeT)kIdx * per;
+          SizeT le = std::min(nLimbs, ls + per);
+          carriesPtr[kIdx] = GarnerCarryRange64(f1, f2, f3, coeffCount, out, ls, le, *invPtr);
+        }
+      });
+
+      // Stitch: add each range's carry-out at the next range's first limb.
+      ULong top = carries[chunks - 1];
+      for (SizeT kIdx = 0; kIdx + 1 < chunks; ++kIdx)
+      {
+        ULong c = carries[kIdx];
+        for (SizeT i = (kIdx + 1) * per; c != 0; ++i)
+        {
+          if (i == nLimbs)
+          {
+            top += c; // a ripple that ran off the top (c is 1 here)
+            break;
+          }
+          ULong sum = (ULong)out[i] + c;
+          c = sum < c ? 1 : 0;
+          out[i] = (DataT)sum;
+        }
+      }
+      return top;
+    }
+
     inline std::vector<DataT> FinalizeProduct(const std::vector<UInt> &fa1,
                                               const std::vector<UInt> &fa2,
                                               const std::vector<UInt> &fa3,
@@ -1443,55 +1605,25 @@ namespace BigMath
                                               BaseT base,
                                               SizeT reserveLimbs)
     {
+      if (base == Base2_64)
+      {
+        // Two 32-bit coefficients per 64-bit limb. The product needs
+        // ceil(coeffCount / 2) limbs plus whatever carry leaves the top.
+        const SizeT nLimbs = (SizeT)((coeffCount + 1) / 2);
+        std::vector<DataT> result;
+        result.reserve(std::max<SizeT>(reserveLimbs, nLimbs + 1));
+        result.resize(nLimbs);
+        ULong carry = GarnerCarry64(fa1.data(), fa2.data(), fa3.data(), (SizeT)coeffCount,
+                                    result.data(), nLimbs);
+        if (carry != 0)
+          result.push_back((DataT)carry);
+        TrimZeros(result);
+        return result;
+      }
+
       const InvTable &inv = GarnerInverses();
       std::vector<DataT> result;
       result.reserve(reserveLimbs);
-
-      if (base == Base2_64)
-      {
-        // 2 coefficients per output limb, each 32 bits → 64-bit limb. Carry
-        // propagation needs more than the per-coeff width; use ULong128.
-        ULong128 carry = 0;
-        SizeT i = 0;
-        for (; i + 1 < (SizeT)coeffCount; i += 2)
-        {
-          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-
-          total = Garner(fa1[i + 1], fa2[i + 1], fa3[i + 1], inv) + carry;
-          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-
-          result.push_back((DataT)(lo | (hi << 32)));
-        }
-
-        ULong limb_acc = 0;
-        int slot = 0;
-        if (i < (SizeT)coeffCount)
-        {
-          ULong128 total = Garner(fa1[i], fa2[i], fa3[i], inv) + carry;
-          limb_acc = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-          slot = 1;
-        }
-        while (carry > 0)
-        {
-          ULong digit = (ULong)(carry & 0xFFFFFFFFULL);
-          carry >>= 32;
-          limb_acc |= digit << (slot * 32);
-          ++slot;
-          if (slot == 2)
-          {
-            result.push_back((DataT)limb_acc);
-            limb_acc = 0;
-            slot = 0;
-          }
-        }
-        if (slot != 0)
-          result.push_back((DataT)limb_acc);
-      }
-      else
       {
         // Base2_32: 1 coefficient per output limb (already 32-bit).
         ULong128 carry = 0;
@@ -2849,16 +2981,7 @@ namespace BigMath
       ULong128 carry = 0;
       if (base == Base2_64)
       {
-        for (SizeT i = 0; i < L; ++i)
-        {
-          ULong128 total = Garner(fa1[2 * i], fa2[2 * i], fa3[2 * i], inv) + carry;
-          ULong lo = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-          total = Garner(fa1[2 * i + 1], fa2[2 * i + 1], fa3[2 * i + 1], inv) + carry;
-          ULong hi = (ULong)(total & 0xFFFFFFFFULL);
-          carry = total >> 32;
-          r[i] = (DataT)(lo | (hi << 32));
-        }
+        carry = GarnerCarry64(fa1.data(), fa2.data(), fa3.data(), (SizeT)(2 * (ULong)L), r.data(), L);
       }
       else
       {
