@@ -909,6 +909,43 @@ Bit-exactness is pinned by `tests/unit/test_ntt_crt_layers.cpp`, which
 compares `ForwardPtr`/`InversePtr` against a plain radix-2 chain for all three
 primes at every length 2^1..2^16.
 
+### Leaner Shoup butterfly: doubling multiply-high + unsigned min (2026-11-20)
+
+The original `NeonShoupMul` took the quotient estimate `floor(ws·x / 2^32)`
+from two `vmull_u32` widening multiplies, two narrowing shifts and a combine
+(five ops for four lanes), and every conditional subtract was
+compare + mask + subtract. Two changes cut the butterfly from ~19 to ~11 NEON
+ops:
+
+- **Companion scaled by 2^31 instead of 2^32.** `ShoupCompanion(w) =
+  floor(w·2^31 / P)` is `< 2^31`, and every multiplicand `x` is a residue
+  `< P < 2^31`, so both are non-negative as `int32`. Then
+  `vqdmulhq_s32(ws, x) = floor(2·ws·x / 2^32) = floor(ws·x / 2^31)` cannot
+  saturate and gives the quotient estimate for all four lanes in **one**
+  instruction. `ws·x/2^31 ∈ (w·x/P − 1, w·x/P]`, so `q` is `floor(w·x/P)` or
+  one less and `t = w·x − q·P` is the true value in `[0, 2P)` — the same
+  bound as classic Shoup, still one conditional subtract, still bit-exact
+  with `(w·x) % P`.
+- **Conditional subtract via `vminq_u32`.** For `t ∈ [0, 2P)`, `t − P` wraps
+  above `t` exactly when `t < P`, so `min(t, t − P)` is the reduced value in
+  two ops; modular add and subtract use the same trick.
+
+Isolated radix-2 pass: 1.03 → 0.71 cycles per butterfly (1.46×). In the real
+layers the strided twiddle gathers are unchanged, so the serial profile moves
+from 0.42–0.49 to 0.32–0.39 ns per butterfly:
+
+| n | tails only µs | + lean butterfly µs | vs original |
+|---:|---:|---:|---:|
+| 2^11 | 63.8 | 54.2 | 1.18× |
+| 2^12 | 132.8 | 110.9 | 1.65× |
+| 2^13 | 281.6 | 230.7 | 1.64× |
+| 2^16 | 2751.0 | 2293.3 | 1.54× |
+| 2^19 | 27728.5 | 23300.5 | 1.43× |
+
+The interleaved twiddle tables keep their layout; only the stored companion
+changes. Precondition for callers: the multiplicand must be `< 2^31` (every
+call site passes a canonical residue).
+
 ## Karatsuba leaf — 2-row unrolling rejected, threshold 48 → 32 (2026-06-12)
 
 Closing the sub-13k-digit gap vs GMP (2.2–3.3×) was attempted at the
