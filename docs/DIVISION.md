@@ -53,6 +53,34 @@ Limb width matters heavily for division because the inner loop of every divider 
 
 `include/biginteger/algorithms/Division.h` declares `DivideAndRemainder(a, b, base, computeRemainder)` returning a `{quotient, remainder}` pair; the dispatch logic lives in `src/algorithms/Division.cpp`. The dispatcher considers operand sizes and the dividend/divisor ratio.
 
+### Current rule (64-bit limbs, since 2026-11-21)
+
+With `nb` the divisor length in limbs and `δ = na − nb` (the quotient has
+`δ + 1` limbs):
+
+```
+single-limb divisor                          → ClassicDivision (DivRem1 kernel)
+quotient only and δ + 4 < nb                 → divide the operands' top limbs
+                                               ((2δ+4) by (δ+4), through this rule)
+nb < 96                                      → FastDivision (schoolbook)
+δ ≥ nb  (ratio ≥ 2):
+    nb ≥ 1536, or nb ≥ 768 and ratio ≥ 3     → Newton
+    otherwise                                → Burnikel–Ziegler
+δ < nb  (quotient shorter than the divisor):
+    δ ≥ 3072 (and δ + 8 < nb)                → quotient-sized
+    nb ≥ 3072 and ratio ≥ 7/4                → Newton
+    otherwise                                → Burnikel–Ziegler
+```
+
+Thresholds are the `BIGMATH_DIV_*` macros in
+`include/biginteger/build/DispatchThresholds.h`; the measurements behind them
+are in [the 2026-11-21 division pass](#2026-11-21-division-pass).
+
+### Legacy bands (32-in-64 layout, and 64-bit limbs before 2026-11-21)
+
+The flowchart and band discussion below describe the dispatcher as it was
+before the re-sweep. It still applies to `-DBIGMATH_LIMB_64=0` builds.
+
 ```mermaid
 flowchart TD
     A[DivideAndRemainder&#40;a, b, base&#41;] --> B{IsZero&#40;b&#41;?}
@@ -346,6 +374,8 @@ cmake --build build -j8 --target bench_vs_gmp
 
 Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew).
 
+> **Current numbers (2026-11-21 run):** division beats GMP from 200k-digit dividends (0.19–0.67×) and trails by 1.4–2.0× below that; tables in [BENCHMARK.md](../BENCHMARK.md#division).
+>
 > **Superseded — see [BENCHMARK.md](../BENCHMARK.md) for the canonical numbers** (2026-06-12 v13.0 run). Summary as of that run: division **beats GMP from 20M-digit dividends (0.45–0.82×)**, reaches parity at 5M digits, and sits at 2.3–3.8× below 200k digits (the basecase wall). The tables below are the **historical 2026-05-27 snapshot**, kept for the optimization narrative; they predate the 2026-06-11/12 division work (wraparound Newton, QuotientSizedDivision, BZ odd-size padding fix, basecase retune, MFA gate retune).
 
 ### Balanced division
