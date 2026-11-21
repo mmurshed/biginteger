@@ -8,6 +8,7 @@
 #include "unit_test_framework.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <random>
 #include <thread>
@@ -15,6 +16,7 @@
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/Squaring.h"
 #include "biginteger/common/Parallel.h"
 
 using namespace BigMath;
@@ -92,3 +94,76 @@ REGISTER_TEST(ParallelPool, ConcurrentCallersStayCorrect)
     th.join();
   ASSERT_EQ(wrong.load(), 0);
 }
+
+#if BIGMATH_USE_THREADS
+
+namespace
+{
+  // Poll `cond` for up to two seconds (CI runners can be slow to schedule).
+  template <typename Cond>
+  bool Eventually(Cond &&cond)
+  {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+      if (cond())
+        return true;
+      std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+    return cond();
+  }
+}
+
+REGISTER_TEST(ParallelPool, TemperatureTracksParkAndPrewarm)
+{
+  if (ParallelNumThreads() < 2)
+    return; // no workers: the pool is never warm
+  // Idle long enough and every worker parks.
+  ASSERT_TRUE(Eventually([] { return !ParallelWarm(); }));
+  // A prewarm wakes them without any work being dispatched...
+  bool warmed = false;
+  for (int attempt = 0; attempt < 200 && !warmed; ++attempt)
+  {
+    ParallelPrewarm();
+    auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(80);
+    while (std::chrono::steady_clock::now() < until && !warmed)
+      warmed = ParallelWarm();
+  }
+#if !defined(BIGMATH_POOL_SPIN_US) || BIGMATH_POOL_SPIN_US > 0
+  ASSERT_TRUE(warmed);
+#endif
+  // ...and they park again once nothing arrives.
+  ASSERT_TRUE(Eventually([] { return !ParallelWarm(); }));
+}
+
+REGISTER_TEST(ParallelPool, ResultsIndependentOfTemperature)
+{
+  // The dispatcher picks Karatsuba or the NTT for mid-sized products
+  // depending on whether the pool is awake. Both must give the same product,
+  // whether calls arrive in a burst (pool warms up) or far apart (cold).
+  BaseT base = BigInteger::Base();
+  std::mt19937_64 gen(0x7E3BULL);
+  for (SizeT n : {320, 400, 500, 600})
+  {
+    std::vector<DataT> a(n), b(n);
+    for (auto &x : a) x = gen();
+    for (auto &x : b) x = gen();
+    auto expect = KaratsubaMultiplication::Multiply(a, b, base);
+    auto expectSq = KaratsubaMultiplication::Multiply(a, a, base);
+    for (int i = 0; i < 12; ++i) // burst
+    {
+      ASSERT_TRUE(Multiply(a, b, base) == expect);
+      ASSERT_TRUE(Square(a, base) == expectSq);
+    }
+    for (int i = 0; i < 3; ++i) // spaced out
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      ASSERT_TRUE(Multiply(a, b, base) == expect);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      ASSERT_TRUE(Square(a, base) == expectSq);
+    }
+  }
+}
+
+#endif
+

@@ -5,11 +5,14 @@
  */
 
 #include "biginteger/algorithms/Squaring.h"
+
+#include "biginteger/common/Parallel.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplicationCrt.h"
 
 namespace BigMath
 {
   const SizeT NTT_SQUARE_THRESHOLD = BIGMATH_NTT_SQUARE_THRESHOLD;
+  const SizeT NTT_SQUARE_COLD_THRESHOLD = BIGMATH_NTT_SQUARE_COLD_THRESHOLD;
 
   std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
   {
@@ -21,6 +24,16 @@ namespace BigMath
 
     if (a.size() < NTT_SQUARE_THRESHOLD)
       return KaratsubaSquare::Square(a, base);
+
+    // Small NTT squares only pay off while the pool is awake — see
+    // BIGMATH_NTT_SQUARE_COLD_THRESHOLD. Cold: KaratsubaSquare, and a burst
+    // of squares gets the pool woken for the next one.
+    if (a.size() < NTT_SQUARE_COLD_THRESHOLD && !ParallelWarmOrPrewarm())
+    {
+      std::vector<DataT> square = KaratsubaSquare::Square(a, base);
+      ParallelNoteColdDone();
+      return square;
+    }
 
 #if BIGMATH_NTT_CRT
     // CRT NTT square: NttCrt::Multiply detects the self-operand and runs 3

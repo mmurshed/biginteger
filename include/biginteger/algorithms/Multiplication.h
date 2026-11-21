@@ -7,7 +7,9 @@
  *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD (24)        → ClassicMultiplication
  *   - sum ≥ NTT_MULTIPLICATION_THRESHOLD (640) AND
  *     min ≥ NTT_MIN_LIMB_THRESHOLD (64) AND
- *     la·lb ≥ NTT_AREA_THRESHOLD (96000)           → NTTMultiplication
+ *     la·lb ≥ NTT_AREA_THRESHOLD (96000) AND
+ *     (la·lb ≥ NTT_COLD_AREA_THRESHOLD (262144)
+ *      OR the thread pool is warm)                 → NTTMultiplication
  *   - otherwise                                    → KaratsubaMultiplication
  *                                                    (slices unbalanced operands)
  *
@@ -88,6 +90,15 @@ namespace BigMath
 #endif
 #endif
 
+#ifndef BIGMATH_NTT_COLD_AREA_THRESHOLD
+// Below this area the NTT is taken only while the thread pool is warm.
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_COLD_AREA_THRESHOLD 262144
+#else
+#define BIGMATH_NTT_COLD_AREA_THRESHOLD 0
+#endif
+#endif
+
 #ifndef BIGMATH_TOOM3_SKEW_RATIO
 // Toom-3 is a balanced-product win. For 2:1+ skew inside the Toom window,
 // Karatsuba is consistently faster on the measured AppleClang/native build.
@@ -119,6 +130,7 @@ namespace BigMath
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MIN_LIMB_THRESHOLD;
   extern const ULong NTT_AREA_THRESHOLD;
+  extern const ULong NTT_COLD_AREA_THRESHOLD;
   extern const SizeT TOOM3_SKEW_RATIO;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;

@@ -106,6 +106,37 @@ namespace BigMath
 
       SizeT NumThreads() const { return numThreads; }
 
+      // Workers that are not parked on the condition variable (spinning or
+      // running a slice). A dispatch issued while enough of them are awake is
+      // picked up within nanoseconds instead of after a 20-30 us wake-up.
+      bool Warm() const
+      {
+#if BIGMATH_POOL_SPIN_US > 0
+        const int needed = (int)std::min<SizeT>(numThreads - 1, 5);
+        return needed > 0 && awake.load(std::memory_order_relaxed) >= needed;
+#else
+        return false; // workers park immediately; every dispatch is a cold one
+#endif
+      }
+
+      // Wake parked workers without giving them work. They spin for
+      // BIGMATH_POOL_SPIN_US and park again if nothing arrives. Non-blocking,
+      // and cheap for the caller: it wakes ONE worker (a broadcast to seven
+      // sleepers costs the caller ~12 us on macOS), and that worker relays
+      // the wake-up to the rest from its own thread.
+      void Prewarm()
+      {
+#if BIGMATH_POOL_SPIN_US > 0
+        if (workers.empty() || awake.load(std::memory_order_relaxed) >= (int)workers.size())
+          return;
+        {
+          std::lock_guard<std::mutex> lk(m);
+          poke.fetch_add(1, std::memory_order_release);
+        }
+        cv.notify_one();
+#endif
+      }
+
       // Run body over `numChunks` equal slices of [0, total). Blocks until
       // every slice has completed. The caller works too: it and the workers
       // claim slices from a shared counter, so a dispatch never waits for a
@@ -192,9 +223,12 @@ namespace BigMath
       void WorkerLoop()
       {
         uint32_t lastSeen = 0;
+        uint32_t lastPoke = 0;
+        awake.fetch_add(1, std::memory_order_relaxed);
         for (;;)
         {
-          // Stay hot for a short while after the previous job, then park.
+          // Stay hot for a short while after the previous job (or a prewarm
+          // poke), then park.
           SpinUntil([this, lastSeen] {
             return generation.load(std::memory_order_acquire) != lastSeen ||
                    shutdown.load(std::memory_order_acquire);
@@ -206,11 +240,29 @@ namespace BigMath
           Int chunks = 0;
           {
             std::unique_lock<std::mutex> lk(m);
-            cv.wait(lk, [this, lastSeen] {
+            auto wanted = [this, lastSeen, lastPoke] {
               return generation.load(std::memory_order_acquire) != lastSeen ||
-                     shutdown.load(std::memory_order_acquire);
-            });
+                     shutdown.load(std::memory_order_acquire) ||
+                     poke.load(std::memory_order_acquire) != lastPoke;
+            };
+            while (!wanted())
+            {
+              awake.fetch_sub(1, std::memory_order_relaxed);
+              cv.wait(lk);
+              awake.fetch_add(1, std::memory_order_relaxed);
+            }
             if (shutdown.load(std::memory_order_acquire)) return;
+            const bool poked = poke.load(std::memory_order_acquire) != lastPoke;
+            lastPoke = poke.load(std::memory_order_acquire);
+            if (generation.load(std::memory_order_acquire) == lastSeen)
+            {
+              // Poked awake with no job: relay the wake-up to any workers
+              // still parked, then go back to the spin phase.
+              const bool relay = poked && awake.load(std::memory_order_relaxed) < (int)workers.size();
+              lk.unlock();
+              if (relay) cv.notify_all();
+              continue;
+            }
             lastSeen = generation.load(std::memory_order_acquire);
             body = curBody;
             ctx = curCtx;
@@ -238,6 +290,8 @@ namespace BigMath
       Int curTotal = 0;
       Int curChunks = 0;
 
+      std::atomic<int> awake{0};           // workers not parked on `cv`
+      std::atomic<uint32_t> poke{0};       // bumped by Prewarm(); wakes workers into their spin phase
       std::atomic<uint32_t> generation{0}; // bumped once per job
       std::atomic<uint64_t> claim{0};      // (generation << 32) | next slice
       std::atomic<Int> pending{0};         // slices of the current job not yet finished
@@ -253,6 +307,53 @@ namespace BigMath
   SizeT ParallelNumThreads()
   {
     return Pool().NumThreads();
+  }
+
+  bool ParallelWarm()
+  {
+    return Pool().Warm();
+  }
+
+  void ParallelPrewarm()
+  {
+    Pool().Prewarm();
+  }
+
+  namespace
+  {
+    // End time of this thread's last operation that took the serial
+    // algorithm because the pool was cold (steady-clock ns; 0 = never).
+    thread_local int64_t tl_lastColdDoneNs = 0;
+
+    inline int64_t NowNs()
+    {
+      return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                 std::chrono::steady_clock::now().time_since_epoch())
+          .count();
+    }
+  }
+
+  bool ParallelWarmOrPrewarm()
+  {
+    ThreadPool &pool = Pool();
+    if (pool.Warm())
+      return true;
+#if BIGMATH_POOL_SPIN_US > 0
+    // Cold. If this thread finished another such operation moments ago, more
+    // are probably coming: wake the pool now so the next one finds it warm.
+    // An isolated operation wakes nothing.
+    const int64_t last = tl_lastColdDoneNs;
+    if (last != 0 && NowNs() - last < (int64_t)BIGMATH_POOL_SPIN_US * 1000)
+      pool.Prewarm();
+#endif
+    return false;
+  }
+
+  void ParallelNoteColdDone()
+  {
+#if BIGMATH_POOL_SPIN_US > 0
+    tl_lastColdDoneNs = NowNs();
+#endif
   }
 
   SizeT ParallelMinSize()

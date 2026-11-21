@@ -8,6 +8,8 @@
 
 #include <algorithm>
 
+#include "biginteger/common/Parallel.h"
+
 namespace BigMath
 {
   const SizeT CLASSIC_MULTIPLICATION_THRESHOLD = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
@@ -15,6 +17,7 @@ namespace BigMath
   const SizeT NTT_MULTIPLICATION_THRESHOLD = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
   const SizeT NTT_MIN_LIMB_THRESHOLD = BIGMATH_NTT_MIN_LIMB_THRESHOLD;
   const ULong NTT_AREA_THRESHOLD = BIGMATH_NTT_AREA_THRESHOLD;
+  const ULong NTT_COLD_AREA_THRESHOLD = BIGMATH_NTT_COLD_AREA_THRESHOLD;
   const SizeT TOOM3_SKEW_RATIO = BIGMATH_TOOM3_SKEW_RATIO;
   const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
@@ -46,10 +49,21 @@ namespace BigMath
     // a skewed product the alternative is sliced Karatsuba, whose cost grows
     // with max * K(min)/min, so a short operand keeps Karatsuba ahead well
     // past the balanced crossover. The area test la*lb captures that.
+    const ULong area = (ULong)a.size() * (ULong)b.size();
     if (size >= NTT_MULTIPLICATION_THRESHOLD &&
         minSize >= NTT_MIN_LIMB_THRESHOLD &&
-        (ULong)a.size() * (ULong)b.size() >= NTT_AREA_THRESHOLD)
-      return NTTMultiplication::Multiply(a, b, base);
+        area >= NTT_AREA_THRESHOLD)
+    {
+      // Small NTT products only pay off while the pool is awake: a parked
+      // pool makes them cost about the serial time, which loses to Karatsuba
+      // below NTT_COLD_AREA. When cold, run Karatsuba; if these multiplies
+      // are arriving in a burst the pool gets woken for the next one.
+      if (area >= NTT_COLD_AREA_THRESHOLD || ParallelWarmOrPrewarm())
+        return NTTMultiplication::Multiply(a, b, base);
+      std::vector<DataT> product = KaratsubaMultiplication::Multiply(a, b, base);
+      ParallelNoteColdDone();
+      return product;
+    }
 
     // Toom-3 window [TOOM3, NTT) on the total — empty by default.
     if (size >= TOOM3_MULTIPLICATION_THRESHOLD && size < NTT_MULTIPLICATION_THRESHOLD &&

@@ -96,6 +96,23 @@
 #endif
 #endif
 
+// The area threshold above was measured in a tight loop, where the thread
+// pool stays awake between multiplies. An isolated multiply finds the workers
+// parked and pays about the serial cost — at 320-450 limbs per operand ~52 us
+// against Karatsuba's 24-43 us (and 24 us for the same NTT with a warm pool).
+// So between NTT_AREA and NTT_COLD_AREA the dispatcher takes the NTT only
+// when ParallelWarm() says the pool is awake; otherwise it runs Karatsuba and
+// pokes the pool awake, so a second multiply right behind this one goes to
+// the NTT. From NTT_COLD_AREA up (cold NTT 53 us vs Karatsuba 50 us at
+// 512 x 512) the NTT wins regardless. Serial builds are always "cold".
+#ifndef BIGMATH_NTT_COLD_AREA_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_COLD_AREA_THRESHOLD 262144
+#else
+#define BIGMATH_NTT_COLD_AREA_THRESHOLD 0
+#endif
+#endif
+
 // CRT+NEON beats single-prime Goldilocks at every measured size (512/op:
 // 0.106 vs 0.176 ms), so the CRT gate drops below the NTT entry point —
 // Goldilocks remains only as the non-aarch64-friendly fallback via
@@ -125,6 +142,19 @@
 #define BIGMATH_NTT_SQUARE_THRESHOLD 352
 #else
 #define BIGMATH_NTT_SQUARE_THRESHOLD 512
+#endif
+#endif
+
+// Same pool-temperature split as BIGMATH_NTT_COLD_AREA_THRESHOLD: between the
+// two square thresholds the CRT self-multiply is taken only while the pool is
+// warm (cold it costs 41-47 us against KaratsubaSquare's 19.5 us at 352 limbs,
+// 36 us at 512, 43 us at 576); from here up it wins cold as well (640 limbs:
+// 47 vs 51 us).
+#ifndef BIGMATH_NTT_SQUARE_COLD_THRESHOLD
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 608
+#else
+#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 0
 #endif
 #endif
 

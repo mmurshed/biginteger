@@ -34,7 +34,18 @@ namespace BigMath
 #endif
 #endif
 
+#ifndef BIGMATH_NTT_SQUARE_COLD_THRESHOLD
+// Below this size the CRT self-multiply is taken only while the thread pool
+// is warm. Must match build/DispatchThresholds.h.
+#if BIGMATH_LIMB_64
+#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 608
+#else
+#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 0
+#endif
+#endif
+
   extern const SizeT NTT_SQUARE_THRESHOLD;
+  extern const SizeT NTT_SQUARE_COLD_THRESHOLD;
 
   std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base);
 }

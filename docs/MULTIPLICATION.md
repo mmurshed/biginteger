@@ -1280,3 +1280,58 @@ are built on `Multiply`. The one row that did not move is division of a
 40 000-digit dividend (0.88 ms before and after, 4.4× behind GMP): that band
 runs `FastDivision`'s own `submul` loops, which still use the old carry idiom.
 
+
+## Pool temperature in the NTT entry (2026-11-21)
+
+The dispatch re-sweep above timed each algorithm in a tight loop. In a loop
+the thread pool never parks, so a small NTT gets its six transforms spread
+over six awake cores. An **isolated** multiply finds the workers parked: the
+caller ends up doing nearly all the work itself while they wake, and the
+multiply costs about its serial time.
+
+Mean µs per multiply, 400 µs busy gap between calls ("cold") vs back to back
+("warm"), M1 Max:
+
+| limbs | Karatsuba | NTT warm | NTT cold |
+|---:|---:|---:|---:|
+| 320 | 23.9 | 24.7 | 52.1 |
+| 384 | 32.7 | 23.6 | 50.9 |
+| 448 | 42.3 | 23.8 | 52.6 |
+| 512 | 51.2 | 25.0 | 52.8 |
+| 640 | 72.2 | 27.1 | 59.4 |
+| 1024 | 154.0 | 44.9 | 80.4 |
+| 4096 | — | 145.0 | 178.5 |
+
+So the area rule's 96k entry was right warm and up to 2.2× wrong cold: at
+320–450 limbs an isolated multiply was slower than Karatsuba, and at 320–384
+slower than it had been before the re-sweep. The cold crossover is ~512
+limbs per operand.
+
+The entry is now temperature-aware. Between `BIGMATH_NTT_AREA_THRESHOLD`
+(96000) and `BIGMATH_NTT_COLD_AREA_THRESHOLD` (262144 ≈ 512²) the NTT is
+taken only if `ParallelWarmOrPrewarm()` reports the pool awake; otherwise
+the product goes to Karatsuba. To keep a cold start from pinning a burst of
+multiplies on Karatsuba, a thread that completes two such cold operations
+within `BIGMATH_POOL_SPIN_US` of each other pokes the pool awake
+(`ParallelPrewarm()`, one wake-up relayed among the workers so the caller
+pays ~2 µs rather than a 12 µs broadcast): the burst's third multiply finds
+the pool warm and takes the NTT. An isolated multiply wakes nothing. Squares
+get the same split (`BIGMATH_NTT_SQUARE_THRESHOLD` 352 warm,
+`BIGMATH_NTT_SQUARE_COLD_THRESHOLD` 608 cold).
+
+Dispatcher after the change, mean µs:
+
+| limbs | Karatsuba | back to back | 50 µs gaps | 400 µs gaps |
+|---:|---:|---:|---:|---:|
+| 320 | 23.8 | 30.8 | 32.5 | 23.9 |
+| 384 | 33.2 | 30.5 | 33.8 | 33.0 |
+| 448 | 42.6 | 34.7 | 34.8 | 43.1 |
+| 512 | 50.8 | 31.6 | 34.5 | 52.7 |
+
+(The machine was busier for this table — warm NTT measured 30–32 µs — so
+compare within the row.) Serial builds are always "cold" and use the cold
+thresholds, which is also where their serial-NTT crossover sits.
+
+This matters most inside division: Burnikel–Ziegler and Newton issue their
+mid-sized multiplies with serial work in between, i.e. usually cold.
+
