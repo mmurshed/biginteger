@@ -77,6 +77,36 @@ namespace
       }
     }
   }
+
+  // The split inverse (two half-length inverses + shared top layer, used to
+  // give each prime two work units) must equal the one-piece inverse.
+  template <typename F, UInt G>
+  void CheckSplitInverse(uint64_t seed)
+  {
+    std::mt19937_64 gen(seed);
+    for (Int logn = 2; logn <= 16; ++logn)
+    {
+      Int n = (Int)1 << logn;
+      const Plan<F> &plan = GetPlan<F, G>(n);
+      const Plan<F> &half = GetPlan<F, G>(n / 2);
+      for (int r = 0; r < 3; ++r)
+      {
+        std::vector<UInt> input = RandomResidues<F>(n, gen);
+        std::vector<UInt> whole = input;
+        std::vector<UInt> split = input;
+        InversePtr<F>(whole.data(), n, plan, /*scale=*/true);
+        InverseSplitPtr<F>(split.data(), n, plan, half);
+        ASSERT_TRUE(whole == split);
+      }
+    }
+  }
+}
+
+REGISTER_TEST(NttCrtLayers, SplitInverseMatchesWholeInverse)
+{
+  CheckSplitInverse<F1, G1>(0x5EED0011ULL);
+  CheckSplitInverse<F2, G2>(0x5EED0012ULL);
+  CheckSplitInverse<F3, G3>(0x5EED0013ULL);
 }
 
 REGISTER_TEST(NttCrtLayers, ForwardInverseMatchRadix2ReferenceP1)

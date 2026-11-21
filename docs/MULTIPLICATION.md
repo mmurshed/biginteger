@@ -994,6 +994,45 @@ one-coefficient-at-a-time loop on random and extreme residues, on the largest
 representable coefficient values, and on inputs built so a carry ripples
 across every range boundary and out of the top limb.
 
+## Whole-transform path: pack inside the units, six-unit inverse (2026-11-20)
+
+With the finalize pass off the critical path, the non-MFA multiply's
+wall-clock at `n = 2^16` was: forward 182 µs (six units), inverse 200 µs
+(three units — five of eight cores idle), a serial pack of 46 µs, and six
+serial full-plane zero-fills. Three structural changes in
+`NTTMultiplicationCrt.h`:
+
+- **`CrtPackForwardBatch`** — each `(operand, prime)` forward unit packs its
+  own residue plane (`PackPlane<F>`) and zero-pads only the tail beyond the
+  packed coefficients, then transforms it. The pack and the padding move
+  onto the pool and the redundant whole-plane `assign(n, 0)` disappears.
+- **Six-unit inverse.** A DIT inverse of length `n` is a length-`n/2` inverse
+  on each half (with the `n/2` plan, since `ω_{n/2}^k = ω_n^{2k}`) followed
+  by the one `len == n` layer that combines them. `CrtInverseBatch` runs the
+  six half inverses as one `ParallelDo(6)`, then the top layer — fused with
+  the `1/n` scaling, split in two `j` ranges per prime — as a second
+  `ParallelDo(6)`. Same butterfly count, same or fewer memory passes, twice
+  the threads. Engages from `BIGMATH_NTT_SPLIT_INVERSE_MIN = 4096`.
+- **Serial gate.** Below `BIGMATH_NTT_PARALLEL_MIN = 2048` coefficients the
+  forward and inverse batches run on the calling thread: at `n = 1024` six
+  threads buy about 1.3×, not worth waking and then spinning the pool for a
+  ~25 µs multiply.
+
+Threaded multiply, best of rounds (M1 Max):
+
+| n | before µs | after µs |
+|---:|---:|---:|
+| 2^11 | 26.6 | 20.7 |
+| 2^12 | 42.2 | 36.0 |
+| 2^13 | 74.9 | 58.8 |
+| 2^14 | 156.0 | 118.9 |
+| 2^16 | 646.0 | 442.2 |
+| 2^18 | 3 586.5 | 2 374.7 |
+| 2^19 | 7 543.5 | 5 640.7 |
+
+`tests/unit/test_ntt_crt_layers.cpp` checks the split inverse against the
+one-piece inverse for all three primes at every length 2^2..2^16.
+
 ## Karatsuba leaf — 2-row unrolling rejected, threshold 48 → 32 (2026-06-12)
 
 Closing the sub-13k-digit gap vs GMP (2.2–3.3×) was attempted at the

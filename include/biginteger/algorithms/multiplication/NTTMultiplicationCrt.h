@@ -121,6 +121,20 @@
 #define BIGMATH_NTT_FINALIZE_PARALLEL_MIN 4096
 #endif
 
+// Transform length from which the whole-transform (non-MFA) path dispatches
+// its forward/inverse units to the thread pool. Below it the transforms run
+// on the calling thread: at n = 1024 six threads buy about 1.3x, which is not
+// worth waking (and then spinning) the pool for a ~25 us multiply.
+#ifndef BIGMATH_NTT_PARALLEL_MIN
+#define BIGMATH_NTT_PARALLEL_MIN 2048
+#endif
+
+// Transform length from which the three inverse transforms are split into
+// six units (two half-length inverses per prime, then a shared top layer).
+#ifndef BIGMATH_NTT_SPLIT_INVERSE_MIN
+#define BIGMATH_NTT_SPLIT_INVERSE_MIN 4096
+#endif
+
 #ifndef NTT_MULTIPLICATION_CRT
 #define NTT_MULTIPLICATION_CRT
 
@@ -128,6 +142,7 @@
 #include <array>
 #include <bit>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -1348,6 +1363,55 @@ namespace BigMath
       }
     }
 
+    // ─── Split inverse: two half-length inverses + a shared top layer ───────
+    // A DIT inverse of length n is its first log2(n) − 1 layers applied to
+    // each half independently — exactly a length-n/2 inverse with the n/2
+    // plan (ω_{n/2}^k = ω_n^{2k}) — followed by the single len == n layer
+    // that combines the halves. The halves are independent work units, and
+    // the top layer splits freely over j, so one prime's inverse occupies two
+    // threads instead of one. The 1/n scaling rides the top layer's pass.
+
+    // Top DIT layer (len == n) fused with the 1/n scaling, for j in [j0, j1).
+    template <typename F>
+    inline void InverseTopLayerScaled(UInt *a, Int n, const Plan<F> &plan, Int j0, Int j1)
+    {
+      const Int h = n >> 1;
+      const UInt *roots = plan.inverseRoots.data();
+      const UInt invN = plan.invSize;
+      Int j = j0;
+#if BIGMATH_NEON
+      const UInt *il = plan.inverseIl.data();
+      const uint32x4_t vc = vdupq_n_u32(invN);
+      const uint32x4_t vcs = vdupq_n_u32(ShoupCompanion<F>(invN));
+      for (; j + 4 <= j1; j += 4)
+      {
+        uint32x4x2_t tw = vld2q_u32(il + 2 * j); // val[0] = twiddle, val[1] = companion
+        uint32x4_t u = vld1q_u32(a + j);
+        uint32x4_t v = NeonShoupMul<F>(tw.val[0], tw.val[1], vld1q_u32(a + j + h));
+        vst1q_u32(a + j, NeonShoupMul<F>(vc, vcs, NeonAdd<F>(u, v)));
+        vst1q_u32(a + j + h, NeonShoupMul<F>(vc, vcs, NeonSub<F>(u, v)));
+      }
+#endif
+      for (; j < j1; ++j)
+      {
+        UInt u = a[j];
+        UInt v = F::Mul(a[j + h], roots[j]);
+        a[j] = F::Mul(F::Add(u, v), invN);
+        a[j + h] = F::Mul(F::Sub(u, v), invN);
+      }
+    }
+
+    // Serial form of the split inverse; equals InversePtr(a, n, plan, true).
+    // `halfPlan` must be the plan for n / 2. Requires n >= 4.
+    template <typename F>
+    inline void InverseSplitPtr(UInt *a, Int n, const Plan<F> &plan, const Plan<F> &halfPlan)
+    {
+      const Int h = n >> 1;
+      InversePtr<F>(a, h, halfPlan, /*scale=*/ false);
+      InversePtr<F>(a + h, h, halfPlan, /*scale=*/ false);
+      InverseTopLayerScaled<F>(a, n, plan, 0, h);
+    }
+
     template <typename F>
     inline void Forward(std::vector<UInt> &a, const Plan<F> &plan)
     {
@@ -1441,6 +1505,33 @@ namespace BigMath
           dst3[i] = vv % P3;
         }
       }
+    }
+
+    // Residues of one operand modulo one prime: the packed 32-bit coefficients
+    // in dst[0 .. used), zero padding in dst[used .. n). One plane at a time
+    // so each (operand, prime) forward unit can pack its own input.
+    template <typename F>
+    inline void PackPlane(const std::vector<DataT> &v, BaseT base, UInt *dst, Int n)
+    {
+      const SizeT limbs = (SizeT)v.size();
+      SizeT used;
+      if (base == Base2_64)
+      {
+        for (SizeT i = 0; i < limbs; ++i)
+        {
+          dst[2 * i] = (UInt)(v[i] & 0xFFFFFFFFULL) % F::Prime;
+          dst[2 * i + 1] = (UInt)((v[i] >> 32) & 0xFFFFFFFFULL) % F::Prime;
+        }
+        used = 2 * limbs;
+      }
+      else
+      {
+        for (SizeT i = 0; i < limbs; ++i)
+          dst[i] = (UInt)v[i] % F::Prime;
+        used = limbs;
+      }
+      if ((SizeT)n > used)
+        std::memset(dst + used, 0, ((SizeT)n - used) * sizeof(UInt));
     }
 
     // ─── Garner + carry for 64-bit limbs (NEON digits, chunk-parallel) ──────
@@ -1658,6 +1749,19 @@ namespace BigMath
                                 const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
     {
 #if BIGMATH_USE_THREADS
+      if ((Int)fa1.size() < (Int)BIGMATH_NTT_PARALLEL_MIN)
+      {
+        Forward<F1>(fa1, plan1);
+        Forward<F2>(fa2, plan2);
+        Forward<F3>(fa3, plan3);
+        if (fb1 != nullptr)
+        {
+          Forward<F1>(*fb1, plan1);
+          Forward<F2>(*fb2, plan2);
+          Forward<F3>(*fb3, plan3);
+        }
+        return;
+      }
       std::vector<UInt> *bufs[6] = {&fa1, fb1, &fa2, fb2, &fa3, fb3};
       const Plan<F1> *p1 = &plan1;
       const Plan<F2> *p2 = &plan2;
@@ -1708,6 +1812,56 @@ namespace BigMath
 #endif
     }
 
+    // Pack + forward in one batch: each (operand, prime) unit packs its own
+    // residue plane (and zero-pads it) before transforming it, so the pack and
+    // the padding run on the pool instead of serially on the caller. `b` is
+    // null when squaring (three units instead of six). The buffers are sized
+    // here; every element of each plane is written by its unit.
+    inline void CrtPackForwardBatch(const std::vector<DataT> &a, const std::vector<DataT> *b,
+                                    BaseT base, Int n,
+                                    std::vector<UInt> &fa1, std::vector<UInt> &fa2, std::vector<UInt> &fa3,
+                                    std::vector<UInt> &fb1, std::vector<UInt> &fb2, std::vector<UInt> &fb3,
+                                    const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
+    {
+      fa1.resize(n);
+      fa2.resize(n);
+      fa3.resize(n);
+      if (b != nullptr)
+      {
+        fb1.resize(n);
+        fb2.resize(n);
+        fb3.resize(n);
+      }
+      UInt *const pa1 = fa1.data(), *const pa2 = fa2.data(), *const pa3 = fa3.data();
+      UInt *const pb1 = b ? fb1.data() : nullptr, *const pb2 = b ? fb2.data() : nullptr, *const pb3 = b ? fb3.data() : nullptr;
+      const std::vector<DataT> *const srcA = &a;
+      const Plan<F1> *const p1 = &plan1;
+      const Plan<F2> *const p2 = &plan2;
+      const Plan<F3> *const p3 = &plan3;
+      auto unit = [=](Int idx) {
+        switch (idx)
+        {
+          case 0: PackPlane<F1>(*srcA, base, pa1, n); ForwardPtr<F1>(pa1, n, *p1); break;
+          case 1: PackPlane<F2>(*srcA, base, pa2, n); ForwardPtr<F2>(pa2, n, *p2); break;
+          case 2: PackPlane<F3>(*srcA, base, pa3, n); ForwardPtr<F3>(pa3, n, *p3); break;
+          case 3: PackPlane<F1>(*b, base, pb1, n); ForwardPtr<F1>(pb1, n, *p1); break;
+          case 4: PackPlane<F2>(*b, base, pb2, n); ForwardPtr<F2>(pb2, n, *p2); break;
+          case 5: PackPlane<F3>(*b, base, pb3, n); ForwardPtr<F3>(pb3, n, *p3); break;
+        }
+      };
+      const Int units = b != nullptr ? 6 : 3;
+#if BIGMATH_USE_THREADS
+      if (n >= (Int)BIGMATH_NTT_PARALLEL_MIN)
+      {
+        ParallelDo(units, [&unit](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx) unit(idx);
+        });
+        return;
+      }
+#endif
+      for (Int idx = 0; idx < units; ++idx) unit(idx);
+    }
+
     // Pointwise product into the a-side buffers. Pass the a-side pointers as
     // the b-side to square in place.
     inline void CrtPointwiseMulInto(UInt *p1a, UInt *p2a, UInt *p3a,
@@ -1731,10 +1885,58 @@ namespace BigMath
                                 const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
     {
 #if BIGMATH_USE_THREADS
-      std::vector<UInt> *bufs[3] = {&f1, &f2, &f3};
+      const Int n = (Int)f1.size();
+      if (n < (Int)BIGMATH_NTT_PARALLEL_MIN)
+      {
+        Inverse<F1>(f1, plan1);
+        Inverse<F2>(f2, plan2);
+        Inverse<F3>(f3, plan3);
+        return;
+      }
       const Plan<F1> *p1 = &plan1;
       const Plan<F2> *p2 = &plan2;
       const Plan<F3> *p3 = &plan3;
+      if (n >= (Int)BIGMATH_NTT_SPLIT_INVERSE_MIN && ParallelNumThreads() >= 4)
+      {
+        // Six units per phase instead of three whole transforms — see
+        // InverseSplitPtr. The half plans are fetched here, on the
+        // dispatching thread (plan caches are thread_local).
+        const Int h = n >> 1;
+        const Plan<F1> *h1 = &GetPlan<F1, G1>(h);
+        const Plan<F2> *h2 = &GetPlan<F2, G2>(h);
+        const Plan<F3> *h3 = &GetPlan<F3, G3>(h);
+        UInt *const a1 = f1.data(), *const a2 = f2.data(), *const a3 = f3.data();
+        ParallelDo(6, [=](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            const Int off = (idx & 1) ? h : 0;
+            switch (idx >> 1)
+            {
+              case 0: InversePtr<F1>(a1 + off, h, *h1, /*scale=*/ false); break;
+              case 1: InversePtr<F2>(a2 + off, h, *h2, /*scale=*/ false); break;
+              case 2: InversePtr<F3>(a3 + off, h, *h3, /*scale=*/ false); break;
+            }
+          }
+        });
+        // The barrier between the phases is load-bearing: the top layer
+        // reads both finished halves of its prime.
+        const Int mid = (h >> 1) & ~(Int)3; // keep the NEON 4-lane groups aligned
+        ParallelDo(6, [=](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            const Int j0 = (idx & 1) ? mid : 0;
+            const Int j1 = (idx & 1) ? h : mid;
+            switch (idx >> 1)
+            {
+              case 0: InverseTopLayerScaled<F1>(a1, n, *p1, j0, j1); break;
+              case 1: InverseTopLayerScaled<F2>(a2, n, *p2, j0, j1); break;
+              case 2: InverseTopLayerScaled<F3>(a3, n, *p3, j0, j1); break;
+            }
+          }
+        });
+        return;
+      }
+      std::vector<UInt> *bufs[3] = {&f1, &f2, &f3};
       auto body = [bufs, p1, p2, p3](Int s, Int e) {
         for (Int idx = s; idx < e; ++idx)
         {
@@ -2821,21 +3023,10 @@ namespace BigMath
       else
 #endif
       {
-        fa1.assign(n, 0);
-        fa2.assign(n, 0);
-        fa3.assign(n, 0);
-        PackOperand(a, base, fa1, fa2, fa3);
-        if (!sameOperand)
-        {
-          fb1.assign(n, 0); fb2.assign(n, 0); fb3.assign(n, 0);
-          PackOperand(b, base, fb1, fb2, fb3);
-        }
-        // Cross-prime parallelism: 6 forwards as one batch (3 when squaring).
-        CrtForwardBatch(fa1, fa2, fa3,
-                        sameOperand ? nullptr : &fb1,
-                        sameOperand ? nullptr : &fb2,
-                        sameOperand ? nullptr : &fb3,
-                        plan1, plan2, plan3);
+        // Cross-prime parallelism: 6 pack+forward units as one batch (3 when
+        // squaring). Each unit packs and zero-pads its own plane.
+        CrtPackForwardBatch(a, sameOperand ? nullptr : &b, base, n,
+                            fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
       }
 
       // The fused MFA path already multiplied fb into fa during forward
@@ -2961,12 +3152,7 @@ namespace BigMath
       else
 #endif
       {
-        fa1.assign(n, 0); fb1.assign(n, 0);
-        fa2.assign(n, 0); fb2.assign(n, 0);
-        fa3.assign(n, 0); fb3.assign(n, 0);
-        PackOperand(a, base, fa1, fa2, fa3);
-        PackOperand(b, base, fb1, fb2, fb3);
-        CrtForwardBatch(fa1, fa2, fa3, &fb1, &fb2, &fb3, plan1, plan2, plan3);
+        CrtPackForwardBatch(a, &b, base, n, fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
 
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
                             fb1.data(), fb2.data(), fb3.data(), n);
