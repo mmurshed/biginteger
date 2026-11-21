@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Generate the BENCHMARK.md / README.md performance figures.
 
-Data: 2026-06-12 evening canonical run at v13.0 (post #120-#126: audit fixes,
-CRT squaring, dedups, header hygiene). M1 Max, paired same-run BigMath vs
-GMP 6.3, quiet machine; 50M-200M mul rows and 5M-20M ToString rows use warm
-steady-state ratios (first call discarded, best-of-3) — see BENCHMARK.md
-methodology notes. Regenerate by rerunning bench_vs_gmp and updating the
-tables below, then:
+Ratio figure: canonical BENCHMARK.md tables, multiplication 2026-11-20;
+division and decimal I/O 2026-11-21. M1 Max, paired same-run BigMath vs
+GMP 6.3; BigMath uses up to 8 threads, GMP is single-threaded. Multiplication
+at 50M-200M digits uses warm steady-state ratios. ToString cold and the three
+measured warm ratios are shown separately. Ratios are copied from the tables
+rather than recomputed from rounded timings; see BENCHMARK.md for methodology.
+The session-progress figure retains its historical June data.
+Regenerate after updating the benchmark tables and ratios below:
 python3 docs/images/make_benchmark_plots.py
 """
 import matplotlib
@@ -16,22 +18,23 @@ import matplotlib.pyplot as plt
 
 # digits -> BigMath/GMP wall-clock ratio (lower is better; < 1 = BigMath faster)
 MUL_BAL = {
-    1e3: 2.33, 5e3: 2.56, 1e4: 3.19, 5e4: 1.24, 1e5: 1.29, 5e5: 0.89,
-    1e6: 0.85, 2e6: 0.79, 5e6: 0.52, 1e7: 0.31, 2e7: 0.47,
-    5e7: 0.89, 1e8: 0.91, 2e8: 0.97,  # 50M+ warm steady-state
+    1e3: 1.39, 5e3: 1.48, 1e4: 0.90, 5e4: 0.63, 1e5: 0.42, 5e5: 0.60,
+    1e6: 0.50, 2e6: 0.55, 5e6: 0.31, 1e7: 0.21, 2e7: 0.34,
+    5e7: 0.63, 1e8: 0.68, 2e8: 0.72,  # 50M+ warm steady-state
 }
-DIV_SKEW = {  # a = 5b shapes, keyed by dividend digits
-    4e4: 2.64, 1e5: 3.81, 2e5: 2.31, 5e5: 1.59, 1e6: 1.44, 2e6: 1.18,
-    5e6: 1.00, 1e7: 1.18, 2e7: 0.82, 5e7: 0.45, 1e8: 0.49, 2e8: 0.69,
+DIV_SKEW = {  # 4:1, 5:1 and 10:1 digit ratios, keyed by dividend digits
+    4e4: 1.36, 1e5: 2.01, 2e5: 0.67, 5e5: 0.56, 1e6: 0.49, 2e6: 0.35,
+    5e6: 0.36, 1e7: 0.35, 2e7: 0.30, 5e7: 0.19, 1e8: 0.27, 2e8: 0.32,
 }
 PARSE = {
-    1e3: 1.55, 1e4: 2.26, 5e4: 2.77, 1e5: 1.62, 5e5: 0.69, 1e6: 0.60,
-    2e6: 0.56, 5e6: 0.44, 1e7: 0.40, 2e7: 0.38, 5e7: 0.53,
+    1e3: 1.49, 1e4: 1.71, 5e4: 1.37, 1e5: 0.54, 5e5: 0.37, 1e6: 0.34,
+    2e6: 0.32, 5e6: 0.25, 1e7: 0.24, 2e7: 0.23, 5e7: 0.28,
 }
-TOSTR = {
-    1e3: 1.83, 1e4: 3.37, 5e4: 2.81, 1e5: 3.38, 2e5: 2.27, 5e5: 1.62,
-    1e6: 1.29, 2e6: 1.07, 5e6: 0.58, 1e7: 0.54, 2e7: 0.49,  # 5M+ warm
+TOSTR_COLD = {
+    1e3: 1.80, 1e4: 2.33, 5e4: 1.80, 1e5: 1.37, 2e5: 0.74, 5e5: 0.52,
+    1e6: 0.42, 2e6: 0.38, 5e6: 0.44, 1e7: 0.40, 2e7: 0.39,
 }
+TOSTR_WARM = {1e5: 0.57, 1e6: 0.30, 5e6: 0.32}
 
 # Session progress: BigMath/GMP ratio at the 2026-05-30 baseline vs after the
 # 2026-06 runs (PRs #82-#99, #107-#114, then #116-#119).
@@ -48,32 +51,42 @@ BEFORE_AFTER = [
 
 
 def ratio_plot(path):
-    fig, ax = plt.subplots(figsize=(8.4, 5.0), dpi=150)
+    fig, ax = plt.subplots(figsize=(8.8, 5.6), dpi=180)
     series = [
-        (MUL_BAL, "multiply (balanced)", "#1f77b4", "o"),
-        (DIV_SKEW, "divide (5:1 skew)", "#d62728", "s"),
+        (MUL_BAL, "multiply (balanced; ≥50M warm)", "#1f77b4", "o"),
+        (DIV_SKEW, "divide (4:1–10:1 digit ratios)", "#d62728", "s"),
         (PARSE, "parse (str → int)", "#2ca02c", "^"),
-        (TOSTR, "to-string (int → str)", "#9467bd", "d"),
+        (TOSTR_COLD, "ToString (cold)", "#9467bd", "d"),
     ]
     for data, label, color, marker in series:
         xs = sorted(data)
         ax.plot(xs, [data[x] for x in xs], label=label, color=color,
                 marker=marker, markersize=4.5, linewidth=1.6)
+    xs = sorted(TOSTR_WARM)
+    ax.plot(xs, [TOSTR_WARM[x] for x in xs], label="ToString (warm; measured sizes)",
+            color="#9467bd", marker="D", markersize=6, markerfacecolor="white",
+            markeredgewidth=1.5, linestyle="none", zorder=3)
     ax.axhline(1.0, color="black", linewidth=1.0, linestyle="--", alpha=0.7)
-    ax.text(1.25e3, 0.93, "GMP parity", fontsize=8.5, alpha=0.8)
-    ax.fill_between([7e2, 3e8], 0.3, 1.0, color="green", alpha=0.06)
+    ax.text(1.25e3, 1.04, "GMP parity", fontsize=8.5, alpha=0.8)
+    ax.text(1.25e3, 0.12, "BigMath faster", fontsize=8.5, color="#35603a")
+    ax.axhspan(0, 1.0, color="green", alpha=0.06)
     ax.set_xscale("log")
     ax.set_xlim(7e2, 3e8)
-    ax.set_ylim(0.3, 5.2)
-    ax.set_xlabel("operand size (decimal digits)")
+    ax.set_ylim(0, 2.6)
+    ax.set_xlabel("operand size (decimal digits; division: dividend size)")
     ax.set_ylabel("BigMath / GMP wall-clock ratio   (lower is better)")
-    ax.set_title("BigMath vs GMP 6.3 — Apple M1 Max, 2026-06-12\n"
-                 "below the dashed line, BigMath is faster than GMP",
+    ax.set_title("BigMath vs GMP 6.3 — Apple M1 Max\n"
+                 "2026-11-20: multiplication · 2026-11-21: division and decimal I/O",
                  fontsize=11)
     ax.grid(True, which="both", alpha=0.25)
-    ax.legend(loc="upper right", fontsize=9)
-    fig.tight_layout()
+    ax.legend(loc="upper right", fontsize=8.5)
+    fig.text(0.5, 0.02,
+             "BigMath: up to 8 threads · GMP: single-threaded. "
+             "Source and timing methodology: BENCHMARK.md",
+             ha="center", fontsize=8)
+    fig.tight_layout(rect=(0, 0.045, 1, 1))
     fig.savefig(path)
+    plt.close(fig)
     print("wrote", path)
 
 

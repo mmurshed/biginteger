@@ -17,7 +17,7 @@ The margins come from the 2026 optimization campaign — NEON Shoup NTT butterfl
 
 ![BigMath vs GMP ratio by operand size](docs/images/bigmath_vs_gmp.png)
 
-*Figure from the v13.0 run (2026-06-12); the numbers above and in BENCHMARK.md are current.*
+*Figure uses the canonical runs: multiplication 2026-11-20; division and decimal I/O 2026-11-21. Multiplication at ≥50M digits uses warm timings; ToString cold and measured warm timings are shown separately. See [BENCHMARK.md](BENCHMARK.md) for operand shapes and timing methodology.*
 
 Full tables, methodology, and per-PR history: [BENCHMARK.md](BENCHMARK.md).
 
