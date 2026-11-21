@@ -322,6 +322,47 @@ namespace BigMath
                 return;
             }
 
+            // Unbalanced operands: slice the longer one into pieces the length
+            // of the shorter and multiply piece by piece.
+            //
+            // The split below clamps m to min(la, lb) - 1. When one operand is
+            // at least twice the other, that clamp makes every level peel just
+            // lb - 1 limbs off the long operand: the (al+ah)*(bl+bh) product is
+            // (la - lb + 2) x lb, barely smaller than the input, so the
+            // recursion runs la / lb levels deep instead of log2. Each level
+            // parks ~2*la + lb limbs of workspace, the total grows like
+            // la^2 / lb, and from about la > 16*lb it ran past the 16n
+            // workspace allocated in Multiply() — a heap overflow on shapes the
+            // dispatcher really sends here (e.g. 1214 x 65 limbs). Slicing
+            // keeps every sub-product balanced, bounds the workspace by ~4*la,
+            // and removes the O(la^2 / lb) add/copy overhead as well.
+            if (la >= 2 * lb || lb >= 2 * la)
+            {
+                const DataT* x = a;  // longer operand
+                SizeT lx = la;
+                const DataT* y = b;  // shorter operand
+                SizeT ly = lb;
+                if (lx < ly)
+                {
+                    std::swap(x, y);
+                    std::swap(lx, ly);
+                }
+
+                // First piece straight into c[0 .. 2*ly); the rest of c starts at zero.
+                MultiplyRecursive(x, ly, y, ly, c, w, base);
+                std::memset(c + 2 * ly, 0, (lx - ly) * sizeof(DataT));
+
+                // Remaining pieces: product into the workspace, then add at its offset.
+                DataT* t = w;
+                for (SizeT off = ly; off < lx; off += ly)
+                {
+                    SizeT len = std::min(ly, lx - off);
+                    MultiplyRecursive(x + off, len, y, ly, t, t + len + ly, base);
+                    AddToPtr(c + off, lx + ly - off, t, len + ly, base);
+                }
+                return;
+            }
+
             SizeT m = (std::max(la, lb) + 1) / 2;
             if (m >= la) m = la - 1;
             if (m >= lb) m = lb - 1;
@@ -403,14 +444,13 @@ namespace BigMath
             // products plus T3 = (wl*wh) which is sized 2*(n/2+1). Sub-recursion
             // is dispatched with `nextW` pointing past these.
             //
-            // The geometric sum across log₂(n) levels works out to ~10n in the
-            // worst case (highly unbalanced split — one half ~all of n, the
-            // other ~1 — produces wl/wh sizes near n, pushing the per-level
-            // usage above the balanced-case 5n).
-            //
-            // 16n is a comfortable upper bound that keeps the workspace within
-            // a single allocation and never triggers a heap-buffer-overflow
-            // even on adversarially-skewed inputs (e.g. 1200×1024).
+            // For operands within a factor of two of each other every level
+            // halves, so the total is ~6n. Operands further apart than that are
+            // sliced in MultiplyRecursive (one 2*min-limb temporary plus the
+            // balanced bound for min), which stays below ~4n. 16n therefore
+            // leaves better than 2x headroom. (Before the slicing path the
+            // clamped split recursed la/lb levels deep on skewed inputs and
+            // this bound did not hold — see the comment there.)
             std::unique_ptr<DataT[]> w(new DataT[16 * n]);
 
             MultiplyRecursive(
