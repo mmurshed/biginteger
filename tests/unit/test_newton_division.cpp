@@ -138,3 +138,57 @@ REGISTER_TEST(NewtonDivision, CachedDividerMatchesAndDoesNotFallBack)
 }
 
 #endif
+
+#if BIGMATH_LIMB_64
+
+// Blockwise division with a short leading block. The normalization shift
+// pushes a limb out of a dividend of exactly k*n limbs whenever the divisor's
+// top limb has leading zeros and the dividend's top limb is large enough, so
+// the first block then carries a single quotient limb; lengths just above a
+// multiple of n give the other short heads. Those go to schoolbook up to
+// BIGMATH_NEWTON_SCHOOLBOOK_HEAD limbs — both sides of that edge are covered.
+REGISTER_TEST(NewtonDivision, ShortLeadingBlock)
+{
+  std::mt19937_64 gen(0x4EADULL);
+  const long before = NewtonDivision::FallbackCount();
+  const DataT M = ~(DataT)0;
+  const SizeT head = BIGMATH_NEWTON_SCHOOLBOOK_HEAD;
+  for (SizeT n : {70, 257, 1536})
+    for (SizeT extra : {(SizeT)0, (SizeT)1, (SizeT)2, head - 1, head, head + 1, head + 2})
+      for (SizeT blocks : {2, 3, 4})
+      {
+        if (n == 1536 && blocks == 4)
+          continue;
+        for (DataT bTop : {M, (DataT)1 << 63, (DataT)1 << 62, (DataT)0x1234, (DataT)1})
+          for (DataT aTop : {M, (DataT)1 << 63, (DataT)0x9876543210ULL, (DataT)1})
+          {
+            std::vector<DataT> a(blocks * n + extra), b(n);
+            for (auto &x : a) x = gen();
+            for (auto &x : b) x = gen();
+            a.back() = aTop;
+            b.back() = bTop;
+            auto qr = NewtonDivision::DivideAndRemainder(a, b, Base2_64, true);
+            auto ref = BurnikelZieglerDivision::DivideAndRemainder(a, b, Base2_64, true);
+            ASSERT_TRUE(Trimmed(qr.first) == Trimmed(ref.first));
+            ASSERT_TRUE(Trimmed(qr.second) == Trimmed(ref.second));
+            ASSERT_TRUE(Trimmed(NewtonDivision::Divide(a, b, Base2_64)) == Trimmed(ref.first));
+          }
+      }
+  // Dividend whose leading block equals the divisor: head quotient exactly 1,
+  // head remainder 0.
+  for (SizeT n : {70, 300})
+  {
+    std::vector<DataT> b(n);
+    for (auto &x : b) x = gen();
+    b.back() |= (DataT)1 << 63;
+    std::vector<DataT> a(3 * n, 0);
+    for (SizeT i = 0; i < n; ++i) a[2 * n + i] = b[i];
+    auto qr = NewtonDivision::DivideAndRemainder(a, b, Base2_64, true);
+    auto ref = BurnikelZieglerDivision::DivideAndRemainder(a, b, Base2_64, true);
+    ASSERT_TRUE(Trimmed(qr.first) == Trimmed(ref.first));
+    ASSERT_TRUE(Trimmed(qr.second) == Trimmed(ref.second));
+  }
+  ASSERT_EQ(NewtonDivision::FallbackCount(), before);
+}
+
+#endif

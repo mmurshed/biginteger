@@ -37,6 +37,17 @@
 #define BIGMATH_NEWTON_APPROX_THRESHOLD 1280
 #endif
 
+// Blockwise division: a leading block with at most this many quotient limbs
+// goes to schoolbook instead of a Newton chunk. A chunk costs a reciprocal
+// multiply and a back-multiply at the divisor's size whatever the block's
+// quotient length — 60-75 ns per divisor limb from the Newton floor up to
+// 65k limbs — while schoolbook costs ~1.3 ns per divisor limb per quotient
+// limb. The case that matters is one limb: the normalization shift pushes a
+// limb out of a dividend of exactly k*n limbs for one random input in three.
+#ifndef BIGMATH_NEWTON_SCHOOLBOOK_HEAD
+#define BIGMATH_NEWTON_SCHOOLBOOK_HEAD 32
+#endif
+
 namespace BigMath
 {
   // Newton-Raphson division.
@@ -720,9 +731,26 @@ namespace BigMath
       std::vector<DataT> rem;
       bool is_first = true;
 
+      // Short leading block: schoolbook (see BIGMATH_NEWTON_SCHOOLBOOK_HEAD).
+      // b_norm is normalized, so FastDivision divides it as it stands.
+      const bool schoolbookHead =
+          base == Base2_64 && first_chunk_size - n <= (SizeT)BIGMATH_NEWTON_SCHOOLBOOK_HEAD;
+
       while (true)
       {
-        DivideResult res = DivideChunk(chunk, b_norm, R);
+        DivideResult res;
+        if (is_first && schoolbookHead)
+        {
+          auto head = FastDivision::DivideAndRemainder(
+              std::span<const DataT>(chunk), std::span<const DataT>(b_norm), base, true);
+          TrimZerosToOne(head.first);
+          TrimZerosToOne(head.second);
+          res = DivideResult{std::move(head.first), std::move(head.second), true};
+        }
+        else
+        {
+          res = DivideChunk(chunk, b_norm, R);
+        }
         if (!res.ok)
           return Fallback(a, b, base, computeRemainder);
 
