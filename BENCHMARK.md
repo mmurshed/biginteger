@@ -25,7 +25,7 @@ warm timings; ToString cold and measured warm timings are shown separately.*
   100k×10k, which was 1.21×.
 - **Skewed division beats GMP from 200k-digit dividends** (was 500k; 20M at
   v13.0): 0.19–0.67×, e.g. 50M ÷ 10M digits in 244 ms against GMP's 1.31 s.
-  Every row is 1.1–1.6× faster than the 2026-11-20 run.
+  The 12 skewed division rows are 1.14–1.58× faster than the 2026-11-20 run.
 - **Decimal I/O**: parse beats GMP from 100k digits (0.23–0.54×); ToString
   from 200k digits cold (0.38–0.74×; was 1M) and from 100k warm
   (0.30–0.57×).
@@ -45,6 +45,9 @@ This file is the raw numbers, all subsystems in one place.
 
 ---
 
+The follow-up review records matched Q/Q and QR/QR timings at 100k ÷ 10k digits,
+including the time spent in each BZ kernel. [Review and measurements](docs/PERFORMANCE_REVIEW_PR129.md#matched-division-and-the-remaining-gap)
+
 ## Methodology
 
 - **Hardware:** Apple M1 Max (10-core, 8 performance + 2 efficiency), 64 GB RAM.
@@ -55,8 +58,9 @@ This file is the raw numbers, all subsystems in one place.
 - **Default stack:** `BIGMATH_LIMB_64=1` (64-bit limbs), `BIGMATH_NTT_CRT=1`
   (3-prime CRT NTT), `BIGMATH_USE_THREADS=1` (8-thread pool),
   `BIGMATH_NEON=1` on aarch64, MFA gate `2^20` coefficients.
-- **Timing:** min over 1–1000+ iterations depending on size
-  (`tests/performance/bench_vs_gmp.cpp`); rows ≥100k digits are single-iter.
+- **Timing:** the integer harness takes the minimum of 7 iterations through
+  2k digits, 5 through 20k, 3 through 100k and 1 above 100k. ToString uses
+  one iteration from 100k digits. Current output includes the repetition count.
   The machine was not idle for this run (load average 3–5 from desktop
   processes), so treat single-iteration rows as ±10%.
 - **Warm steady state:** rows marked *warm* discard the first call (NTT plan
@@ -110,7 +114,7 @@ Observations:
 - The crossover against GMP moved from ~500k digits to ~10k. Below it the
   flag-chain limb kernels put Karatsuba within 1.4–1.5× of GMP's assembly
   basecase plus Toom tiers; at 10k digits the product already runs on the
-  CRT NTT (entry at ~310 limbs per operand, was 640).
+  CRT NTT (balanced warm entry at 320 limbs per operand, was 640).
 - 50k–20M digits: NEON tail kernels and the leaner Shoup butterfly on the
   transforms, the six-unit inverse, the parallel finalize pass and the
   thread-pool rewrite; just above each power-of-two transform length the
@@ -141,9 +145,9 @@ Skewed (`a.size() >> b.size()`), `bench_vs_gmp`, 2026-11-21:
 | **100 000 000 × 20 000 000** | **715.2** | **2 693** | **0.27×** | 0.32× | 0.49× |
 | **200 000 000 × 40 000 000** | **1 450** | **4 472** | **0.32×** | 0.47× | 0.69× |
 
-**What this table times.** The harness calls `a / b` (quotient only) on the
-BigMath side and `mpz_tdiv_qr` (quotient and remainder) on the GMP side, as
-it always has. At these ratios the quotient is longer than the divisor, so
+**What this table times.** The November 21 run called `a / b` (quotient only) on the
+BigMath side and `mpz_tdiv_qr` (quotient and remainder) on the GMP side. The current harness reports matched Q/Q and QR/QR
+rows with first-call and warm times for each operation on the same input. At these ratios the quotient is longer than the divisor, so
 BigMath's quotient-only shortcut (#147) does not apply and both sides do a
 full division; GMP's own quotient-only `mpz_tdiv_q` is 17–25% faster than
 its `tdiv_qr` at ratio 2 in separate measurements, so against that entry
@@ -283,8 +287,10 @@ resolution makes those ratios coarse).
 
 (v13.0: Classical 0.342 / 29.3 / 691 ms, Karatsuba 0.119 / 3.48 / 45.6 ms,
 NTT 0.208 / 0.865 / 2.97 ms — all three algorithms are about 2× faster.)
-Dispatch enters the NTT when `la·lb ≥ 96000` with the shorter operand at
-least 64 limbs — balanced, ~310 limbs per operand (~6k digits).
+The default 64-bit NTT path requires at least 640 total limbs, 64 limbs in
+the shorter operand and an area of at least 96,000 limb pairs. With a parked
+pool the area floor is 262,144. Balanced entry is 320 limbs per operand
+when warm and 512 when cold.
 
 ---
 
@@ -306,7 +312,7 @@ summary in [CHANGELOG.md](CHANGELOG.md). The major steps, in order:
 | #118–#119 | parallel D&C subtree fan-out for ToString and parse | both directions flipped to a 1.4–2.6× win ≥500k digits |
 | #120–#124 | codebase audit: FastDivision MG top-equal qhat fix (silent wrong quotients on structured operands), remainder-sign fix, CRT-squaring dispatch (2.5–5.8× on Square, parse-cold −14…25%), dedups, header hygiene | correctness + Square/parse-cold wins |
 | #129–#139 | **multiplication pass** (2026-11-20): flag-chain limb kernels (`addmul_1` 2.5–3.3 → 1.7 cycles/limb), NEON tail kernels + leaner Shoup butterfly, thread-pool rewrite (claim-based, spin-before-park; also fixes concurrent callers), NEON + parallel Garner finalize, six-unit inverse, truncated `H + L` transform length, area-rule dispatch; **fix: Karatsuba workspace heap overflow on skewed operands** | mul 1.5–4.5× at every size, GMP crossover 500k → 10k digits; div/parse/ToString 1.3–2.8× for free |
-| #141–#149 | **division pass** (2026-11-21): raw-buffer Knuth D on a flag-chain `submul_1` (basecase 2.2–3.5× → 1.1–1.6× of GMP), in-place divide-and-conquer Burnikel–Ziegler (1.5–2.4×), Newton reciprocal on a guarded precision schedule with no refinement pass, dispatcher re-swept to one rule per regime, quotient-only division from the operand tops, single-limb kernel, schoolbook leading block in Newton; thread pool: pool-temperature-aware small-NTT entry and lock-free job pickup | division beats GMP from 200k-digit dividends (was 500k) and is 1.1–3.2× faster than before the pass; ToString cold beats GMP from 200k digits (was 1M) |
+| #141–#149 | **division pass** (2026-11-21): raw-buffer Knuth D on a flag-chain `submul_1` (basecase 2.2–3.5× → 1.1–1.6× of GMP), in-place divide-and-conquer Burnikel–Ziegler (1.5–2.4×), Newton reciprocal on a guarded precision schedule with no refinement pass, dispatcher re-swept to one rule per regime, quotient-only division from the operand tops, single-limb kernel, schoolbook leading block in Newton; thread pool: pool-temperature-aware small-NTT entry and lock-free job pickup | division beats GMP from 200k-digit dividends (was 500k) and is 1.14–1.58× faster across the 12 published skewed cases; ToString cold beats GMP from 200k digits (was 1M) |
 
 Two history figures are kept with their original data:
 

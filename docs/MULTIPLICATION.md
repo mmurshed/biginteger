@@ -63,7 +63,7 @@ Number-theoretic transform (NTT) input packing depends on the path: the default 
 
 ## Top-level dispatch
 
-`include/biginteger/algorithms/Multiplication.h` (out-of-line dispatch body in `src/algorithms/Multiplication.cpp`) exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and shape, then picks Classic, Karatsuba, or NTT. A Toom-3 branch remains in the code but is unreachable since 2026-06-12: `TOOM3_MULTIPLICATION_THRESHOLD == NTT_MULTIPLICATION_THRESHOLD == 1280`, so the window is retired (CRT+NEON NTT beats Toom-3 everywhere it used to win). The NTT wrapper has a second-level dispatch between the Goldilocks and CRT/MFA kernels.
+`include/biginteger/algorithms/Multiplication.h` (out-of-line dispatch body in `src/algorithms/Multiplication.cpp`) exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and shape, then picks Classic, Karatsuba, or NTT. A Toom-3 branch remains in the code but is unreachable since 2026-06-12: `TOOM3_MULTIPLICATION_THRESHOLD == NTT_MULTIPLICATION_THRESHOLD == 640 on 64-bit builds`, so the window is retired (CRT+NEON NTT beats Toom-3 everywhere it used to win). The NTT wrapper has a second-level dispatch between the Goldilocks and CRT/MFA kernels.
 
 ```mermaid
 flowchart TD
@@ -71,11 +71,17 @@ flowchart TD
     B -- yes --> Z[return &#123;0&#125;]
     B -- no --> C{a or b<br/>single limb?}
     C -- yes --> Sc[ClassicMultiplication::Multiply&#40;scalar&#41;]
-    C -- no --> D{size ≤ CLASSIC_THRESHOLD &#40;56&#41;<br/>OR minSize ≤ CLASSIC_MIN_LIMB &#40;24&#41;?}
+    C -- no --> S{Same operand, 64-bit base<br/>and at most 319 limbs?}
+    S -- yes --> SQ[Square]
+    S -- no --> D{size ≤ CLASSIC_THRESHOLD &#40;56&#41;<br/>OR minSize ≤ CLASSIC_MIN_LIMB &#40;24&#41;?}
     D -- yes --> Cl[ClassicMultiplication::Multiply]
     D -- no --> E{size ≥ 640 AND minSize ≥ 64<br/>AND la·lb ≥ 96000?}
     E -- no --> K[KaratsubaMultiplication::Multiply<br/>&#40;slices operands ≥ 2:1 apart&#41;]
-    E -- yes --> N[NTTMultiplication::Multiply]
+    E -- yes --> P{Pool warm or area ≥ 262144?}
+    P -- no --> KS{Same 64-bit operand?}
+    KS -- yes --> KQ[KaratsubaSquare]
+    KS -- no --> K
+    P -- yes --> N[NTTMultiplication::Multiply]
 
     N --> C1{CRT enabled<br/>AND size ≥ CRT_THRESHOLD &#40;256 — effectively always&#41;?}
     C1 -- no --> G[Goldilocks NTT]
@@ -93,6 +99,8 @@ Default thresholds (overridable via `-D...`):
 
 | macro | default | unit | meaning |
 |---|---|---|---|
+| `BIGMATH_SMALL_SELF_SQUARE_MAX` | `319` | limbs | Largest identical 64-bit operand routed to the square dispatcher |
+| `BIGMATH_NTT_COLD_AREA_THRESHOLD` | `262144` under LIMB_64 | limbs² | Unconditional NTT entry once the other size gates hold |
 | `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `56` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 → 56 on 2026-11-20) |
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `24` under LIMB_64 | min of limbs | Classic whenever the shorter operand is at or below the Karatsuba leaf cutoff |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `0` under LIMB_64 | min of limbs | Legacy high-skew Classic guard — retired 2026-11-20 (sliced Karatsuba wins) |
@@ -256,7 +264,7 @@ Benchmarks show no useful production band. Below the Toom-5 threshold the functi
 
 **Location:** `algorithms/multiplication/NTTMultiplication.h`.
 
-**Complexity:** O(n log n) limb multiplies. Constant factor is large (transform setup, coefficient packing, transforms, pointwise multiply, and final carry propagation), so the dispatcher keeps Karatsuba until the operands reach 1280 total limbs (dropped from 5120 on 2026-06-12 after the NEON Shoup butterflies).
+**Complexity:** O(n log n) limb multiplies. Constant factor is large (transform setup, coefficient packing, transforms, pointwise multiply, and final carry propagation), so the dispatcher keeps Karatsuba until both the size and area gates are met (balanced 64-bit products enter at 320 limbs per operand when warm and 512 when cold).
 
 **Setup.** Multiplication via NTT computes a cyclic convolution of the digit sequences in a finite field, then propagates carries. The choice of field is critical: it must support a root of unity of sufficient order, fast reduction, and a coefficient capacity large enough that the unreduced convolution sum cannot overflow the field.
 
@@ -467,7 +475,7 @@ A loosely chronological summary of optimizations that landed and stuck.
 
 ### Multi-prime CRT NTT with 32-bit coefficients (2026-05, PRs #34-#37; prime ceiling lift 2026-05-27)
 
-`NTTMultiplication` dispatches large products to `NttCrt::Multiply` when `BIGMATH_NTT_CRT=1` and `a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD` (default threshold: 256 total limbs — below the NTT entry point of 1280, so CRT runs effectively always; Goldilocks is now only the `-DBIGMATH_NTT_CRT=0` fallback. The gate was 5000 when this landed and dropped on 2026-06-12 after the NEON retune). The CRT path uses three NTT-friendly primes with 2-adic order ≥ 2^26:
+`NTTMultiplication` dispatches large products to `NttCrt::Multiply` when `BIGMATH_NTT_CRT=1` and `a.size() + b.size() >= BIGMATH_NTT_CRT_THRESHOLD` (default threshold: 256 total limbs — below the default 640-total-limb NTT entry floor, so CRT runs effectively always; Goldilocks is now only the `-DBIGMATH_NTT_CRT=0` fallback. The gate was 5000 when this landed and dropped on 2026-06-12 after the NEON retune). The CRT path uses three NTT-friendly primes with 2-adic order ≥ 2^26:
 
 | prime | primitive root | factorization | max power-of-two length |
 |---:|---:|---:|---:|
@@ -784,7 +792,7 @@ allocation) and timed against `KaratsubaMultiplication::MultiplyRecursive`:
 | 512 | 50.23 | 46.09 | 0.92 |
 
 Below ~96 limbs it loses; from 192 it wins 1–8%, in a sawtooth. But the CRT
-NTT now takes over at ~310 limbs per operand (22 µs at 320, 24 µs at 512), so
+Warm NTT enters at 320 limbs per operand (22 µs at 320, 24 µs at 512), so
 the only window left is roughly 190–310 limbs at an average gain of about
 4%. Not worth a second sub-quadratic algorithm on the production path. The
 prototype was not merged.
@@ -1224,7 +1232,7 @@ NTT wins depends strongly on `min`:
 | 128 | ~750 | 96k |
 | 160 | ~630 | 101k |
 | 256 | ~450 | 115k |
-| balanced | ~310 | 96k |
+| balanced | 320 (total-size floor) | 102,400 |
 
 The crossover sits at a nearly constant schoolbook area, which gives the rule
 
