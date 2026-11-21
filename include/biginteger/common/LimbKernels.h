@@ -3,8 +3,9 @@
  *
  * The basecase loops of multiplication — schoolbook rows, Karatsuba's
  * add/subtract passes — all reduce to a handful of mpn-style primitives over
- * little-endian `DataT` arrays: add_n, sub_n, mul_1, addmul_1. This header is
- * the one place they live.
+ * little-endian `DataT` arrays: add_n, sub_n, mul_1, addmul_1, submul_1,
+ * shifts. This header is the one place they live. Schoolbook division
+ * (FastDivision) and Burnikel–Ziegler use the same kernels.
  *
  * Why they are written this way. The obvious formulation
  *
@@ -264,6 +265,79 @@ namespace BigMath
       }
       // r + a*b < B^(n+1), so the carry limb high + carryR cannot overflow.
       return high + carryR;
+    }
+
+    // r[0..n) -= a[0..n) * b. Returns the borrow limb (what must still be
+    // subtracted from r[n]). r must not overlap a. Same two-chain shape as
+    // AddMul1: the products are formed along an add chain, then subtracted
+    // from r along a borrow chain — no data-dependent branch per limb.
+    static inline DataT SubMul1(DataT *r, const DataT *a, SizeT n, DataT b)
+    {
+      DataT high = 0;    // chain A: high half of the previous product (+ its carry)
+      DataT borrowR = 0; // chain B: borrow of the subtraction from r
+      SizeT j = 0;
+      for (; j + 4 <= n; j += 4)
+      {
+        ULong128 p0 = (ULong128)a[j] * b;
+        ULong128 p1 = (ULong128)a[j + 1] * b;
+        ULong128 p2 = (ULong128)a[j + 2] * b;
+        ULong128 p3 = (ULong128)a[j + 3] * b;
+        DataT c;
+        DataT t0 = Adc((DataT)p0, high, 0, c);
+        DataT t1 = Adc((DataT)p1, (DataT)(p0 >> 64), c, c);
+        DataT t2 = Adc((DataT)p2, (DataT)(p1 >> 64), c, c);
+        DataT t3 = Adc((DataT)p3, (DataT)(p2 >> 64), c, c);
+        high = (DataT)(p3 >> 64) + c;
+        r[j] = Sbb(r[j], t0, borrowR, borrowR);
+        r[j + 1] = Sbb(r[j + 1], t1, borrowR, borrowR);
+        r[j + 2] = Sbb(r[j + 2], t2, borrowR, borrowR);
+        r[j + 3] = Sbb(r[j + 3], t3, borrowR, borrowR);
+      }
+      for (; j < n; ++j)
+      {
+        ULong128 p = (ULong128)a[j] * b;
+        DataT c;
+        DataT t = Adc((DataT)p, high, 0, c);
+        high = (DataT)(p >> 64) + c;
+        r[j] = Sbb(r[j], t, borrowR, borrowR);
+      }
+      // a*b < B^(n+1) and r < B^n, so the borrow limb high + borrowR <= B - 1.
+      return high + borrowR;
+    }
+
+    // r[0..n) = a[0..n) << count, 0 < count < 64. Returns the bits shifted
+    // out of the top limb. n >= 1. r may alias a exactly, or sit above it.
+    static inline DataT Lshift(DataT *r, const DataT *a, SizeT n, unsigned count)
+    {
+      const unsigned back = 64 - count;
+      DataT high = a[n - 1];
+      const DataT out = high >> back;
+      for (SizeT i = n - 1; i > 0; --i)
+      {
+        DataT low = a[i - 1];
+        r[i] = (high << count) | (low >> back);
+        high = low;
+      }
+      r[0] = high << count;
+      return out;
+    }
+
+    // r[0..n) = a[0..n) >> count, 0 < count < 64. Returns the bits shifted
+    // out of the bottom limb, left-aligned. n >= 1. r may alias a exactly,
+    // or sit below it.
+    static inline DataT Rshift(DataT *r, const DataT *a, SizeT n, unsigned count)
+    {
+      const unsigned back = 64 - count;
+      DataT low = a[0];
+      const DataT out = low << back;
+      for (SizeT i = 0; i + 1 < n; ++i)
+      {
+        DataT high = a[i + 1];
+        r[i] = (low >> count) | (high << back);
+        low = high;
+      }
+      r[n - 1] = low >> count;
+      return out;
     }
 
     // r[0..la+lb) = a[0..la) * b[0..lb), schoolbook. la, lb >= 1. r must not

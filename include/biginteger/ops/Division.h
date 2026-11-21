@@ -33,16 +33,16 @@ namespace BigMath
         bool computeRemainder = true) const
     {
       auto [qv, rv] = divider.DivideAndRemainder(a.GetInteger(), computeRemainder);
-      BigInteger q(qv, a.IsNegative() != divisor.IsNegative());
+      BigInteger q(std::move(qv), a.IsNegative() != divisor.IsNegative());
       // Truncated division: remainder takes the dividend's sign.
-      BigInteger r(rv, a.IsNegative());
-      return {q, r};
+      BigInteger r(std::move(rv), a.IsNegative());
+      return {std::move(q), std::move(r)};
     }
 
     BigInteger Divide(BigInteger const &a) const
     {
       auto qv = divider.Divide(a.GetInteger());
-      return BigInteger(qv, a.IsNegative() != divisor.IsNegative());
+      return BigInteger(std::move(qv), a.IsNegative() != divisor.IsNegative());
     }
 
     BigInteger const &Divisor() const
