@@ -37,17 +37,17 @@ int main(int argc, char *argv[])
   BigInteger a = Parse("123458");
   BigInteger b = Parse("234112");
 
-  vector<DataT> mult = ToomCookMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  vector<DataT> mult = ToomCookMultiplication::Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   string str = ToString(mult);
   bool cmp = (str == "28902999296");
   cout << "Toom-Cook result: " << str << " Cmp: " << cmp << endl;
 
-  vector<DataT> kara = KaratsubaMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  vector<DataT> kara = KaratsubaMultiplication::Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   string str_kara = ToString(kara);
   bool cmp_kara = (str_kara == "28902999296");
   cout << "Karatsuba result: " << str_kara << " Cmp: " << cmp_kara << endl;
 
-  vector<DataT> ntt_res = NTTMultiplication::Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
+  vector<DataT> ntt_res = NTTMultiplication::Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   string str_ntt = ToString(ntt_res);
   bool cmp_ntt = (str_ntt == "28902999296");
   cout << "NTT result: " << str_ntt << " Cmp: " << cmp_ntt << endl;

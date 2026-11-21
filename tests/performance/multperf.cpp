@@ -85,8 +85,8 @@ int main(int argc, char *argv[])
 
     clock_t start = clock();
     vector<DataT> rClassical = ClassicMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     clock_t end = clock();
     double timeTakenClassical = (double)(end - start) / CLOCKS_PER_SEC;
@@ -100,8 +100,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     double timeTakenKarat = (double)(end - start) / CLOCKS_PER_SEC;
@@ -115,8 +115,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
@@ -129,8 +129,8 @@ int main(int argc, char *argv[])
 
     start = clock();
     vector<DataT> nttm = NTTMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
     end = clock();
     double timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;

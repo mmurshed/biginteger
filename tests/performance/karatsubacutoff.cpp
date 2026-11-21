@@ -55,8 +55,8 @@ int main(int argc, char *argv[])
     clock_t start = clock();
 
     vector<DataT> rKarat = KaratsubaMultiplication::Multiply(
-        a.GetInteger(),
-        b.GetInteger(),
+        a.AsVector(),
+        b.AsVector(),
         BigInteger::Base());
 
     clock_t end = clock();

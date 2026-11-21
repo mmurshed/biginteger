@@ -617,6 +617,6 @@ namespace BigMath
 
   std::string ToString(BigInteger const &bigInt)
   {
-    return ToString(bigInt.GetInteger(), bigInt.IsNegative());
+    return ToString(bigInt.AsVector().get(), bigInt.IsNegative());
   }
 }

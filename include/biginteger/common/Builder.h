@@ -25,11 +25,27 @@ namespace BigMath
   public:
     static std::vector<DataT> VectorFrom(ULong n)
     {
-      return From(std::to_string(n)).GetInteger();
+      return From(n).GetInteger();
     }
 
-    static BigInteger From(ULong n)              { return From(std::to_string(n)); }
-    static BigInteger From(Long n)               { return From(std::to_string(n)); }
+    // Direct limb construction (stored inline, no allocation).
+    static BigInteger From(ULong n)
+    {
+#if BIGMATH_LIMB_64
+      const DataT limbs[1] = {(DataT)n};
+      return BigInteger::FromLimbs(std::span<const DataT>(limbs, 1), false);
+#else
+      const DataT limbs[2] = {(DataT)(n & 0xFFFFFFFFULL), (DataT)(n >> 32)};
+      return BigInteger::FromLimbs(std::span<const DataT>(limbs, 2), false);
+#endif
+    }
+
+    static BigInteger From(Long n)
+    {
+      // Magnitude via unsigned negation, so LLONG_MIN is exact.
+      const ULong magnitude = n < 0 ? (ULong)0 - (ULong)n : (ULong)n;
+      return From(magnitude).SetSign(n < 0);
+    }
     static BigInteger From(std::string const &n) { return From(n.c_str()); }
     static BigInteger From(char const *num)      { return Parse(num); }
 

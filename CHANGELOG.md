@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased — small-number storage
+
+`BigInteger` keeps values of up to 4 limbs (256 bits) inside the object
+instead of in a heap-allocated `std::vector`, and the operators work on
+operands of up to 16 limbs in a stack buffer. Through the public API on an
+M1 Max, main → this change, ns per operation:
+
+| limbs | `a*b` | `a+b` | `a-b` | `a/b` | `a%b` | copy | `a + 5` |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 20.6 → 7.5 | 22.8 → 9.7 | 24.0 → 10.3 | 33.6 → 15.1 | 47.3 → 13.4 | 13.2 → 0.3 | 66.2 → 9.9 |
+| 2 | 30.7 → 10.6 | 23.6 → 10.2 | 26.1 → 11.2 | 21.6 → 7.3 | 47.5 → 9.3 | 13.5 → 0.3 | 68.8 → 13.6 |
+| 4 | 40.8 → 29.6 | 25.1 → 10.9 | 26.2 → 12.1 | 46.1 → 30.6 | 67.7 → 33.4 | 14.9 → 0.3 | 70.5 → 14.0 |
+| 6 | 56.4 → 46.7 | 26.5 → 24.4 | 28.0 → 25.6 | 66.8 → 31.5 | 71.6 → 46.3 | 15.9 → 15.9 | 71.9 → 26.2 |
+| 16 | 168.9 → 152.2 | 29.0 → 29.7 | 30.1 → 30.2 | 66.4 → 45.1 | 90.0 → 64.0 | 15.7 → 15.7 | 70.2 → 27.8 |
+
+`BigIntegerBuilder::From(integer)` builds the limbs directly instead of
+formatting and re-parsing the number, which is most of the `a + 5` gain.
+
+### API change
+
+- `BigInteger::GetInteger()` now returns `std::vector<DataT>` **by value**
+  (a small value has no vector to refer to). Code that indexes it, iterates
+  it or passes it to a function still compiles, but each call copies. Use
+  the new `Limbs()` (`std::span<const DataT>`, no copy) to read limbs, or pass
+  `x.AsVector()` to functions taking `std::vector<DataT> const &` (no copy for
+  values on the heap). Do not bind `x.AsVector().get()` to a reference: for
+  a small value it refers to a temporary (clang warns, via
+  `[[clang::lifetimebound]]`).
+- New: `BigInteger::FromLimbs(span, negative)`, `IsInline()`,
+  `InlineLimbs`. Moved-from values are zero.
+
+### Costs
+
+- `sizeof(BigInteger)` grows from 32 to 64 bytes.
+- Constructing a small `BigInteger` from a vector copies the limbs inline
+  (+~1 ns). On one shape this shows: dividing two 1000-limb numbers whose
+  quotient is 1–2 limbs goes from 66 to 72 ns in a steady loop (up to ~90 ns
+  right after a run of large operations). The division itself is unchanged;
+  the quotient's vector is now freed at construction rather than with the
+  `BigInteger`, which interacts with allocator state.
+
 ## Unreleased — 2026-11-21 division pass (PRs #141–#149)
 
 The same treatment for division: measure the whole (divisor length, ratio)

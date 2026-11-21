@@ -6,6 +6,7 @@
 
 #include "biginteger/ops/Addition.h"
 #include "biginteger/ops/Subtraction.h"
+#include "biginteger/ops/SmallOps.h"
 
 namespace BigMath
 {
@@ -32,9 +33,7 @@ namespace BigMath
       return SubtractCompared(a, b);
 
     // Same sign: magnitude-add, preserve sign.
-    return BigInteger(
-        Add(a.GetInteger(), b.GetInteger(), BigInteger::Base()),
-        aNeg && bNeg);
+    return SmallOps::AddMagnitudes(a, b, aNeg && bNeg);
   }
 
   BigInteger operator+(BigInteger const &a, BigInteger const &b)
