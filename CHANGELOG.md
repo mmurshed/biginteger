@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — single-threaded products above 20 million digits
+
+A product whose coefficient count lands above a power of two `H` can be
+computed mod `x^H + 1` and mod `x^L − 1` and recombined, instead of with a
+transform of length `2H`. That scheme stopped at `H = 2^20`; above it every
+product paid for the next power of two, so a 50-million-digit product ran a
+transform 1.6× longer than it needed.
+
+With a single thread (`-DBIGMATH_USE_THREADS=0`, or a pool of one) the scheme
+now continues to `H = 2^25`, with cache-blocked transforms and one prime
+processed start to finish at a time (`CrtTruncSerial`). Builds with more than
+one thread are unchanged. `NttCrt::Multiply`, one thread, M1 Max, ms:
+
+| digits | before | after | vs GMP after |
+|---|---:|---:|---:|
+| 20M × 20M | 291 | 256 | 0.96× |
+| 50M × 50M | 1532 | 801 | 1.22× |
+| 100M × 100M | 3622 | 1852 | 1.33× |
+| 200M × 200M | 8160 | 4401 | 1.54× |
+| 50M × 5M | 637 | 412 | 0.63× |
+| 200M × 20M | 3580 | 2244 | 1.17× |
+| 50M squared | 1488 | 546 | 1.22× |
+| 100M squared | 3564 | 1253 | 1.32× |
+
+"Before" already includes the transpose fix below. Products that fit a
+transform of 2^21 points (equal operands up to about 10 million digits) take
+the same path as before.
+
 ## Unreleased — cache-set aliasing in the large-transform transpose
 
 From a transform length of 2^20 the NTT runs as a two-pass matrix transform

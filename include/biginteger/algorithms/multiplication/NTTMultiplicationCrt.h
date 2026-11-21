@@ -167,7 +167,8 @@
 // threaded, vs the full 2H transform): 1.3-2.2x for c ≤ 1.25·H across
 // H = 2^11..2^20, 1.0-1.35x for 1.25·H < c ≤ 1.5·H. Below H = 2048 the full
 // transform is as fast (H = 1024 runs under the serial gate); above
-// H = 2^20 the fused-MFA full transform wins.
+// H = 2^20 the fused-MFA full transform wins when threaded (single-threaded,
+// see BIGMATH_NTT_TRUNC_SERIAL_MAX below).
 #ifndef BIGMATH_NTT_TRUNC
 #define BIGMATH_NTT_TRUNC 1
 #endif
@@ -179,6 +180,29 @@
 #endif
 #ifndef BIGMATH_NTT_TRUNC_BAND_SHIFT
 #define BIGMATH_NTT_TRUNC_BAND_SHIFT 1
+#endif
+
+// Above BIGMATH_NTT_TRUNC_MAX the H + L scheme continues only when the
+// process has a single thread (a -DBIGMATH_USE_THREADS=0 build, or a pool of
+// one), up to this H, with the length-H and length-L transforms run through
+// the fused MFA stages (CrtTruncSerial). The threaded build keeps the full 2H
+// fused-MFA transform there: its six-unit row-chunked stages scale across
+// cores, the truncated pipeline has no such split, and with 8 threads the
+// full transform wins. 2^25 is the largest H the 2^26 length ceiling admits.
+// Set to BIGMATH_NTT_TRUNC_MAX or lower to turn the path off.
+//
+// Its band covers the whole octave (shift 0: c ≤ 2H, where L reaches H and
+// the transform work equals the full transform's). Measured single-threaded
+// on M1 Max against the full 2H fused-MFA transform, H = 2^21..2^24:
+// 0.45-0.55x for c ≤ 1.25·H, 0.61-0.67x for 1.25·H < c ≤ 1.5·H, and
+// 0.82-0.88x for 1.5·H < c ≤ 2H — two length-H transforms and five live
+// planes cost less than one length-2H transform and nine. At H = 2^20 the
+// whole-array path below BIGMATH_NTT_TRUNC_MAX is still 10-14% ahead.
+#ifndef BIGMATH_NTT_TRUNC_SERIAL_MAX
+#define BIGMATH_NTT_TRUNC_SERIAL_MAX (1 << 25)
+#endif
+#ifndef BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT
+#define BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT 0
 #endif
 
 #ifndef NTT_MULTIPLICATION_CRT
@@ -2030,6 +2054,19 @@ namespace BigMath
     // reconstruction is [ C_lo | C_hi ] — the product's coefficients in
     // order, ready for the Garner/carry pass.
 
+    // L for a product of `coeffCount` coefficients against H, or 0 when the
+    // count is outside the band H < c ≤ H + (H >> bandShift). No limits on H
+    // itself — the two callers below apply their own.
+    inline Int TruncBandCyclicLength(ULong coeffCount, Int H, int bandShift)
+    {
+      if (coeffCount <= (ULong)H)
+        return 0;
+      const ULong over = coeffCount - (ULong)H;
+      if (over > (ULong)(H >> bandShift))
+        return 0;
+      return std::max<Int>((Int)std::bit_ceil(over), 64);
+    }
+
     // Cyclic-part length L for the H + L scheme, or 0 to use the full
     // power-of-two transform. H = bit_ceil(coeffCount) / 2.
     inline Int TruncCyclicLength(ULong coeffCount, Int H)
@@ -2037,12 +2074,25 @@ namespace BigMath
 #if BIGMATH_NTT_TRUNC
       if (H < (Int)BIGMATH_NTT_TRUNC_MIN || H > (Int)BIGMATH_NTT_TRUNC_MAX)
         return 0;
-      if (coeffCount <= (ULong)H)
+      return TruncBandCyclicLength(coeffCount, H, BIGMATH_NTT_TRUNC_BAND_SHIFT);
+#else
+      (void)coeffCount;
+      (void)H;
+      return 0;
+#endif
+    }
+
+    // Cyclic-part length L for the single-thread cache-blocked variant
+    // (CrtTruncSerial), or 0 when it does not apply: more than one thread, or
+    // H outside (BIGMATH_NTT_TRUNC_MAX, BIGMATH_NTT_TRUNC_SERIAL_MAX].
+    inline Int TruncSerialCyclicLength(ULong coeffCount, Int H)
+    {
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA
+      if (H <= (Int)BIGMATH_NTT_TRUNC_MAX || H > (Int)BIGMATH_NTT_TRUNC_SERIAL_MAX)
         return 0;
-      const ULong over = coeffCount - (ULong)H;
-      if (over > (ULong)(H >> BIGMATH_NTT_TRUNC_BAND_SHIFT))
+      if (ParallelNumThreads() > 1)
         return 0;
-      return std::max<Int>((Int)std::bit_ceil(over), 64);
+      return TruncBandCyclicLength(coeffCount, H, BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT);
 #else
       (void)coeffCount;
       (void)H;
@@ -3253,6 +3303,117 @@ namespace BigMath
 #endif // BIGMATH_NTT_MFA_FUSE
 #endif // BIGMATH_NTT_MFA
 
+#if BIGMATH_NTT_MFA
+    // ─── Truncated product on one thread, cache-blocked ─────────────────────
+    //
+    // Same arithmetic as CrtTruncForwardBatch / CrtTruncInverseBatch (product
+    // mod x^H + 1 and mod x^L − 1, recombined), for H above
+    // BIGMATH_NTT_TRUNC_MAX. Two differences:
+    //
+    //   * Each transform of length ≥ mfaMin goes through the fused MFA stages
+    //     instead of a whole-array radix-8 chain, whose strided layers leave
+    //     the cache at these lengths. Shorter ones (a small L) keep the chain.
+    //   * One prime runs start to finish — pack, forward, pointwise, inverse,
+    //     recombine — before the next begins. Only one b-side plane and one
+    //     MFA scratch plane are live, and b's spectrum is multiplied into a's
+    //     as its last stage writes it (ForwardMFAMul): 4 planes of H + L
+    //     entries and one of H, against 9 planes of 2H for the full fused
+    //     transform.
+    //
+    // Everything runs on the calling thread; see BIGMATH_NTT_TRUNC_SERIAL_MAX
+    // for why the threaded build does not use it. `b` is null when squaring.
+    // pa receives [ C_lo : H | C_hi : L ] for this prime; pb needs H + L
+    // entries, scratch H. plan2H supplies the weights ψ^±j.
+    template <typename F, UInt G>
+    inline void TruncSerialPrime(const std::vector<DataT> &a, const std::vector<DataT> *b,
+                                 BaseT base, Int H, Int L, Int mfaMin,
+                                 UInt *pa, UInt *pb, UInt *scratch, const Plan<F> &plan2H)
+    {
+      const bool mfaH = H >= mfaMin && H > (Int)BIGMATH_NTT_MFA_LEAF;
+      const bool mfaL = L >= mfaMin && L > (Int)BIGMATH_NTT_MFA_LEAF;
+      MfaPlanTree<F> tree;
+      if (mfaH) BuildMfaPlanTree<F, G>(H, tree);
+      if (mfaL) BuildMfaPlanTree<F, G>(L, tree);
+      const Plan<F> &planH = GetPlan<F, G>(H);
+      const Plan<F> &planL = GetPlan<F, G>(L);
+
+      TruncPackWeightFold<F>(a, base, pa, H, L, plan2H);
+      if (mfaH) ForwardMFA<F>(pa, H, scratch, /*parallel=*/ false, tree);
+      else ForwardPtr<F>(pa, H, planH);
+      if (mfaL) ForwardMFA<F>(pa + H, L, scratch, /*parallel=*/ false, tree);
+      else ForwardPtr<F>(pa + H, L, planL);
+
+      if (b != nullptr)
+      {
+        TruncPackWeightFold<F>(*b, base, pb, H, L, plan2H);
+        if (mfaH)
+          ForwardMFAMul<F>(pb, H, scratch, /*parallel=*/ false, tree, pa);
+        else
+        {
+          ForwardPtr<F>(pb, H, planH);
+          for (Int i = 0; i < H; ++i) pa[i] = F::Mul(pa[i], pb[i]);
+        }
+        if (mfaL)
+          ForwardMFAMul<F>(pb + H, L, scratch, /*parallel=*/ false, tree, pa + H);
+        else
+        {
+          ForwardPtr<F>(pb + H, L, planL);
+          for (Int i = 0; i < L; ++i) pa[H + i] = F::Mul(pa[H + i], pb[H + i]);
+        }
+      }
+      else
+      {
+        const SizeT len = (SizeT)H + (SizeT)L;
+        for (SizeT i = 0; i < len; ++i) pa[i] = F::Mul(pa[i], pa[i]);
+      }
+
+      if (mfaH) InverseMFA<F>(pa, H, scratch, /*parallel=*/ false, tree);
+      else InversePtr<F>(pa, H, planH, /*scale=*/ true);
+      if (mfaL) InverseMFA<F>(pa + H, L, scratch, /*parallel=*/ false, tree);
+      else InversePtr<F>(pa + H, L, planL, /*scale=*/ true);
+      TruncUnweightReconstruct<F>(pa, H, L, plan2H);
+    }
+
+    // The three primes in turn. f1..f3 receive the residue planes for the
+    // Garner/carry pass; fb and scratch are workspace.
+    inline void CrtTruncSerial(const std::vector<DataT> &a, const std::vector<DataT> *b,
+                               BaseT base, Int H, Int L, Int mfaMin,
+                               std::vector<UInt> &f1, std::vector<UInt> &f2, std::vector<UInt> &f3,
+                               std::vector<UInt> &fb, std::vector<UInt> &scratch)
+    {
+      const SizeT len = (SizeT)H + (SizeT)L;
+      f1.resize(len);
+      f2.resize(len);
+      f3.resize(len);
+      if (b != nullptr) fb.resize(len);
+      scratch.resize((SizeT)H);
+      TruncSerialPrime<F1, G1>(a, b, base, H, L, mfaMin, f1.data(), fb.data(), scratch.data(), GetPlan<F1, G1>(2 * H));
+      TruncSerialPrime<F2, G2>(a, b, base, H, L, mfaMin, f2.data(), fb.data(), scratch.data(), GetPlan<F2, G2>(2 * H));
+      TruncSerialPrime<F3, G3>(a, b, base, H, L, mfaMin, f3.data(), fb.data(), scratch.data(), GetPlan<F3, G3>(2 * H));
+    }
+
+    // The product through CrtTruncSerial with explicit lengths. NttCrt::Multiply
+    // calls CrtTruncSerial itself when TruncSerialCyclicLength says so; this
+    // entry lets tests drive the same pipeline in any build and at lengths
+    // small enough for a unit test (mfaMin lowers the MFA cutover).
+    // Requires H a power of two ≥ 64, L a power of two with 64 ≤ L ≤ H, and a
+    // product of more than H and at most H + L coefficients. Pass the same
+    // vector twice to square.
+    inline std::vector<DataT> MultiplyTruncSerial(const std::vector<DataT> &a,
+                                                  const std::vector<DataT> &b,
+                                                  BaseT base, Int H, Int L,
+                                                  Int mfaMin = BIGMATH_NTT_MFA_THRESHOLD)
+    {
+      const ULong coeffCount = (ULong)(a.size() + b.size()) * CoeffsPerLimb(base) - 1;
+      if (H < 64 || L < 64 || L > H || !std::has_single_bit((ULong)H) || !std::has_single_bit((ULong)L) ||
+          H > (1 << 25) || coeffCount <= (ULong)H || coeffCount > (ULong)H + (ULong)L)
+        throw std::invalid_argument("NttCrt::MultiplyTruncSerial: lengths do not fit the product");
+      static thread_local std::vector<UInt> f1, f2, f3, fb, scratch;
+      CrtTruncSerial(a, &a == &b ? nullptr : &b, base, H, L, mfaMin, f1, f2, f3, fb, scratch);
+      return FinalizeProduct(f1, f2, f3, coeffCount, base, a.size() + b.size() + 2);
+    }
+#endif // BIGMATH_NTT_MFA
+
     // ─── Public Multiply ─────────────────────────────────────────────────────
 
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
@@ -3316,6 +3477,15 @@ namespace BigMath
       }
 
 #if BIGMATH_NTT_MFA
+      // The same scheme above BIGMATH_NTT_TRUNC_MAX, single-threaded only —
+      // see CrtTruncSerial. fb1 is the one b-side plane, fb2 the MFA scratch.
+      if (const Int serialL = TruncSerialCyclicLength(coeffCount, n >> 1); serialL != 0)
+      {
+        CrtTruncSerial(a, sameOperand ? nullptr : &b, base, n >> 1, serialL,
+                       (Int)BIGMATH_NTT_MFA_THRESHOLD, fa1, fa2, fa3, fb1, fb2);
+        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+      }
+
       const bool useMfa = UseMfaForShape(a.size(), b.size(), n);
       // Six per-task scratch buffers, reused across calls on the invoking
       // thread. The worker tasks only touch the raw pointers captured below,

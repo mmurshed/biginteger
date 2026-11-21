@@ -10,7 +10,8 @@
 // Default tiers put the transform length at 2^24 and 2^25 — at and above the
 // MFA gate — plus one 8:1 skewed shape for the lowered high-skew cutover,
 // cyclic (MultiplyMod2km1) rows spanning the plain/MFA boundary and the old
-// 2^22 cap, and two full-pipeline division tiers.
+// 2^22 cap, the single-thread truncated product at H = 2^23, and two
+// full-pipeline division tiers.
 // Runtime is minutes and memory is several GB; this is a pre-merge probe,
 // not a ctest.
 //
@@ -19,6 +20,8 @@
 // for tens of minutes instead (the PR #103 signature), so a broken build
 // hangs there rather than printing FAIL.
 
+#include <algorithm>
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -74,6 +77,40 @@ static bool Check(SizeT la, SizeT lb, uint64_t seed)
                 break;
             }
     }
+    return ok;
+}
+
+// Single-thread truncated product (NttCrt::MultiplyTruncSerial) vs GMP. The
+// dispatcher takes this path only when the process has one thread; calling
+// the entry directly covers it in the threaded build too. H and L are what
+// the dispatcher would derive. la == lb with `square` multiplies a by itself
+// (the one-operand flow).
+static bool CheckTruncSerial(SizeT la, SizeT lb, uint64_t seed, bool square = false)
+{
+    std::vector<DataT> a = RandLimbs(la, seed);
+    std::vector<DataT> bOther = square ? std::vector<DataT>() : RandLimbs(lb, seed ^ 0x9E3779B97F4A7C15ULL);
+    const std::vector<DataT> &b = square ? a : bOther;
+
+    const ULong coeffs = (ULong)2 * (la + lb) - 1;
+    const Int H = (Int)(std::bit_ceil(coeffs) / 2);
+    const Int L = std::max<Int>((Int)std::bit_ceil(coeffs - (ULong)H), 64);
+    std::vector<DataT> c = NttCrt::MultiplyTruncSerial(a, b, Base2_64, H, L);
+
+    mpz_t ga, gb, gc;
+    mpz_init(ga); mpz_init(gb); mpz_init(gc);
+    mpz_import(ga, la, -1, sizeof(DataT), 0, 0, a.data());
+    mpz_import(gb, lb, -1, sizeof(DataT), 0, 0, b.data());
+    mpz_mul(gc, ga, gb);
+
+    size_t gn = 0;
+    std::vector<DataT> g(la + lb, 0);
+    mpz_export(g.data(), &gn, -1, sizeof(DataT), 0, 0, gc);
+    mpz_clear(ga); mpz_clear(gb); mpz_clear(gc);
+
+    bool ok = (c.size() == gn) && (memcmp(c.data(), g.data(), gn * sizeof(DataT)) == 0);
+    printf("trunc %zu x %zu limbs%s (H=2^%d, L=2^%d) : %s  (bm_limbs=%zu, gmp_limbs=%zu)\n",
+           (size_t)la, (size_t)lb, square ? " square" : "", (int)std::countr_zero((unsigned)H),
+           (int)std::countr_zero((unsigned)L), ok ? "OK" : "FAIL", c.size(), gn);
     return ok;
 }
 
@@ -165,6 +202,14 @@ int main(int argc, char **argv)
         ok &= CheckCyclic(1u << 21, 1u << 21, 1u << 21, 0xC0FFEE06); // n = 2^22, MFA
         ok &= CheckCyclic(1u << 22, 1u << 22, 1u << 22, 0xC0FFEE07); // n = 2^23, beyond old cap
         ok &= CheckCyclic((1u << 22) + 12345, (1u << 22) - 777, 1u << 23, 0xC0FFEE08); // n = 2^24, uneven
+        // Single-thread truncated product, H = 2^23: a small L on the
+        // whole-array chain, L = H/4 (≈ 50M digits), L = H, a long operand
+        // whose own coefficients pass H, and a square.
+        ok &= CheckTruncSerial((1u << 21) + 50, (1u << 21) + 50, 0xC0FFEE0B); // L = 2^8
+        ok &= CheckTruncSerial(2595241, 2595241, 0xC0FFEE0C);                 // L = 2^21
+        ok &= CheckTruncSerial(1u << 22, 1u << 22, 0xC0FFEE0D);               // L = 2^23 = H
+        ok &= CheckTruncSerial(4700000, 500000, 0xC0FFEE0E);                  // 9.4:1, spills past H
+        ok &= CheckTruncSerial(2595241, 2595241, 0xC0FFEE0F, /*square=*/ true);
         // Division through the full Newton pipeline at MFA-band sizes.
         ok &= CheckDiv(5200000, 1040000, 0xC0FFEE09);   // ≈100M ÷ 20M digits
         ok &= CheckDiv(10400000, 2080000, 0xC0FFEE0A);  // ≈200M ÷ 40M digits
