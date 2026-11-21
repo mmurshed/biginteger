@@ -1,12 +1,29 @@
 # BigMath vs GMP benchmark results
 
+## Single-thread comparison
+
+On November 21, 2026, BigMath and GMP 6.3.0 each used one thread on the Apple M1 Max (10 cores, 32 GiB). The full split benchmark ran the two libraries sequentially on the same 91 operand sets as the default-build run below. GMP was timed again. The Release build used Apple Clang 21, native arm64 instructions and the default 64-bit limbs. The library and its benchmark executable were both compiled with `-DBIGMATH_USE_THREADS=0`. [Measured revision](https://github.com/mmurshed/biginteger/tree/7fd44ea0c73330918ad7481da2f0bdc8247baac4)
+
+The full CSV includes the first call, fastest subsequent call, warm repetition count and arithmetic check status for all 111 rows. Most large sizes have one warm observation per library. All 24 product checks and 40 division checks matched GMP’s reference hashes. Each division mode was checked against the corresponding GMP operation. [README performance table](README.md#performance-numbers) · [Single-thread CSV](docs/benchmarks/2026-11-21-m1-max-single-thread.csv) · [Single-thread figure](docs/images/bigmath_vs_gmp_single_thread.png)
+
+To repeat the single-thread run, give the driver its own build and results directory. The figure generator uses the checked-in CSVs and requires Matplotlib.
+
+```sh
+CXXFLAGS=-DBIGMATH_USE_THREADS=0 BENCH_DIR="$PWD/.benchcache/single-thread" \
+  HISTORY_MD="$PWD/.benchcache/single-thread/history.md" \
+  bash tests/performance/benchsuite/run_benchmark.sh full --force-gmp
+python3 docs/images/make_benchmark_plots.py --ratio-only
+```
+
+## Default build with up to eight BigMath threads
+
 The November 21, 2026 run measured PR #152 on an Apple M1 Max, with balanced multiplication through 200 million digits per operand and skewed division through 200 million ÷ 40 million digits. Both libraries produced the requested outputs on the same inputs. All 24 product checks and 40 division checks matched the GMP reference hashes. [Full results CSV](docs/benchmarks/2026-11-21-pr152-m1-max.csv) · [Benchmarked revision](https://github.com/mmurshed/biginteger/tree/c9c3e56222a17f520f7725b65c03d33232c71416)
 
 ![Four plots of BigMath time divided by GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
 The arithmetic panels show warm calls. The division panel covers dividend-to-divisor digit ratios from 4:1 to 10:1. The conversion panels show both the first and warm calls. The dashed horizontal line marks equal time.
 
-## Methodology
+### Methodology
 
 - The host had 10 CPU cores and 32 GiB of memory and ran macOS 27.2 (Darwin 27.2.0). Apple Clang 21 compiled the C++20 Release build with `-O3 -march=native -DNDEBUG`. BigMath used its default 64-bit limbs, CRT NTT, NEON and up to eight threads. GMP 6.3.0 ran single-threaded.
 - The full split benchmark generated 91 deterministic operand sets. It ran GMP and BigMath in separate processes, sequentially, reading identical decimal operands from disk. Each of the 20 division sets was timed in both output modes, giving 111 result rows. Parsing operands, disk I/O and result hashes are outside the arithmetic timers.
@@ -14,20 +31,19 @@ The arithmetic panels show warm calls. The division panel covers dividend-to-div
 - Ratios are BigMath time divided by GMP time. A ratio below 1 means BigMath was faster. A zero-duration observation is shown as “<1 tick”. Its ratio is omitted. Crossovers refer to sampled operand sizes on this host.
 - Earlier published division tables used BigMath quotient-only against GMP quotient and remainder. Compare each new division series with its matching output mode. [Earlier tables](https://github.com/mmurshed/biginteger/blob/c9c3e56222a17f520f7725b65c03d33232c71416/BENCHMARK.md) · [PR #129–#150 review](docs/PERFORMANCE_REVIEW_PR129.md)
 
-To repeat the plotted run with fresh GMP timings, run the full profile from the repository root. The driver saves the paired CSV in `$BENCH_DIR/results/`. The figure generator reads the checked-in CSV.
+To repeat the default-build run with fresh GMP timings, run the full profile from the repository root. The driver saves the paired CSV in `$BENCH_DIR/results/`.
 
 ```sh
 bash tests/performance/benchsuite/run_benchmark.sh full --force-gmp
-python3 docs/images/make_benchmark_plots.py --ratio-only
 ```
 
 A separate run of `./build/bench_vs_gmp` measured both libraries in one process on different seeded operands. It completed 151 measurements. Its single 200-million-digit balanced product took 3,721 ms in BigMath and 3,057 ms in GMP (1.22×). [In-process output](docs/benchmarks/2026-11-21-pr152-in-process.txt)
 
-## Multiplication
+### Multiplication
 
 The equal-length series measures two independently generated operands. The skewed series holds their digit-length ratio at 10:1.
 
-### Equal lengths
+#### Equal lengths
 
 | Operand digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -46,7 +62,7 @@ The equal-length series measures two independently generated operands. The skewe
 | 100,000,000 × 100,000,000 | 1,322 | 1,415 | 0.93× | 992 | 1,391 | 0.71× | 1 |
 | 200,000,000 × 200,000,000 | 4,518 | 2,909 | 1.55× | 2,325 | 2,868 | 0.81× | 1 |
 
-### Skewed lengths
+#### Skewed lengths
 
 | Operand digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -61,11 +77,11 @@ The equal-length series measures two independently generated operands. The skewe
 | 100,000,000 × 10,000,000 | 471.3 | 1,022 | 0.46× | 450.2 | 1,009 | 0.45× | 1 |
 | 200,000,000 × 20,000,000 | 977.2 | 1,915 | 0.51× | 1,013 | 1,915 | 0.53× | 1 |
 
-## Division
+### Division
 
 Quotient-only uses BigMath `/` and GMP `mpz_tdiv_q`. Quotient and remainder uses BigMath `DivideAndRemainder` and GMP `mpz_tdiv_qr`. Both modes use the same dividend and divisor. Equal-digit operands can produce a quotient of zero or one, so those results depend on the sampled values.
 
-### Skewed dividends
+#### Skewed dividends
 
 | Dividend ÷ divisor digits | BigMath Q ms | GMP Q ms | Q ratio | BigMath QR ms | GMP QR ms | QR ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -84,7 +100,7 @@ Quotient-only uses BigMath `/` and GMP `mpz_tdiv_q`. Quotient and remainder uses
 
 At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× for quotient-only and 1.04× for quotient and remainder. Each suite took one warm measurement per library at that size. Both suites favored BigMath in both modes from the next sampled shape, 500,000 ÷ 100,000, through 200 million ÷ 40 million digits. [In-process output](docs/benchmarks/2026-11-21-pr152-in-process.txt)
 
-### Equal digit counts
+#### Equal digit counts
 
 | Dividend ÷ divisor digits | BigMath Q ms | GMP Q ms | Q ratio | BigMath QR ms | GMP QR ms | QR ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -97,7 +113,7 @@ At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× f
 | 1,000,000 ÷ 1,000,000 | 0.000125 | 0.000458 | 0.27× | 0.01604 | 0.008625 | 1.86× | 1 |
 | 5,000,000 ÷ 5,000,000 | 0.000084 | 0.000208 | 0.40× | 0.08446 | 0.043 | 1.96× | 1 |
 
-## Decimal parse (string → BigInteger)
+### Decimal parse (string → BigInteger)
 
 | Digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -113,7 +129,7 @@ At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× f
 | 20,000,000 | 180.6 | 792.2 | 0.23× | 180 | 789.7 | 0.23× | 1 |
 | 50,000,000 | 707.4 | 2,633 | 0.27× | 718.5 | 2,647 | 0.27× | 1 |
 
-## ToString (BigInteger → string)
+### ToString (BigInteger → string)
 
 | Digits | BigMath first ms | GMP first ms | First ratio | BigMath warm ms | GMP warm ms | Warm ratio | Warm reps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -129,7 +145,7 @@ At 200,000 ÷ 50,000 digits, the in-process run measured warm ratios of 0.92× f
 | 10,000,000 | 359 | 908.3 | 0.40× | 276.4 | 905.6 | 0.31× | 1 |
 | 20,000,000 | 796.3 | 2,128 | 0.37× | 613.8 | 2,127 | 0.29× | 1 |
 
-## BigDecimal
+### BigDecimal
 
 BigMath uses decimal fixed-point arithmetic and HALF_EVEN rounding for division. The comparison uses GMP binary floating-point (`mpf_t`), with precision derived from the digit count and requested scale. The split runner times these operations without an equality check. A size of `1,000.100` denotes 1,000 integer digits and 100 fractional digits.
 
