@@ -14,9 +14,9 @@ anything to use it, and you can switch it off at build time
 \toprule
 operation & how the work is split \\
 \midrule
-NTT product & 6 forward transforms (2 operands $\times$ 3 primes), 6 inverse half-transforms,
-              per-thread carry ranges; in the matrix method each stage is cut into row ranges
-              (\cref{sec:nttthreads}) \\
+NTT product & Ordinary CRT batches operand--prime transforms. The fused matrix method
+              schedules transpose tiles across the pool at each stage. Finalization
+              splits the carries into ranges (\cref{sec:nttthreads}). \\
 parse / print $\ge$ 100\,000 digits & 8 independent subtrees of the divide-and-conquer tree \\
 division, conversion & indirectly: their large products are NTT products \\
 \bottomrule

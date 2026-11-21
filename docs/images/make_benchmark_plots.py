@@ -73,7 +73,7 @@ def ratio_plot(path, results, figure_title, threads, legend_location="upper righ
         ax.tick_params(labelsize=9)
         ax.yaxis.set_minor_formatter(NullFormatter())
         ax.legend(loc=legend_location, frameon=False, fontsize=9)
-    ticks = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
+    ticks = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
     lo, hi = axes[0, 0].get_ylim()
     if lo > 0.5:
         lo = 0.5
@@ -172,11 +172,11 @@ if __name__ == "__main__":
     parser.add_argument("--ratio-only", action="store_true", help="Generate both GMP comparison figures and skip the history figure")
     args = parser.parse_args()
     ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
-               BENCHMARKS / "2026-11-21-tostring-m1-max-single-thread.csv",
+               BENCHMARKS / "2026-11-21-factored-mfa-m1-max-single-thread.csv",
                "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
                legend_location="best")
     ratio_plot(HERE / "bigmath_vs_gmp.png",
-               BENCHMARKS / "2026-11-21-tostring-m1-max.csv",
+               BENCHMARKS / "2026-11-21-factored-mfa-m1-max.csv",
                "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread")
     small = BENCHMARKS / "2026-11-21-small-operands.csv"
     if small.exists():

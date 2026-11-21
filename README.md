@@ -6,19 +6,19 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 ## Performance
 
-Both runs used the same operands on an Apple M1 Max and share one GMP 6.3.0 pass, which used one thread. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
+The November 21, 2026 full benchmark measured revision `8e19932` on an Apple M1 Max. Both BigMath builds used identical operands and a fresh single-thread GMP 6.3.0 reference. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
 
 ### Single-threaded BigMath and GMP
 
-BigMath’s worker pool was disabled at compile time. The timings below are from warm calls.
+At 50, 100 and 200 million digits per operand, balanced multiplication took 0.96×, 0.98× and 1.02× GMP’s time. The 200-million-digit product took 2.91 s in BigMath and 2.87 s in GMP.
 
-- **Multiplication.** GMP was faster at 11 of the 14 equal-length sizes. BigMath won at 5 million digits per operand (57.8 ms versus 62.8 ms), 10 million (130 ms versus 200 ms) and 20 million (255 ms versus 265 ms). Above that GMP led by 1.24× at 50 million digits and 1.53× at 200 million (4.32 s versus 2.83 s).
-- **Division.** BigMath was faster in both output modes at 50 million ÷ 10 million and 100 million ÷ 20 million digits. At 200 million ÷ 40 million, BigMath took 1.08× GMP’s time for the quotient and 1.01× for quotient and remainder.
-- **Decimal conversion.** GMP was faster at every sampled parsing size. BigMath formatted faster at 1 million and 2 million digits (48.3 ms versus 49.4 ms, 111 ms versus 117 ms) and GMP at every other size. At 20 million digits, BigMath took 927 ms to parse and 2.57 s to format, versus 802 ms and 2.09 s for GMP.
+At 200 million ÷ 40 million digits BigMath used 0.91× GMP’s time for the quotient and 0.85× for quotient and remainder. At 20 million digits, decimal parsing used 1.13× GMP’s time and formatting used 1.18×.
 
 ![Single-thread BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp_single_thread.png)
 
 ### Multithreaded BigMath (up to eight threads) and single-threaded GMP
+
+The 10-million-digit balanced product took 17.74 ms. At 50, 100 and 200 million digits it took 164.7, 345.3 and 719.5 ms, about one quarter of GMP’s time at all three sizes. Just above 10.10 million digits per operand, BigMath doubles the transform length. [Transform sizes and before/after measurements](BENCHMARK.md#large-multiplication-follow-up)
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
@@ -38,10 +38,10 @@ Values of up to 4 limbs (256 bits) are stored inside the `BigInteger` object, an
 - **Multiplication:** Classic schoolbook → Karatsuba (64-bit-hybrid leaf; levels with ≥ 168-limb operands split three ways, Toom-3) → 3-prime CRT NTT (2013265921 / 469762049 / 1811939329, 32-bit coefficient splitting) from 320 limbs per operand for balanced products with a warm pool, or 512 each with a cold pool. Toom-3 and the single-prime Goldilocks NTT remain as cross-check alternates; the NEON-accelerated CRT path beats both at every measured size.
 - **Radix-4 + radix-8 fused NTT butterflies** (PRs #59, #60): 3× fewer memory passes vs radix-2; ~1.6× wall-clock at ≥2M limbs.
 - **NEON Shoup butterflies on aarch64** (PRs #96–#99, `BIGMATH_NEON=1` default on Apple Silicon): the radix-8/4/2 layers and 1/n scaling run 4 lanes wide using Shoup's precomputed-reciprocal multiplication — `(w·x) mod P` from one doubling multiply-high (`vqdmulhq_s32`), a multiply-subtract, and one conditional subtract, with interleaved `(twiddle, w′)` tables keeping the strided gathers at one cache line per pair. Bit-exact with the scalar path; ~4× per butterfly pass, −26…40% end-to-end on NTT-bound ops. Scalar fallback everywhere else.
-- **MFA / Bailey 6-step CRT NTT** (`BIGMATH_NTT_MFA_THRESHOLD=2^20`, default). Large CRT transforms switch to a cache-friendly matrix Fourier layout with fully fused stages: the transpose, the operand packing (straight from the limb arrays), and the pointwise product all ride the tiled stage passes, and the forward/inverse stages run as row-chunked `ParallelDo(6)` work units. The gate sat at `2^24` until the fused stages flipped the break-even (PR #109); cyclic wrap-around products use the same pipeline up to the CRT ceiling `2^26` (PR #110).
-- **Multithreaded NTT** (`BIGMATH_USE_THREADS=1`, default). Small thread pool (size `min(hw_concurrency, BIGMATH_MAX_THREADS=8)`) parallelizes the CRT path: in the fused MFA window each transform stage runs as six (operand×prime or prime×row-range) work units; the non-MFA path batches 6 forwards + 3 inverses. 2.3-3.4× speedup on large mul / skewed div / parse. Opt out via `-DBIGMATH_USE_THREADS=0` to drop pthread linkage.
+- **Matrix Fourier multiplication.** For large products, the three-prime NTT transforms cache-sized rows. With NEON enabled, rows of at least 256 coefficients use factored cross-twiddles. At 200 million digits per operand the top-level tables for all three primes occupy 108 MiB. Packing, transposition and pointwise multiplication are fused into the transform stages.
+- **Internal threading.** Each matrix stage distributes transpose tiles across the pool, so multiple workers can process rows of the same prime. The default pool has up to eight threads including the caller. Build with `-DBIGMATH_USE_THREADS=0` for single-threaded operation.
 - **Division:** single-limb kernel with a normalized running remainder → Knuth Algorithm D on raw buffers (`FastDivision`: flag-chain `submul_1`, Möller–Granlund 3/2 quotient digit) below 96-limb divisors → in-place divide-and-conquer Burnikel–Ziegler (GMP `dcpi1` shape, no padding) → Newton–Raphson with a guarded-precision reciprocal and wrap-around cyclic products from 1536-limb divisors (768 at ratio ≥ 3) → quotient-sized division when the quotient is shorter than the divisor but ≥ 3072 limbs. Quotient-only calls (`operator/`) with a quotient shorter than the divisor are computed from the operands' top limbs. One rule per regime, re-swept 2026-11-21 on a divisor × ratio grid (`build/DispatchThresholds.h`). Identity `q·b + r == a` is cross-checked in `tests/div_correctness.cpp`.
-- **Squaring:** Specialized Classic / Karatsuba squarers below 352 limbs; above, the CRT NTT self-multiply (skips the duplicate forward transforms — 2.5–5.8× over the former Goldilocks `NTTSquare`, which remains the `-DBIGMATH_NTT_CRT=0` fallback).
+- **Squaring:** Specialized Classic / Karatsuba squarers below 352 limbs; above, the CRT NTT handles self-products. The ordinary and truncated CRT paths can reuse the first operand’s spectrum. The fused matrix path uses its paired-row forward stages.
 - **String I/O:** Linear chunked parser/formatter for small inputs, divide-and-conquer with cached Newton reciprocals at scale; from 100k digits both directions fan their D&C subtrees out over the thread pool (the subtree outputs are fixed-width fields at precomputable offsets). Asymptotic `O(M(L) · log L)` both directions.
 - **BigDecimal:** Java-style fixed-point decimal (unscaled BigInteger + int scale) with exact +, −, \*; rounded division taking 8 rounding modes; parse/format covering plain and scientific notation.
 - **Calculator REPL:** Variables, hex/bin/dec output, multi-line continuation, comments, `:help :quit :vars :reset :base :digits :time :load :save` directives. Built as a separate executable.
@@ -148,31 +148,32 @@ Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations th
 
 ## Performance numbers
 
-Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-tostring-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-tostring-m1-max.csv)
+Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-factored-mfa-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-factored-mfa-m1-max.csv)
 
 | Operation | Decimal digits | BigMath 1 thread (ms) | GMP 1 thread (ms) | 1-thread ratio | Default-build ratio |
 |---|---:|---:|---:|---:|---:|
-| Multiply | 10,000 × 10,000 | 0.05162 | 0.02804 | 1.84× | 0.90× |
-| Multiply | 1,000,000 × 1,000,000 | 9.513 | 8.847 | 1.08× | 0.34× |
-| Multiply | 5,000,000 × 5,000,000 | 57.81 | 62.79 | 0.92× | 0.18× |
-| Multiply | 10,000,000 × 10,000,000 | 130 | 199.9 | 0.65× | 0.14× |
-| Multiply | 20,000,000 × 20,000,000 | 254.8 | 265.3 | 0.96× | 0.24× |
-| Multiply | 50,000,000 × 50,000,000 | 804.9 | 650.7 | 1.24× | 0.52× |
-| Multiply | 200,000,000 × 200,000,000 | 4,318 | 2,828 | 1.53× | 0.75× |
-| Multiply | 5,000,000 × 500,000 | 23.68 | 30.84 | 0.77× | 0.26× |
-| Multiply | 200,000,000 × 20,000,000 | 2,177 | 1,890 | 1.15× | 0.44× |
-| Divide, quotient | 200,000 ÷ 50,000 | 2.559 | 1.507 | 1.70× | 0.66× |
-| Divide, quotient | 10,000,000 ÷ 2,000,000 | 159.7 | 144.5 | 1.11× | 0.38× |
-| Divide, quotient | 50,000,000 ÷ 10,000,000 | 950.7 | 1,213 | 0.78× | 0.18× |
-| Divide, quotient | 200,000,000 ÷ 40,000,000 | 4,464 | 4,137 | 1.08× | 0.29× |
-| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.568 | 1.626 | 1.58× | 0.61× |
-| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 159.6 | 154.2 | 1.04× | 0.36× |
-| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 947.3 | 1,276 | 0.74× | 0.18× |
-| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 4,503 | 4,452 | 1.01× | 0.26× |
-| Parse | 100,000 | 1.603 | 1.061 | 1.51× | 0.52× |
-| Parse | 20,000,000 | 927 | 802.5 | 1.16× | 0.22× |
-| ToString | 100,000 | 3.061 | 2.267 | 1.35× | 0.51× |
-| ToString | 20,000,000 | 2,567 | 2,094 | 1.23× | 0.28× |
+| Multiply | 10,000 × 10,000 | 0.06425 | 0.03679 | 1.75× | 0.83× |
+| Multiply | 1,000,000 × 1,000,000 | 9.587 | 8.997 | 1.07× | 0.34× |
+| Multiply | 5,000,000 × 5,000,000 | 50.52 | 62.65 | 0.81× | 0.13× |
+| Multiply | 10,000,000 × 10,000,000 | 111.6 | 201.7 | 0.55× | 0.09× |
+| Multiply | 20,000,000 × 20,000,000 | 219 | 266 | 0.82× | 0.14× |
+| Multiply | 50,000,000 × 50,000,000 | 627.3 | 655 | 0.96× | 0.25× |
+| Multiply | 100,000,000 × 100,000,000 | 1,363 | 1,386 | 0.98× | 0.25× |
+| Multiply | 200,000,000 × 200,000,000 | 2,913 | 2,869 | 1.02× | 0.25× |
+| Multiply | 5,000,000 × 500,000 | 23.64 | 31.16 | 0.76× | 0.27× |
+| Multiply | 200,000,000 × 20,000,000 | 1,650 | 1,901 | 0.87× | 0.19× |
+| Divide, quotient | 200,000 ÷ 50,000 | 2.579 | 1.508 | 1.71× | 0.66× |
+| Divide, quotient | 10,000,000 ÷ 2,000,000 | 159.6 | 142.3 | 1.12× | 0.41× |
+| Divide, quotient | 50,000,000 ÷ 10,000,000 | 843 | 1,222 | 0.69× | 0.13× |
+| Divide, quotient | 200,000,000 ÷ 40,000,000 | 3,797 | 4,193 | 0.91× | 0.16× |
+| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.578 | 1.639 | 1.57× | 0.82× |
+| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 159.3 | 152 | 1.05× | 0.37× |
+| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 835.1 | 1,303 | 0.64× | 0.12× |
+| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 3,790 | 4,436 | 0.85× | 0.15× |
+| Parse | 100,000 | 1.601 | 1.114 | 1.44× | 0.52× |
+| Parse | 20,000,000 | 898.5 | 797.3 | 1.13× | 0.20× |
+| ToString | 100,000 | 3.048 | 2.295 | 1.33× | 0.50× |
+| ToString | 20,000,000 | 2,505 | 2,124 | 1.18× | 0.24× |
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 

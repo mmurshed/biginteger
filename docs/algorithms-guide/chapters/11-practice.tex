@@ -8,18 +8,19 @@ This chapter collects the practical consequences of everything above.
 \begin{itemize}
   \item \textbf{Multiplication is the unit of cost.} Division of similar-sized numbers costs a few
         multiplications; decimal conversion of an $n$-limb number costs about $\log_2 n$
-        multiplications of decreasing size; a square costs a bit over half a multiplication.
+        multiplications of decreasing size. The cost of a square depends on whether the
+        transform reuses the first operand's spectrum (\cref{sec:nttreuse}).
   \item \textbf{Doubling the size} roughly quadruples the time below about 25 limbs, triples it in
         the Karatsuba range, and slightly more than doubles it in the NTT range.
   \item \textbf{Lopsided products are cheap.} $10 \times 100\,000$ limbs is a million limb products,
         no worse than adding the long number to itself ten times.
-  \item \textbf{Sizes just above a power of two} were once almost twice as expensive as sizes just
-        below. The $H + L$ scheme (\cref{sec:trunc}) removed most of that jump up to $2^{20}$
-        coefficients (about 10 million digits per product); above that, in threaded builds, the
-        staircase is still there.
+  \item \textbf{Transform boundaries matter for latency.} For balanced threaded
+        products, increasing each operand from 10 million to 11 million digits
+        doubles the transform length. The boundary is near 10.10 million digits
+        (\cref{sec:trunc}).
 \end{itemize}
 
-Rough timings for balanced operations, M1 Max, warm calls:
+Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{8e19932}.
 
 \begin{center}
 \small
@@ -27,19 +28,22 @@ Rough timings for balanced operations, M1 Max, warm calls:
 \toprule
 operation (decimal digits) & BigMath 1 thread & BigMath default & GMP 1 thread \\
 \midrule
-multiply $10^4 \times 10^4$ & 0.052\,ms & 0.025\,ms & 0.028\,ms \\
-multiply $10^6 \times 10^6$ & 9.5\,ms & 3.0\,ms & 8.8\,ms \\
-multiply $10^7 \times 10^7$ & 130\,ms & 28\,ms & 200\,ms \\
-divide $10^7 \div 2\cdot 10^6$ (quotient) & 160\,ms & 55\,ms & 145\,ms \\
-parse $2 \cdot 10^7$ digits & 927\,ms & 177\,ms & 803\,ms \\
-print $2 \cdot 10^7$ digits & 2\,567\,ms & 586\,ms & 2\,094\,ms \\
+multiply $10^4 \times 10^4$ & 0.06425\,ms & 0.03067\,ms & 0.03679\,ms \\
+multiply $10^6 \times 10^6$ & 9.587\,ms & 3.031\,ms & 8.997\,ms \\
+multiply $10^7 \times 10^7$ & 111.6\,ms & 17.74\,ms & 201.7\,ms \\
+multiply $50\,{\rm M} \times 50\,{\rm M}$ & 627.3\,ms & 164.7\,ms & 655\,ms \\
+multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,363\,ms & 345.3\,ms & 1\,386\,ms \\
+multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,913\,ms & 719.5\,ms & 2\,869\,ms \\
+divide $10^7 \div (2\cdot 10^6)$ (quotient) & 159.6\,ms & 57.94\,ms & 142.3\,ms \\
+parse $2\cdot10^7$ digits & 898.5\,ms & 160.6\,ms & 797.3\,ms \\
+print $2\cdot10^7$ digits & 2\,505\,ms & 502\,ms & 2\,124\,ms \\
 \bottomrule
 \end{tabular}
 
 \smallskip
-{\footnotesize ``Default'' is the standard build with up to eight threads; its times here are
-computed from the published ratios to GMP in \file{README.md} and are approximate. Full data:
-\file{BENCHMARK.md}, \file{docs/benchmarks/}.}
+{\footnotesize The two BigMath builds used the same operands and GMP reference.
+The default build uses up to eight threads. The full benchmark records one warm
+observation for most large inputs. Data and repetition counts are in \file{BENCHMARK.md}.}
 \end{center}
 
 \begin{figure}[ht]

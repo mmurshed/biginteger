@@ -154,8 +154,9 @@ use the cold thresholds, which is where their serial crossover happens to be.
 
 When both operands are the same object (\code{x * x}) and have at most 319 limbs, the
 multiplication goes straight to the square dispatcher, which exploits the symmetry of
-\cref{sec:square}. Larger self-products go through the normal rules above, and the NTT path
-notices the aliasing itself and transforms once instead of twice.
+\cref{sec:square}. Larger self-products go through the normal rules above. The ordinary
+and truncated CRT transforms can reuse the spectrum of the shared operand
+(\cref{sec:nttreuse}).
 
 \begin{center}
 \small
@@ -167,13 +168,13 @@ size (limbs) & square method \\
 $< 48$ (inside Karatsuba square) & schoolbook square (\code{SqrBasecase}) \\
 $48$--$351$ & Karatsuba square, Toom-3 levels from 160 \\
 $352$--$607$ & NTT if the pool is awake, else Karatsuba square \\
-$\ge 608$ & NTT self-product (three forward transforms) \\
+$\ge 608$ & NTT self-product (see \cref{sec:nttreuse}) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The square thresholds are lower than for general products because the NTT saves more on a
-square (three transforms skipped) than Karatsuba does.
+At the square thresholds, the ordinary CRT path saves three forward transforms by
+reusing one spectrum per prime.
 
 \section{Worked dispatch examples}
 \label{sec:mulexamples}

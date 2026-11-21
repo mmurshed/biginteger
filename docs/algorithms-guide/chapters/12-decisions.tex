@@ -30,13 +30,11 @@ records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
 
 \begin{description}[leftmargin=0pt,style=nextline,itemsep=6pt]
   \item[Schönhage--Strassen multiplication]
-        GMP uses it for its largest products; its growth rate $n \log n \log\log n$ is
-        asymptotically better than an NTT bounded by fixed primes. But its arithmetic modulo
-        $2^N + 1$ carries a large constant factor. A parameter sweep found no size band where a
-        single-level version would beat the three-prime NTT, and a competitive recursive version
-        is 700--1000 lines of delicate code. The NTT covers every practical size (up to about
-        646 million product digits). GMP is still 1.2--1.5 times faster single-threaded above
-        about 50 million digits; this is the main reason.
+        A parameter sweep found no winning size band for the single-level implementation
+        considered here. The current three-prime NTT accepts up to $2^{26}$ coefficients,
+        about 323 million digits per balanced operand. Factoring the cross-twiddles and
+        distributing matrix tiles across the pool reduced its cost within that range
+        (\cref{sec:mfa,sec:nttthreads}). Measured times appear in \cref{ch:practice}.
   \item[Toom-3 as a top-level band]
         Once a separate band between Karatsuba and NTT (total 2560--5120 limbs). The vectorized NTT
         overtook it everywhere, so the band was retired. Toom-3 now lives inside the Karatsuba

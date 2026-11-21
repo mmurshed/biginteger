@@ -246,6 +246,38 @@ def fig_trunc():
     plt.close(fig)
 
 
+def fig_large_transform_fill():
+    """Fraction of the full threaded transform occupied by a balanced product."""
+    digits_per_limb = 64 * math.log10(2)
+    lo, hi = 9e6, 210e6
+    fig, ax = plt.subplots(figsize=(6.2, 2.55))
+    for power in range(21, 27):
+        length = 1 << power
+        start = max(lo, length / 8 * digits_per_limb)
+        end = min(hi, length / 4 * digits_per_limb)
+        digits = np.geomspace(start, end, 100)
+        limbs = np.minimum(np.ceil(digits / digits_per_limb), length // 4)
+        ax.plot(digits / 1e6, 100 * (4 * limbs - 1) / length, color=BLUE)
+        if end < hi:
+            ax.vlines(end / 1e6, 50, 100, colors=MUTED, linestyles=":", lw=1)
+
+    samples = [10, 20, 50, 100, 200]
+    used = [4 * math.ceil(m * 1e6 / digits_per_limb) - 1 for m in samples]
+    fill = [100 * c / (1 << (c - 1).bit_length()) for c in used]
+    ax.scatter(samples, fill, color=ORANGE, zorder=3, label="Benchmark sizes")
+    ax.set_xscale("log")
+    ax.set_xticks(samples, labels=[str(m) for m in samples])
+    ax.set_xticks([], minor=True)
+    ax.set_xlim(lo / 1e6, hi / 1e6)
+    ax.set_ylim(47, 104)
+    ax.set_yticks([50, 75, 100], labels=["50%", "75%", "100%"])
+    ax.set_xlabel("Millions of decimal digits per operand")
+    ax.set_ylabel("Transform filled")
+    ax.legend(loc="upper left", bbox_to_anchor=(0, -0.32), borderaxespad=0)
+    fig.savefig(os.path.join(OUT, "large_transform_fill.pdf"))
+    plt.close(fig)
+
+
 # --- Newton convergence for 1/7 ----------------------------------------------
 def fig_newton():
     from fractions import Fraction
@@ -273,5 +305,6 @@ if __name__ == "__main__":
     fig_mul_counts()
     fig_pool()
     fig_trunc()
+    fig_large_transform_fill()
     fig_newton()
     print("figures written to", OUT)
