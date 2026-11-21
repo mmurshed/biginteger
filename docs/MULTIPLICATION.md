@@ -874,6 +874,41 @@ measurement; the gate has since been lifted, see above). Verified bit-exact via
 246 unit tests, and the division stress suites.
 
 
+### NEON tail kernels for every size class (2026-11-20)
+
+The radix-8 chain ends on `len == 4` only when `log2(n) % 3 == 2`. For the
+other two classes its last step lands on `len == 16` or `len == 8`, where the
+radix-8 j-loop has 2 or 1 iterations per block — too few for the 4-lane
+kernel — so that layer (plus the forward `len == 2` straggler) ran the scalar
+`(a·b) % P` path. That was three to four of every transform's layers on two
+thirds of all sizes, MFA leaves included (leaf lengths 2^10, 2^12 and 2^13 are
+all affected; only 2^11 was clean). Serial profile, ns per radix-2-equivalent
+butterfly: **0.43** for the all-NEON class vs **0.60–0.63** for the others.
+
+`ForwardTail16Neon` / `ForwardTail8Neon` / `InverseTail16Neon` /
+`InverseTail8Neon` cover those layers 4 lanes wide: one step pairs the
+4-element quarters of each 16-element block (its twiddles depend only on
+`j = 0..3`, so they are loop-invariant vectors), then a 4×4 transpose turns
+"quarter" into "lane" for the `len == 4` radix-4 step. `ForwardPtr` /
+`InversePtr` now run radix-8 layers only while `len ≥ 32` and hand the rest to
+the tail kernel, so every transform with `n ≥ 16` is all-NEON.
+
+Serial multiply, transform length `n` (M1 Max, `prof` phase harness):
+
+| n | before µs | after µs | speedup |
+|---:|---:|---:|---:|
+| 2^12 | 182.9 | 132.8 | 1.38× |
+| 2^13 | 379.3 | 281.6 | 1.35× |
+| 2^15 | 1692.5 | 1282.4 | 1.32× |
+| 2^16 | 3533.3 | 2751.0 | 1.28× |
+| 2^18 | 15960.8 | 13003.5 | 1.23× |
+| 2^19 | 33379.3 | 27728.5 | 1.20× |
+
+The `log2(n) % 3 == 2` sizes (2^11, 2^14, 2^17) are unchanged, as expected.
+Bit-exactness is pinned by `tests/unit/test_ntt_crt_layers.cpp`, which
+compares `ForwardPtr`/`InversePtr` against a plain radix-2 chain for all three
+primes at every length 2^1..2^16.
+
 ## Karatsuba leaf — 2-row unrolling rejected, threshold 48 → 32 (2026-06-12)
 
 Closing the sub-13k-digit gap vs GMP (2.2–3.3×) was attempted at the
