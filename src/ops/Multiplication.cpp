@@ -6,12 +6,14 @@
 
 #include "biginteger/ops/Multiplication.h"
 
+#include <utility>
+
 namespace BigMath
 {
   BigInteger Multiply(BigInteger const &a, BigInteger const &b)
   {
     auto result = Multiply(a.GetInteger(), b.GetInteger(), BigInteger::Base());
-    return BigInteger(result, a.IsNegative() != b.IsNegative());
+    return BigInteger(std::move(result), a.IsNegative() != b.IsNegative());
   }
 
   BigInteger operator*(BigInteger const &a, BigInteger const &b)

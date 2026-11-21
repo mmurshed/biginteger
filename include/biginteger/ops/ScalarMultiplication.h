@@ -20,7 +20,7 @@ namespace BigMath
       return BigInteger();
     std::vector<DataT> m = ClassicMultiplication::Multiply(a.GetInteger(), b, BigInteger::Base());
     // DataT is unsigned; the b<0 branch was structurally dead. Sign comes solely from a.
-    return BigInteger(m, a.IsNegative());
+    return BigInteger(std::move(m), a.IsNegative());
   }
 
   inline BigInteger operator*(BigInteger const &a, DataT b)

@@ -29,7 +29,7 @@ namespace BigMath
     BigInteger Multiply(BigInteger const &b) const
     {
       auto result = NTTMultiplication::Multiply(prepared, b.GetInteger());
-      return BigInteger(result, operand.IsNegative() != b.IsNegative());
+      return BigInteger(std::move(result), operand.IsNegative() != b.IsNegative());
     }
 
     BigInteger operator*(BigInteger const &b) const
