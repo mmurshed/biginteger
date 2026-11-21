@@ -16,6 +16,7 @@
 #include "biginteger/BigInteger.h"
 #include "biginteger/common/Builder.h"
 #include "biginteger/common/Parser.h"
+#include "biginteger/ops/Multiplication.h"
 #include "biginteger/algorithms/Addition.h"
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/Squaring.h"
@@ -27,8 +28,8 @@ using namespace BigMath;
 
 namespace
 {
-  constexpr DataT kMax = ~(DataT)0;
-  constexpr DataT kTop = (DataT)1 << 63;
+  constexpr DataT kMax = LimbMask;
+  constexpr DataT kTop = DataT{1} << (LimbBits - 1);
 
   // ~25% all-ones, ~25% zero, then 1 / top-bit / uniform — the distribution
   // that surfaced the FastDivision MG bug.
@@ -44,7 +45,7 @@ namespace
         case 2:
         case 3: x = 0; break;
         case 4: x = (rng() % 2) ? 1 : kTop; break;
-        default: x = (DataT)rng(); break;
+        default: x = rng() & LimbMask; break;
       }
     }
     while (v.size() > 1 && v.back() == 0)
@@ -160,5 +161,20 @@ REGISTER_TEST(AdversarialFuzz, ToStringParseRoundTrip)
       BigInteger back = BigIntegerBuilder::From(ToString(v).c_str());
       ASSERT_EQ(back.CompareTo(v), 0);
     }
+  }
+}
+
+REGISTER_TEST(AdversarialFuzz, SelfProductAcrossSquareBoundary)
+{
+  std::mt19937_64 rng(0x129);
+  for (SizeT n : {1u, 2u, 16u, 255u, 256u, 318u, 319u, 320u, 384u, 511u, 512u, 513u})
+  {
+    auto limbs = AdversarialLimbs(n, rng);
+    limbs.resize(n);
+    limbs.back() |= kTop;
+    const BigInteger a(limbs, true), copy(a);
+    const BigInteger expected(ClassicMultiplication::Multiply(limbs, limbs, BigInteger::Base()), false);
+    ASSERT_EQ((a * a).CompareTo(expected), 0);
+    ASSERT_EQ((a * copy).CompareTo(expected), 0);
   }
 }

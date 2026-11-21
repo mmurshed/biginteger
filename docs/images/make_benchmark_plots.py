@@ -1,40 +1,16 @@
 #!/usr/bin/env python3
-"""Generate the BENCHMARK.md / README.md performance figures.
+"""Plot the checked-in full-profile CSV. Use --ratio-only for the README figure."""
+import argparse
+import csv
+from pathlib import Path
 
-Ratio figure: canonical BENCHMARK.md tables, multiplication 2026-11-20;
-division and decimal I/O 2026-11-21. M1 Max, paired same-run BigMath vs
-GMP 6.3; BigMath uses up to 8 threads, GMP is single-threaded. Multiplication
-at 50M-200M digits uses warm steady-state ratios. ToString cold and the three
-measured warm ratios are shown separately. Ratios are copied from the tables
-rather than recomputed from rounded timings; see BENCHMARK.md for methodology.
-The session-progress figure retains its historical June data.
-Regenerate after updating the benchmark tables and ratios below:
-python3 docs/images/make_benchmark_plots.py
-"""
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import NullFormatter
 
-# digits -> BigMath/GMP wall-clock ratio (lower is better; < 1 = BigMath faster)
-MUL_BAL = {
-    1e3: 1.39, 5e3: 1.48, 1e4: 0.90, 5e4: 0.63, 1e5: 0.42, 5e5: 0.60,
-    1e6: 0.50, 2e6: 0.55, 5e6: 0.31, 1e7: 0.21, 2e7: 0.34,
-    5e7: 0.63, 1e8: 0.68, 2e8: 0.72,  # 50M+ warm steady-state
-}
-DIV_SKEW = {  # 4:1, 5:1 and 10:1 digit ratios, keyed by dividend digits
-    4e4: 1.36, 1e5: 2.01, 2e5: 0.67, 5e5: 0.56, 1e6: 0.49, 2e6: 0.35,
-    5e6: 0.36, 1e7: 0.35, 2e7: 0.30, 5e7: 0.19, 1e8: 0.27, 2e8: 0.32,
-}
-PARSE = {
-    1e3: 1.49, 1e4: 1.71, 5e4: 1.37, 1e5: 0.54, 5e5: 0.37, 1e6: 0.34,
-    2e6: 0.32, 5e6: 0.25, 1e7: 0.24, 2e7: 0.23, 5e7: 0.28,
-}
-TOSTR_COLD = {
-    1e3: 1.80, 1e4: 2.33, 5e4: 1.80, 1e5: 1.37, 2e5: 0.74, 5e5: 0.52,
-    1e6: 0.42, 2e6: 0.38, 5e6: 0.44, 1e7: 0.40, 2e7: 0.39,
-}
-TOSTR_WARM = {1e5: 0.57, 1e6: 0.30, 5e6: 0.32}
+HERE = Path(__file__).resolve().parent
+RESULTS = HERE.parent / "benchmarks" / "2026-11-21-pr152-m1-max.csv"
 
 # Session progress: BigMath/GMP ratio at the 2026-05-30 baseline vs after the
 # 2026-06 runs (PRs #82-#99, #107-#114, then #116-#119).
@@ -51,40 +27,64 @@ BEFORE_AFTER = [
 
 
 def ratio_plot(path):
-    fig, ax = plt.subplots(figsize=(8.8, 5.6), dpi=180)
-    series = [
-        (MUL_BAL, "multiply (balanced; ≥50M warm)", "#1f77b4", "o"),
-        (DIV_SKEW, "divide (4:1–10:1 digit ratios)", "#d62728", "s"),
-        (PARSE, "parse (str → int)", "#2ca02c", "^"),
-        (TOSTR_COLD, "ToString (cold)", "#9467bd", "d"),
+    with RESULTS.open(newline="") as src:
+        rows = list(csv.DictReader(line for line in src if not line.startswith("#")))
+
+    def series(op, phase, shape=None):
+        points = []
+        for row in rows:
+            if row["op"] != op:
+                continue
+            digits = [int(n) for n in row["label"].split()[0].split("x")]
+            if shape == "equal" and digits[0] != digits[1]:
+                continue
+            if shape == "skew" and digits[0] == digits[1]:
+                continue
+            ratio = float(row[f"bigmath_{phase}_ms"]) / float(row[f"gmp_{phase}_ms"])
+            points.append((digits[0], ratio))
+        return zip(*sorted(points))
+
+    panels = [
+        ("Multiplication", [("Equal lengths", "mul", "warm", "equal"),
+                            ("10:1 lengths", "mul", "warm", "skew")]),
+        ("Skewed division", [("Quotient", "div_q", "warm", "skew"),
+                             ("Quotient + remainder", "div_qr", "warm", "skew")]),
+        ("Decimal parsing", [("First call", "parse", "first", None),
+                             ("Warm", "parse", "warm", None)]),
+        ("Decimal formatting", [("First call", "tostr", "first", None),
+                                ("Warm", "tostr", "warm", None)]),
     ]
-    for data, label, color, marker in series:
-        xs = sorted(data)
-        ax.plot(xs, [data[x] for x in xs], label=label, color=color,
-                marker=marker, markersize=4.5, linewidth=1.6)
-    xs = sorted(TOSTR_WARM)
-    ax.plot(xs, [TOSTR_WARM[x] for x in xs], label="ToString (warm; measured sizes)",
-            color="#9467bd", marker="D", markersize=6, markerfacecolor="white",
-            markeredgewidth=1.5, linestyle="none", zorder=3)
-    ax.axhline(1.0, color="black", linewidth=1.0, linestyle="--", alpha=0.7)
-    ax.text(1.25e3, 1.04, "GMP parity", fontsize=8.5, alpha=0.8)
-    ax.text(1.25e3, 0.12, "BigMath faster", fontsize=8.5, color="#35603a")
-    ax.axhspan(0, 1.0, color="green", alpha=0.06)
-    ax.set_xscale("log")
-    ax.set_xlim(7e2, 3e8)
-    ax.set_ylim(0, 2.6)
-    ax.set_xlabel("operand size (decimal digits; division: dividend size)")
-    ax.set_ylabel("BigMath / GMP wall-clock ratio   (lower is better)")
-    ax.set_title("BigMath vs GMP 6.3 — Apple M1 Max\n"
-                 "2026-11-20: multiplication · 2026-11-21: division and decimal I/O",
-                 fontsize=11)
-    ax.grid(True, which="both", alpha=0.25)
-    ax.legend(loc="upper right", fontsize=8.5)
-    fig.text(0.5, 0.02,
-             "BigMath: up to 8 threads · GMP: single-threaded. "
-             "Source and timing methodology: BENCHMARK.md",
-             ha="center", fontsize=8)
-    fig.tight_layout(rect=(0, 0.045, 1, 1))
+
+    fig, axes = plt.subplots(2, 2, figsize=(10.2, 6.6), dpi=180, sharex=True, sharey=True)
+    for ax, (title, lines) in zip(axes.flat, panels):
+        ax.set_title(title, loc="left", fontsize=13, fontweight="bold", pad=6)
+        ax.set_xscale("log")
+        ax.set_yscale("log", base=2)
+        ax.axhline(1, color="#424b57", linewidth=1, linestyle=(0, (4, 3)))
+        ax.grid(axis="y", color="#dce1e6", linewidth=0.6)
+        for (label, op, phase, shape), color, marker, style in zip(
+                lines, ["#2165a1", "#a54718"], ["o", "s"], ["-", "--"]):
+            ax.plot(*series(op, phase, shape), label=label, color=color, marker=marker,
+                    linestyle=style, markersize=4.4, linewidth=1.7,
+                    markerfacecolor="white" if style == "--" else color)
+        ax.set_xlim(700, 3e8)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["bottom", "left"]].set_color("#a9b1b9")
+        ax.tick_params(labelsize=9)
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        ax.legend(loc="upper right", frameon=False, fontsize=9)
+    ticks = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
+    lo, hi = axes[0, 0].get_ylim()
+    visible = [t for t in ticks if lo <= t <= hi]
+    axes[0, 0].set_yticks(visible, [f"{t:g}×" for t in visible])
+    axes[0, 0].set_xticks([1e3, 1e4, 1e5, 1e6, 1e7, 1e8],
+                          ["1k", "10k", "100k", "1M", "10M", "100M"])
+    fig.suptitle("BigMath vs GMP 6.3.0 on Apple M1 Max", fontsize=17, fontweight="bold", y=0.98)
+    fig.text(0.5, 0.918, "Time relative to GMP  ·  Below 1× means BigMath is faster", ha="center", fontsize=11)
+    fig.supxlabel("Decimal digits in the first operand", fontsize=11, y=0.066)
+    fig.text(0.5, 0.021, "November 21, 2026  ·  Up to 8 BigMath threads, 1 GMP thread  ·  "
+             "Arithmetic panels show warm calls", ha="center", fontsize=9, color="#384655")
+    fig.subplots_adjust(left=0.075, right=0.978, top=0.845, bottom=0.15, hspace=0.3, wspace=0.13)
     fig.savefig(path)
     plt.close(fig)
     print("wrote", path)
@@ -115,7 +115,9 @@ def progress_plot(path):
 
 
 if __name__ == "__main__":
-    import os
-    here = os.path.dirname(os.path.abspath(__file__))
-    ratio_plot(os.path.join(here, "bigmath_vs_gmp.png"))
-    progress_plot(os.path.join(here, "session_2026_06_11.png"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ratio-only", action="store_true", help="Generate only the README figure")
+    args = parser.parse_args()
+    ratio_plot(HERE / "bigmath_vs_gmp.png")
+    if not args.ratio_only:
+        progress_plot(HERE / "session_2026_06_11.png")

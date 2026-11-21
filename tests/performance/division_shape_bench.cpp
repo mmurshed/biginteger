@@ -18,6 +18,7 @@
 #include <limits>
 #include <random>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 using namespace BigMath;
@@ -132,6 +133,7 @@ int main(int argc, char **argv)
   {
     std::vector<Case> cases = {
         {"2n/n", 2 * n, n},
+        {"7n/4n", 7 * n, 4 * n},
         {"3n/2n", 3 * n, 2 * n},
         {"3n/n", 3 * n, n},
         {"5n/2n", 5 * n, 2 * n},
@@ -149,6 +151,11 @@ int main(int argc, char **argv)
       auto reference = FastDivision::DivideAndRemainder(a, b, BigInteger::Base(), true);
       CheckResult(a, b, reference);
 
+      for (const auto &candidate : {
+               BurnikelZieglerDivision::DivideAndRemainder(a, b, BigInteger::Base(), true),
+               NewtonDivision::DivideAndRemainder(a, b, BigInteger::Base(), true),
+               DivideAndRemainder(a, b, BigInteger::Base(), true)})
+        if (candidate != reference) throw std::runtime_error("division disagrees with FastDivision");
       int reps = RepsFor(c.divisorLimbs);
 
       double fast = BestMs([&]() {
@@ -158,19 +165,16 @@ int main(int argc, char **argv)
 
       double bz = BestMs([&]() {
         auto qr = BurnikelZieglerDivision::DivideAndRemainder(a, b, BigInteger::Base(), true);
-        CheckResult(a, b, qr);
         return (SizeT)(qr.first.size() + qr.second.size());
       }, reps);
 
       double newton = BestMs([&]() {
         auto qr = NewtonDivision::DivideAndRemainder(a, b, BigInteger::Base(), true);
-        CheckResult(a, b, qr);
         return (SizeT)(qr.first.size() + qr.second.size());
       }, std::max(1, reps / 2));
 
       double dispatch = BestMs([&]() {
         auto qr = DivideAndRemainder(a, b, BigInteger::Base(), true);
-        CheckResult(a, b, qr);
         return (SizeT)(qr.first.size() + qr.second.size());
       }, reps);
 

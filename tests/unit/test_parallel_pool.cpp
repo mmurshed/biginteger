@@ -72,8 +72,8 @@ REGISTER_TEST(ParallelPool, ConcurrentCallersStayCorrect)
     std::mt19937_64 gen(0xB16B00B5ULL + (uint64_t)t);
     a[(size_t)t].resize((size_t)(3000 + 37 * t));
     b[(size_t)t].resize((size_t)(2800 + 11 * t));
-    for (auto &x : a[(size_t)t]) x = gen();
-    for (auto &x : b[(size_t)t]) x = gen();
+    for (auto &x : a[(size_t)t]) x = gen() & LimbMask;
+    for (auto &x : b[(size_t)t]) x = gen() & LimbMask;
     expect[(size_t)t] = KaratsubaMultiplication::Multiply(a[(size_t)t], b[(size_t)t], base);
   }
 
@@ -146,8 +146,8 @@ REGISTER_TEST(ParallelPool, ResultsIndependentOfTemperature)
   for (SizeT n : {320, 400, 500, 600})
   {
     std::vector<DataT> a(n), b(n);
-    for (auto &x : a) x = gen();
-    for (auto &x : b) x = gen();
+    for (auto &x : a) x = gen() & LimbMask;
+    for (auto &x : b) x = gen() & LimbMask;
     auto expect = KaratsubaMultiplication::Multiply(a, b, base);
     auto expectSq = KaratsubaMultiplication::Multiply(a, a, base);
     for (int i = 0; i < 12; ++i) // burst

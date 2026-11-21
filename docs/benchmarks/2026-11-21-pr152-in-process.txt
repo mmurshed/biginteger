@@ -1,0 +1,207 @@
+BigMath vs GMP 6.3.0
+
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+
+[multiplication, balanced]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+mul        1000x1000 digits                0.002          0.001       1.44x      7     best
+mul        5000x5000 digits                0.027          0.018       1.47x      5     best
+mul        10000x10000 digits              0.031          0.041       0.75x      5     best
+mul        50000x50000 digits              0.131          0.360       0.36x      3     best
+mul        100000x100000 digits            0.247          0.717       0.34x      3     best
+mul        500000x500000 digits            2.143          4.404       0.49x      1     best
+mul        1000000x1000000 digits          5.227          9.356       0.56x      1     best
+mul        2000000x2000000 digits         11.624         21.147       0.55x      1     best
+mul        5000000x5000000 digits         18.570         64.294       0.29x      1     best
+mul        10000000x10000000 digits         42.672        207.876       0.21x      1     best
+mul        20000000x20000000 digits         93.568        275.551       0.34x      1     best
+mul        50000000x50000000 digits        556.967        678.897       0.82x      1     best
+mul        100000000x100000000 digits       1217.234       1430.363       0.85x      1     best
+mul        200000000x200000000 digits       3721.342       3057.334       1.22x      1     best
+
+[multiplication, skewed]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+mul        100000x10000 digits             0.114          0.310       0.37x      3     best
+mul        500000x50000 digits             0.556          2.092       0.27x      1     best
+mul        1000000x100000 digits           1.476          4.684       0.32x      1     best
+mul        2000000x200000 digits           2.757          9.446       0.29x      1     best
+mul        5000000x500000 digits           8.347         31.730       0.26x      1     best
+mul        10000000x1000000 digits         19.889         73.442       0.27x      1     best
+mul        20000000x2000000 digits         70.384        162.746       0.43x      1     best
+mul        50000000x5000000 digits        200.977        679.040       0.30x      1     best
+mul        100000000x10000000 digits        448.005       1017.387       0.44x      1     best
+mul        200000000x20000000 digits       1034.051       1933.275       0.53x      1     best
+
+[division, balanced]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+div_q      1000x1000 digits                0.003          1.723       0.00x      1    first
+div_q      1000x1000 digits                0.000          0.000        nanx      7     warm
+div_qr     1000x1000 digits                0.001          0.001       0.69x      1    first
+div_qr     1000x1000 digits                0.000          0.000       1.51x      7     warm
+div_q      5000x5000 digits                0.000          0.000       3.34x      1    first
+div_q      5000x5000 digits                0.000          0.000        nanx      5     warm
+div_qr     5000x5000 digits                0.002          0.000       4.46x      1    first
+div_qr     5000x5000 digits                0.000          0.000       2.20x      5     warm
+div_q      10000x10000 digits              0.000          0.000       3.34x      1    first
+div_q      10000x10000 digits              0.000          0.000       2.05x      5     warm
+div_qr     10000x10000 digits              0.002          0.001       3.07x      1    first
+div_qr     10000x10000 digits              0.001          0.000       2.22x      5     warm
+div_q      50000x50000 digits              0.000          0.000       0.80x      1    first
+div_q      50000x50000 digits              0.000          0.000        nanx      3     warm
+div_qr     50000x50000 digits              0.004          0.001       8.92x      1    first
+div_qr     50000x50000 digits              0.001          0.000       2.43x      3     warm
+div_q      100000x100000 digits            0.000          0.001       0.32x      1    first
+div_q      100000x100000 digits            0.000          0.000       0.34x      3     warm
+div_qr     100000x100000 digits            0.002          0.005       0.40x      1    first
+div_qr     100000x100000 digits            0.003          0.001       6.67x      3     warm
+div_q      500000x500000 digits            0.000          0.001       0.23x      1    first
+div_q      500000x500000 digits            0.000          0.000       0.44x      1     warm
+div_qr     500000x500000 digits            0.008          0.005       1.68x      1    first
+div_qr     500000x500000 digits            0.007          0.004       2.04x      1     warm
+div_q      1000000x1000000 digits          0.001          0.001       0.48x      1    first
+div_q      1000000x1000000 digits          0.000          0.001       0.21x      1     warm
+div_qr     1000000x1000000 digits          0.014          0.009       1.58x      1    first
+div_qr     1000000x1000000 digits          0.014          0.008       1.73x      1     warm
+div_q      5000000x5000000 digits          0.003          0.002       1.88x      1    first
+div_q      5000000x5000000 digits          0.000          0.001       0.92x      1     warm
+div_qr     5000000x5000000 digits          0.411          0.180       2.28x      1    first
+div_qr     5000000x5000000 digits          0.393          0.173       2.27x      1     warm
+
+[division, skewed (a >> b) — Newton/BZ band]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+div_q      40000x10000 digits              0.303          0.232       1.31x      1    first
+div_q      40000x10000 digits              0.299          0.228       1.31x      3     warm
+div_qr     40000x10000 digits              0.309          0.246       1.26x      1    first
+div_qr     40000x10000 digits              0.291          0.234       1.25x      3     warm
+div_q      100000x10000 digits             0.880          0.462       1.91x      1    first
+div_q      100000x10000 digits             0.875          0.441       1.98x      3     warm
+div_qr     100000x10000 digits             0.873          0.456       1.92x      1    first
+div_qr     100000x10000 digits             0.858          0.445       1.93x      3     warm
+div_q      200000x50000 digits             1.127          1.541       0.73x      1    first
+div_q      200000x50000 digits             1.519          1.653       0.92x      1     warm
+div_qr     200000x50000 digits             1.055          1.667       0.63x      1    first
+div_qr     200000x50000 digits             1.783          1.722       1.04x      1     warm
+div_q      500000x100000 digits            3.987          4.328       0.92x      1    first
+div_q      500000x100000 digits            2.331          4.320       0.54x      1     warm
+div_qr     500000x100000 digits            2.342          4.664       0.50x      1    first
+div_qr     500000x100000 digits            2.282          4.665       0.49x      1     warm
+div_q      1000000x200000 digits           6.259          9.366       0.67x      1    first
+div_q      1000000x200000 digits           6.107          9.684       0.63x      1     warm
+div_qr     1000000x200000 digits           7.102         10.444       0.68x      1    first
+div_qr     1000000x200000 digits           5.954         10.678       0.56x      1     warm
+div_q      2000000x500000 digits           8.559         23.104       0.37x      1    first
+div_q      2000000x500000 digits           9.974         23.377       0.43x      1     warm
+div_qr     2000000x500000 digits          10.439         25.103       0.42x      1    first
+div_qr     2000000x500000 digits           8.769         25.288       0.35x      1     warm
+div_q      5000000x1000000 digits         24.969         66.088       0.38x      1    first
+div_q      5000000x1000000 digits         28.839         65.806       0.44x      1     warm
+div_qr     5000000x1000000 digits         26.049         70.920       0.37x      1    first
+div_qr     5000000x1000000 digits         27.384         69.915       0.39x      1     warm
+div_q      10000000x2000000 digits         55.683        157.302       0.35x      1    first
+div_q      10000000x2000000 digits         56.823        156.177       0.36x      1     warm
+div_qr     10000000x2000000 digits         54.548        165.396       0.33x      1    first
+div_qr     10000000x2000000 digits         55.225        166.148       0.33x      1     warm
+div_q      20000000x4000000 digits        103.631        324.859       0.32x      1    first
+div_q      20000000x4000000 digits        103.629        324.588       0.32x      1     warm
+div_qr     20000000x4000000 digits        104.517        347.012       0.30x      1    first
+div_qr     20000000x4000000 digits        103.192        345.969       0.30x      1     warm
+div_q      50000000x10000000 digits        225.666       1238.065       0.18x      1    first
+div_q      50000000x10000000 digits        227.087       1242.979       0.18x      1     warm
+div_qr     50000000x10000000 digits        230.456       1295.784       0.18x      1    first
+div_qr     50000000x10000000 digits        228.238       1290.685       0.18x      1     warm
+div_q      100000000x20000000 digits        535.648       2329.897       0.23x      1    first
+div_q      100000000x20000000 digits        529.442       2315.308       0.23x      1     warm
+div_qr     100000000x20000000 digits        529.055       2538.355       0.21x      1    first
+div_qr     100000000x20000000 digits        529.687       2519.255       0.21x      1     warm
+div_q      200000000x40000000 digits       1375.156       4230.600       0.33x      1    first
+div_q      200000000x40000000 digits       1392.576       4469.035       0.31x      1     warm
+div_qr     200000000x40000000 digits       1556.642       4546.834       0.34x      1    first
+div_qr     200000000x40000000 digits       1357.515       4469.174       0.30x      1     warm
+
+[decimal parse]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+parse      1000 digits                     0.002          0.002       1.51x      7     best
+parse      10000 digits                    0.063          0.038       1.67x      5     best
+parse      50000 digits                    0.505          0.388       1.30x      3     best
+parse      100000 digits                   0.763          1.079       0.71x      3     best
+parse      500000 digits                   4.185          9.208       0.45x      1     best
+parse      1000000 digits                  8.019         20.899       0.38x      1     best
+parse      2000000 digits                 16.911         48.575       0.35x      1     best
+parse      5000000 digits                 37.483        148.786       0.25x      1     best
+parse      10000000 digits                81.492        352.484       0.23x      1     best
+parse      20000000 digits               179.644        815.675       0.22x      1     best
+parse      50000000 digits               715.853       2662.991       0.27x      1     best
+
+[ToString (known BigMath bottleneck)]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+tostr      1000 digits                     0.006          0.003       1.83x      7     best
+tostr      10000 digits                    0.174          0.076       2.27x      5     best
+tostr      50000 digits                    1.349          0.848       1.59x      3     best
+tostr      100000 digits                   2.393          2.357       1.02x      1     best
+tostr      200000 digits                   4.386          6.209       0.71x      1     best
+tostr      500000 digits                  11.744         20.294       0.58x      1     best
+tostr      1000000 digits                 21.034         49.615       0.42x      1     best
+tostr      2000000 digits                 45.814        119.939       0.38x      1     best
+tostr      5000000 digits                164.442        384.672       0.43x      1     best
+tostr      10000000 digits               358.913        908.295       0.40x      1     best
+tostr      20000000 digits               800.294       2133.221       0.38x      1     best
+
+[BigDecimal arithmetic]
+
+--- Addition ---
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_add    100.10 digits                   0.000          0.000        nanx      7     best
+dec_add    1000.100 digits                 0.000          0.000        nanx      7     best
+dec_add    5000.500 digits                 0.000          0.000       2.67x      5     best
+dec_add    20000.2000 digits               0.001          0.001       2.25x      3     best
+
+--- Multiplication ---
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_mul    100.10 digits                   0.000          0.000       1.02x      7     best
+dec_mul    1000.100 digits                 0.002          0.001       1.41x      7     best
+dec_mul    5000.500 digits                 0.021          0.013       1.56x      5     best
+dec_mul    20000.2000 digits               0.091          0.089       1.02x      3     best
+
+--- Division ---
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_div    100.10 / 10 dp                  0.000          0.000       3.00x      7     best
+dec_div    1000.100 / 100 dp               0.001          0.002       0.49x      7     best
+dec_div    5000.500 / 500 dp               0.009          0.024       0.39x      5     best
+dec_div    20000.2000 / 2000 dp            0.105          0.198       0.53x      3     best
+
+--- Division at varying target scales (operand=2000 int + 200 frac) ---
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_div    2000.200 / 0 dp                 0.001          0.005       0.12x      5     best
+dec_div    2000.200 / 10 dp                0.001          0.005       0.13x      5     best
+dec_div    2000.200 / 100 dp               0.002          0.005       0.28x      5     best
+dec_div    2000.200 / 1000 dp              0.007          0.009       0.81x      5     best
+dec_div    2000.200 / 5000 dp              0.029          0.033       0.88x      5     best
+
+[BigDecimal decimal parse]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_parse  100 digits                      0.000          0.000       0.82x      7     best
+dec_parse  1000 digits                     0.004          0.004       0.99x      7     best
+dec_parse  10000 digits                    0.084          0.106       0.79x      5     best
+dec_parse  50000 digits                    0.635          1.019       0.62x      3     best
+
+[BigDecimal ToString]
+op         size                       BigMath ms         GMP ms     BM/GMP   reps    phase
+----       ----                       ----------         ------     ------   ----    -----
+dec_tostr  100 digits                      0.000          0.000       0.64x      7     best
+dec_tostr  1000 digits                     0.006          0.004       1.38x      7     best
+dec_tostr  10000 digits                    0.174          0.102       1.70x      5     best
+dec_tostr  50000 digits                    1.342          1.086       1.24x      3     best
+
+Done. 151 measurements.

@@ -400,29 +400,36 @@ namespace BigMath
             SizeT lenT2 = lenAh + lenBh;
             SizeT lenT3 = lenWl + lenWh;
 
-            // Safe offset: place t3 at w + lenT1 + lenT2 to avoid any overlap with t1Copy/t2Copy
-            DataT* t3 = w + lenT1 + lenT2;
+            DataT* t3 = nextW; // after both live sums
             DataT* nextW2 = t3 + lenT3;
             // No std::memset(t3) — recursive call fully overwrites t3[0..lenT3-1].
 
             MultiplyRecursive(wl, lenWl, wh, lenWh, t3, nextW2, base);
 
-            // Now safely copy T1 and T2 to t1Copy and t2Copy (which are at w and w + lenT1)
-            DataT* t1Copy = w;
-            DataT* t2Copy = w + lenT1;
-            std::memcpy(t1Copy, c, lenT1 * sizeof(DataT));
-            std::memcpy(t2Copy, c + 2 * m, lenT2 * sizeof(DataT));
-
-            // Perform subtractions on t3 directly in the workspace.
-            // Since T3 >= T1 + T2 is mathematically guaranteed, t3 remains non-negative.
-            SubtractFromPtr(t3, lenT3, t1Copy, lenT1, base);
-            SubtractFromPtr(t3, lenT3, t2Copy, lenT2, base);
+            // Both output slices remain intact until the final shifted add.
+            SubtractFromPtr(t3, lenT3, c, lenT1, base);
+            SubtractFromPtr(t3, lenT3, c + 2 * m, lenT2, base);
 
             // c[m..la+lb-1] += (T3 - T1 - T2)
             AddToPtr(c + m, la + lb - m, t3, lenT3, base);
         }
 
     public:
+        // The sliced recursion needs scratch proportional to its shorter input.
+        static size_t ScratchLimbs(SizeT la, SizeT lb)
+        {
+            const size_t shorter = std::min(la, lb), longer = std::max(la, lb);
+            if (shorter <= KARATSUBA_THRESHOLD) return 0;
+            return longer / 2 >= shorter ? 10 * shorter + 1024 : 16 * longer;
+        }
+
+        // Non-overlapping output (la + lb limbs) and ScratchLimbs(la,lb) scratch.
+        static void MultiplyInto(const DataT *a, SizeT la, const DataT *b, SizeT lb,
+                                 DataT *out, DataT *scratch, BaseT base)
+        {
+            MultiplyRecursive(a, la, b, lb, out, scratch, base);
+        }
+
         static std::vector<DataT> Multiply(
             std::vector<DataT> const &a,
             std::vector<DataT> const &b,
@@ -436,46 +443,10 @@ namespace BigMath
             if (a.size() == 1)
                 return ClassicMultiplication::Multiply(b, a[0], base);
 
-            SizeT n = (SizeT)std::max(a.size(), b.size());
-            std::vector<DataT> c(a.size() + b.size(), 0);
-
-            // Workspace usage per recursion level: lenWl + lenWh (~n+2) for the
-            // sum operands, then lenT1 + lenT2 + lenT3 (~3n) for the three sub-
-            // products plus T3 = (wl*wh) which is sized 2*(n/2+1). Sub-recursion
-            // is dispatched with `nextW` pointing past these.
-            //
-            // For operands within a factor of two of each other every level
-            // halves, so the total is ~6n. Operands further apart than that are
-            // sliced in MultiplyRecursive (one 2*min-limb temporary plus the
-            // balanced bound for min), which stays below ~4n. 16n therefore
-            // leaves better than 2x headroom. (Before the slicing path the
-            // clamped split recursed la/lb levels deep on skewed inputs and
-            // this bound did not hold — see the comment there.)
-            //
-            // Sized by shape, because the dispatcher sends arbitrarily long
-            // products here when the shorter operand is small:
-            //   - min at or below the leaf cutoff: straight to the schoolbook
-            //     kernel, no workspace;
-            //   - max >= 2*min (sliced): one 2*min temporary plus the balanced
-            //     recursion on min, i.e. <= 8*min + O(log) — independent of max;
-            //   - otherwise the balanced bound, 16n as before.
-            const SizeT m = (SizeT)std::min(a.size(), b.size());
-            size_t wLimbs;
-            if (m <= KARATSUBA_THRESHOLD)
-                wLimbs = 0;
-            else if (n >= 2 * m)
-                wLimbs = (size_t)10 * m + 1024;
-            else
-                wLimbs = (size_t)16 * n;
-            std::unique_ptr<DataT[]> w(wLimbs ? new DataT[wLimbs] : nullptr);
-
-            MultiplyRecursive(
-                a.data(), a.size(),
-                b.data(), b.size(),
-                c.data(),
-                w.get(),
-                base);
-
+            std::vector<DataT> c(a.size() + b.size());
+            const size_t count = ScratchLimbs(a.size(), b.size());
+            std::unique_ptr<DataT[]> scratch(count ? new DataT[count] : nullptr);
+            MultiplyInto(a.data(), a.size(), b.data(), b.size(), c.data(), scratch.get(), base);
             TrimZeros(c);
             return c;
         }

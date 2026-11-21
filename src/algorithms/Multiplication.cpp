@@ -7,7 +7,7 @@
 #include "biginteger/algorithms/Multiplication.h"
 
 #include <algorithm>
-
+#include "biginteger/algorithms/Squaring.h"
 #include "biginteger/common/Parallel.h"
 
 namespace BigMath
@@ -35,14 +35,16 @@ namespace BigMath
     if (a.size() == 1)
       return ClassicMultiplication::Multiply(b, a[0], base);
 
+    // Below the measured small-square ceiling we can exploit symmetry before
+    // general multiplication dispatch. CRT already recognizes aliases at scale.
+    if (&a == &b && base == Base2_64 && a.size() <= BIGMATH_SMALL_SELF_SQUARE_MAX)
+      return Square(a, base);
+
     SizeT size = a.size() + b.size();
     SizeT minSize = std::min(a.size(), b.size());
     SizeT maxSize = std::max(a.size(), b.size());
 
-    if (size <= CLASSIC_MULTIPLICATION_THRESHOLD || minSize <= CLASSIC_MIN_LIMB_THRESHOLD)
-      return ClassicMultiplication::Multiply(a, b, base);
-
-    if (minSize <= CLASSIC_SKEW_MIN_LIMB_THRESHOLD && maxSize >= CLASSIC_SKEW_RATIO * minSize)
+    if (detail::ClassicProductShape(minSize, maxSize))
       return ClassicMultiplication::Multiply(a, b, base);
 
     // NTT needs a long enough product AND a long enough shorter operand: for
@@ -60,7 +62,9 @@ namespace BigMath
       // are arriving in a burst the pool gets woken for the next one.
       if (area >= NTT_COLD_AREA_THRESHOLD || ParallelWarmOrPrewarm())
         return NTTMultiplication::Multiply(a, b, base);
-      std::vector<DataT> product = KaratsubaMultiplication::Multiply(a, b, base);
+      std::vector<DataT> product = (&a == &b && base == Base2_64)
+          ? KaratsubaSquare::Square(a, base)
+          : KaratsubaMultiplication::Multiply(a, b, base);
       ParallelNoteColdDone();
       return product;
     }

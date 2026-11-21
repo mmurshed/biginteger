@@ -32,12 +32,12 @@ for arg in "$@"; do
 done
 
 BENCH_DIR="${BENCH_DIR:-$REPO/.benchcache}"
-BIN_DIR="$BENCH_DIR/bin"
+BIN_DIR="$BENCH_DIR/cmake"
 DATASET_ROOT="$BENCH_DIR/dataset"
 DATA_DIR="$DATASET_ROOT/$PROFILE"
 ZIP="$BENCH_DIR/dataset_$PROFILE.zip"
 RESULTS_DIR="$BENCH_DIR/results"
-HISTORY_MD="$SCRIPT_DIR/HISTORY.md"
+HISTORY_MD="${HISTORY_MD:-$SCRIPT_DIR/HISTORY.md}"
 mkdir -p "$BIN_DIR" "$DATASET_ROOT" "$RESULTS_DIR"
 
 # ── machine identity ─────────────────────────────────────────────────────────
@@ -49,30 +49,12 @@ fi
 MACHINE="$(printf '%s_%s' "$CPU" "$(uname -m)" | tr -cs 'A-Za-z0-9' '_' | sed 's/_*$//')"
 echo "[driver] machine=$MACHINE profile=$PROFILE bench_dir=$BENCH_DIR"
 
-# ── compiler setup ───────────────────────────────────────────────────────────
-CXX="${CXX:-c++}"
-CXXFLAGS="-std=c++20 -O3 -march=native -DNDEBUG -I$REPO/include -I$SCRIPT_DIR"
-GMP_PREFIX=""
-for p in /opt/homebrew /usr/local; do
-    [[ -f "$p/include/gmp.h" ]] && GMP_PREFIX="$p" && break
-done
-GMP_FLAGS="-lgmp"
-[[ -n "$GMP_PREFIX" ]] && GMP_FLAGS="-I$GMP_PREFIX/include -L$GMP_PREFIX/lib -lgmp"
-
-# The library is not header-only: Parse/ToString/operator*//, BigDecimal, etc.
-# are defined under src/ and bigdecimal/. run_bigmath must compile + link them
-# (gen_dataset and run_gmp reference no BigMath symbols, so they don't need this).
-LIB_SRCS="$(find "$REPO/src" -name '*.cpp'; echo "$REPO/bigdecimal/BigDecimal.cpp")"
-LIB_SRCS="$(echo $LIB_SRCS)"  # collapse newlines to spaces
-
-build() { # <out> <src> [extra-flags-string]
-    local out="$BIN_DIR/$1"; local src="$SCRIPT_DIR/$2"; local extra="${3:-}"
-    if [[ ! -x "$out" || "$src" -nt "$out" || "$SCRIPT_DIR/bench_common.h" -nt "$out" ]]; then
-        echo "[build] $1"
-        # $extra intentionally unquoted so multiple flags word-split.
-        $CXX $CXXFLAGS "$src" -o "$out" $extra
-    fi
-}
+# CMake tracks all library and workload dependencies, including generated
+# build flags. Reconfigure on every invocation to pick up caller overrides.
+cmake -S "$REPO" -B "$BIN_DIR" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_COMPILER="${CXX:-c++}" -DCMAKE_CXX_FLAGS="${CXXFLAGS:-}" \
+    -DBIGMATH_BUILD_TESTS=ON
+cmake --build "$BIN_DIR" --target bench_gen_dataset bench_run_gmp bench_run_bigmath --parallel
 
 # ── stage 1: dataset ─────────────────────────────────────────────────────────
 if [[ $FORCE_DATASET -eq 1 ]]; then rm -rf "$DATA_DIR" "$ZIP"; fi
@@ -82,9 +64,8 @@ if [[ ! -f "$DATA_DIR/manifest.csv" ]]; then
         unzip -q -o "$ZIP" -d "$DATASET_ROOT"
     else
         echo "[dataset] generating ($PROFILE)"
-        build gen_dataset gen_dataset.cpp
         mkdir -p "$DATA_DIR"
-        "$BIN_DIR/gen_dataset" "$DATA_DIR" "$PROFILE"
+        "$BIN_DIR/bench_gen_dataset" "$DATA_DIR" "$PROFILE"
         echo "[dataset] zipping -> $ZIP"
         ( cd "$DATASET_ROOT" && zip -q -r -1 "$ZIP" "$PROFILE" )
     fi
@@ -93,12 +74,14 @@ else
 fi
 
 # ── stage 2: GMP reference (per machine) ─────────────────────────────────────
-GMP_CSV="$RESULTS_DIR/gmp_${MACHINE}_${PROFILE}.csv"
+GMP_CSV="$RESULTS_DIR/gmp_v2_${MACHINE}_${PROFILE}.csv"
 if [[ $FORCE_GMP -eq 1 ]]; then rm -f "$GMP_CSV"; fi
-if [[ ! -f "$GMP_CSV" ]]; then
+if [[ ! -f "$GMP_CSV" || "$BIN_DIR/bench_run_gmp" -nt "$GMP_CSV" || "$DATA_DIR/manifest.csv" -nt "$GMP_CSV" || $FORCE_DATASET -eq 1 ]]; then
     echo "[gmp] running (no cached result for this machine/profile)"
-    build run_gmp run_gmp.cpp "$GMP_FLAGS"
-    "$BIN_DIR/run_gmp" "$DATA_DIR" "$GMP_CSV" "$MACHINE"
+    reference=$(mktemp "$RESULTS_DIR/gmp.XXXXXX")
+    trap 'rm -f "$reference"' EXIT
+    "$BIN_DIR/bench_run_gmp" "$DATA_DIR" "$reference" "$MACHINE"
+    mv "$reference" "$GMP_CSV"
 else
     echo "[gmp] using cached $GMP_CSV"
 fi
@@ -113,7 +96,6 @@ done
 shopt -u nullglob
 OUT_CSV="$RESULTS_DIR/bigmath_${MACHINE}_${PROFILE}_${RUN_ID}.csv"
 echo "[bigmath] run_id=$RUN_ID -> $OUT_CSV"
-build run_bigmath run_bigmath.cpp "$LIB_SRCS"
-"$BIN_DIR/run_bigmath" "$DATA_DIR" "$GMP_CSV" "$OUT_CSV" "$RUN_ID" "$MACHINE" "$PROFILE" "$HISTORY_MD"
+"$BIN_DIR/bench_run_bigmath" "$DATA_DIR" "$GMP_CSV" "$OUT_CSV" "$RUN_ID" "$MACHINE" "$PROFILE" "$HISTORY_MD"
 
 echo "[driver] done. results: $OUT_CSV   history: $HISTORY_MD"

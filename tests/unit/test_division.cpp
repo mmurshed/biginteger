@@ -252,3 +252,25 @@ REGISTER_TEST(Div, IdentityHolds)
     ASSERT_FALSE(r.IsNegative());
   }
 }
+
+REGISTER_TEST(Division, ScalarOutputsMatchBigIntegerDivisor)
+{
+  for (DataT divisor : {DataT{1}, DataT{1} << 32, (DataT{1} << 63) + 13, ~DataT{0}})
+  {
+    const BigInteger b = Parse(std::to_string(divisor).c_str());
+    for (const char *digits : {"0", "-7", "18446744073709551612",
+                               "-340282366920938463463374607431768211454"})
+    {
+      const BigInteger a = Parse(digits);
+      auto expected = DivideAndRemainder(a, b);
+      auto qr = DivideAndRemainder(a, divisor);
+      ASSERT_EQ(qr.first.CompareTo(expected.first), 0);
+      ASSERT_EQ(qr.second.CompareTo(expected.second), 0);
+      ASSERT_EQ((a / divisor).CompareTo(expected.first), 0);
+      ASSERT_EQ((a % divisor).CompareTo(expected.second), 0);
+    }
+  }
+  bool threw = false;
+  try { (void)(Parse("0") % DataT{0}); } catch (const std::invalid_argument &) { threw = true; }
+  ASSERT_TRUE(threw);
+}

@@ -45,6 +45,7 @@ REGISTER_TEST(Eval, UnaryMinus)
 REGISTER_TEST(Eval, Power)
 {
   ASSERT_EQ(EvalDec("2^10"),       "1024");
+  ASSERT_EQ(EvalDec("(-10)^512"), std::string("1") + std::string(512, '0'));
   ASSERT_EQ(EvalDec("2^0"),        "1");
   ASSERT_EQ(EvalDec("0^0"),        "1");
   ASSERT_EQ(EvalDec("0^5"),        "0");

@@ -374,7 +374,7 @@ cmake --build build -j8 --target bench_vs_gmp
 
 Hardware: Apple M1 Max. Reference: GMP 6.3.0 (Homebrew).
 
-> **Current numbers (2026-11-21 run):** division beats GMP from 200k-digit dividends (0.19–0.67×) and trails by 1.4–2.0× below that; tables in [BENCHMARK.md](../BENCHMARK.md#division).
+> The November 21 benchmarks compare quotient-only and quotient-and-remainder division separately. At 200k ÷ 50k digits, warm quotient-and-remainder took 0.60× GMP’s time in the split run and 1.04× in the in-process run. Both runs favored BigMath in both modes at every larger skewed size tested. [Division results](../BENCHMARK.md#division)
 >
 > **Superseded — see [BENCHMARK.md](../BENCHMARK.md) for the canonical numbers** (2026-06-12 v13.0 run). Summary as of that run: division **beats GMP from 20M-digit dividends (0.45–0.82×)**, reaches parity at 5M digits, and sits at 2.3–3.8× below 200k digits (the basecase wall). The tables below are the **historical 2026-05-27 snapshot**, kept for the optimization narrative; they predate the 2026-06-11/12 division work (wraparound Newton, QuotientSizedDivision, BZ odd-size padding fix, basecase retune, MFA gate retune).
 

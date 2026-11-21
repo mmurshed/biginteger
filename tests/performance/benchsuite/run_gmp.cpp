@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     std::string out_csv = argv[2];
     std::string machine = argc > 3 ? argv[3] : "unknown";
 
-    std::vector<Entry> entries = ReadManifest(dir);
+    std::vector<Entry> entries = TimingCases(dir);
     std::vector<GmpResult> results(entries.size());
 
     fprintf(stderr, "[gmp] %s, %zu entries\n", gmp_version, entries.size());
@@ -63,23 +63,28 @@ int main(int argc, char **argv) {
                 std::string sa = LoadOperand(dir, e.id, 0), sb = LoadOperand(dir, e.id, 1);
                 mpz_t a, b, c; mpz_init_set_str(a, sa.c_str(), 10);
                 mpz_init_set_str(b, sb.c_str(), 10); mpz_init(c);
-                r.gmp_ms = BestMs([&] { mpz_mul(c, a, b); }, e.reps);
+                r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpz_mul(c, a, b); }, e.reps);
                 r.hash = HashMpz(c);
                 mpz_clear(a); mpz_clear(b); mpz_clear(c);
                 break;
             }
-            case Op::Div: {
+            case Op::Div:
+            case Op::DivQR: {
                 std::string sa = LoadOperand(dir, e.id, 0), sb = LoadOperand(dir, e.id, 1);
                 mpz_t a, b, q, rem; mpz_init_set_str(a, sa.c_str(), 10);
                 mpz_init_set_str(b, sb.c_str(), 10); mpz_init(q); mpz_init(rem);
-                r.gmp_ms = BestMs([&] { mpz_tdiv_qr(q, rem, a, b); }, e.reps);
+                if (e.op == Op::Div)
+                    r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpz_tdiv_q(q, a, b); }, e.reps);
+                else
+                    r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpz_tdiv_qr(q, rem, a, b); }, e.reps);
                 r.hash = HashMpz(q);
+                if (e.op == Op::DivQR) r.hash += "/" + HashMpz(rem);
                 mpz_clear(a); mpz_clear(b); mpz_clear(q); mpz_clear(rem);
                 break;
             }
             case Op::Parse: {
                 std::string sa = LoadOperand(dir, e.id, 0);
-                r.gmp_ms = BestMs([&] {
+                r.gmp_ms = BestWarmMs(r.first_ms, [&] {
                     mpz_t g; mpz_init(g); mpz_set_str(g, sa.c_str(), 10); mpz_clear(g);
                 }, e.reps);
                 break;
@@ -87,7 +92,7 @@ int main(int argc, char **argv) {
             case Op::ToStr: {
                 std::string sa = LoadOperand(dir, e.id, 0);
                 mpz_t g; mpz_init_set_str(g, sa.c_str(), 10);
-                r.gmp_ms = BestMs([&] {
+                r.gmp_ms = BestWarmMs(r.first_ms, [&] {
                     char *o = mpz_get_str(nullptr, 10, g); if (!o) abort(); free(o);
                 }, e.reps);
                 mpz_clear(g);
@@ -99,18 +104,18 @@ int main(int argc, char **argv) {
                 mpf_t a, b, c; mpf_init2(a, pb); mpf_init2(b, pb); mpf_init2(c, pb);
                 mpf_set_str(a, sa.c_str(), 10); mpf_set_str(b, sb.c_str(), 10);
                 if (e.op == Op::DecAdd)
-                    r.gmp_ms = BestMs([&] { mpf_add(c, a, b); }, e.reps);
+                    r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpf_add(c, a, b); }, e.reps);
                 else if (e.op == Op::DecMul)
-                    r.gmp_ms = BestMs([&] { mpf_mul(c, a, b); }, e.reps);
+                    r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpf_mul(c, a, b); }, e.reps);
                 else
-                    r.gmp_ms = BestMs([&] { mpf_div(c, a, b); }, e.reps);
+                    r.gmp_ms = BestWarmMs(r.first_ms, [&] { mpf_div(c, a, b); }, e.reps);
                 mpf_clear(a); mpf_clear(b); mpf_clear(c);
                 break;
             }
             case Op::DecParse: {
                 std::string sa = LoadOperand(dir, e.id, 0);
                 unsigned long pb = PrecBits(e.a_digits);
-                r.gmp_ms = BestMs([&] {
+                r.gmp_ms = BestWarmMs(r.first_ms, [&] {
                     mpf_t g; mpf_init2(g, pb); mpf_set_str(g, sa.c_str(), 10); mpf_clear(g);
                 }, e.reps);
                 break;
@@ -119,7 +124,7 @@ int main(int argc, char **argv) {
                 std::string sa = LoadOperand(dir, e.id, 0);
                 unsigned long pb = PrecBits(e.a_digits);
                 mpf_t g; mpf_init2(g, pb); mpf_set_str(g, sa.c_str(), 10);
-                r.gmp_ms = BestMs([&] {
+                r.gmp_ms = BestWarmMs(r.first_ms, [&] {
                     mp_exp_t exp; char *o = mpf_get_str(nullptr, &exp, 10, 0, g);
                     if (!o) abort(); free(o);
                 }, e.reps);

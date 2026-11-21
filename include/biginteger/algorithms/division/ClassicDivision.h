@@ -64,6 +64,7 @@ namespace BigMath
             }
         };
 
+    private:
         // q[0..n) = a[0..n) / d for full 64-bit limbs; returns the remainder.
         // d != 0, n >= 1. q may alias a exactly.
         //
@@ -74,7 +75,8 @@ namespace BigMath
         // re-shifts a 128-bit (remainder : limb) pair and un-shifts the
         // remainder on every call; in a loop that sits on the dependency
         // chain and roughly doubles the per-limb time.)
-        static DataT DivRem1(DataT *q, const DataT *a, SizeT n, DataT d)
+        template <bool WriteQuotient>
+        static DataT DivRem1Impl(DataT *q, const DataT *a, SizeT n, DataT d)
         {
             const int s = __builtin_clzll((unsigned long long)d);
             const ULong dn = (ULong)d << s;
@@ -103,7 +105,10 @@ namespace BigMath
             {
                 r = 0;
                 for (SizeT i = n; i-- > 0;)
-                    q[i] = (DataT)step(r, (ULong)a[i]);
+                {
+                    const DataT digit = step(r, (ULong)a[i]);
+                    if constexpr (WriteQuotient) q[i] = digit;
+                }
                 return (DataT)r;
             }
             const int back = 64 - s;
@@ -112,11 +117,42 @@ namespace BigMath
             for (SizeT i = n - 1; i > 0; --i)
             {
                 const ULong lo = (ULong)a[i - 1];
-                q[i] = (DataT)step(r, (hi << s) | (lo >> back));
+                const DataT digit = step(r, (hi << s) | (lo >> back));
+                if constexpr (WriteQuotient) q[i] = digit;
                 hi = lo;
             }
-            q[0] = (DataT)step(r, hi << s);
+            const DataT digit = step(r, hi << s);
+            if constexpr (WriteQuotient) q[0] = digit;
             return (DataT)(r >> s);
+        }
+
+    public:
+        static DataT DivRem1(DataT *q, const DataT *a, SizeT n, DataT d)
+        {
+            return DivRem1Impl<true>(q, a, n, d);
+        }
+
+        // Truncated remainder by a scalar, without materializing the quotient.
+        static DataT Remainder(const std::vector<DataT> &u, DataT d, BaseT base)
+        {
+            if (d == 0) throw std::invalid_argument("Division by zero");
+            if (u.empty()) return 0;
+            if (base == Base2_64)
+                return DivRem1Impl<false>(nullptr, u.data(), u.size(), d);
+            ULong r = 0;
+            if (base == Base2_32)
+            {
+                GranlundMollerDivider gm(d);
+                for (SizeT i = u.size(); i-- > 0;)
+                {
+                    ULong128 value = ((ULong128)r << 32) | u[i];
+                    gm.DivMod((ULong)(value >> 64), (ULong)value, r);
+                }
+            }
+            else
+                for (SizeT i = u.size(); i-- > 0;)
+                    r = ((ULong128)r * base + u[i]) % d;
+            return r;
         }
 
         static void DivideTo(std::vector<DataT> &u, DataT d, BaseT base)
@@ -288,7 +324,8 @@ namespace BigMath
                     ULong l = (ULong)acc;
                     w[i] = (DataT)gm.DivMod(h, l, r);
                 }
-                v[0] = (DataT)r;
+                v[0] = r & 0xFFFFFFFFULL;
+                if (r >> 32) v.push_back(r >> 32);
             }
             else if (base == Base2_64)
             {
@@ -310,7 +347,7 @@ namespace BigMath
             TrimZerosToOne(w);
             TrimZerosToOne(v);
 
-            return {w, v};
+            return {std::move(w), std::move(v)};
         }
 
     };

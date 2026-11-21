@@ -41,8 +41,23 @@ cmake --build build --target dispatch_tuner -j
 ```
 
 `--full` runs a wider size sweep (slower, more accurate). Drop it for a quick
-pass. Commit the emitted file; `PlatformConfig.h` finds it automatically on the
-next build.
+pass. The profile applies only to the limb width used for the sweep. The
+tuner uses full-width limbs and the configured square transform. It records
+back-to-back calls and calls after workers have parked. The 64-bit division
+sweep compares matching quotient-and-remainder kernels around the BZ, Newton
+and short-quotient gates. It keeps the compiled division floor unless the
+challenger leads by 5% at two adjacent sizes.
+
+Rebuild with the profile, run the correctness tests, and compare held-out
+shapes on the same machine before committing the thresholds. For example,
+run these commands with and without the generated platform header and compare
+the dispatch times. The arguments are divisor limb counts.
+
+```sh
+cmake --build build --target division_shape_bench unit_tests -j
+./build/unit_tests
+./build/division_shape_bench 101 777 1553 3091
+```
 
 ### Via CI
 
