@@ -565,6 +565,206 @@ namespace BigMath
       }
     }
 
+    // ─── Fused NEON tails for the log n % 3 != 2 size classes ───────────────
+    // The radix-8 chain leaves len == 16 (log n % 3 == 1) or len == 8
+    // (log n % 3 == 0) for its last step. At those lengths the radix-8
+    // j-loop has only 2 or 1 iterations per block, so its 4-lane kernel
+    // cannot run and the layer used to fall back to scalar (a*b) % P — three
+    // to four of every transform's layers, on two thirds of all sizes
+    // (measured 0.60-0.63 ns per butterfly vs 0.43 for the all-NEON class).
+    //
+    // These tails cover the same layers with 4-lane steps instead. One step
+    // pairs the 4-element quarters of each 16-element block (its twiddles
+    // depend only on j = 0..3, so they are loop-invariant vectors); a 4x4
+    // transpose then turns "quarter" into "lane" for the len-4 radix-4 step,
+    // exactly as ForwardRadix4LayerNeon does through vld4q/vst4q. All
+    // arithmetic is exact mod P, so the output is bit-identical to the
+    // radix-2 chain regardless of how the layers are grouped.
+
+    template <typename F>
+    static inline UInt ShoupCompanion(UInt w)
+    {
+      return (UInt)(((ULong)w << 32) / F::Prime);
+    }
+
+    // In-place 4x4 transpose of four rows (an involution).
+    static inline void NeonTranspose4(uint32x4_t &r0, uint32x4_t &r1, uint32x4_t &r2, uint32x4_t &r3)
+    {
+      uint64x2_t t0 = vreinterpretq_u64_u32(vtrn1q_u32(r0, r1));
+      uint64x2_t t1 = vreinterpretq_u64_u32(vtrn2q_u32(r0, r1));
+      uint64x2_t t2 = vreinterpretq_u64_u32(vtrn1q_u32(r2, r3));
+      uint64x2_t t3 = vreinterpretq_u64_u32(vtrn2q_u32(r2, r3));
+      r0 = vreinterpretq_u32_u64(vtrn1q_u64(t0, t2));
+      r1 = vreinterpretq_u32_u64(vtrn1q_u64(t1, t3));
+      r2 = vreinterpretq_u32_u64(vtrn2q_u64(t0, t2));
+      r3 = vreinterpretq_u32_u64(vtrn2q_u64(t1, t3));
+    }
+
+    // Loop-invariant (twiddle, Shoup companion) vector pair for j = 0..3.
+    template <typename F>
+    static inline NeonPair NeonConstPair(const UInt *roots, Int base, Int step)
+    {
+      UInt w[4], ws[4];
+      for (Int j = 0; j < 4; ++j)
+      {
+        w[j] = roots[base + j * step];
+        ws[j] = ShoupCompanion<F>(w[j]);
+      }
+      NeonPair r;
+      r.w = vld1q_u32(w);
+      r.ws = vld1q_u32(ws);
+      return r;
+    }
+
+    // Last four DIF layers (len 16, 8, 4, 2) in one pass. Requires n >= 16.
+    template <typename F>
+    inline void ForwardTail16Neon(UInt *a, Int n, const UInt *roots)
+    {
+      const Int stride = n / 16;
+      const NeonPair g = NeonConstPair<F>(roots, 0, stride);
+      const NeonPair gw = NeonConstPair<F>(roots, n / 4, stride);
+      const NeonPair g2 = NeonConstPair<F>(roots, 0, 2 * stride);
+      const UInt gwT = roots[n / 4];
+      const uint32x4_t vgwT = vdupq_n_u32(gwT);
+      const uint32x4_t vgwTs = vdupq_n_u32(ShoupCompanion<F>(gwT));
+      for (Int i = 0; i < n; i += 16)
+      {
+        uint32x4_t x0 = vld1q_u32(a + i);
+        uint32x4_t x1 = vld1q_u32(a + i + 4);
+        uint32x4_t x2 = vld1q_u32(a + i + 8);
+        uint32x4_t x3 = vld1q_u32(a + i + 12);
+
+        // Radix-4 step at outerLen == 16 (lanes are j).
+        uint32x4_t t0 = NeonAdd<F>(x0, x2);
+        uint32x4_t t1 = NeonAdd<F>(x1, x3);
+        uint32x4_t t2 = NeonShoupMul<F>(g.w, g.ws, NeonSub<F>(x0, x2));
+        uint32x4_t t3 = NeonShoupMul<F>(gw.w, gw.ws, NeonSub<F>(x1, x3));
+        uint32x4_t y0 = NeonAdd<F>(t0, t1);
+        uint32x4_t y1 = NeonShoupMul<F>(g2.w, g2.ws, NeonSub<F>(t0, t1));
+        uint32x4_t y2 = NeonAdd<F>(t2, t3);
+        uint32x4_t y3 = NeonShoupMul<F>(g2.w, g2.ws, NeonSub<F>(t2, t3));
+
+        // Each y_k is one contiguous len-4 group; transpose so vector index
+        // is the element within its group, then the len-4 radix-4 step.
+        NeonTranspose4(y0, y1, y2, y3);
+        uint32x4_t u0 = NeonAdd<F>(y0, y2);
+        uint32x4_t u1 = NeonAdd<F>(y1, y3);
+        uint32x4_t u2 = NeonSub<F>(y0, y2);
+        uint32x4_t u3 = NeonShoupMul<F>(vgwT, vgwTs, NeonSub<F>(y1, y3));
+        uint32x4x4_t z;
+        z.val[0] = NeonAdd<F>(u0, u1);
+        z.val[1] = NeonSub<F>(u0, u1);
+        z.val[2] = NeonAdd<F>(u2, u3);
+        z.val[3] = NeonSub<F>(u2, u3);
+        vst4q_u32(a + i, z); // interleaving store == transpose back
+      }
+    }
+
+    // Last three DIF layers (len 8, 4, 2) in one pass. Requires n >= 16.
+    template <typename F>
+    inline void ForwardTail8Neon(UInt *a, Int n, const UInt *roots)
+    {
+      const NeonPair w = NeonConstPair<F>(roots, 0, n / 8);
+      const UInt gwT = roots[n / 4];
+      const uint32x4_t vgwT = vdupq_n_u32(gwT);
+      const uint32x4_t vgwTs = vdupq_n_u32(ShoupCompanion<F>(gwT));
+      for (Int i = 0; i < n; i += 16)
+      {
+        uint32x4_t lo0 = vld1q_u32(a + i);
+        uint32x4_t hi0 = vld1q_u32(a + i + 4);
+        uint32x4_t lo1 = vld1q_u32(a + i + 8);
+        uint32x4_t hi1 = vld1q_u32(a + i + 12);
+
+        // Radix-2 step at len == 8 on two adjacent blocks (lanes are j).
+        uint32x4_t y0 = NeonAdd<F>(lo0, hi0);
+        uint32x4_t y1 = NeonShoupMul<F>(w.w, w.ws, NeonSub<F>(lo0, hi0));
+        uint32x4_t y2 = NeonAdd<F>(lo1, hi1);
+        uint32x4_t y3 = NeonShoupMul<F>(w.w, w.ws, NeonSub<F>(lo1, hi1));
+
+        NeonTranspose4(y0, y1, y2, y3);
+        uint32x4_t u0 = NeonAdd<F>(y0, y2);
+        uint32x4_t u1 = NeonAdd<F>(y1, y3);
+        uint32x4_t u2 = NeonSub<F>(y0, y2);
+        uint32x4_t u3 = NeonShoupMul<F>(vgwT, vgwTs, NeonSub<F>(y1, y3));
+        uint32x4x4_t z;
+        z.val[0] = NeonAdd<F>(u0, u1);
+        z.val[1] = NeonSub<F>(u0, u1);
+        z.val[2] = NeonAdd<F>(u2, u3);
+        z.val[3] = NeonSub<F>(u2, u3);
+        vst4q_u32(a + i, z);
+      }
+    }
+
+    // First four DIT layers (len 2, 4, 8, 16) in one pass. Requires n >= 16.
+    template <typename F>
+    inline void InverseTail16Neon(UInt *a, Int n, const UInt *roots)
+    {
+      const Int stride = n / 16;
+      const NeonPair g = NeonConstPair<F>(roots, 0, stride);
+      const NeonPair gw = NeonConstPair<F>(roots, n / 4, stride);
+      const NeonPair g2 = NeonConstPair<F>(roots, 0, 2 * stride);
+      const UInt gwT = roots[n / 4];
+      const uint32x4_t vgwT = vdupq_n_u32(gwT);
+      const uint32x4_t vgwTs = vdupq_n_u32(ShoupCompanion<F>(gwT));
+      for (Int i = 0; i < n; i += 16)
+      {
+        // De-interleaving load: x.val[e] holds element e of each len-4 group.
+        uint32x4x4_t x = vld4q_u32(a + i);
+        uint32x4_t t0 = NeonAdd<F>(x.val[0], x.val[1]);
+        uint32x4_t t1 = NeonSub<F>(x.val[0], x.val[1]);
+        uint32x4_t t2 = NeonAdd<F>(x.val[2], x.val[3]);
+        uint32x4_t t3 = NeonShoupMul<F>(vgwT, vgwTs, NeonSub<F>(x.val[2], x.val[3]));
+        uint32x4_t r0 = NeonAdd<F>(t0, t2);
+        uint32x4_t r2 = NeonSub<F>(t0, t2);
+        uint32x4_t r1 = NeonAdd<F>(t1, t3);
+        uint32x4_t r3 = NeonSub<F>(t1, t3);
+
+        // Back to one vector per group, then the radix-4 step at outerLen == 16.
+        NeonTranspose4(r0, r1, r2, r3);
+        uint32x4_t p1 = NeonShoupMul<F>(g2.w, g2.ws, r1);
+        uint32x4_t p3 = NeonShoupMul<F>(g2.w, g2.ws, r3);
+        uint32x4_t q0 = NeonAdd<F>(r0, p1);
+        uint32x4_t q1 = NeonSub<F>(r0, p1);
+        uint32x4_t q2 = NeonShoupMul<F>(g.w, g.ws, NeonAdd<F>(r2, p3));
+        uint32x4_t q3 = NeonShoupMul<F>(gw.w, gw.ws, NeonSub<F>(r2, p3));
+        vst1q_u32(a + i, NeonAdd<F>(q0, q2));
+        vst1q_u32(a + i + 8, NeonSub<F>(q0, q2));
+        vst1q_u32(a + i + 4, NeonAdd<F>(q1, q3));
+        vst1q_u32(a + i + 12, NeonSub<F>(q1, q3));
+      }
+    }
+
+    // First three DIT layers (len 2, 4, 8) in one pass. Requires n >= 16.
+    template <typename F>
+    inline void InverseTail8Neon(UInt *a, Int n, const UInt *roots)
+    {
+      const NeonPair w = NeonConstPair<F>(roots, 0, n / 8);
+      const UInt gwT = roots[n / 4];
+      const uint32x4_t vgwT = vdupq_n_u32(gwT);
+      const uint32x4_t vgwTs = vdupq_n_u32(ShoupCompanion<F>(gwT));
+      for (Int i = 0; i < n; i += 16)
+      {
+        uint32x4x4_t x = vld4q_u32(a + i);
+        uint32x4_t t0 = NeonAdd<F>(x.val[0], x.val[1]);
+        uint32x4_t t1 = NeonSub<F>(x.val[0], x.val[1]);
+        uint32x4_t t2 = NeonAdd<F>(x.val[2], x.val[3]);
+        uint32x4_t t3 = NeonShoupMul<F>(vgwT, vgwTs, NeonSub<F>(x.val[2], x.val[3]));
+        uint32x4_t r0 = NeonAdd<F>(t0, t2);
+        uint32x4_t r2 = NeonSub<F>(t0, t2);
+        uint32x4_t r1 = NeonAdd<F>(t1, t3);
+        uint32x4_t r3 = NeonSub<F>(t1, t3);
+
+        // r0/r1 and r2/r3 become the low/high halves of two len-8 blocks.
+        NeonTranspose4(r0, r1, r2, r3);
+        uint32x4_t v0 = NeonShoupMul<F>(w.w, w.ws, r1);
+        uint32x4_t v1 = NeonShoupMul<F>(w.w, w.ws, r3);
+        vst1q_u32(a + i, NeonAdd<F>(r0, v0));
+        vst1q_u32(a + i + 4, NeonSub<F>(r0, v0));
+        vst1q_u32(a + i + 8, NeonAdd<F>(r2, v1));
+        vst1q_u32(a + i + 12, NeonSub<F>(r2, v1));
+      }
+    }
+
     // Constant-multiplier Shoup pass for the inverse 1/n scaling.
     template <typename F>
     inline void NeonScale(UInt *a, Int n, UInt c)
@@ -997,6 +1197,24 @@ namespace BigMath
       const UInt *roots = plan.forwardRoots.data();
 #if BIGMATH_NEON
       const UInt *fil = plan.forwardIl.data();
+      if (n >= 16 && n <= BIGMATH_NEON_NTT_MAX)
+      {
+        // All-NEON chain: radix-8 layers while the j-loop has >= 4 lanes
+        // (len >= 32), then the tail kernel for whatever is left.
+        Int l = n;
+        while (l >= 32)
+        {
+          ForwardRadix8LayerNeon<F>(aPtr, n, l, roots, fil);
+          l >>= 3;
+        }
+        if (l == 16)
+          ForwardTail16Neon<F>(aPtr, n, roots);
+        else if (l == 8)
+          ForwardTail8Neon<F>(aPtr, n, roots);
+        else
+          ForwardRadix4LayerNeon<F>(aPtr, n, roots); // l == 4
+        return;
+      }
 #endif
       Int len = n;
       while (len >= 8)
@@ -1030,6 +1248,34 @@ namespace BigMath
       const UInt *roots = plan.inverseRoots.data();
 #if BIGMATH_NEON
       const UInt *iil = plan.inverseIl.data();
+      if (n >= 16 && n <= BIGMATH_NEON_NTT_MAX)
+      {
+        // All-NEON chain, mirror of ForwardPtr: tail kernel first, then
+        // radix-8 layers (always len >= 32 here).
+        Int rem = __builtin_ctz((unsigned)n) % 3;
+        Int l;
+        if (rem == 2)
+        {
+          InverseRadix4LayerNeon<F>(aPtr, n, roots);
+          l = 32;
+        }
+        else if (rem == 1)
+        {
+          InverseTail16Neon<F>(aPtr, n, roots);
+          l = 128;
+        }
+        else
+        {
+          InverseTail8Neon<F>(aPtr, n, roots);
+          l = 64;
+        }
+        while (l <= n)
+        {
+          InverseRadix8LayerNeon<F>(aPtr, n, l, roots, iil);
+          l <<= 3;
+        }
+      }
+      else
 #endif
       if (n >= 2)
       {
