@@ -1,0 +1,353 @@
+\chapter{Multiplication I: schoolbook, Karatsuba, Toom-3}
+\label{ch:mul}
+
+Multiplication is the operation that matters most. Division, square roots, decimal
+conversion, and powers are all built out of multiplications, so their speed follows
+multiplication's speed. BigMath has four multiplication methods and uses each where it
+is fastest:
+
+\begin{center}
+\begin{tikzpicture}
+  \foreach \x/\c/\t/\s in {0/sAqua/schoolbook/{$n^2$},1/sBlue/Karatsuba/{$n^{1.585}$},2/sViolet/Toom-3/{$n^{1.465}$},3/sOrange/NTT/{$n\log n$}} {
+    \node[algo,fill=\c,minimum width=27mm] at (\x*3,0) {\t\\[-1pt]\footnotesize\s};
+  }
+  \draw[arr] (-1.3,-0.75) -- node[below,lbl]{larger operands $\rightarrow$ better growth rate, more overhead} (10.3,-0.75);
+\end{tikzpicture}
+\end{center}
+
+This chapter covers the first three. \Cref{ch:ntt} covers the NTT and \cref{ch:muldispatch}
+explains how the library chooses.
+
+\section{Schoolbook multiplication}
+\label{sec:schoolbook}
+
+This is long multiplication as taught in school: multiply the first number by each limb
+of the second, shift each partial product one limb further left, and add them all up.
+
+\begin{example}[: $123 \times 45$ in base 10]
+\[
+\begin{array}{c@{\,}c@{\,}c@{\,}c@{\,}c@{\qquad}l}
+ & & 1 & 2 & 3 & \\
+\times & & & 4 & 5 & \\ \cline{1-5}
+ & & 6 & 1 & 5 & \text{row 1: } 123 \times 5 \\
+ & 4 & 9 & 2 & & \text{row 2: } 123 \times 4, \text{ shifted one place} \\ \cline{1-5}
+ & 5 & 5 & 3 & 5 & \text{sum of the rows}
+\end{array}
+\]
+Each row is one call of the \code{AddMul1} kernel from \cref{ch:basics}: ``add 123 times
+one digit into the running total, at the right offset''.
+\end{example}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[scale=0.62]
+  \foreach \i in {0,...,5} \foreach \j in {0,...,4} {
+    \fill[sAqua!25] (\i,-\j) rectangle +(0.92,-0.92);
+    \node[font=\tiny] at (\i+0.46,-\j-0.46) {$a_{\i}b_{\j}$};
+  }
+  \foreach \i in {0,...,5} \node[lbl] at (\i+0.46,0.45) {$a_\i$};
+  \foreach \j in {0,...,4} \node[lbl] at (-0.5,-\j-0.46) {$b_\j$};
+  \draw[sOrange,very thick,rounded corners] (-0.08,-1.04) rectangle (5.99,-1.96);
+  \node[lbl,anchor=west,align=left] at (6.4,-1.5) {one row = one \code{AddMul1}:\\$r \mathrel{+}= a \cdot b_1$ at offset 1};
+  \node[lbl,anchor=west,align=left] at (6.4,-3.4) {$n_a \times n_b$ limb products\\in total};
+\end{tikzpicture}
+\caption{Schoolbook multiplication computes every product $a_i b_j$ once. With $n$-limb
+operands that is $n^2$ limb multiplications.}
+\end{figure}
+
+Schoolbook needs $n_a \times n_b$ limb products. For two 1000-limb numbers that is a
+million. That is too many for large numbers, but for short ones schoolbook is
+unbeatable: it has no setup, no temporary storage, and its inner loop is the fast
+\code{AddMul1} kernel. In BigMath \code{MulBasecase} computes the first row with
+\code{Mul1} (so the output does not need to be zeroed first) and the rest with
+\code{AddMul1}, always looping over the longer operand.
+
+\section{Squaring: half the work}
+\label{sec:square}
+
+When both operands are the same number, half of the products are duplicates:
+$a_i a_j$ and $a_j a_i$ are equal. A square therefore needs only the products above the
+diagonal, doubled, plus the diagonal terms $a_i^2$.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[scale=0.55]
+  \foreach \i in {0,...,5} \foreach \j in {0,...,5} {
+    \ifnum\i>\j \fill[sBlue!30] (\i,-\j) rectangle +(0.9,-0.9);
+    \else\ifnum\i=\j \fill[sOrange!50] (\i,-\j) rectangle +(0.9,-0.9);
+    \else \fill[rule] (\i,-\j) rectangle +(0.9,-0.9); \fi\fi
+  }
+  \node[lbl,anchor=west,align=left] at (6.6,-0.8) {\textcolor{sBlue}{$\blacksquare$} computed once, then doubled};
+  \node[lbl,anchor=west,align=left] at (6.6,-2.0) {\textcolor{sOrange}{$\blacksquare$} diagonal $a_i^2$};
+  \node[lbl,anchor=west,align=left] at (6.6,-3.2) {\textcolor{muted}{$\blacksquare$} skipped (mirror image)};
+\end{tikzpicture}
+\caption{Schoolbook squaring: about $n^2/2$ products instead of $n^2$.}
+\end{figure}
+
+\code{SqrBasecase} computes the off-diagonal rows with \code{AddMul1}, then doubles them
+(a one-bit left shift) and adds the diagonal in a single pass. Every faster method in this
+chapter also has a squaring version that exploits the same symmetry.
+
+\section{Karatsuba: three multiplications instead of four}
+\label{sec:karatsuba}
+
+Split each number into a high half and a low half. In base 10 with 4-digit numbers,
+$1234 = 12 \cdot 100 + 34$. Then
+\[
+(a_1 X + a_0)(b_1 X + b_0) = a_1 b_1 X^2 + (a_1 b_0 + a_0 b_1) X + a_0 b_0 .
+\]
+Done directly, that is four half-size multiplications: $a_1b_1$, $a_1b_0$, $a_0b_1$, $a_0b_0$.
+Anatoly Karatsuba noticed in 1960 that the middle term can be had with \emph{one}
+multiplication instead of two:
+\[
+a_1 b_0 + a_0 b_1 = (a_1 + a_0)(b_1 + b_0) - a_1 b_1 - a_0 b_0 .
+\]
+The two products on the right, $a_1b_1$ and $a_0b_0$, are needed anyway. So three
+half-size multiplications are enough, plus a few additions and subtractions, which are
+cheap.
+
+\begin{example}[: $1234 \times 5678$ with three multiplications]
+Split at $X = 100$: $a_1 = 12$, $a_0 = 34$, $b_1 = 56$, $b_0 = 78$.
+\begin{align*}
+z_2 &= a_1 b_1 = 12 \times 56 = 672\\
+z_0 &= a_0 b_0 = 34 \times 78 = 2652\\
+z_1 &= (a_1 + a_0)(b_1 + b_0) - z_2 - z_0 = 46 \times 134 - 672 - 2652 = 6164 - 3324 = 2840
+\end{align*}
+Put the pieces together:
+\[
+672 \cdot 10^4 + 2840 \cdot 10^2 + 2652 = 6\,720\,000 + 284\,000 + 2\,652 = 7\,006\,652 .
+\]
+And indeed $1234 \times 5678 = 7\,006\,652$, using three two-digit multiplications
+instead of four.
+\end{example}
+
+The trick is applied \emph{recursively}: each of the three half-size products is itself
+computed with Karatsuba, until the pieces are small enough that schoolbook is faster.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[level distance=13mm,
+  level 1/.style={sibling distance=45mm},
+  level 2/.style={sibling distance=14mm},
+  every node/.style={box,fill=sBlue!12,font=\footnotesize,minimum width=10mm}]
+  \node {$n$}
+    child {node {$n/2$} child {node {$n/4$}} child {node {$n/4$}} child {node {$n/4$}}}
+    child {node {$n/2$} child {node {$n/4$}} child {node {$n/4$}} child {node {$n/4$}}}
+    child {node {$n/2$} child {node {$n/4$}} child {node {$n/4$}} child {node {$n/4$}}};
+\end{tikzpicture}
+\caption{Karatsuba's recursion. Each level has three times as many sub-products, each
+half as long. Schoolbook would have four times as many at each level.}
+\end{figure}
+
+\paragraph{How much does it save?} Halving the size cuts a schoolbook product's cost by 4
+but Karatsuba only needs 3 of them. After $k$ levels there are $3^k$ products of size
+$n/2^k$, so the total is about $n^{\log_2 3} \approx n^{1.585}$ instead of $n^2$.
+\Cref{fig:mulcounts} shows the exact count of limb products for the library's actual
+recursion: at 1000 limbs Karatsuba needs about a fifth of schoolbook's products, at 8000
+limbs under a tenth.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/mul_counts.pdf}
+\caption{Limb products needed, as a fraction of schoolbook's $n^2$, for the library's
+recursion (leaf at 24 limbs, Toom-3 levels from 168 limbs). Computed exactly by
+\file{figures/make\_figures.py}. Fewer products is not the whole story: the extra
+additions and memory traffic are why the crossover sizes have to be measured.}
+\label{fig:mulcounts}
+\end{figure}
+
+\subsection{Where the recursion stops}
+
+Each Karatsuba level costs some additions, subtractions and bookkeeping. For short
+pieces that overhead is larger than the multiplication it saves. The recursion therefore
+stops at \code{BIGMATH\_KARATSUBA\_THRESHOLD} $= 24$ limbs and hands the piece to the
+schoolbook kernel.
+
+This cutoff has moved over time, which shows how measurement-driven it is: 48 limbs in
+May 2026, 32 in June after the NTT got faster, and 24 in November after the flag-chain
+kernels (\cref{sec:flagchain}) made Karatsuba's own additions cheaper. Cheaper overhead
+means one more level of recursion pays off.
+
+\subsection{Unequal sizes: slicing}
+
+What if one number is much longer than the other, say $5000 \times 100$ limbs? Splitting
+both ``in half'' makes no sense, because the short one has no high half. When one operand
+is at least twice as long as the other, BigMath \emph{slices} the long operand into pieces
+as long as the short one, multiplies each piece by the short operand (a balanced product),
+and adds the pieces at their offsets.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \foreach \k in {0,...,4} {
+    \fill[sBlue!18,draw=ink2] (\k*2.1,0) rectangle +(2,0.5);
+    \node[font=\footnotesize] at (\k*2.1+1,0.25) {piece \k};
+  }
+  \node[lbl,anchor=east] at (-0.2,0.25) {long $x$};
+  \fill[sOrange!25,draw=ink2] (0,-0.9) rectangle +(2,0.5);
+  \node[font=\footnotesize] at (1,-0.65) {$y$};
+  \node[lbl,anchor=east] at (-0.2,-0.65) {short $y$};
+  \foreach \k in {0,...,4} {
+    \draw[draw=ink2,fill=paper] (\k*2.1,-1.7-\k*0.45) rectangle +(4,0.38);
+    \node[font=\tiny] at (\k*2.1+2,-1.51-\k*0.45) {piece \k\ $\times\ y$};
+  }
+  \node[lbl,anchor=west,align=left] at (11.3,-2.4) {each a balanced\\Karatsuba product,\\added at its offset};
+\end{tikzpicture}
+\caption{Slicing an unbalanced product into balanced ones.}
+\end{figure}
+
+The cost is the number of pieces times the cost of one balanced product: roughly
+$n_{\max} \cdot K(n_{\min}) / n_{\min}$, where $K(m)$ is the cost of an $m \times m$
+Karatsuba product. It grows \emph{linearly} with the long operand, at a rate set by the
+short one. This is the key to choosing between Karatsuba and the NTT for lopsided shapes
+(\cref{sec:arearule}).
+
+\begin{pitfall}
+Before slicing, the code just clamped the split point. For very lopsided shapes the
+recursion then peeled off only a few limbs per level, ran $n_{\max}/n_{\min}$ levels deep
+instead of $\log_2 n$, and its scratch space grew like $n_{\max}^2/n_{\min}$. On shapes the
+dispatcher really sent there (for example $1214 \times 65$ limbs) that overflowed the
+workspace buffer. Slicing fixed both the speed and the memory bound (about $4 n_{\max}$).
+\end{pitfall}
+
+\begin{perfnote}
+The recursion works on raw pointers into one workspace allocated up front, never on
+temporary \code{std::vector}s. An earlier vector-based version of Karatsuba squaring was
+\emph{slower} than plain multiplication at 128 limbs, purely from allocation and zero-fill
+costs. The output buffer and the middle-term buffer are not pre-zeroed either: the
+recursive calls write every position.
+\end{perfnote}
+
+\section{Toom-3: split in three}
+\label{sec:toom}
+
+Karatsuba splits into halves. Why not thirds? Splitting into three parts gives
+nine sub-products done naively; Toom-Cook (Andrei Toom 1963, Stephen Cook 1966) gets by
+with \emph{five}. The cost becomes $n^{\log_3 5} \approx n^{1.465}$.
+
+\subsection{The polynomial view}
+
+Write each operand as a polynomial in the split point $X$:
+\[
+a = a_2 X^2 + a_1 X + a_0 \quad\longrightarrow\quad p(x) = a_2 x^2 + a_1 x + a_0 .
+\]
+Then $a \cdot b$ is the polynomial product $r(x) = p(x)\,q(x)$ evaluated at $x = X$. The
+product has degree 4, so it has five unknown coefficients $r_0,\dots,r_4$. A degree-4
+polynomial is fixed by its values at any five points. So:
+
+\begin{enumerate}
+  \item \textbf{Evaluate} $p$ and $q$ at five points. BigMath uses $0, 1, -1, 2$ and
+        ``$\infty$'' (which simply means the top coefficient).
+  \item \textbf{Multiply} the values pairwise: five products, each about one third as long
+        as the inputs. These are done recursively.
+  \item \textbf{Interpolate}: recover $r_0,\dots,r_4$ from the five values.
+  \item \textbf{Recompose}: $a b = r_4 X^4 + r_3 X^3 + r_2 X^2 + r_1 X + r_0$, adding the
+        overlapping pieces with carries.
+\end{enumerate}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[node distance=4mm and 9mm]
+  \node[box,fill=sViolet!12] (in) {$a = (a_2, a_1, a_0)$\\$b = (b_2, b_1, b_0)$};
+  \node[box,right=of in,fill=paper] (ev) {evaluate at\\$0,\ 1,\ -1,\ 2,\ \infty$};
+  \node[box,right=of ev,fill=sViolet!12] (mul) {5 products\\of size $n/3$};
+  \node[box,right=of mul,fill=paper] (int) {interpolate\\$r_0 \dots r_4$};
+  \node[box,right=of int,fill=sViolet!12] (out) {$a \cdot b$};
+  \draw[arr] (in) -- (ev); \draw[arr] (ev) -- (mul); \draw[arr] (mul) -- (int); \draw[arr] (int) -- (out);
+  \node[lbl,below=1mm of mul] {(recursive)};
+  \node[lbl,below=1mm of ev] {additions only};
+  \node[lbl,below=1mm of int] {adds, shifts, $\div 2$, $\div 3$};
+\end{tikzpicture}
+\caption{Evaluate, multiply, interpolate. Only the middle step multiplies.}
+\label{fig:evalinterp}
+\end{figure}
+
+\begin{example}[: $123 \times 456$ with Toom-3]
+Split at $X = 10$: $p(x) = x^2 + 2x + 3$ and $q(x) = 4x^2 + 5x + 6$.
+
+\textbf{Evaluate} (additions only):
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+point & $0$ & $1$ & $-1$ & $2$ & $\infty$ \\
+\midrule
+$p$ & 3 & 6 & 2 & 11 & 1 \\
+$q$ & 6 & 15 & 5 & 32 & 4 \\
+\midrule
+product $v$ & $v_0 = 18$ & $v_1 = 90$ & $v_{-1} = 10$ & $v_2 = 352$ & $v_\infty = 4$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Interpolate} with Bodrato's sequence, the one the library uses. Every line is an
+addition, a subtraction, or an exact division by 2 or 3:
+\begin{align*}
+v_2 &\leftarrow (v_2 - v_{-1})/3 = (352 - 10)/3 = 114 && = r_1 + r_2 + 3r_3 + 5r_4\\
+v_{-1} &\leftarrow (v_1 - v_{-1})/2 = (90 - 10)/2 = 40 && = r_1 + r_3\\
+v_1 &\leftarrow v_1 - v_0 = 90 - 18 = 72 && = r_1 + r_2 + r_3 + r_4\\
+v_2 &\leftarrow (v_2 - v_1)/2 = (114 - 72)/2 = 21 && = r_3 + 2 r_4\\
+v_1 &\leftarrow v_1 - v_{-1} - v_\infty = 72 - 40 - 4 = 28 && = r_2\\
+v_2 &\leftarrow v_2 - 2 v_\infty = 21 - 8 = 13 && = r_3\\
+v_{-1} &\leftarrow v_{-1} - v_2 = 40 - 13 = 27 && = r_1
+\end{align*}
+So $r = (r_4, r_3, r_2, r_1, r_0) = (4, 13, 28, 27, 18)$.
+
+\textbf{Recompose} at $x = 10$: $40000 + 13000 + 2800 + 270 + 18 = 56088$, and
+$123 \times 456 = 56088$. Five small products replaced nine.
+\end{example}
+
+\begin{another}[: Karatsuba is Toom-2]
+Karatsuba is the same recipe with two pieces. The product $(a_1x + a_0)(b_1x + b_0)$ has
+degree 2, so three points suffice: $0$, $1$ and $\infty$. The values there are $a_0b_0$,
+$(a_0 + a_1)(b_0 + b_1)$ and $a_1b_1$, exactly Karatsuba's three products, and
+``subtract $z_0$ and $z_2$'' is the interpolation. Every Toom-$k$ method is
+``evaluate at $2k-1$ points, multiply, interpolate''. More pieces give a better exponent
+but more expensive evaluation and interpolation. \Cref{ch:ntt} pushes this idea to its
+limit.
+\end{another}
+
+\subsection{Why the sequence runs on unsigned numbers}
+
+Look at the right-hand column of the interpolation: every intermediate value is a
+combination of the $r_i$ with non-negative weights, and the $r_i$ themselves are never
+negative (they are sums of products of limbs). So no intermediate value is ever negative,
+and the whole interpolation runs on plain unsigned limb arrays with the fast kernels. Only
+$v_{-1}$ can be negative, since $p(-1)$ and $q(-1)$ can be; its sign is tracked separately
+and folded into the first two steps. The exact division by 3 is a multiplication by the
+inverse of 3 modulo $2^{64}$ (\code{0xAAAA\ldots AAB}), which is much cheaper than a real
+division.
+
+\subsection{Where Toom-3 is used}
+
+Toom-3 lives \emph{inside} the Karatsuba recursion: at each level, if the shorter operand
+has at least \code{BIGMATH\_MUL\_TOOM33\_THRESHOLD} $= 168$ limbs (160 for squares) and both
+operands have a non-empty top third, the level splits three ways; otherwise it halves as
+usual. Because the choice is made at every level, every sub-product picks the best split
+for its own size, including the pieces of sliced unbalanced products and the products
+inside division.
+
+Measured on balanced products (microseconds):
+
+\begin{center}
+\begin{tabular}{lrrrrrrr}
+\toprule
+limbs & 160 & 176 & 192 & 224 & 384 & 512 & 768 \\
+\midrule
+Karatsuba only & 7.38 & 9.20 & 10.21 & 13.40 & 31.60 & 48.76 & 96.44 \\
+with Toom-3 & 7.37 & 8.60 & 9.55 & 12.64 & 28.76 & 45.73 & 86.53 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A 5--10\% gain. Modest, because balanced products from about 310 limbs go to the NTT when
+the thread pool is awake. Toom-3 matters most for cold calls and for the unbalanced pieces
+and division sub-products that stay below the NTT.
+
+\begin{practice}
+You never call Toom-3 directly. Two other Toom implementations exist in the source:
+\code{ToomCookMultiplication} (a vector-based Toom-3) and \code{Toom5Multiplication}. Both
+are kept as independent cross-checks for the tests. A Toom-4 split inside the Karatsuba
+recursion is implemented but switched off
+(\code{BIGMATH\_MUL\_TOOM44\_THRESHOLD} $= 10^6$): on the M1 it gained nothing before the NTT
+takes over. On a machine where the NTT starts later, try enabling it around 500 limbs.
+\end{practice}

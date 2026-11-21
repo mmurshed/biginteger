@@ -135,6 +135,7 @@ Operators: `+ - * / % ^` (with `^` right-associative). Literals: decimal, `0x…
 
 ## Documentation
 
+- [docs/algorithms-guide/algorithms-guide.pdf](docs/algorithms-guide/algorithms-guide.pdf) — practitioner's guide to every algorithm in plain language: worked examples, figures, when each algorithm switches and why (LaTeX source alongside)
 - [docs/BASE.md](docs/BASE.md) — number representation, 64-bit limbs, why little-endian
 - [docs/MULTIPLICATION.md](docs/MULTIPLICATION.md) — Classic / Karatsuba / Toom-3 / NTT (Goldilocks + multi-prime CRT) and their tradeoffs
 - [docs/DIVISION.md](docs/DIVISION.md) — Classic / Fast (Knuth D + Möller-Granlund qhat) / Burnikel–Ziegler / Newton / Reciprocal-cached

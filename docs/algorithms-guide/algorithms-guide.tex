@@ -1,0 +1,160 @@
+% BigMath: How the Algorithms Work — A Practitioner's Guide
+%
+% Build (from this directory):
+%   python3 figures/make_figures.py      # only when thresholds/measurements change
+%   latexmk -pdf algorithms-guide.tex    # or: pdflatex x3
+%
+\documentclass[11pt,a4paper,oneside]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=2.5cm,headheight=14pt]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs,array,tabularx,multirow,longtable}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{calc,positioning,arrows.meta,decorations.pathreplacing,matrix,fit,shapes.geometric,shapes.misc,backgrounds}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+% ---------------------------------------------------------------- colours
+\definecolor{sBlue}{HTML}{2A78D6}
+\definecolor{sOrange}{HTML}{EB6834}
+\definecolor{sAqua}{HTML}{1BAF7A}
+\definecolor{sYellow}{HTML}{EDA100}
+\definecolor{sMagenta}{HTML}{E87BA4}
+\definecolor{sGreen}{HTML}{008300}
+\definecolor{sViolet}{HTML}{6250D6}
+\definecolor{sRed}{HTML}{E34948}
+\definecolor{ink}{HTML}{0B0B0B}
+\definecolor{ink2}{HTML}{52514E}
+\definecolor{muted}{HTML}{8A8984}
+\definecolor{paper}{HTML}{F6F5F2}
+\definecolor{rule}{HTML}{E4E3DF}
+
+% ---------------------------------------------------------------- boxes
+\tcbset{guidebox/.style={enhanced,breakable,boxrule=0pt,leftrule=3pt,arc=1pt,
+  left=8pt,right=8pt,top=5pt,bottom=5pt,fonttitle=\bfseries\small,
+  coltitle=ink,colback=paper,attach title to upper,after title={\quad}}}
+\newtcolorbox{keyidea}[1][]{guidebox,colframe=sBlue,title={Key idea#1}}
+\newtcolorbox{example}[1][]{guidebox,colframe=sAqua,title={Worked example#1}}
+\newtcolorbox{perfnote}[1][]{guidebox,colframe=sOrange,title={Why it is fast#1}}
+\newtcolorbox{another}[1][]{guidebox,colframe=sViolet,title={Another way to see it#1}}
+\newtcolorbox{practice}[1][]{guidebox,colframe=sGreen,title={What this means for you#1}}
+\newtcolorbox{pitfall}[1][]{guidebox,colframe=sRed,title={Lesson learned#1}}
+
+% ---------------------------------------------------------------- code
+\lstdefinestyle{cpp}{language=C++,basicstyle=\ttfamily\small,keywordstyle=\color{sBlue}\bfseries,
+  commentstyle=\color{ink2}\itshape,stringstyle=\color{sOrange},showstringspaces=false,
+  columns=fullflexible,keepspaces=true,frame=single,rulecolor=\color{rule},
+  backgroundcolor=\color{paper},xleftmargin=4pt,xrightmargin=4pt,framesep=4pt,breaklines=true}
+\lstdefinestyle{pseudo}{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,
+  frame=single,rulecolor=\color{rule},backgroundcolor=\color{paper},xleftmargin=4pt,
+  xrightmargin=4pt,framesep=4pt,mathescape=true,breaklines=true}
+\lstset{style=cpp}
+
+% ---------------------------------------------------------------- macros
+% Inline code and paths: allow line breaks after underscores and slashes.
+\newcommand{\brkus}{\textunderscore\allowbreak}
+\newcommand{\brksl}{/\allowbreak}
+\DeclareRobustCommand{\code}[1]{\begingroup\small\ttfamily\let\_\brkus#1\endgroup}
+\ExplSyntaxOn
+\tl_new:N \l__guide_path_tl
+\NewDocumentCommand{\file}{m}{
+  \group_begin:
+  \small\ttfamily
+  \let\_\brkus
+  \tl_set:Nn \l__guide_path_tl {#1}
+  \tl_replace_all:Nnn \l__guide_path_tl {/} {\brksl}
+  \tl_use:N \l__guide_path_tl
+  \group_end:
+}
+\ExplSyntaxOff
+\newcommand{\B}{\ensuremath{B}}
+\newcommand{\M}{\ensuremath{\mathsf{M}}}
+\newcommand{\bigO}{\ensuremath{O}}
+\newcommand{\floor}[1]{\left\lfloor #1 \right\rfloor}
+\newcommand{\ceil}[1]{\left\lceil #1 \right\rceil}
+\newcommand{\algo}[1]{\textsf{#1}}
+
+% TikZ styles shared by all figures
+\tikzset{
+  limb/.style={draw=ink2,minimum width=12mm,minimum height=6mm,font=\small\ttfamily,fill=white},
+  box/.style={draw=ink2,rounded corners=2pt,align=center,font=\small,fill=white,inner sep=4pt},
+  dec/.style={draw=ink2,diamond,aspect=2.2,align=center,font=\footnotesize,fill=paper,inner sep=1pt},
+  algo/.style={draw=none,rounded corners=2pt,align=center,font=\small\bfseries,text=white,inner sep=4pt},
+  arr/.style={-{Stealth[length=2mm]},draw=ink2,thick},
+  lbl/.style={font=\footnotesize,text=ink2},
+}
+
+\captionsetup{font=small,labelfont=bf}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{2em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{ink2}\leftmark}
+
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\hypersetup{pdftitle={BigMath: How the Algorithms Work},pdfauthor={BigMath project}}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries BigMath\par}
+  \vspace{0.6cm}
+  {\LARGE How the Algorithms Work\par}
+  \vspace{0.4cm}
+  {\large A practitioner's guide to the arithmetic inside the library,\\
+  when each algorithm runs, and why\par}
+  \vspace{2cm}
+  \begin{tikzpicture}[scale=0.9]
+    \foreach \x/\c/\t in {0/sAqua/schoolbook,1/sBlue/Karatsuba,2/sViolet/Toom-3,3/sOrange/NTT} {
+      \fill[\c] (\x*2.3,0) rectangle +(2.1,0.5);
+      \node[lbl] at (\x*2.3+1.05,-0.35) {\t};
+    }
+    \draw[arr] (0,0.9) -- node[above,lbl]{bigger numbers} (9.0,0.9);
+  \end{tikzpicture}
+  \vfill
+  {\small Covers the default build: 64-bit limbs, three-prime CRT number-theoretic transform,\\
+  internal thread pool. Thresholds and measurements as of November 2026 (Apple M1 Max).\par}
+  \vspace{0.5cm}
+  {\small Source: \file{docs/algorithms-guide/}\par}
+\end{titlepage}
+
+\tableofcontents
+
+\input{chapters/00-reading}
+\input{chapters/01-representation}
+\input{chapters/02-basics}
+\input{chapters/03-multiplication}
+\input{chapters/04-ntt}
+\input{chapters/05-mul-dispatch}
+\input{chapters/06-division}
+\input{chapters/07-fast-division}
+\input{chapters/08-div-dispatch}
+\input{chapters/09-conversion}
+\input{chapters/10-parallel}
+\input{chapters/11-practice}
+\input{chapters/12-decisions}
+
+\appendix
+\input{chapters/a1-reference}
+
+\end{document}

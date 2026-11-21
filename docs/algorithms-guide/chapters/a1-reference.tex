@@ -1,0 +1,120 @@
+\chapter{Reference}
+\label{app:ref}
+
+\section{Every switch point}
+
+All values are for the default build (64-bit limbs, three-prime NTT, threads on). Each is a
+preprocessor macro that can be overridden with \code{-D} when compiling the library. Canonical
+defaults are in \file{include/biginteger/build/DispatchThresholds.h} unless noted.
+
+\subsection*{Multiplication and squaring}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
+\toprule
+macro & default & meaning \\
+\midrule
+\endhead
+\code{BIGMATH\_SMALL\_OPS\_MAX\_LIMBS} & 16 & stack-buffer path in the operators (\file{ops/SmallOps.h}) \\
+\code{BIGMATH\_INLINE\_LIMBS} & 4 & values stored inside the object (\file{BigInteger.h}) \\
+\code{BIGMATH\_CLASSIC\_MULTIPLICATION\_THRESHOLD} & 56 & schoolbook if $n_a + n_b \le$ this \\
+\code{BIGMATH\_CLASSIC\_MIN\_LIMB\_THRESHOLD} & 24 & schoolbook if $\min(n_a,n_b) \le$ this \\
+\code{BIGMATH\_KARATSUBA\_THRESHOLD} & 24 & Karatsuba leaf size (\file{KaratsubaMultiplication.h}) \\
+\code{BIGMATH\_MUL\_TOOM33\_THRESHOLD} & 168 & Toom-3 split inside Karatsuba from this size \\
+\code{BIGMATH\_MUL\_TOOM44\_THRESHOLD} & $10^6$ & Toom-4 split (effectively off) \\
+\code{BIGMATH\_NTT\_MULTIPLICATION\_THRESHOLD} & 640 & NTT needs $n_a + n_b \ge$ this \\
+\code{BIGMATH\_NTT\_MIN\_LIMB\_THRESHOLD} & 64 & NTT needs $\min(n_a,n_b) \ge$ this \\
+\code{BIGMATH\_NTT\_AREA\_THRESHOLD} & 96\,000 & NTT needs $n_a n_b \ge$ this (warm pool) \\
+\code{BIGMATH\_NTT\_COLD\_AREA\_THRESHOLD} & 262\,144 & NTT regardless of pool from this area \\
+\code{BIGMATH\_SMALL\_SELF\_SQUARE\_MAX} & 319 & \code{x*x} goes to the square dispatcher up to this \\
+\code{BIGMATH\_KARATSUBA\_SQUARE\_THRESHOLD} & 48 & schoolbook square below this (\file{KaratsubaSquare.h}) \\
+\code{BIGMATH\_SQR\_TOOM3\_THRESHOLD} & 160 & Toom-3 split for squares \\
+\code{BIGMATH\_NTT\_SQUARE\_THRESHOLD} & 352 & NTT square from this size (warm) \\
+\code{BIGMATH\_NTT\_SQUARE\_COLD\_THRESHOLD} & 608 & NTT square regardless of pool \\
+\code{BIGMATH\_NTT\_CRT\_THRESHOLD} & 256 & three-prime NTT vs Goldilocks (always three-prime in practice) \\
+\code{BIGMATH\_NTT\_MFA\_THRESHOLD} & $2^{20}$ & matrix (six-step) method from this transform length \\
+\code{BIGMATH\_NTT\_MFA\_LEAF} & $2^{13}$ & longest short transform in the matrix method \\
+\code{BIGMATH\_NTT\_TRUNC\_MIN} / \code{\_MAX} & 2048 / $2^{20}$ & range of $H$ for the $H+L$ scheme \\
+\code{BIGMATH\_NTT\_TRUNC\_SERIAL\_MAX} & $2^{25}$ & $H + L$ upper limit with one thread \\
+\code{BIGMATH\_NTT\_PARALLEL\_MIN} & 2048 & smaller transforms run on the calling thread \\
+\code{BIGMATH\_NTT\_FINALIZE\_PARALLEL\_MIN} & 4096 & carry pass split across threads from this many limbs \\
+\bottomrule
+\end{longtable}
+
+\subsection*{Division}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
+\toprule
+macro & default & meaning \\
+\midrule
+\endhead
+\code{BIGMATH\_DIV\_BZ\_MIN\_B} & 96 & Algorithm D below this divisor length \\
+\code{BIGMATH\_DIV\_NEWTON\_MIN\_B} & 1536 & Newton for ratio $\ge 2$ from this divisor length \\
+\code{BIGMATH\_DIV\_NEWTON\_SKEW\_MIN\_B} & 768 & \ldots or from this length when ratio $\ge$ 3 \\
+\code{BIGMATH\_DIV\_NEWTON\_SKEW\_RATIO} & 3 & the ratio for the line above \\
+\code{BIGMATH\_DIV\_NEWTON\_NEAR2\_MIN\_B} & 3072 & Newton for ratio in $[7/4, 2)$ from this length \\
+\code{BIGMATH\_DIV\_QSIZED\_MIN\_QUOTIENT} & 3072 & quotient-sized division from this quotient length \\
+\code{BIGMATH\_DC\_DIV\_THRESHOLD} & 64 & Burnikel--Ziegler base case (\file{BurnikelZieglerDivision.h}) \\
+\code{BIGMATH\_NEWTON\_SCHOOLBOOK\_HEAD} & 32 & short leading Newton blocks use Algorithm D \\
+\code{BIGMATH\_CYCLIC\_NTT\_THRESHOLD} & 1280 & smallest wrap-around (mod $B^L-1$) product inside Newton \\
+\bottomrule
+\end{longtable}
+
+\subsection*{Decimal conversion and threads}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
+\toprule
+macro & default & meaning \\
+\midrule
+\endhead
+\code{BIGMATH\_PARSE\_DC\_THRESHOLD} & 2048 & digits; linear parse up to this (\file{Parser.h}) \\
+\code{BIGMATH\_TOSTR\_DC\_THRESHOLD} & 1024 & digits; linear print below this \\
+\code{BIGMATH\_TOSTR\_NEWTON\_MIN\_DIGITS} & 13\,000 & cached reciprocal for print levels from here (1 thread) \\
+\code{BIGMATH\_TOSTR\_NEWTON\_MIN\_DIGITS\_THREADED} & 6\,500 & same, with a multi-thread pool \\
+\code{BIGMATH\_PARSE\_PARALLEL\_THRESHOLD} & 100\,000 & 8-way parallel parse from here \\
+\code{BIGMATH\_TOSTR\_PARALLEL\_THRESHOLD} & 100\,000 & 8-way parallel print from here \\
+\code{BIGMATH\_USE\_THREADS} & 1 & thread pool on/off \\
+\code{BIGMATH\_MAX\_THREADS} & 8 & pool size cap \\
+\code{BIGMATH\_POOL\_SPIN\_US} & 100 & \textmu s an idle worker spins before sleeping \\
+\bottomrule
+\end{longtable}
+
+\section{Costs at a glance}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lll}
+\toprule
+algorithm & cost for $n$-limb inputs & where in the code \\
+\midrule
+schoolbook multiply & $n^2$ & \file{ClassicMultiplication.h}, \file{LimbKernels.h} \\
+Karatsuba & $n^{1.585}$ & \file{KaratsubaMultiplication.h} \\
+Toom-3 & $n^{1.465}$ & \file{ToomKernels.h} \\
+NTT (three primes) & $n \log n$ & \file{NTTMultiplicationCrt.h} \\
+short division & $n$ & \file{ClassicDivision.h} \\
+Algorithm D & $(n_a - n_b) \cdot n_b$ & \file{FastDivision.h} \\
+Burnikel--Ziegler & $\M(n)\log n$ & \file{BurnikelZieglerDivision.h} \\
+Newton & a few $\M(n)$ & \file{NewtonDivision.h} \\
+parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Further reading}
+
+\begin{itemize}
+  \item D.~E. Knuth, \emph{The Art of Computer Programming}, Vol.~2, §4.3: classical multiple-precision
+        arithmetic and Algorithm D.
+  \item R.~P. Brent and P.~Zimmermann, \emph{Modern Computer Arithmetic}, Cambridge University Press,
+        2010: Karatsuba, Toom-Cook, FFT multiplication, Newton division, base conversion.
+  \item C.~Burnikel and J.~Ziegler, ``Fast Recursive Division'', MPI-I-98-1-022, 1998.
+  \item N.~Möller and T.~Granlund, ``Improved Division by Invariant Integers'', \emph{IEEE Transactions on
+        Computers} 60(2), 2011.
+  \item M.~Bodrato, ``Towards Optimal Toom-Cook Multiplication for Univariate and Multivariate
+        Polynomials in Characteristic 2 and 0'', WAIFI 2007.
+  \item V.~Shoup, NTL library: precomputed-quotient modular multiplication.
+  \item D.~H. Bailey, ``FFTs in External or Hierarchical Memory'', \emph{J. Supercomputing} 4, 1990:
+        the six-step FFT.
+  \item The library's own technical notes, with full measurement history:
+        \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md}, \file{docs/STRING\_CONVERSION.md},
+        \file{docs/BASE.md}, \file{docs/THREAD\_SAFETY.md}, \file{BENCHMARK.md}.
+\end{itemize}

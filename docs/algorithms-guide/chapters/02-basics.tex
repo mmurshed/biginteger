@@ -1,0 +1,181 @@
+\chapter{Building blocks: add, subtract, multiply by one limb}
+\label{ch:basics}
+
+Every big algorithm in this library eventually does the same few things over and over:
+add two arrays of limbs, subtract one from another, and add a multiple of one array to
+another. These operations are called \emph{kernels}. They live in
+\file{include/biginteger/common/LimbKernels.h}. This chapter shows how they work and
+why the way they are written matters so much.
+
+\section{Addition with carries}
+
+Adding big numbers is grade-school addition. Add the lowest digits, write down the
+result, carry one if it overflowed, move left.
+
+\begin{example}[: the same idea in base 10 and base $2^{64}$]
+Base 10, $478 + 256$:
+\[
+\begin{array}{r@{\quad}l}
+8 + 6 = 14 & \text{write } 4, \text{ carry } 1\\
+7 + 5 + 1 = 13 & \text{write } 3, \text{ carry } 1\\
+4 + 2 + 1 = 7 & \text{write } 7
+\end{array}
+\qquad\Rightarrow\qquad 734
+\]
+Base $2^{64}$, adding $[\,2^{64}-1,\ 1\,]$ and $[\,1\,]$ (that is, $(2^{64}+2^{64}-1) + 1$):
+\[
+\begin{array}{r@{\quad}l}
+(2^{64}-1) + 1 = 2^{64} & \text{write } 0, \text{ carry } 1\\
+1 + 0 + 1 = 2 & \text{write } 2
+\end{array}
+\qquad\Rightarrow\qquad [\,0,\ 2\,] = 2 \cdot 2^{64}.
+\]
+\end{example}
+
+A carry is never more than 1, because the largest possible sum,
+$(B-1) + (B-1) + 1 = 2B - 1$, is less than $2B$. Subtraction works the same way with a
+\emph{borrow} of 0 or 1.
+
+\section{Multiply an array by one limb}
+
+The workhorse of multiplication and division is ``add $b$ times the array $a$ into the
+array $r$'', written \code{AddMul1(r, a, n, b)}. Each step multiplies one limb $a_j$ by
+$b$, which gives a two-limb (128-bit) product: a low half and a high half. The low half
+goes into position $j$; the high half spills into position $j+1$.
+
+\begin{example}[: $987 \times 6$, digit by digit]
+Little-endian digits of 987 are $[7, 8, 9]$. Multiply each by 6:
+\[
+7\cdot 6 = 42,\qquad 8 \cdot 6 = 48,\qquad 9 \cdot 6 = 54 .
+\]
+Each product has a low digit (2, 8, 4) and a high digit (4, 4, 5). Position $k$ of the
+answer is low digit $k$ plus high digit $k-1$ plus any carry:
+\[
+\begin{array}{c|cccc}
+\text{position} & 0 & 1 & 2 & 3\\ \hline
+\text{low of } p_k & 2 & 8 & 4 & \\
+\text{high of } p_{k-1} & 0 & 4 & 4 & 5\\
+\text{carry in} & 0 & 0 & 1 & 0\\ \hline
+\text{digit} & 2 & 2 & 9 & 5
+\end{array}
+\]
+Result $[2,2,9,5] = 5922 = 987 \times 6$. In the library the ``digits'' are 64-bit limbs
+and the products are 128-bit, but the bookkeeping is identical.
+\end{example}
+
+\section{Why the way you write the loop matters}
+\label{sec:flagchain}
+
+The obvious C++ for \code{AddMul1} is
+
+\begin{lstlisting}
+unsigned __int128 p = (unsigned __int128)a[j] * b + r[j] + carry;
+r[j]  = (uint64_t)p;          // low 64 bits
+carry = (uint64_t)(p >> 64);  // high 64 bits feed the next limb
+\end{lstlisting}
+
+It is correct, and it was in the library for years. The trouble is the
+\code{carry} variable. It holds a whole limb, and the next step cannot begin adding until
+it is known. Every step waits for the previous step's 128-bit arithmetic to finish. A
+modern processor can start a new multiplication every cycle, but this loop forces it to
+work one limb at a time, at 2.5--3.3 cycles per limb.
+
+The kernels in \file{LimbKernels.h} split the work into \textbf{two separate carry
+chains}, as in the worked example above:
+
+\begin{enumerate}
+  \item \textbf{Chain A} forms the product row: $t_k = \text{low}(p_k) + \text{high}(p_{k-1})$,
+        with a one-bit carry.
+  \item \textbf{Chain B} adds that row into the result: $r_k \mathrel{+}= t_k$, with its own
+        one-bit carry.
+\end{enumerate}
+
+Neither chain waits on a full 128-bit value. Both carries are single bits, and the code is
+written in straight-line blocks of four limbs with the compiler's carry builtins
+(\code{\_\_builtin\_addcll}), so the carry bit stays in the processor's flags register from
+one limb to the next. On ARM this compiles to a run of \code{adcs} (add with carry)
+instructions, the same instructions a hand-written assembly routine would use.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1.15cm,y=1cm]
+  \node[lbl,anchor=east] at (-0.5,1.6) {one chain};
+  \foreach \k in {0,...,5} {
+    \node[box,fill=sBlue!12,minimum width=11mm] (o\k) at (\k*1.3,1.6) {\footnotesize mul+add};
+  }
+  \foreach \k [evaluate=\k as \n using int(\k+1)] in {0,...,4} \draw[arr,sRed] (o\k) -- (o\n);
+  \node[lbl,anchor=west] at (7.3,1.6) {each step waits for a 64-bit carry};
+  \node[lbl,anchor=east] at (-0.5,0.4) {chain A};
+  \node[lbl,anchor=east] at (-0.5,-0.6) {chain B};
+  \foreach \k in {0,...,5} {
+    \node[box,fill=sOrange!15,minimum width=11mm] (a\k) at (\k*1.3,0.4) {\footnotesize lo+hi};
+    \node[box,fill=sAqua!15,minimum width=11mm] (b\k) at (\k*1.3,-0.6) {\footnotesize $r \mathrel{+}= t$};
+    \draw[arr,muted] (a\k) -- (b\k);
+  }
+  \foreach \k [evaluate=\k as \n using int(\k+1)] in {0,...,4} {
+    \draw[-{Stealth[length=1.5mm]},sGreen,thick] (a\k) -- (a\n);
+    \draw[-{Stealth[length=1.5mm]},sGreen,thick] (b\k) -- (b\n);
+  }
+  \node[lbl,anchor=west,align=left] at (7.3,-0.1) {two chains of 1-bit carries\\run side by side};
+\end{tikzpicture}
+\caption{Dependency chains in \code{AddMul1}. Red: the old loop passes a full limb from
+step to step. Green: the new kernel passes only carry bits, along two independent
+chains that the processor overlaps.}
+\end{figure}
+
+\begin{perfnote}
+Cycles per limb on an M1 core:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+kernel & old loop & GMP (hand assembly) & new kernel \\
+\midrule
+\code{addmul\_1} & 2.5--3.3 & 1.3--1.8 & 1.64--1.76 \\
+\code{add\_n} & 2.2--3.3 & 0.65--0.9 & 1.1--1.7 \\
+\code{submul\_1} (division) & 2.9--4.0 & 1.3--1.8 & 1.6--1.8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Schoolbook multiplication became 1.5--1.8 times faster, with no assembly language
+anywhere in the library. Earlier the gap to GMP had been blamed on ``portable C++ cannot
+match assembly''. It turned out the gap was mostly how the loop was written.
+\end{perfnote}
+
+\begin{pitfall}
+Before this change, an attempt to speed up schoolbook by processing two rows at once
+(``2-row unrolling'') measured no gain at all. It kept the same limb-valued carry, so
+it kept the same bottleneck. Speed came from changing the \emph{dependency structure}, not
+from doing more work per loop iteration.
+\end{pitfall}
+
+\section{The kernel set}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+kernel & what it computes \\
+\midrule
+\code{AddN}, \code{SubN} & $r = a \pm b$, arrays of equal length, returns carry / borrow \\
+\code{Mul1} & $r = a \cdot b$ for a single limb $b$ \\
+\code{AddMul1} & $r \mathrel{+}= a \cdot b$ (one row of schoolbook multiplication) \\
+\code{SubMul1} & $r \mathrel{-}= a \cdot b$ (one step of long division) \\
+\code{MulBasecase} & schoolbook product: one \code{Mul1} row then \code{AddMul1} rows \\
+\code{SqrBasecase} & schoolbook square (\cref{sec:square}) \\
+\code{Lshift}, \code{Rshift} & shift an array left or right by 0--63 bits \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+These kernels are used only with true 64-bit limbs. The legacy layout
+(\code{-DBIGMATH\_LIMB\_64=0}) keeps its own simpler loops.
+
+\section{Comparison and shifts}
+
+Comparing two magnitudes is cheap: first compare lengths (after trimming leading zeros,
+a longer number is larger), then compare limbs from the top down until one differs.
+
+Shifting left by $s$ bits splits into a whole-limb part ($s / 64$ limbs, which just moves
+the array) and a bit part ($s \bmod 64$, handled by \code{Lshift}). Shifts show up
+constantly in division, where both operands are shifted so the divisor's top bit is set
+(\cref{sec:normalize}).

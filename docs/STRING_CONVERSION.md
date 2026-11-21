@@ -139,7 +139,7 @@ Cost: O(L / 18) multi-precision scalar-multiplications, each O(|r|) ≈ O(L / 9.
 
 ### Divide-and-conquer parser (`ParseUnsignedDivideConquer`)
 
-For inputs above the threshold (`> 8 192 digits`), the parser splits the input string in half and combines the halves with a single large multiplication:
+For inputs above the threshold (`> 2 048 digits`), the parser splits the input string in half and combines the halves with a single large multiplication:
 
 ```
    ParseDC(digits):
@@ -521,11 +521,11 @@ Recursive doubling with `thread_local` cache. Stale entries never evict; the cha
 
 ### Divide-and-conquer parser (`ParseUnsignedDivideConquer`)
 
-Splits input string at the middle digit, recurses on both halves, combines via one large multiplication. Builds powers of 10 via the `Pow10` cache. Threshold = 8 192 digits. Reduces parse complexity from `O(L²)` to `O(M(L) · log L)`. **100 000-digit parse: 36.5 ms → 8.9 ms** when this landed.
+Splits input string at the middle digit, recurses on both halves, combines via one large multiplication. Builds powers of 10 via the `Pow10` cache. Threshold = 2 048 digits (8 192 when this landed; re-swept 2026-06-11). Reduces parse complexity from `O(L²)` to `O(M(L) · log L)`. **100 000-digit parse: 36.5 ms → 8.9 ms** when this landed.
 
 ### Divide-and-conquer ToString (`ToStringDivConquer`) with Newton-Divider chain
 
-The 2026-05 optimization that produced the largest single ToString win. Chain of `NewtonDivision::Divider` instances, one per recursion level, each holding `10^(L/2^i)` and its precomputed Newton reciprocal. Recursion splits parent exactly in half via the carefully constructed chain. Threshold = 2 048 estimated decimal digits. **100 000-digit ToString: 383 ms → 45.5 ms (8.4×)**.
+The 2026-05 optimization that produced the largest single ToString win. Chain of `NewtonDivision::Divider` instances, one per recursion level, each holding `10^(L/2^i)` and its precomputed Newton reciprocal. Recursion splits parent exactly in half via the carefully constructed chain. Threshold = 1 024 estimated decimal digits (2 048 when this landed; re-swept 2026-06-11). **100 000-digit ToString: 383 ms → 45.5 ms (8.4×)**.
 
 Critical detail: the chain must be constructed top-down with `chain[i] = 10^(L / 2^(i+1))`. An earlier power-of-2-tower construction (`chain[i] = 10^(18 · 2^i)`) gave catastrophically unbalanced splits and made the D&C formatter slower than the linear formatter at 500k digits.
 

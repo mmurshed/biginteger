@@ -1,0 +1,155 @@
+\chapter{Division I: short and long division}
+\label{ch:div}
+
+Division is harder than multiplication. Multiplying needs no guessing; dividing does. In
+long division on paper you look at the leading digits, \emph{guess} the next quotient digit,
+multiply back, and correct the guess if it was wrong. Every division algorithm in BigMath is
+a refinement of that loop: make the guess cheaper, make it more accurate, or guess many
+digits at once.
+
+Given $a$ and $b > 0$, division produces a quotient $q$ and remainder $r$ with
+\[
+a = q \cdot b + r, \qquad 0 \le r < b .
+\]
+The tests check exactly this identity for every algorithm and every result.
+
+\section{Dividing by a single limb}
+\label{sec:shortdiv}
+
+When the divisor fits in one limb, division is ``short division'': walk from the top limb
+down, keeping a running remainder.
+
+\begin{example}[: $9\,876 \div 7$ by short division]
+\[
+\begin{array}{l@{\qquad}l}
+9 \div 7 = 1 \text{ rem } 2 & \\
+(2\cdot 10 + 8) = 28 \div 7 = 4 \text{ rem } 0 & \\
+(0 \cdot 10 + 7) = 7 \div 7 = 1 \text{ rem } 0 & \\
+(0 \cdot 10 + 6) = 6 \div 7 = 0 \text{ rem } 6 & \Rightarrow\ q = 1410,\ r = 6 .
+\end{array}
+\]
+In the library each step divides a two-limb value (remainder, next limb) by the one-limb
+divisor.
+\end{example}
+
+The step ``divide a two-limb number by a one-limb number'' is the bottleneck: hardware
+division of a 128-bit number is slow, or (on ARM) does not exist and becomes a library call.
+But the divisor is the same at every step, so BigMath pays for one division up front and
+then only multiplies.
+
+\subsection{Dividing by multiplying with a precomputed reciprocal}
+
+\begin{another}[: dividing by 7 without dividing]
+To divide many numbers by 7, work out $1/7 \approx 0.14$ once. Then:
+\begin{itemize}
+  \item $93 \times 0.14 = 13.02$, guess $q = 13$; check $93 - 13 \cdot 7 = 2$, which is
+        less than 7, so $q = 13$, $r = 2$.
+  \item $98 \times 0.14 = 13.72$, guess $q = 13$; check $98 - 91 = 7$, which is \emph{not} less
+        than 7, so correct once: $q = 14$, $r = 0$.
+\end{itemize}
+The guess may be slightly low, but a cheap check-and-correct step fixes it. Multiplication
+replaced division.
+\end{another}
+
+The library uses the Möller--Granlund method (2011), which makes this exact for limbs: from
+the divisor $d$ it precomputes $v = \floor{(B^2 - 1)/d} - B$. Each step is then one
+$64 \times 64 \to 128$ multiplication, a few additions, and at most two small corrections.
+Before the precomputation the divisor is \emph{normalized}: shifted left so its top bit is set.
+\code{ClassicDivision::DivRem1} keeps the running remainder in that shifted form throughout and
+shifts each dividend limb on the fly, so nothing is shifted back and forth on the critical
+path.
+
+\begin{perfnote}
+Replacing the 128-bit hardware/library division with the reciprocal made printing small
+numbers 2.1 times faster (printing divides by $10^{19}$ repeatedly). Keeping the remainder
+normalized brought the per-limb cost from 6.4 to 4.9\,ns.
+\end{perfnote}
+
+\section{Normalization}
+\label{sec:normalize}
+
+Long division needs a good guess for each quotient digit, and the guess is made from the
+leading digits. If the divisor's leading digit is tiny, the guess can be far off: dividing by
+$10\ldots$ looks the same as dividing by $19\ldots$ when you only see one digit. The fix is to
+scale both numbers so the divisor's leading digit is large.
+
+\begin{keyidea}
+Shift the dividend and divisor left by the same number of bits so the divisor's top limb has
+its highest bit set. The quotient does not change (both were scaled by the same factor), the
+remainder comes out scaled and is shifted back at the end. After normalization, a
+quotient-digit guess from the leading limbs is never too small and at most two too large
+(Knuth's theorem).
+\end{keyidea}
+
+In base 10 the equivalent is ``multiply both numbers so the divisor's first digit is at
+least 5''.
+
+\section{Long division: Knuth's Algorithm D}
+\label{sec:knuth}
+
+For divisors of 2 to 95 limbs BigMath uses classic long division in the form Donald Knuth
+wrote down as ``Algorithm D''. Each round:
+
+\begin{enumerate}
+  \item \textbf{Guess} the next quotient digit $\hat q$ from the top of the current remainder.
+  \item \textbf{Multiply and subtract}: remainder $\mathrel{-}= \hat q \cdot b$, shifted to the
+        current position. This is one call of the \code{SubMul1} kernel.
+  \item \textbf{Correct}: if the result went negative, the guess was one too big; add $b$
+        back and decrement $\hat q$.
+\end{enumerate}
+
+\begin{example}[: $7369 \div 47$, the way Algorithm D does it]
+\textbf{Normalize.} $47$ starts with 4; multiply both by 2: divide $14738$ by $94$.
+
+\textbf{Round 1.} Window $147$. Guess from the leading digits: $14 \div 9 = 1$.
+$147 - 1 \times 94 = 53$. Digit: 1.
+
+\textbf{Round 2.} Bring down 3: window $533$. Guess $53 \div 9 = 5$.
+$533 - 5 \times 94 = 63$. Digit: 5.
+
+\textbf{Round 3.} Bring down 8: window $638$. Guess $63 \div 9 = 7$. But
+$7 \times 94 = 658 > 638$: the guess was too big. Correct: digit 6, remainder
+$638 - 564 = 74$.
+
+\textbf{Un-normalize.} Quotient $156$; remainder $74 \div 2 = 37$.
+
+Check: $47 \times 156 + 37 = 7332 + 37 = 7369$.
+\end{example}
+
+\subsection{A better guess: the 3-by-2 quotient digit}
+
+In round 3 above the guess was wrong because it only looked at two digits of the remainder
+and one of the divisor. Looking at \emph{three} digits of the remainder and \emph{two} of the
+divisor gives $638 \div 94 = 6$: correct immediately. BigMath does exactly that with limbs. It
+divides the top three limbs of the remainder by the top two limbs of the divisor, using a
+Möller--Granlund \emph{3-by-2} reciprocal precomputed once per division. The guess is then
+almost always exact; it is at most one too big, and that happens with probability about
+$2/B \approx 10^{-19}$, so the add-back branch practically never runs.
+
+\begin{perfnote}
+The library's division loop used to be
+\begin{lstlisting}
+ULong128 product = (ULong128)v[i] * qhat + borrow;
+if (u[j + i] < (DataT)product) { ...borrow... }   // a branch per limb
+\end{lstlisting}
+with a limb-sized borrow chain and an unpredictable branch on every limb: 2.9--4.0 cycles per
+limb. The \code{SubMul1} kernel uses the two-chain layout of \cref{sec:flagchain}: products
+along one chain, subtraction along another, no branches: 1.6--1.8 cycles per limb, level with
+GMP's assembly from 128 limbs. The routine also works on raw buffers: both operands are
+shifted into one workspace (on the stack up to 192 limbs), so a division allocates only its
+two results. Divisions with 2- to 256-limb divisors got 1.7 to 2.5 times faster.
+\end{perfnote}
+
+\subsection{Cost}
+
+Each quotient limb costs one pass over the divisor, so dividing an $n_a$-limb number by an
+$n_b$-limb number costs about $(n_a - n_b + 1) \times n_b$ limb operations. That is fine for a
+short divisor or a short quotient, but for two 10\,000-limb numbers with a 10\,000-limb
+quotient it is 100 million operations. \Cref{ch:fastdiv} shows how to turn division into a
+handful of multiplications instead.
+
+\begin{practice}
+For a one-limb divisor, use the scalar overloads (\code{a / uint64\_t}, \code{a \% uint64\_t}):
+they go straight to \code{DivRem1}. If you need many divisions by the same multi-limb divisor,
+see \code{CachedDivision} in \cref{sec:cached}.
+\end{practice}

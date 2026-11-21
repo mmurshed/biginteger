@@ -1,0 +1,105 @@
+\chapter{Threads: the internal pool}
+\label{ch:parallel}
+
+By default BigMath runs a small pool of worker threads and uses it \emph{inside} single
+operations: one large multiplication is spread over several cores. You do not have to do
+anything to use it, and you can switch it off at build time
+(\code{-DBIGMATH\_USE\_THREADS=0}). The code is in \file{src/common/Parallel.cpp}.
+
+\section{What runs in parallel}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+operation & how the work is split \\
+\midrule
+NTT product & 6 forward transforms (2 operands $\times$ 3 primes), 6 inverse half-transforms,
+              per-thread carry ranges; in the matrix method each stage is cut into row ranges
+              (\cref{sec:nttthreads}) \\
+parse / print $\ge$ 100\,000 digits & 8 independent subtrees of the divide-and-conquer tree \\
+division, conversion & indirectly: their large products are NTT products \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Small operations never touch the pool. Schoolbook, Karatsuba, Toom-3 and long division are
+single-threaded: at their sizes, handing work to another core costs more than doing it.
+
+\section{Size of the pool}
+
+The pool has $\min(\text{hardware threads}, 8)$ threads (\code{BIGMATH\_MAX\_THREADS}),
+counting the calling thread, which always does a share of the work itself. Eight is a
+deliberate cap: on the M1 Max more threads competed for the shared L2 cache during NTTs and
+did not help.
+
+\section{Warm and cold}
+\label{sec:warmcold}
+
+A worker that has nothing to do spins for 100\,\textmu s (\code{BIGMATH\_POOL\_SPIN\_US}) waiting for
+new work, then goes to sleep. Waking a sleeping thread takes the operating system 20--30\,\textmu s.
+For a large product that is nothing. For a mid-sized NTT product, which takes about 25\,\textmu s
+with all cores working, it is as long as the whole job.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=0.11cm,y=0.5cm]
+  \node[lbl,anchor=east] at (-1,0) {caller};
+  \node[lbl,anchor=east] at (-1,-1) {worker};
+  \node[lbl,anchor=east] at (-1,-2) {worker};
+  \node[font=\small\bfseries,anchor=west] at (0,1.2) {warm pool};
+  \fill[sOrange!50] (0,-0.3) rectangle (24,0.3);
+  \fill[sOrange!50] (0.5,-1.3) rectangle (24,-0.7);
+  \fill[sOrange!50] (0.5,-2.3) rectangle (24,-1.7);
+  \draw[ink2] (24.5,0.5) -- (24.5,-2.5) node[below,lbl] {done $\approx$ 24\,\textmu s};
+  \begin{scope}[shift={(48,0)}]
+    \node[font=\small\bfseries,anchor=west] at (0,1.2) {cold pool};
+    \fill[sOrange!50] (0,-0.3) rectangle (50,0.3);
+    \fill[rule] (0,-1.3) rectangle (25,-0.7); \node[font=\tiny] at (12.5,-1) {waking up};
+    \fill[sOrange!30] (25,-1.3) rectangle (50,-0.7);
+    \fill[rule] (0,-2.3) rectangle (28,-1.7);
+    \fill[sOrange!30] (28,-2.3) rectangle (50,-1.7);
+    \draw[ink2] (50.5,0.5) -- (50.5,-2.5) node[below,lbl] {done $\approx$ 52\,\textmu s};
+  \end{scope}
+\end{tikzpicture}
+\caption{A small NTT product with a warm and with a cold pool (schematic). Cold, the caller
+does most of the work alone while the workers wake up, so the product costs about its
+single-threaded time.}
+\end{figure}
+
+This is why the multiplication dispatcher checks the pool's temperature for mid-sized
+products (\cref{sec:poolrule}): when cold it uses Karatsuba, which does not need the pool,
+and if cold operations arrive in a quick burst it nudges the pool awake so the rest of the
+burst can use the NTT.
+
+\section{Nested and concurrent use}
+
+\begin{itemize}
+  \item \textbf{Nested:} a subtree worker in parallel printing may itself reach an NTT product,
+        which would like to use the pool. Any parallel section started from inside a pool task
+        simply runs inline on that thread. This guard is what made the 8-way conversion
+        fan-out possible; an earlier attempt without it deadlocked.
+  \item \textbf{Concurrent:} the pool has one job slot. If two of your threads both start large
+        multiplications, the first takes the pool and the second runs its work serially on its
+        own thread rather than waiting. Both are correct; the second is just not accelerated.
+\end{itemize}
+
+\section{Thread safety for your code}
+
+\begin{itemize}
+  \item Different \code{BigInteger} objects can be used from different threads freely.
+  \item One object can be read from many threads at once (operators never modify their
+        operands). Writing to an object while another thread uses it needs your own lock, as
+        with any C++ value.
+  \item A \code{CachedDivision} or \code{PreparedMultiplication} can be shared between threads
+        after it is constructed; its methods are \code{const}.
+  \item Internal caches (powers of ten, NTT twiddle tables, divider chains, scratch buffers)
+        are \code{thread\_local}. No locking is needed, but each thread fills its own caches the
+        first time. For latency-sensitive services, do one representative operation on each
+        thread at startup.
+\end{itemize}
+
+\begin{keyidea}
+Threads change how long an operation takes, never its result. Every algorithm choice that
+depends on the pool is between two exact methods.
+\end{keyidea}
