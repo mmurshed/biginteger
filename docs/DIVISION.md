@@ -802,6 +802,43 @@ Dispatcher vs GMP, quotient + remainder (M1 Max):
 Below ~8 limbs the two result allocations dominate; from 128 limbs GMP is on
 its divide-and-conquer code, which is the next entry's subject.
 
+### Burnikel–Ziegler in place (PR #143)
+
+The BZ implementation sliced operands into fresh vectors at every level
+(`Slice`, `CombineShifted`, `Add`/`Subtract` temporaries), compared whole
+operands twice per call, and padded both operands with zero limbs so the
+divisor length halved cleanly. On 64-bit limbs it is replaced by an in-place
+divide-and-conquer in the shape of GMP's `mpn_dcpi1_div_qr`:
+
+- everything happens inside the shifted dividend buffer; the divisor's low
+  and high parts are pointer offsets;
+- an odd length splits into floor/ceil halves, so no padding;
+- to divide 2n limbs by n: divide the top `2·hi` limbs by the divisor's top
+  `hi` limbs, subtract `q_hi · d_low`, add the divisor back while the result
+  is negative (bounded, since the divisor is normalized); then the same for
+  the next `2·lo` limbs;
+- a dividend longer than 2n is peeled in blocks from the top — a first block
+  of `qn mod dn` limbs, then full `dn`-limb blocks — and a block shorter than
+  the divisor uses only the divisor's top limbs for the recursive part
+  (`DivBlock`);
+- the basecase is `FastDivision::DivideNormalized64`, from
+  `BIGMATH_DC_DIV_THRESHOLD = 64` limbs down (swept 24–96: flat within 1–3%).
+
+Sub-products go through the multiplication dispatcher. The legacy vector
+implementation is kept for the 32-in-64 layout.
+
+`BurnikelZieglerDivision` direct, quotient + remainder (M1 Max):
+
+| divisor × dividend limbs | before µs | after µs | GMP µs | after/GMP |
+|---|---:|---:|---:|---:|
+| 256 × 512 | 59.2 | 30.0 | 24.4 | 1.23× |
+| 512 × 1024 | 166 | 96.6 | 72.3 | 1.34× |
+| 1024 × 1126 | 75.4 | 44.3 | 29.3 | 1.51× |
+| 1024 × 2048 | 463 | 254 | 191 | 1.33× |
+| 2048 × 2253 | 185 | 77.4 | 79.6 | 0.97× |
+| 2048 × 4096 | 1060 | 679 | 504 | 1.35× |
+| 4096 × 8192 | 2302 | 1492 | 1189 | 1.25× |
+
 ## Explored but rejected
 
 Each rejection has a concrete reason. Don't re-propose without new evidence overturning the reason.
