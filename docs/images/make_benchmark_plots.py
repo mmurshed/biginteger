@@ -172,11 +172,11 @@ if __name__ == "__main__":
     parser.add_argument("--ratio-only", action="store_true", help="Generate both GMP comparison figures and skip the history figure")
     args = parser.parse_args()
     ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
-               BENCHMARKS / "2026-11-21-toom-m1-max-single-thread.csv",
+               BENCHMARKS / "2026-11-21-ntt-trunc-m1-max-single-thread.csv",
                "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
                legend_location="best")
     ratio_plot(HERE / "bigmath_vs_gmp.png",
-               BENCHMARKS / "2026-11-21-toom-m1-max.csv",
+               BENCHMARKS / "2026-11-21-ntt-trunc-m1-max.csv",
                "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread")
     small = BENCHMARKS / "2026-11-21-small-operands.csv"
     if small.exists():
