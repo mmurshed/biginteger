@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — Toom-3 tier in the Karatsuba recursion
+
+Below the NTT entry, products and squares used plain Karatsuba. Inside the
+pointer-based Karatsuba recursion (64-bit limbs), a near-balanced level whose
+shorter operand has ≥ 168 limbs (`BIGMATH_MUL_TOOM33_THRESHOLD`) now splits
+three ways (Toom-3: points 0, ±1, 2, ∞, Bodrato interpolation on unsigned
+limbs); squares from 160 limbs (`BIGMATH_SQR_TOOM3_THRESHOLD`). This also
+reaches the balanced pieces of sliced unbalanced products and the products
+inside Burnikel-Ziegler division. Through the public API on an M1 Max:
+
+| case | change |
+|---|---:|
+| product 192×192 / 288×288 | −5.9% / −5.6% |
+| square 192 / 256 | −4.0% / −2.9% |
+| division 800 ÷ 400, 1600 ÷ 400 limbs | −2.6%, −2.5% |
+| product 256×256 | +1 to +2.5% |
+
+A Toom-4 split (points 0, ±1, ±2, ½, ∞) is implemented and unit-tested but
+off (`BIGMATH_MUL_TOOM44_THRESHOLD = 1000000`): on M1 it has no window below
+the NTT entry. `tests/performance/toom_threshold_sweep.cpp` retunes both.
+
 ## Unreleased — small-number storage
 
 `BigInteger` keeps values of up to 4 limbs (256 bits) inside the object
