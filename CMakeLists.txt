@@ -152,6 +152,32 @@ if(BIGMATH_BUILD_TESTS)
         add_executable(bench_vs_gmp tests/performance/bench_vs_gmp.cpp)
         target_link_libraries(bench_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
 
+        # Division basecase sweep. The plain target runs the default
+        # basecase; each _bz<N> variant links its own copy of the library
+        # built with that basecase, so the bench and the library agree on
+        # one definition of the (inline) BZ code. Both basecase macros are set:
+        # BIGMATH_DC_DIV_THRESHOLD is the one 64-bit limbs read (default 64),
+        # BIGMATH_BZ_RECURSION_THRESHOLD the legacy 32-in-64 layout's (128).
+        # The list leaves out both defaults, so no variant repeats the plain
+        # target. Variants are EXCLUDE_FROM_ALL: build them by name.
+        set(DIVISION_BASECASE_BENCH ${CMAKE_CURRENT_SOURCE_DIR}/tests/performance/division_basecase_bench.cpp)
+        if(EXISTS ${DIVISION_BASECASE_BENCH})
+            add_executable(division_basecase_bench ${DIVISION_BASECASE_BENCH})
+            target_link_libraries(division_basecase_bench PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+            target_include_directories(division_basecase_bench PRIVATE ${GMP_INCLUDE_DIR})
+            foreach(BZ_BASECASE 32 48 96 192)
+                add_library(bigmath_bz${BZ_BASECASE} STATIC EXCLUDE_FROM_ALL ${BIGMATH_SOURCES} ${BIGMATH_HEADERS})
+                target_include_directories(bigmath_bz${BZ_BASECASE} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+                target_compile_features(bigmath_bz${BZ_BASECASE} PUBLIC cxx_std_20)
+                target_compile_definitions(bigmath_bz${BZ_BASECASE} PUBLIC
+                    BIGMATH_DC_DIV_THRESHOLD=${BZ_BASECASE}
+                    BIGMATH_BZ_RECURSION_THRESHOLD=${BZ_BASECASE})
+                add_executable(division_basecase_bench_bz${BZ_BASECASE} EXCLUDE_FROM_ALL ${DIVISION_BASECASE_BENCH})
+                target_link_libraries(division_basecase_bench_bz${BZ_BASECASE} PRIVATE bigmath_bz${BZ_BASECASE} ${GMP_LIBRARY})
+                target_include_directories(division_basecase_bench_bz${BZ_BASECASE} PRIVATE ${GMP_INCLUDE_DIR})
+            endforeach()
+        endif()
+
         add_executable(mfa_vs_gmp_check tests/performance/mfa_vs_gmp_check.cpp)
         target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})
