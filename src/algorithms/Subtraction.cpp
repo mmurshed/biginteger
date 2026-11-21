@@ -7,6 +7,7 @@
 #include "biginteger/algorithms/Subtraction.h"
 
 #include <algorithm>
+#include "biginteger/common/LimbKernels.h"
 
 namespace BigMath
 {
@@ -161,6 +162,14 @@ namespace BigMath
   {
     SizeT size = (SizeT)std::max(a.size(), b.size()) + 1;
     std::vector<DataT> result(size);
+    if (base == Base2_64 && !b.empty() && a.size() >= b.size())
+    {
+      const DataT borrow = LimbKernel::SubN(result.data(), a.data(), b.data(), b.size());
+      LimbKernel::SubBorrow(result.data() + b.size(), a.data() + b.size(),
+                            a.size() - b.size(), borrow);
+      TrimZeros(result);
+      return result;
+    }
 
     Subtract(a, 0, (SizeT)a.size() - 1,
              b, 0, (SizeT)b.size() - 1,

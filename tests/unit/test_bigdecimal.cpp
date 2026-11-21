@@ -342,3 +342,17 @@ REGISTER_TEST(BigDecimal, LargeNumberArithmetic)
   BigDecimal diff = b - a;
   ASSERT_EQ(S(diff), "864197532086419753208641975320.86419753208641975320");
 }
+
+REGISTER_TEST(BigDecimal, TruncateSignedScaledDivision)
+{
+  constexpr auto down = RoundingMode::DOWN;
+  ASSERT_EQ(S(D("-1.25").Divide(D("0.5"), 3, down)), "-2.500");
+  ASSERT_EQ(S(D("1.2345").Divide(D("-2"), 2, down)), "-0.61");
+  ASSERT_EQ(S(D("-0.01").Divide(D("7"), 1, down)), "0.0");
+  ASSERT_EQ(S(D("-123.00").SetScale(0, down)), "-123");
+  ASSERT_EQ(S(D("-0.09").SetScale(1, down)), "0.0");
+  const std::string prefix(600, '9');
+  const BigDecimal numerator = BigDecimal::FromString("-" + prefix + ".75");
+  ASSERT_EQ(S(numerator.SetScale(0, down)), "-" + prefix);
+  ASSERT_EQ(S(numerator.Divide(BigDecimal::FromString(prefix), 0, down)), "-1");
+}

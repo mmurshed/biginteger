@@ -4,7 +4,7 @@
 // Centralized dispatch threshold defaults.
 //
 // This header is intentionally kept as a build-time override point: the local
-// dispatch tuner can regenerate it for a specific compiler / CPU combination,
+// dispatch tuner can emit a profile for a specific compiler / CPU combination,
 // while the checked-in values remain the conservative defaults used by the
 // repo. Each macro is only defined when the build has not supplied its own
 // -DBIGMATH_* override.
@@ -32,9 +32,9 @@
 //     schoolbook by 7-25% at every ratio, so the old "min <= 64 and
 //     max >= 10*min -> classic" skew guard is retired (threshold 0).
 //   - NTT beats Karatsuba when the shorter operand has at least 64 limbs and
-//     the schoolbook area la*lb reaches ~96k limb^2: balanced from ~310 limbs
-//     per operand (was 640), 128 x 768, 64 x ~1500. Below min 64 sliced
-//     Karatsuba wins at every measured length (48 x 6144: 139 vs 146 us).
+//     the schoolbook area la*lb reaches ~96k limb^2: balanced from 320 limbs
+//     per operand including the total-size floor (was 640), 128 x 768, 64 x ~1500.
+//     Below min 64 sliced Karatsuba wins at every measured length (48 x 6144: 139 vs 146 us).
 //   - BIGMATH_NTT_MULTIPLICATION_THRESHOLD stays as a floor on the total.
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
 #if BIGMATH_LIMB_64
@@ -130,6 +130,12 @@
 // keeps the gate out of the latency-sensitive sub-ms band.
 #ifndef BIGMATH_NTT_MFA_THRESHOLD
 #define BIGMATH_NTT_MFA_THRESHOLD (1 << 20)
+#endif
+
+// On balanced 64-bit products, the warm NTT entry starts at 320 limbs.
+// Below it an identical operand can use symmetric squaring directly.
+#ifndef BIGMATH_SMALL_SELF_SQUARE_MAX
+#define BIGMATH_SMALL_SELF_SQUARE_MAX 319
 #endif
 
 // Retuned 2048 -> 640 on 2026-06-12 when the square dispatch moved from the

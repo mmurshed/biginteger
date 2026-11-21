@@ -272,11 +272,6 @@ namespace BigMath
     if (o.IsZero())
       throw std::invalid_argument("BigDecimal: division by zero");
 
-    bool resultNeg = unscaled_.IsNegative() != o.unscaled_.IsNegative();
-
-    BigInteger absA = AbsCopy(unscaled_);
-    BigInteger absO = AbsCopy(o.unscaled_);
-
     // result.unscaled ≈ a/o · 10^newScale
     //   = (a.unscaled · 10^(newScale + o.scale - a.scale)) / o.unscaled
     long shiftL = (long)newScale + (long)o.scale_ - (long)scale_;
@@ -284,6 +279,18 @@ namespace BigMath
       throw std::out_of_range("BigDecimal: divide shift overflow");
     int shift = (int)shiftL;
 
+    if (mode == RoundingMode::DOWN)
+    {
+      if (shift > 0)
+        return BigDecimal(MulPow10(unscaled_, shift) / o.unscaled_, newScale);
+      if (shift < 0)
+        return BigDecimal(unscaled_ / MulPow10(o.unscaled_, -shift), newScale);
+      return BigDecimal(unscaled_ / o.unscaled_, newScale);
+    }
+
+    BigInteger absA = AbsCopy(unscaled_);
+    BigInteger absO = AbsCopy(o.unscaled_);
+    bool resultNeg = unscaled_.IsNegative() != o.unscaled_.IsNegative();
     BigInteger num, den;
     if (shift >= 0)
     {
@@ -320,7 +327,9 @@ namespace BigMath
     }
     // newScale < scale: divide unscaled by 10^(scale - newScale) with rounding
     int drop = scale_ - newScale;
-    BigInteger divisor = Pow10Bi(drop);
+    const BigInteger &divisor = Pow10Bi(drop);
+    if (mode == RoundingMode::DOWN)
+      return BigDecimal(unscaled_ / divisor, newScale);
     bool resultNeg = unscaled_.IsNegative();
     BigInteger absU = AbsCopy(unscaled_);
     auto [q, r] = DivideAndRemainder(absU, divisor);

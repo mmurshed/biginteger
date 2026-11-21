@@ -7,6 +7,7 @@
 #include "biginteger/algorithms/Addition.h"
 
 #include <algorithm>
+#include "biginteger/common/LimbKernels.h"
 
 namespace BigMath
 {
@@ -192,7 +193,12 @@ namespace BigMath
   {
     SizeT size = (SizeT)std::max(a.size(), b.size()) + 1;
     std::vector<DataT> result(size);
-    result[size - 1] = 0;
+    if (base == Base2_64 && !a.empty() && !b.empty())
+    {
+      LimbKernel::AddExt(result.data(), size, a.data(), a.size(), b.data(), b.size());
+      TrimZeros(result);
+      return result;
+    }
 
     Add(a, 0, (SizeT)a.size() - 1,
         b, 0, (SizeT)b.size() - 1,

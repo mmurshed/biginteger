@@ -7,6 +7,7 @@
 #include "biginteger/ops/ScalarDivision.h"
 
 #include <stdexcept>
+#include "biginteger/common/Parser.h"
 
 namespace BigMath
 {
@@ -18,11 +19,7 @@ namespace BigMath
     if (a.Zero())
       return BigInteger();
 
-    std::vector<DataT> q = ClassicDivision::Divide(a.GetInteger(), b, BigInteger::Base());
-    BigInteger result(q, false);
-    if (a.IsNegative())
-      result.SetSign(true);
-    return result;
+    return BigInteger(ClassicDivision::Divide(a.GetInteger(), b, BigInteger::Base()), a.IsNegative());
   }
 
   std::pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, DataT b)
@@ -33,18 +30,14 @@ namespace BigMath
     if (a.Zero())
       return {BigInteger(), BigInteger()};
 
-    auto result = ClassicDivision::DivideAndRemainder(a.GetInteger(), b, BigInteger::Base());
-
-    BigInteger q(result.first, false);
-    BigInteger r(result.second, false);
-    if (a.IsNegative())
-    {
-      q.SetSign(true);
-      r.SetSign(true);
-    }
-    return {q, r};
+    auto [q, r] = ClassicDivision::DivideAndRemainder(a.GetInteger(), b, BigInteger::Base());
+    return {BigInteger(std::move(q), a.IsNegative()), BigInteger(std::move(r), a.IsNegative())};
   }
 
   BigInteger operator/(BigInteger const &a, DataT const &b) { return Divide(a, b); }
-  BigInteger operator%(BigInteger const &a, DataT const &b) { return DivideAndRemainder(a, b).second; }
+  BigInteger operator%(BigInteger const &a, DataT const &b)
+  {
+    DataT rem = ClassicDivision::Remainder(a.GetInteger(), b, BigInteger::Base());
+    return BigInteger(Convert(rem), a.IsNegative());
+  }
 }

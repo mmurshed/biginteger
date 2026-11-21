@@ -25,7 +25,7 @@ namespace
 {
   BigInteger BI(const char *s) { return BigIntegerBuilder::From(s); }
 
-  constexpr DataT kMax = ~(DataT)0;
+  constexpr DataT kMax = LimbMask;
 
   // q*b + r == a and |r| < |b| for vector-level results.
   bool IdentityHolds(std::vector<DataT> const &a, std::vector<DataT> const &b,
@@ -109,6 +109,8 @@ REGISTER_TEST(AuditDivision, FastDivisionMGTopEqual)
       1809960185198586381ull, 0, 0, kMax, 7343587919163703040ull,
       7165561623291364460ull, 0, kMax};
   std::vector<DataT> b = {kMax, 7917626342253556694ull, 0, kMax};
+  for (auto &limb : a) limb &= LimbMask;
+  for (auto &limb : b) limb &= LimbMask;
   auto qr = FastDivision::DivideAndRemainder(a, b, BigInteger::Base());
   ASSERT_TRUE(IdentityHolds(a, b, qr));
 }
@@ -127,7 +129,7 @@ REGISTER_TEST(AuditDivision, FastDivisionStructuredLimbSweep)
 {
   // Deterministic sweep over structured limb patterns (0 / 1 / max) that the
   // random correctness harness never produces.
-  const DataT vals[] = {0, 1, kMax, (DataT)1 << 63, kMax - 1};
+  const DataT vals[] = {0, 1, kMax, DataT{1} << (LimbBits - 1), kMax - 1};
   int idx = 0;
   for (int na = 3; na <= 7; ++na)
     for (int nb = 2; nb <= 4 && nb < na; ++nb)
@@ -250,7 +252,7 @@ REGISTER_TEST(AuditSubtraction, ScalarSubtractBorrowChainBase64)
 {
   std::vector<DataT> a{0, 0, 1}; // 2^128
   SubtractFrom(a, 0, 2, 1, Base2_64);
-  std::vector<DataT> want{kMax, kMax};
+  std::vector<DataT> want{~DataT{0}, ~DataT{0}};
   ASSERT_EQ(Compare(a, want), 0);
 }
 

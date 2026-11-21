@@ -3,6 +3,7 @@
  *
  * Picks the best strategy based on operand sizes (64-bit-limb defaults):
  *   - single-limb operand                          → ClassicMultiplication (scalar)
+ *   - same operand, 2 through 319 limbs             → Square
  *   - sum ≤ CLASSIC_MULTIPLICATION_THRESHOLD (56) OR
  *     min ≤ CLASSIC_MIN_LIMB_THRESHOLD (24)        → ClassicMultiplication
  *   - sum ≥ NTT_MULTIPLICATION_THRESHOLD (640) AND
@@ -10,6 +11,7 @@
  *     la·lb ≥ NTT_AREA_THRESHOLD (96000) AND
  *     (la·lb ≥ NTT_COLD_AREA_THRESHOLD (262144)
  *      OR the thread pool is warm)                 → NTTMultiplication
+ *   - cold NTT fallback for the same operand       → KaratsubaSquare
  *   - otherwise                                    → KaratsubaMultiplication
  *                                                    (slices unbalanced operands)
  *
@@ -135,6 +137,16 @@ namespace BigMath
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_RATIO;
+
+  namespace detail
+  {
+    inline bool ClassicProductShape(SizeT shorter, SizeT longer)
+    {
+      return (ULong)shorter + longer <= CLASSIC_MULTIPLICATION_THRESHOLD ||
+             shorter <= CLASSIC_MIN_LIMB_THRESHOLD ||
+             (shorter <= CLASSIC_SKEW_MIN_LIMB_THRESHOLD && longer >= (ULong)CLASSIC_SKEW_RATIO * shorter);
+    }
+  }
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,
                               std::vector<DataT> const &b,
