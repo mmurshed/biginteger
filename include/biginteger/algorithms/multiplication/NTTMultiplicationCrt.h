@@ -135,6 +135,33 @@
 #define BIGMATH_NTT_SPLIT_INVERSE_MIN 4096
 #endif
 
+// Truncated transform length for products that land just above a power of
+// two. A product of `c` coefficients normally needs a cyclic transform of
+// length bit_ceil(c); with H = bit_ceil(c) / 2 and c only slightly above H
+// that wastes almost half the transform. The H + L scheme instead computes
+// the product mod (x^H + 1) (weighted, length H) and mod (x^L − 1) (length L,
+// a power of two ≥ c − H) and recombines them — transform work H + L instead
+// of 2H.
+//
+// Used when c ≤ H + (H >> BIGMATH_NTT_TRUNC_BAND_SHIFT) and
+// BIGMATH_NTT_TRUNC_MIN ≤ H ≤ BIGMATH_NTT_TRUNC_MAX. Measured (M1 Max,
+// threaded, vs the full 2H transform): 1.3-2.2x for c ≤ 1.25·H across
+// H = 2^11..2^20, 1.0-1.35x for 1.25·H < c ≤ 1.5·H. Below H = 2048 the full
+// transform is as fast (H = 1024 runs under the serial gate); above
+// H = 2^20 the fused-MFA full transform wins.
+#ifndef BIGMATH_NTT_TRUNC
+#define BIGMATH_NTT_TRUNC 1
+#endif
+#ifndef BIGMATH_NTT_TRUNC_MIN
+#define BIGMATH_NTT_TRUNC_MIN 2048
+#endif
+#ifndef BIGMATH_NTT_TRUNC_MAX
+#define BIGMATH_NTT_TRUNC_MAX (1 << 20)
+#endif
+#ifndef BIGMATH_NTT_TRUNC_BAND_SHIFT
+#define BIGMATH_NTT_TRUNC_BAND_SHIFT 1
+#endif
+
 #ifndef NTT_MULTIPLICATION_CRT
 #define NTT_MULTIPLICATION_CRT
 
@@ -1511,9 +1538,8 @@ namespace BigMath
     // in dst[0 .. used), zero padding in dst[used .. n). One plane at a time
     // so each (operand, prime) forward unit can pack its own input.
     template <typename F>
-    inline void PackPlane(const std::vector<DataT> &v, BaseT base, UInt *dst, Int n)
+    inline void PackPlaneLimbs(const DataT *v, SizeT limbs, BaseT base, UInt *dst, Int n)
     {
-      const SizeT limbs = (SizeT)v.size();
       SizeT used;
       if (base == Base2_64)
       {
@@ -1532,6 +1558,12 @@ namespace BigMath
       }
       if ((SizeT)n > used)
         std::memset(dst + used, 0, ((SizeT)n - used) * sizeof(UInt));
+    }
+
+    template <typename F>
+    inline void PackPlane(const std::vector<DataT> &v, BaseT base, UInt *dst, Int n)
+    {
+      PackPlaneLimbs<F>(v.data(), (SizeT)v.size(), base, dst, n);
     }
 
     // ─── Garner + carry for 64-bit limbs (NEON digits, chunk-parallel) ──────
@@ -1954,6 +1986,318 @@ namespace BigMath
       Inverse<F2>(f2, plan2);
       Inverse<F3>(f3, plan3);
 #endif
+    }
+
+    // ─── Truncated length: product mod (x^H + 1) and mod (x^L − 1) ─────────
+    //
+    // Write the product C (c coefficients, H < c ≤ H + L) as
+    // C = C_lo + x^H · C_hi with deg C_lo < H and deg C_hi < L. Then
+    //
+    //   C1 = C mod (x^H + 1):  C1[j] = C_lo[j] − C_hi[j]   (C_hi[j] = 0 for j ≥ L)
+    //   C2 = C mod (x^L − 1):  C2[i] = Σ_k C_lo[i + kL] + C_hi[i]     (L | H)
+    //
+    // so with F[i] = Σ_k C1[i + kL] = Σ_k C_lo[i + kL] − C_hi[i]:
+    //
+    //   C_hi[i] = (C2[i] − F[i]) / 2,      C_lo[j] = C1[j] + C_hi[j].
+    //
+    // C1 is a negacyclic product: weight both inputs by ψ^j (ψ a primitive
+    // 2H-th root, ψ^H = −1), take the ordinary length-H cyclic product, and
+    // unweight by ψ^−j. The weights ψ^±j are exactly the forward/inverse
+    // twiddle tables of the length-2H plan the full transform would have
+    // used, so no new tables are needed. C2 is a plain length-L cyclic
+    // product of the inputs folded modulo x^L − 1.
+    //
+    // Each prime's plane is laid out [ lower : H | cyc : L ], which after
+    // reconstruction is [ C_lo | C_hi ] — the product's coefficients in
+    // order, ready for the Garner/carry pass.
+
+    // Cyclic-part length L for the H + L scheme, or 0 to use the full
+    // power-of-two transform. H = bit_ceil(coeffCount) / 2.
+    inline Int TruncCyclicLength(ULong coeffCount, Int H)
+    {
+#if BIGMATH_NTT_TRUNC
+      if (H < (Int)BIGMATH_NTT_TRUNC_MIN || H > (Int)BIGMATH_NTT_TRUNC_MAX)
+        return 0;
+      if (coeffCount <= (ULong)H)
+        return 0;
+      const ULong over = coeffCount - (ULong)H;
+      if (over > (ULong)(H >> BIGMATH_NTT_TRUNC_BAND_SHIFT))
+        return 0;
+      return std::max<Int>((Int)std::bit_ceil(over), 64);
+#else
+      (void)coeffCount;
+      (void)H;
+      return 0;
+#endif
+    }
+
+    // dst[0..n) = (dst[0..n) + src[0..n)) mod P.
+    template <typename F>
+    inline void AddModInto(UInt *dst, const UInt *src, SizeT n)
+    {
+      SizeT i = 0;
+#if BIGMATH_NEON
+      for (; i + 4 <= n; i += 4)
+        vst1q_u32(dst + i, NeonAdd<F>(vld1q_u32(dst + i), vld1q_u32(src + i)));
+#endif
+      for (; i < n; ++i)
+        dst[i] = F::Add(dst[i], src[i]);
+    }
+
+    // Pack one operand for one prime into [ lower | cyc ]:
+    //   lower[j] = (a_j − a_{j+H}) · ψ^j,   cyc[i] = Σ_k a_{i+kL}   (mod P).
+    template <typename F>
+    inline void TruncPackWeightFold(const std::vector<DataT> &v, BaseT base, UInt *plane,
+                                    Int H, Int L, const Plan<F> &plan2H)
+    {
+      UInt *lower = plane;
+      UInt *cyc = plane + H;
+      const SizeT cpl = CoeffsPerLimb(base);
+      const SizeT coeffs = (SizeT)v.size() * cpl;
+      const SizeT lowCount = std::min<SizeT>(coeffs, (SizeT)H);
+
+      // Residues of the first min(coeffs, H) coefficients; zero padding to H.
+      PackPlaneLimbs<F>(v.data(), lowCount / cpl, base, lower, H);
+
+      // Fold those residues modulo x^L − 1.
+      std::memset(cyc, 0, (SizeT)L * sizeof(UInt));
+      for (SizeT k = 0; k < lowCount; k += (SizeT)L)
+        AddModInto<F>(cyc, lower + k, std::min<SizeT>((SizeT)L, lowCount - k));
+
+      // Coefficients at index ≥ H (only an operand longer than H, i.e. a
+      // skewed product): x^H ≡ −1 in the lower part, and they fold into cyc
+      // like any other coefficient.
+      for (SizeT j = (SizeT)H; j < coeffs; ++j)
+      {
+        UInt raw;
+        if (base == Base2_64)
+          raw = (j & 1) ? (UInt)(v[j >> 1] >> 32) : (UInt)(v[j >> 1] & 0xFFFFFFFFULL);
+        else
+          raw = (UInt)v[j];
+        const UInt r = raw % F::Prime;
+        const SizeT lo = j - (SizeT)H;
+        lower[lo] = F::Sub(lower[lo], r);
+        const SizeT ci = j & ((SizeT)L - 1);
+        cyc[ci] = F::Add(cyc[ci], r);
+      }
+
+      // Negacyclic weights ψ^j on the non-zero prefix.
+      const UInt *roots = plan2H.forwardRoots.data();
+      SizeT j = 0;
+#if BIGMATH_NEON
+      const UInt *il = plan2H.forwardIl.data();
+      for (; j + 4 <= lowCount; j += 4)
+      {
+        uint32x4x2_t tw = vld2q_u32(il + 2 * j); // val[0] = ψ^j, val[1] = companion
+        vst1q_u32(lower + j, NeonShoupMul<F>(tw.val[0], tw.val[1], vld1q_u32(lower + j)));
+      }
+#endif
+      for (; j < lowCount; ++j)
+        lower[j] = F::Mul(lower[j], roots[j]);
+    }
+
+    // After both inverse transforms (each scaled): unweight the lower part,
+    // then recombine into [ C_lo | C_hi ] as derived above.
+    template <typename F>
+    inline void TruncUnweightReconstruct(UInt *plane, Int H, Int L, const Plan<F> &plan2H)
+    {
+      UInt *lower = plane;
+      UInt *cyc = plane + H;
+      const UInt *roots = plan2H.inverseRoots.data();
+      for (Int k = 0; k < H; k += L)
+      {
+        Int i = 0;
+#if BIGMATH_NEON
+        const UInt *il = plan2H.inverseIl.data() + 2 * (SizeT)k;
+        for (; i + 4 <= L; i += 4)
+        {
+          uint32x4x2_t tw = vld2q_u32(il + 2 * i); // ψ^−(k+i) and companion
+          uint32x4_t x = NeonShoupMul<F>(tw.val[0], tw.val[1], vld1q_u32(lower + k + i));
+          vst1q_u32(lower + k + i, x);                              // C1[k + i]
+          vst1q_u32(cyc + i, NeonSub<F>(vld1q_u32(cyc + i), x));    // C2[i] − F[i], accumulating
+        }
+#endif
+        for (; i < L; ++i)
+        {
+          const UInt x = F::Mul(lower[k + i], roots[k + i]);
+          lower[k + i] = x;
+          cyc[i] = F::Sub(cyc[i], x);
+        }
+      }
+      for (Int i = 0; i < L; ++i)
+      {
+        const UInt d = cyc[i];
+        const UInt half = (d & 1) ? (UInt)((d + F::Prime) >> 1) : (d >> 1); // d / 2 mod P; d + P < 2^32
+        cyc[i] = half;                       // C_hi[i]
+        lower[i] = F::Add(lower[i], half);   // C_lo[i] = C1[i] + C_hi[i]
+      }
+    }
+
+    // Pack + weight + fold + both forward transforms, one unit per
+    // (operand, prime). `b` is null when squaring. plan1..3 are the plans for
+    // length 2H.
+    inline void CrtTruncForwardBatch(const std::vector<DataT> &a, const std::vector<DataT> *b,
+                                     BaseT base, Int H, Int L,
+                                     std::vector<UInt> &fa1, std::vector<UInt> &fa2, std::vector<UInt> &fa3,
+                                     std::vector<UInt> &fb1, std::vector<UInt> &fb2, std::vector<UInt> &fb3,
+                                     const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
+    {
+      const SizeT len = (SizeT)H + (SizeT)L;
+      fa1.resize(len);
+      fa2.resize(len);
+      fa3.resize(len);
+      if (b != nullptr)
+      {
+        fb1.resize(len);
+        fb2.resize(len);
+        fb3.resize(len);
+      }
+      UInt *const pa1 = fa1.data(), *const pa2 = fa2.data(), *const pa3 = fa3.data();
+      UInt *const pb1 = b ? fb1.data() : nullptr, *const pb2 = b ? fb2.data() : nullptr, *const pb3 = b ? fb3.data() : nullptr;
+      const std::vector<DataT> *const srcA = &a;
+      const Plan<F1> *const w1 = &plan1, *const h1 = &GetPlan<F1, G1>(H), *const l1 = &GetPlan<F1, G1>(L);
+      const Plan<F2> *const w2 = &plan2, *const h2 = &GetPlan<F2, G2>(H), *const l2 = &GetPlan<F2, G2>(L);
+      const Plan<F3> *const w3 = &plan3, *const h3 = &GetPlan<F3, G3>(H), *const l3 = &GetPlan<F3, G3>(L);
+      auto unit = [=](Int idx) {
+        const std::vector<DataT> &src = idx < 3 ? *srcA : *b;
+        switch (idx)
+        {
+          case 0: case 3:
+          {
+            UInt *p = idx < 3 ? pa1 : pb1;
+            TruncPackWeightFold<F1>(src, base, p, H, L, *w1);
+            ForwardPtr<F1>(p, H, *h1);
+            ForwardPtr<F1>(p + H, L, *l1);
+            break;
+          }
+          case 1: case 4:
+          {
+            UInt *p = idx < 3 ? pa2 : pb2;
+            TruncPackWeightFold<F2>(src, base, p, H, L, *w2);
+            ForwardPtr<F2>(p, H, *h2);
+            ForwardPtr<F2>(p + H, L, *l2);
+            break;
+          }
+          case 2: case 5:
+          {
+            UInt *p = idx < 3 ? pa3 : pb3;
+            TruncPackWeightFold<F3>(src, base, p, H, L, *w3);
+            ForwardPtr<F3>(p, H, *h3);
+            ForwardPtr<F3>(p + H, L, *l3);
+            break;
+          }
+        }
+      };
+      const Int units = b != nullptr ? 6 : 3;
+#if BIGMATH_USE_THREADS
+      if (H >= (Int)BIGMATH_NTT_PARALLEL_MIN)
+      {
+        ParallelDo(units, [&unit](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx) unit(idx);
+        });
+        return;
+      }
+#endif
+      for (Int idx = 0; idx < units; ++idx) unit(idx);
+    }
+
+    // Both inverse transforms plus the unweight/recombine pass for the three
+    // (pointwise-multiplied) planes. plan1..3 are the plans for length 2H.
+    inline void CrtTruncInverseBatch(std::vector<UInt> &f1, std::vector<UInt> &f2, std::vector<UInt> &f3,
+                                     Int H, Int L,
+                                     const Plan<F1> &plan1, const Plan<F2> &plan2, const Plan<F3> &plan3)
+    {
+      UInt *const a1 = f1.data(), *const a2 = f2.data(), *const a3 = f3.data();
+      const Plan<F1> *const w1 = &plan1, *const h1 = &GetPlan<F1, G1>(H), *const l1 = &GetPlan<F1, G1>(L);
+      const Plan<F2> *const w2 = &plan2, *const h2 = &GetPlan<F2, G2>(H), *const l2 = &GetPlan<F2, G2>(L);
+      const Plan<F3> *const w3 = &plan3, *const h3 = &GetPlan<F3, G3>(H), *const l3 = &GetPlan<F3, G3>(L);
+      auto whole = [=](Int prime) {
+        switch (prime)
+        {
+          case 0:
+            InversePtr<F1>(a1, H, *h1, /*scale=*/ true);
+            InversePtr<F1>(a1 + H, L, *l1, /*scale=*/ true);
+            TruncUnweightReconstruct<F1>(a1, H, L, *w1);
+            break;
+          case 1:
+            InversePtr<F2>(a2, H, *h2, /*scale=*/ true);
+            InversePtr<F2>(a2 + H, L, *l2, /*scale=*/ true);
+            TruncUnweightReconstruct<F2>(a2, H, L, *w2);
+            break;
+          case 2:
+            InversePtr<F3>(a3, H, *h3, /*scale=*/ true);
+            InversePtr<F3>(a3 + H, L, *l3, /*scale=*/ true);
+            TruncUnweightReconstruct<F3>(a3, H, L, *w3);
+            break;
+        }
+      };
+#if BIGMATH_USE_THREADS
+      if (H >= (Int)BIGMATH_NTT_SPLIT_INVERSE_MIN && ParallelNumThreads() >= 4)
+      {
+        // Same six-unit split as CrtInverseBatch for the length-H part; the
+        // small cyclic inverse rides with the second half's unit.
+        const Int h = H >> 1;
+        const Plan<F1> *const q1 = &GetPlan<F1, G1>(h);
+        const Plan<F2> *const q2 = &GetPlan<F2, G2>(h);
+        const Plan<F3> *const q3 = &GetPlan<F3, G3>(h);
+        ParallelDo(6, [=](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            const bool second = (idx & 1) != 0;
+            const Int off = second ? h : 0;
+            switch (idx >> 1)
+            {
+              case 0:
+                InversePtr<F1>(a1 + off, h, *q1, /*scale=*/ false);
+                if (second) InversePtr<F1>(a1 + H, L, *l1, /*scale=*/ true);
+                break;
+              case 1:
+                InversePtr<F2>(a2 + off, h, *q2, /*scale=*/ false);
+                if (second) InversePtr<F2>(a2 + H, L, *l2, /*scale=*/ true);
+                break;
+              case 2:
+                InversePtr<F3>(a3 + off, h, *q3, /*scale=*/ false);
+                if (second) InversePtr<F3>(a3 + H, L, *l3, /*scale=*/ true);
+                break;
+            }
+          }
+        });
+        const Int mid = (h >> 1) & ~(Int)3;
+        ParallelDo(6, [=](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            const Int j0 = (idx & 1) ? mid : 0;
+            const Int j1 = (idx & 1) ? h : mid;
+            switch (idx >> 1)
+            {
+              case 0: InverseTopLayerScaled<F1>(a1, H, *h1, j0, j1); break;
+              case 1: InverseTopLayerScaled<F2>(a2, H, *h2, j0, j1); break;
+              case 2: InverseTopLayerScaled<F3>(a3, H, *h3, j0, j1); break;
+            }
+          }
+        });
+        ParallelDo(3, [=](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx)
+          {
+            switch (idx)
+            {
+              case 0: TruncUnweightReconstruct<F1>(a1, H, L, *w1); break;
+              case 1: TruncUnweightReconstruct<F2>(a2, H, L, *w2); break;
+              case 2: TruncUnweightReconstruct<F3>(a3, H, L, *w3); break;
+            }
+          }
+        });
+        return;
+      }
+      if (H >= (Int)BIGMATH_NTT_PARALLEL_MIN)
+      {
+        ParallelDo(3, [&whole](Int s, Int e) {
+          for (Int idx = s; idx < e; ++idx) whole(idx);
+        });
+        return;
+      }
+#endif
+      for (Int idx = 0; idx < 3; ++idx) whole(idx);
     }
 
     struct PreparedOperand
@@ -2923,6 +3267,21 @@ namespace BigMath
       const auto &plan1 = GetPlan<F1, G1>(n);
       const auto &plan2 = GetPlan<F2, G2>(n);
       const auto &plan3 = GetPlan<F3, G3>(n);
+
+      // Just above a power of two: H + L instead of 2H (see TruncCyclicLength).
+      if (const Int truncL = TruncCyclicLength(coeffCount, n >> 1); truncL != 0)
+      {
+        const Int H = n >> 1;
+        CrtTruncForwardBatch(a, sameOperand ? nullptr : &b, base, H, truncL,
+                             fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
+        CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
+                            sameOperand ? fa1.data() : fb1.data(),
+                            sameOperand ? fa2.data() : fb2.data(),
+                            sameOperand ? fa3.data() : fb3.data(),
+                            H + truncL);
+        CrtTruncInverseBatch(fa1, fa2, fa3, H, truncL, plan1, plan2, plan3);
+        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+      }
 
 #if BIGMATH_NTT_MFA
       const bool useMfa = UseMfaForShape(a.size(), b.size(), n);

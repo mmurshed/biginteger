@@ -1107,3 +1107,63 @@ The remaining 1.3–1.4× is GMP's assembly basecase plus its Toom-3/4 tiers.
 `tests/unit/test_limb_kernels.cpp` checks every kernel against the
 one-limb-at-a-time loops across all block remainders, all-ones carry runs,
 maximal multipliers and in-place aliasing.
+
+
+## Truncated transform length: the H + L scheme (2026-11-20)
+
+The CRT NTT only had power-of-two cyclic lengths (`n = bit_ceil(c)` for a
+product of `c` coefficients), so cost was a staircase: 4096 → 4870 limbs per
+operand went 384 → 664 µs, 32764 → 38964 limbs 2.63 → 5.37 ms. A product just
+above a power of two paid for a transform almost twice the size it needed.
+
+For `H = bit_ceil(c) / 2` and `c` only a little above `H`, the product is now
+computed modulo two coprime polynomials and recombined. Write
+`C = C_lo + x^H · C_hi` with `deg C_lo < H`, `deg C_hi < L`, `L` a power of
+two `≥ c − H`:
+
+```
+C1 = C mod (x^H + 1):   C1[j] = C_lo[j] − C_hi[j]
+C2 = C mod (x^L − 1):   C2[i] = Σ_k C_lo[i + kL] + C_hi[i]        (L | H)
+
+F[i]    = Σ_k C1[i + kL]
+C_hi[i] = (C2[i] − F[i]) / 2
+C_lo[j] = C1[j] + C_hi[j]
+```
+
+`C1` is a negacyclic product: weight the inputs by `ψ^j` (`ψ` a primitive
+`2H`-th root), take the ordinary length-`H` cyclic product, unweight by
+`ψ^−j`. Those weights are exactly the forward/inverse twiddle tables of the
+length-`2H` plan the full transform would have used, so no new tables and no
+new primes. `C2` is a plain length-`L` cyclic product of the folded inputs.
+Transform work is `H + L` instead of `2H`.
+
+Each prime's plane is laid out `[ lower : H | cyc : L ]`, which after
+recombination *is* `[ C_lo | C_hi ]`, so the Garner/carry pass runs unchanged.
+`CrtTruncForwardBatch` packs, weights, folds and runs both forward transforms
+per `(operand, prime)` unit; `CrtTruncInverseBatch` uses the same six-unit
+split inverse as the full path for the length-`H` part, then
+`TruncUnweightReconstruct`.
+
+Engages for `H < c ≤ H + (H >> BIGMATH_NTT_TRUNC_BAND_SHIFT)` (default shift
+1, i.e. up to `1.5·H`) and `2048 ≤ H ≤ 2^20`. Threaded, vs the full `2H`
+transform (M1 Max, µs):
+
+| H | c ≈ H | 1.0625·H | 1.125·H | 1.25·H | full 2H |
+|---:|---:|---:|---:|---:|---:|
+| 2^11 | 24.0 | 24.9 | 25.8 | 27.6 | 42.7 |
+| 2^13 | 87.7 | 90.5 | 95.7 | 103.7 | 143.5 |
+| 2^15 | 274.5 | 296.6 | 315.7 | 351.6 | 482.5 |
+| 2^16 | 519.6 | 536.6 | 572.9 | 621.6 | 1 132.6 |
+| 2^18 | 2 890.8 | 3 064.3 | 3 656.7 | 3 951.4 | 6 839.0 |
+| 2^20 | 17 582 | 19 586 | 18 473 | 20 007 | 27 918 |
+
+Between `1.25·H` and `1.5·H` (`L = H/2`) the gain is 1.0–1.35×. Outside the
+window the full transform runs as before: below `H = 2048` it is as fast
+(`H = 1024` falls under the serial gate), and above `H = 2^20` the fused-MFA
+full transform wins (`H = 2^21` measured 1.0–1.16×). The fused-MFA band itself
+(`n ≥ 2^22`) still has the power-of-two staircase.
+
+`tests/unit/test_ntt_crt_truncated.cpp` pins the product against Karatsuba
+across the band, at the `L` boundaries and band edges, for skewed operands
+whose own coefficients spill past `H`, and for squaring; a size sweep against
+GMP `mpn_mul_n` was run to 420k limbs per operand.
