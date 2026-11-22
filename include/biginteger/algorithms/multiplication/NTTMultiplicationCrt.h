@@ -8,9 +8,11 @@
  * reconstruction.
  *
  * Prime selection: all three primes have 2-adic order ≥ 2^26, so the CRT
- * NTT length ceiling is 2^26 ≈ 67M coefficients per transform. Larger
- * balanced products use additional convolution residues above that size, then
- * overlap-add blocks beyond the two-residue range. Earlier triple (998244353, 985661441,
+ * NTT length ceiling is 2^26 ≈ 67M coefficients per transform. Longer
+ * products are recombined from several residues of that length
+ * (MultiplyAboveTransform): up to seven transform lengths and a shorter
+ * operand of about 1.79 billion digits, then overlap-add blocks of such
+ * products. Earlier triple (998244353, 985661441,
  * 754974721) had P2 capped at 2^22, silently breaking correctness for
  * operand pairs above ~20M digits.
  *
@@ -295,6 +297,18 @@ namespace BigMath
     using F1 = ModField<P1>;
     using F2 = ModField<P2>;
     using F3 = ModField<P3>;
+
+    // Garner returns a convolution coefficient modulo p1·p2·p3 ≈ 2^90.47, so
+    // the coefficient itself must stay below that. With unsigned 32-bit
+    // inputs a sum of n products is at most n·(2^32 − 1)^2. With inputs
+    // shifted to [−2^31, 2^31) it is at most n·2^62 in magnitude and the
+    // centered residue is exact for twice as many terms. n is the coefficient
+    // count of the shorter operand.
+    constexpr ULong128 CrtModulus = (ULong128)P1 * P2 * P3;
+    constexpr ULong CrtMaxTerms =
+        (ULong)((CrtModulus - 1) / ((ULong128)0xFFFFFFFFu * 0xFFFFFFFFu)); // 92 897 280
+    constexpr ULong CrtMaxBiasedTerms = (ULong)(((CrtModulus - 1) / 2) >> 62); // 185 794 560
+    static_assert(CrtMaxTerms >= ((ULong)1 << 26), "one transform of 2^26 unsigned coefficients must fit");
 
     // ─── NTT core templated by ModField ──────────────────────────────────────
 
@@ -1754,33 +1768,32 @@ namespace BigMath
       return carry;
     }
 
-    // out[0 .. nLimbs) = the low nLimbs limbs of sum_i x_i · 2^(32 i); returns
-    // the carry out of the top limb. Splits across the pool from
-    // BIGMATH_NTT_FINALIZE_PARALLEL_MIN limbs.
-    inline ULong GarnerCarry64(const UInt *f1, const UInt *f2, const UInt *f3,
-                               SizeT coeffCount, DataT *out, SizeT nLimbs)
+    // A carry chain over out[0 .. nLimbs) cut into per-thread limb ranges.
+    // range(ls, le) writes limbs [ls, le) with carry-in 0 and returns the
+    // carry out of limb le − 1. Returns the carry out of the top limb. Splits
+    // across the pool from BIGMATH_NTT_FINALIZE_PARALLEL_MIN limbs.
+    template <typename Range>
+    inline ULong CarryChunks64(DataT *out, SizeT nLimbs, const Range &range)
     {
-      const InvTable &inv = GarnerInverses();
       constexpr SizeT MaxChunks = 64;
       SizeT chunks = 1;
       if (nLimbs >= (SizeT)BIGMATH_NTT_FINALIZE_PARALLEL_MIN)
         chunks = std::min<SizeT>({(SizeT)ParallelNumThreads(), MaxChunks,
                                   nLimbs / ((SizeT)BIGMATH_NTT_FINALIZE_PARALLEL_MIN / 4)});
       if (chunks <= 1)
-        return GarnerCarryRange64(f1, f2, f3, coeffCount, out, 0, nLimbs, inv);
+        return range((SizeT)0, nLimbs);
 
       // Even range length keeps every range on a 4-coefficient NEON boundary.
       const SizeT per = (((nLimbs + chunks - 1) / chunks) + 1) & ~(SizeT)1;
       chunks = (nLimbs + per - 1) / per;
       ULong carries[MaxChunks];
-      const InvTable *invPtr = &inv;
       ULong *carriesPtr = carries;
-      ParallelDo((Int)chunks, [=](Int s, Int e) {
+      ParallelDo((Int)chunks, [&range, carriesPtr, per, nLimbs](Int s, Int e) {
         for (Int kIdx = s; kIdx < e; ++kIdx)
         {
           SizeT ls = (SizeT)kIdx * per;
           SizeT le = std::min(nLimbs, ls + per);
-          carriesPtr[kIdx] = GarnerCarryRange64(f1, f2, f3, coeffCount, out, ls, le, *invPtr);
+          carriesPtr[kIdx] = range(ls, le);
         }
       });
 
@@ -1802,6 +1815,17 @@ namespace BigMath
         }
       }
       return top;
+    }
+
+    // out[0 .. nLimbs) = the low nLimbs limbs of sum_i x_i · 2^(32 i); returns
+    // the carry out of the top limb.
+    inline ULong GarnerCarry64(const UInt *f1, const UInt *f2, const UInt *f3,
+                               SizeT coeffCount, DataT *out, SizeT nLimbs)
+    {
+      const InvTable &inv = GarnerInverses();
+      return CarryChunks64(out, nLimbs, [=, &inv](SizeT ls, SizeT le) {
+        return GarnerCarryRange64(f1, f2, f3, coeffCount, out, ls, le, inv);
+      });
     }
 
     inline std::vector<DataT> FinalizeProduct(const std::vector<UInt> &fa1,
@@ -2974,18 +2998,56 @@ namespace BigMath
       {
       }
 
+      // The 32-bit coefficient at idx < coeffCount as the limbs store it.
+      inline UInt Raw(SizeT idx) const
+      {
+        if (base64)
+          return (UInt)(v[idx >> 1] >> ((idx & 1) * 32));
+        return (UInt)v[idx];
+      }
+
       template <typename F>
       inline UInt Coeff(SizeT idx) const
       {
         if ((ULong)idx >= coeffCount) return 0;
-        UInt raw;
-        if (base64)
-          raw = (UInt)(v[idx >> 1] >> ((idx & 1) * 32));
-        else
-          raw = (UInt)v[idx];
-        return raw % F::Prime;
+        return Raw(idx) % F::Prime;
       }
+
+      // The coefficient at idx < coeffCount before reduction: congruent to
+      // Coeff(idx) and small enough to multiply by one residue or to sum
+      // 2^30 of them in 64 bits.
+      template <typename F>
+      inline ULong Value(SizeT idx) const { return Raw(idx); }
     };
+
+    // The same limbs with every coefficient shifted down by 2^31 into
+    // [−2^31, 2^31). Products of such terms are a quarter the size of the
+    // unsigned ones, which doubles the operand length the CRT modulus resolves
+    // (CrtMaxBiasedTerms); FinalizeBiasedProduct adds the shift back.
+    // Indices past the operand stay zero, like the unsigned view.
+    struct BiasedOperandView : PackedOperandView
+    {
+      static constexpr ULong Shift = (ULong)1 << 31;
+
+      explicit BiasedOperandView(const PackedOperandView &view) : PackedOperandView(view) {}
+
+      template <typename F>
+      static constexpr UInt Offset() { return F::Prime - (UInt)(Shift % F::Prime); }
+
+      template <typename F>
+      inline UInt Coeff(SizeT idx) const
+      {
+        if ((ULong)idx >= coeffCount) return 0;
+        return F::Add(Raw(idx) % F::Prime, Offset<F>());
+      }
+
+      template <typename F>
+      inline ULong Value(SizeT idx) const { return (ULong)Raw(idx) + Offset<F>(); }
+    };
+    static_assert(((ULong128)0xFFFFFFFFu + BiasedOperandView::Offset<F1>()) * (P1 - 1) < ((ULong128)1 << 64) &&
+                  ((ULong128)0xFFFFFFFFu + BiasedOperandView::Offset<F2>()) * (P2 - 1) < ((ULong128)1 << 64) &&
+                  ((ULong128)0xFFFFFFFFu + BiasedOperandView::Offset<F3>()) * (P3 - 1) < ((ULong128)1 << 64),
+                  "an unreduced coefficient times a residue must fit 64 bits");
 
     // All coefficient readers for a prime share this worker's packing tile.
     // A gather finishes with the tile before the next gather begins.
@@ -3430,16 +3492,45 @@ namespace BigMath
 
     // Readers for length-H products modulo x^H - w^H and length-L products
     // modulo x^L - 1. Both are ordinary cyclic convolutions after packing.
-    template <size_t Period>
+    // An operand longer than `length` wraps: with weights w^i the wrapped
+    // terms pick up w^H per turn, which is the reduction modulo x^H - w^H.
+    template <size_t Period, typename Operand>
     struct TwistedOperandView
     {
-      const PackedOperandView &src;
+      const Operand &src;
       const std::array<UInt, Period> &weights;
+      SizeT length;
 
       template <typename F>
       UInt Coeff(SizeT i) const
       {
-        return F::Mul(src.Coeff<F>(i), weights[i % Period]);
+        if ((ULong)i >= src.coeffCount) return 0;
+        // The unreduced coefficient times a weight fits 64 bits: one
+        // reduction per term.
+        UInt sum = (UInt)(src.template Value<F>(i) * weights[i % Period] % F::Prime);
+        for (ULong u = (ULong)i + length; u < src.coeffCount; u += length)
+          sum = F::Add(sum, (UInt)(src.template Value<F>((SizeT)u) * weights[u % Period] % F::Prime));
+        return sum;
+      }
+    };
+
+    // An operand longer than `length` reduced modulo x^length - 1 as it is
+    // read. Each turn is another stream through the limbs, so this suits the
+    // few turns of length = H; shorter cyclic lengths use FoldOperand.
+    template <typename Operand>
+    struct FoldedOperandView
+    {
+      const Operand &src;
+      SizeT length;
+
+      template <typename F>
+      UInt Coeff(SizeT i) const
+      {
+        if ((ULong)i >= src.coeffCount) return 0;
+        ULong sum = src.template Value<F>(i);
+        for (ULong u = (ULong)i + length; u < src.coeffCount; u += length)
+          sum += src.template Value<F>((SizeT)u);
+        return (UInt)(sum % F::Prime);
       }
     };
 
@@ -3451,19 +3542,27 @@ namespace BigMath
       template <typename F> UInt Coeff(SizeT i) const { return data[i]; }
     };
 
-    template <typename F>
-    inline void FoldOperand(const PackedOperandView &src, Int L, UInt *folded, UInt *temp)
+    // folded[0 .. L) = the operand modulo x^L − 1. Every turn of L
+    // coefficients is read front to back; the unreduced coefficients of one
+    // index sum in 64 bits and are reduced once.
+    template <typename F, typename Operand>
+    inline void FoldOperand(const Operand &src, Int L, UInt *folded)
     {
-      const BaseT base = src.base64 ? Base2_64 : Base2_32;
-      const SizeT stride = L / CoeffsPerLimb(base);
-      PackPlaneLimbs<F>(src.v, std::min(stride, src.limbs), base, folded, L);
-      for (SizeT offset = stride; offset < src.limbs; offset += stride)
-      {
-        const SizeT count = std::min(stride, src.limbs - offset);
-        const SizeT coeffs = count * CoeffsPerLimb(base);
-        PackPlaneLimbs<F>(src.v + offset, count, base, temp, coeffs);
-        AddModInto<F>(folded, temp, coeffs);
-      }
+      ParallelFor(L, [&](Int first, Int end) {
+        constexpr Int Tile = 1024;
+        ULong sums[Tile];
+        for (Int i0 = first; i0 < end; i0 += Tile)
+        {
+          const Int n = std::min<Int>(Tile, end - i0);
+          std::fill_n(sums, n, (ULong)0);
+          for (ULong u0 = (ULong)i0; u0 < src.coeffCount; u0 += (ULong)L)
+          {
+            const Int count = (Int)std::min<ULong>((ULong)n, src.coeffCount - u0);
+            for (Int x = 0; x < count; ++x) sums[x] += src.template Value<F>((SizeT)(u0 + x));
+          }
+          for (Int x = 0; x < n; ++x) folded[i0 + x] = (UInt)(sums[x] % F::Prime);
+        }
+      });
     }
 
     template <typename F, UInt G, typename Operand>
@@ -3489,23 +3588,150 @@ namespace BigMath
       InversePtr<F>(out, n, plan, /*scale=*/ true);
     }
 
-    // Recover c = H + tail coefficients using transforms no longer than H.
-    // H and L are powers of two, tail <= L <= H, and both inputs fit H.
-    // For each prime choose w of small odd order, hence s = w^H != 1.
-    // Twisting by w^i gives A = C_lo + s*C_hi modulo x^H - s. The other
-    // product gives B = fold_L(C_lo + C_hi) since x^H = 1 modulo x^L - 1.
-    // Thus d = B - fold_L(A) = (1-s)*fold_L(C_hi).
-    template <typename F, UInt G>
-    inline void CeilingProductPrime(const PackedOperandView &a, const PackedOperandView &b,
-                                    Int H, Int L, Int tail, UInt *out, UInt *sa, UInt *sb)
+    // ─── Products above one transform: several residues of length H ─────────
+    //
+    // A product of c = k·H + tail coefficients (0 < tail ≤ H) is recovered
+    // from k weighted cyclic products of length H and one plain cyclic
+    // product of length L ≥ tail, L a power of two that divides H. Write the
+    // product in blocks of H coefficients, C = C_0 + x^H·C_1 + … + x^(kH)·C_k,
+    // with `tail` coefficients in C_k.
+    //
+    //   * Weighting both inputs by w_j^i turns a cyclic product into a product
+    //     modulo x^H − s_j with s_j = w_j^H. After unweighting,
+    //     R_j[i] = Σ_m s_j^m · C_m[i]: the polynomial whose coefficients are
+    //     the blocks at index i, evaluated at s_j. Each prime supplies w of
+    //     odd order q (TwistPeriod), so the s_j are distinct q-th roots of
+    //     unity other than 1 and the weights repeat with period q.
+    //   * Modulo x^L − 1 every x^(mH) is 1, so B[i] = Σ_m fold_L(C_m)[i]: the
+    //     polynomial of the folded blocks evaluated at 1.
+    //
+    // The k + 1 nodes s_0 … s_(k−1) and 1 determine the degree-k polynomial
+    // of folded blocks. Its leading coefficient is fold_L(C_k), which is C_k
+    // itself because the top block fits L. With C_k known, the k values
+    // R_j[i] − s_j^k · C_k[i] give C_0[i] … C_(k−1)[i] through the inverse
+    // Vandermonde matrix of the s_j. For k = 1 this reads A = C_lo + s·C_hi
+    // and B − fold_L(A) = (1 − s)·fold_L(C_hi).
+
+    // Weighted residues in one product. Every prime has at least this many
+    // q-th roots of unity besides 1, which belongs to the cyclic tail.
+    constexpr Int MaxCeilingResidues = 6;
+
+    template <typename F>
+    constexpr UInt TwistPeriod = (F::Prime - 1) % 15 == 0 ? 15 : (F::Prime - 1) % 9 == 0 ? 9 : 7;
+    static_assert((P1 - 1) % TwistPeriod<F1> == 0 && TwistPeriod<F1> > (UInt)MaxCeilingResidues);
+    static_assert((P2 - 1) % TwistPeriod<F2> == 0 && TwistPeriod<F2> > (UInt)MaxCeilingResidues);
+    static_assert((P3 - 1) % TwistPeriod<F3> == 0 && TwistPeriod<F3> > (UInt)MaxCeilingResidues);
+
+    // The reconstruction sums products of reduced values in 64 bits and
+    // reduces after every fourth term: four products plus a reduced
+    // carry-over stay below 2^64 for every prime.
+    static_assert(P1 > P2 && P1 > P3 &&
+                  (ULong128)4 * (P1 - 1) * (P1 - 1) + P1 < ((ULong128)1 << 64));
+
+    using CeilingNodes = std::array<UInt, MaxCeilingResidues + 1>;
+
+    // Coefficients, lowest degree first, of the polynomial that is 1 at
+    // nodes[j] and 0 at the other nodes[0 .. count).
+    template <typename F>
+    inline CeilingNodes LagrangeBasis(const CeilingNodes &nodes, Int count, Int j)
     {
-      constexpr UInt period = (F::Prime - 1) % 3 == 0 ? 3 : 7;
-      static_assert((F::Prime - 1) % period == 0);
-      const UInt w = F::Power(G, (F::Prime - 1) / period);
-      std::array<UInt, period> weights{}, inverse{};
-      weights[0] = inverse[0] = 1;
-      for (UInt i = 1; i < period; ++i)
-        inverse[period - i] = weights[i] = F::Mul(weights[i - 1], w);
+      CeilingNodes poly{};
+      poly[0] = 1;
+      UInt scale = 1;
+      Int degree = 0;
+      for (Int l = 0; l < count; ++l)
+      {
+        if (l == j) continue;
+        // poly *= x − nodes[l]
+        for (Int d = ++degree; d > 0; --d)
+          poly[d] = F::Sub(poly[d - 1], F::Mul(poly[d], nodes[l]));
+        poly[0] = F::Sub(0, F::Mul(poly[0], nodes[l]));
+        scale = F::Mul(scale, F::Sub(nodes[j], nodes[l]));
+      }
+      scale = F::Inv(scale);
+      for (UInt &c : poly) c = F::Mul(c, scale);
+      return poly;
+    }
+
+    // Weights and reconstruction coefficients for k weighted residues of
+    // length H. Every coefficient that meets a weighted residue has the
+    // unweighting factor w_j^(−i) multiplied in, so it depends on i mod q.
+    template <typename F>
+    struct CeilingTables
+    {
+      // Indices reconstructed per pass over the 64-bit partial sums.
+      static constexpr Int Tile = 512;
+      using Cycle = std::array<UInt, TwistPeriod<F>>; // by i mod q
+      // A cycle laid out along a tile: the coefficients for indices
+      // i .. i + Tile are Run[i mod q ..].
+      using Run = std::array<UInt, Tile + TwistPeriod<F>>;
+      using Row = std::array<UInt, MaxCeilingResidues>;
+
+      std::array<Cycle, MaxCeilingResidues> weights{}; // w_j^i
+      // Top block C_k from the cyclic tail and the folded residues.
+      UInt topTail = 0;
+      std::array<Run, MaxCeilingResidues> top{};
+      // C_k at an index whose C_0 is already known (see `extra` below).
+      UInt knownLow = 0;
+      std::array<Cycle, MaxCeilingResidues> known{};
+      // Block m from residue j, block[m·k + j], and from the top block.
+      std::vector<Run> block;
+      Row blockTop{};
+    };
+
+    template <typename F, UInt G>
+    inline CeilingTables<F> BuildCeilingTables(Int H, Int k)
+    {
+      constexpr UInt q = TwistPeriod<F>;
+      CeilingTables<F> t;
+      t.block.resize((SizeT)k * k);
+      const UInt zeta = F::Power(G, (F::Prime - 1) / q);
+      std::array<typename CeilingTables<F>::Cycle, MaxCeilingResidues> unweight{};
+      CeilingNodes nodes{};
+      for (Int j = 0; j < k; ++j)
+      {
+        const UInt w = F::Power(zeta, (UInt)j + 1);
+        t.weights[j][0] = 1;
+        for (UInt r = 1; r < q; ++r) t.weights[j][r] = F::Mul(t.weights[j][r - 1], w);
+        for (UInt r = 0; r < q; ++r) unweight[j][r] = t.weights[j][(q - r) % q];
+        nodes[j] = t.weights[j][(UInt)H % q];
+      }
+      nodes[k] = 1;
+
+      t.topTail = LagrangeBasis<F>(nodes, k + 1, k)[k];
+      for (Int j = 0; j < k; ++j)
+      {
+        const UInt lead = LagrangeBasis<F>(nodes, k + 1, j)[k];
+        // Column j of the inverse Vandermonde matrix of s_0 … s_(k−1).
+        const CeilingNodes basis = LagrangeBasis<F>(nodes, k, j);
+        // With C_0 known, (R_j − C_0) / s_j has C_k as its leading coefficient.
+        const UInt known = F::Mul(basis[k - 1], F::Inv(nodes[j]));
+        const UInt wrap = F::Power(nodes[j], (UInt)k);
+        t.knownLow = F::Sub(t.knownLow, known);
+        for (Int m = 0; m < k; ++m)
+          t.blockTop[m] = F::Sub(t.blockTop[m], F::Mul(basis[m], wrap));
+        for (UInt r = 0; r < q; ++r) t.known[j][r] = F::Mul(known, unweight[j][r]);
+        for (UInt x = 0; x < t.top[j].size(); ++x)
+        {
+          t.top[j][x] = F::Mul(lead, unweight[j][x % q]);
+          for (Int m = 0; m < k; ++m)
+            t.block[(SizeT)m * k + j][x] = F::Mul(basis[m], unweight[j][x % q]);
+        }
+      }
+      return t;
+    }
+
+    // One prime of the product above: out receives the k·H + tail
+    // coefficients; sa and sb are scratch planes of H entries. H and L are
+    // powers of two, 1 ≤ k ≤ MaxCeilingResidues and tail ≤ L ≤ H. The
+    // operands may be longer than H.
+    template <typename F, UInt G, typename Operand>
+    inline void CeilingProductPrime(const Operand &a, const Operand &b,
+                                    Int H, Int k, Int L, Int tail, UInt *out, UInt *sa, UInt *sb)
+    {
+      constexpr UInt q = TwistPeriod<F>;
+      const CeilingTables<F> t = BuildCeilingTables<F, G>(H, k);
+      UInt *const top = out + (SizeT)k * (SizeT)H;
 
       // When tail just exceeds L/2, recover the excess from the low
       // coefficients of the ordinary product. Multiplying two prefixes of
@@ -3516,53 +3742,122 @@ namespace BigMath
         L /= 2;
         extra = tail - L;
         auto lowA = a, lowB = b;
-        lowA.coeffCount = lowB.coeffCount = extra;
+        lowA.coeffCount = std::min<ULong>(a.coeffCount, (ULong)extra);
+        lowB.coeffCount = std::min<ULong>(b.coeffCount, (ULong)extra);
         const Int n = std::max<Int>(64, (Int)std::bit_ceil((UInt)(2 * extra - 1)));
         CyclicProductViews<F, G>(lowA, lowB, n, out, sa, sb);
-        std::copy_n(out, extra, out + H + L);
+        std::copy_n(out, extra, top + L);
       }
 
-      // Save only the required prefix of B in the output tail. The length-H
-      // transform can overwrite the low part and reuse both scratch planes.
+      // The cyclic tail goes first. Only its first min(tail, L) entries are
+      // needed; they wait in the top block while the weighted residues fill
+      // the k blocks below with both scratch planes free again.
       if (std::max(a.coeffCount, b.coeffCount) <= (ULong)L)
         CyclicProductViews<F, G>(a, b, L, out, sa, sb);
-      else
+      else if (L < H)
       {
-        FoldOperand<F>(a, L, sa + L, out);
-        FoldOperand<F>(b, L, sb + L, out);
+        FoldOperand<F>(a, L, sa + L);
+        FoldOperand<F>(b, L, sb + L);
         CyclicProductViews<F, G>(ResidueView{sa + L}, ResidueView{sb + L}, L, out, sa, sb);
       }
+      else
+        CyclicProductViews<F, G>(FoldedOperandView<Operand>{a, (SizeT)L},
+                                 FoldedOperandView<Operand>{b, (SizeT)L}, L, out, sa, sb);
       const Int foldedCount = std::min(tail, L);
-      std::copy_n(out, foldedCount, out + H);
-      CyclicProductViews<F, G>(TwistedOperandView<period>{a, weights}, TwistedOperandView<period>{b, weights},
-                               H, out, sa, sb);
-      ParallelFor(H, [&](Int first, Int end) {
-        for (Int i = first; i < end; ++i) out[i] = F::Mul(out[i], inverse[i % period]);
-      });
-      const UInt wrap = weights[H % period], invWrap = inverse[H % period];
-      const UInt invDifference = F::Inv(F::Sub(1, wrap));
+      std::copy_n(out, foldedCount, top);
+
+      for (Int j = 0; j < k; ++j)
+      {
+        const TwistedOperandView<q, Operand> ta{a, t.weights[j], (SizeT)H}, tb{b, t.weights[j], (SizeT)H};
+        CyclicProductViews<F, G>(ta, tb, H, out + (SizeT)j * (SizeT)H, sa, sb);
+      }
+
+      // The passes below accumulate 64-bit sums of products over a tile of
+      // indices and reduce them after every fourth term.
+      constexpr Int Tile = CeilingTables<F>::Tile;
+      const auto reduce = [](ULong *sums, Int n) {
+        for (Int x = 0; x < n; ++x) sums[x] %= F::Prime;
+      };
+
+      // Top block. Index i reads its own residue class modulo L in the
+      // blocks below and writes only top[i] and top[L + i].
       ParallelFor(foldedCount, [&](Int first, Int end) {
-        for (Int i = first; i < end; ++i)
+        ULong sums[Tile];
+        for (Int i0 = first; i0 < end; i0 += Tile)
         {
-          UInt d = out[H + i];
-          for (Int j = i; j < H; j += L) d = F::Sub(d, out[j]);
-          const UInt foldedHigh = F::Mul(d, invDifference);
-          if (i < extra)
+          const Int n = std::min<Int>(Tile, end - i0);
+          for (Int x = 0; x < n; ++x) sums[x] = (ULong)t.topTail * top[i0 + x];
+          Int pending = 1;
+          for (Int j = 0; j < k; ++j)
           {
-            // foldedHigh = hi[i] + hi[L+i]. The known low coefficient
-            // separates them via A[i] = low[i] + wrap*hi[i].
-            const UInt low = out[H + L + i];
-            const UInt high = F::Mul(F::Sub(out[i], low), invWrap);
-            const UInt upper = F::Sub(foldedHigh, high);
-            out[i] = low;
-            out[L + i] = F::Sub(out[L + i], F::Mul(wrap, upper));
-            out[H + i] = high;
-            out[H + L + i] = upper;
+            const UInt *residue = out + (SizeT)j * (SizeT)H;
+            for (Int u0 = i0; u0 < H; u0 += L)
+            {
+              const UInt *src = residue + u0;
+              const UInt *w = t.top[j].data() + (UInt)u0 % q;
+              for (Int x = 0; x < n; ++x) sums[x] += (ULong)w[x] * src[x];
+              if (++pending == 4)
+              {
+                reduce(sums, n);
+                pending = 0;
+              }
+            }
           }
-          else
+          for (Int x = 0; x < n; ++x)
           {
-            out[i] = F::Sub(out[i], F::Mul(wrap, foldedHigh));
-            out[H + i] = foldedHigh;
+            const Int i = i0 + x;
+            const UInt folded = (UInt)(sums[x] % F::Prime);
+            if (i < extra)
+            {
+              // folded = C_k[i] + C_k[L + i]. The known low coefficient
+              // separates them: the residues at i hold C_0[i] … C_k[i] only.
+              UInt high = F::Mul(t.knownLow, top[L + i]);
+              for (Int j = 0; j < k; ++j)
+                high = F::Add(high, F::Mul(t.known[j][(UInt)i % q], out[(SizeT)j * (SizeT)H + i]));
+              top[i] = high;
+              top[L + i] = F::Sub(folded, high);
+            }
+            else
+              top[i] = folded;
+          }
+        }
+      });
+
+      // Blocks below the top. A tile reads index range [i0, i0 + n) of every
+      // residue before it overwrites the same range with the blocks.
+      ParallelFor(H, [&](Int first, Int end) {
+        ULong sums[MaxCeilingResidues][Tile];
+        for (Int i0 = first; i0 < end; i0 += Tile)
+        {
+          const Int n = std::min<Int>(Tile, end - i0);
+          const Int withTop = std::clamp(tail - i0, 0, n);
+          const UInt phase = (UInt)i0 % q;
+          for (Int m = 0; m < k; ++m)
+          {
+            const UInt scale = t.blockTop[m];
+            for (Int x = 0; x < withTop; ++x) sums[m][x] = (ULong)scale * top[i0 + x];
+            for (Int x = withTop; x < n; ++x) sums[m][x] = 0;
+          }
+          Int pending = 1;
+          for (Int j = 0; j < k; ++j)
+          {
+            const UInt *src = out + (SizeT)j * (SizeT)H + i0;
+            for (Int m = 0; m < k; ++m)
+            {
+              const UInt *w = t.block[(SizeT)m * k + j].data() + phase;
+              ULong *sum = sums[m];
+              for (Int x = 0; x < n; ++x) sum[x] += (ULong)w[x] * src[x];
+            }
+            if (++pending == 4)
+            {
+              for (Int m = 0; m < k; ++m) reduce(sums[m], n);
+              pending = 0;
+            }
+          }
+          for (Int m = 0; m < k; ++m)
+          {
+            UInt *dst = out + (SizeT)m * (SizeT)H + i0;
+            for (Int x = 0; x < n; ++x) dst[x] = (UInt)(sums[m][x] % F::Prime);
           }
         }
       });
@@ -3788,16 +4083,167 @@ namespace BigMath
     }
 
 #if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
-    // Both coefficient counts fit H, their sum minus one exceeds H, and the
-    // shorter operand supplies the low prefix used at a cyclic length boundary.
+    // ─── Finalize for biased coefficients ───────────────────────────────────
+    //
+    // With h = 2^31, the sum of (a_i − h)·(b_j − h) over the n index pairs
+    // that meet at one product coefficient c is c − h·(Σ a_i + Σ b_j) + h^2·n.
+    // The residue planes hold that sum, so c is its centered CRT value plus h
+    // times the two window sums minus h^2·n.
+
+    // Sum of the raw coefficients of one operand that meet product
+    // coefficient k: indices max(0, k − other + 1) … min(k, count − 1).
+    struct CoefficientWindow
+    {
+      const PackedOperandView &v;
+      ULong other; // coefficient count of the other operand
+      ULong sum = 0;
+
+      CoefficientWindow(const PackedOperandView &view, ULong otherCount, ULong k)
+          : v(view), other(otherCount)
+      {
+        ULong first = k + 1 > other ? k + 1 - other : 0;
+        ULong end = std::min<ULong>(k + 1, v.coeffCount);
+        if (v.base64 && first < end)
+        {
+          // Whole limbs in the middle: both halves of each, one pass.
+          if (first & 1) sum += v.Raw((SizeT)first++);
+          if (first < end && (end & 1)) sum += v.Raw((SizeT)--end);
+          for (ULong limb = first / 2; limb < end / 2; ++limb)
+            sum += (v.v[limb] & 0xFFFFFFFFULL) + (v.v[limb] >> 32);
+          return;
+        }
+        for (ULong i = first; i < end; ++i) sum += v.Raw((SizeT)i);
+      }
+
+      // From product coefficient k to k + 1.
+      inline void Advance(ULong k)
+      {
+        if (k + 1 < v.coeffCount) sum += v.Raw((SizeT)(k + 1));
+        if (k + 1 >= other) sum -= v.Raw((SizeT)(k + 1 - other));
+      }
+    };
+
+    // Limbs [ls, le) of the product from the residues of the biased
+    // convolution, computed with carry-in 0. Returns the carry out of limb
+    // le − 1; it is below 2^61.
+    inline ULong BiasedCarryRange(const UInt *f1, const UInt *f2, const UInt *f3,
+                                  const PackedOperandView &a, const PackedOperandView &b,
+                                  DataT *out, SizeT ls, SizeT le, SizeT perLimb, const InvTable &inv)
+    {
+      constexpr ULong128 half = (CrtModulus - 1) / 2;
+      const ULong coeffCount = a.coeffCount + b.coeffCount - 1;
+      ULong k = (ULong)ls * perLimb;
+      CoefficientWindow wa(a, b.coeffCount, k), wb(b, a.coeffCount, k);
+      // Product coefficient k from its residue x in [0, p1·p2·p3); moves on
+      // to k + 1. The result is below 2^92.
+      auto coefficient = [&](ULong128 x) {
+        const ULong first = k + 1 > b.coeffCount ? k + 1 - b.coeffCount : 0;
+        const ULong terms = std::min<ULong>(k + 1, a.coeffCount) - first;
+        if (x > half) x -= CrtModulus;
+        x += ((ULong128)(wa.sum + wb.sum) << 31) - ((ULong128)terms << 62);
+        wa.Advance(k);
+        wb.Advance(k);
+        ++k;
+        return x;
+      };
+
+      ULong carry = 0;
+      SizeT i = ls;
+#if BIGMATH_NEON
+      if (perLimb == 2)
+      {
+        const GarnerNeonConsts consts(inv);
+        const ULong p1 = P1;
+        const ULong p1p2 = (ULong)inv.p1p2;
+        for (; i + 2 <= le && k + 4 <= coeffCount; i += 2)
+        {
+          const UInt *r1 = f1 + k;
+          uint32x4_t u2v, u3v;
+          NeonGarnerDigits(vld1q_u32(r1), vld1q_u32(f2 + k), vld1q_u32(f3 + k), consts, u2v, u3v);
+          UInt u2[4], u3[4];
+          vst1q_u32(u2, u2v);
+          vst1q_u32(u3, u3v);
+          for (SizeT h = 0; h < 2; ++h)
+          {
+            const ULong128 x0 = coefficient((ULong128)p1p2 * u3[2 * h] + ((ULong)r1[2 * h] + p1 * u2[2 * h]));
+            const ULong128 x1 =
+                coefficient((ULong128)p1p2 * u3[2 * h + 1] + ((ULong)r1[2 * h + 1] + p1 * u2[2 * h + 1]));
+            const ULong128 t = x0 + (x1 << 32) + carry; // < 2^125
+            out[i + h] = (DataT)t;
+            carry = (ULong)(t >> 64);
+          }
+        }
+      }
+#endif
+      for (; i < le; ++i)
+      {
+        ULong128 t = carry;
+        for (SizeT h = 0; h < perLimb && k < coeffCount; ++h)
+          t += coefficient(Garner(f1[k], f2[k], f3[k], inv)) << (32 * h);
+        if (perLimb == 2)
+        {
+          out[i] = (DataT)t;
+          carry = (ULong)(t >> 64);
+        }
+        else
+        {
+          out[i] = (DataT)(t & 0xFFFFFFFFULL);
+          carry = (ULong)(t >> 32);
+        }
+      }
+      return carry;
+    }
+
+    // FinalizeProduct for residue planes computed from BiasedOperandView
+    // inputs; a and b are the unbiased views of the same operands.
+    inline std::vector<DataT> FinalizeBiasedProduct(const std::vector<UInt> &fa1,
+                                                    const std::vector<UInt> &fa2,
+                                                    const std::vector<UInt> &fa3,
+                                                    const PackedOperandView &a,
+                                                    const PackedOperandView &b,
+                                                    BaseT base, SizeT reserveLimbs)
+    {
+      const SizeT perLimb = CoeffsPerLimb(base);
+      const ULong coeffCount = a.coeffCount + b.coeffCount - 1;
+      const SizeT nLimbs = (SizeT)((coeffCount + perLimb - 1) / perLimb);
+      const InvTable &inv = GarnerInverses();
+      std::vector<DataT> result;
+      result.reserve(std::max<SizeT>(reserveLimbs, nLimbs + 2));
+      result.resize(nLimbs);
+      DataT *out = result.data();
+      auto range = [&](SizeT ls, SizeT le) {
+        return BiasedCarryRange(fa1.data(), fa2.data(), fa3.data(), a, b, out, ls, le, perLimb, inv);
+      };
+      // The chunk stitch ripples whole 64-bit limbs.
+      ULong carry = perLimb == 2 ? CarryChunks64(out, nLimbs, range) : range((SizeT)0, nLimbs);
+      const unsigned limbBits = 32 * perLimb;
+      while (carry != 0)
+      {
+        result.push_back(limbBits == 64 ? (DataT)carry : (DataT)(carry & 0xFFFFFFFFULL));
+        carry = limbBits == 64 ? 0 : carry >> 32;
+      }
+      TrimZeros(result);
+      return result;
+    }
+
+    // The product of a and b through CeilingProductPrime with transforms no
+    // longer than H: more than H and at most (MaxCeilingResidues + 1)·H
+    // coefficients. `biased` shifts the coefficients (BiasedOperandView); the
+    // shorter operand may then have up to CrtMaxBiasedTerms coefficients
+    // instead of CrtMaxTerms.
     inline std::vector<DataT> MultiplyAtCrtCeiling(const std::vector<DataT> &a,
-                                                  const std::vector<DataT> &b, BaseT base, Int H)
+                                                  const std::vector<DataT> &b, BaseT base, Int H,
+                                                  bool biased)
     {
       const PackedOperandView va(a, base), vb(b, base);
       const ULong coeffCount = va.coeffCount + vb.coeffCount - 1;
-      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
-      const Int tail = (Int)(coeffCount - H);
+      const ULong blocks = (coeffCount - 1) / (ULong)H;
+      if (H < 64 || !std::has_single_bit((UInt)H) || blocks < 1 || blocks > (ULong)MaxCeilingResidues)
+        throw std::invalid_argument("NttCrt::MultiplyAtCrtCeiling: product does not fit the residues");
+      const Int k = (Int)blocks;
+      const Int tail = (Int)(coeffCount - blocks * (ULong)H);
       const Int L = std::max<Int>(64, (Int)std::bit_ceil((UInt)tail));
+      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
       fa1.resize(coeffCount); fa2.resize(coeffCount); fa3.resize(coeffCount);
       // Reuse the same two work planes as the preceding transform band.
       const bool single = ParallelNumThreads() == 1;
@@ -3805,10 +4251,29 @@ namespace BigMath
       auto &scratchB = single ? fb2 : mfaScratch[1];
       scratchA.resize(H); scratchB.resize(H);
       UInt *sa = scratchA.data(), *sb = scratchB.data();
-      CeilingProductPrime<F1, G1>(va, vb, H, L, tail, fa1.data(), sa, sb);
-      CeilingProductPrime<F2, G2>(va, vb, H, L, tail, fa2.data(), sa, sb);
-      CeilingProductPrime<F3, G3>(va, vb, H, L, tail, fa3.data(), sa, sb);
-      return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+      UInt *const planes[3] = {fa1.data(), fa2.data(), fa3.data()};
+      const auto primes = [&](const auto &xa, const auto &xb) {
+        CeilingProductPrime<F1, G1>(xa, xb, H, k, L, tail, planes[0], sa, sb);
+        CeilingProductPrime<F2, G2>(xa, xb, H, k, L, tail, planes[1], sa, sb);
+        CeilingProductPrime<F3, G3>(xa, xb, H, k, L, tail, planes[2], sa, sb);
+      };
+      const SizeT reserveLimbs = (SizeT)(a.size() + b.size() + 2);
+      if (biased)
+      {
+        primes(BiasedOperandView(va), BiasedOperandView(vb));
+        return FinalizeBiasedProduct(fa1, fa2, fa3, va, vb, base, reserveLimbs);
+      }
+      primes(va, vb);
+      return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, reserveLimbs);
+    }
+
+    // Unsigned coefficients while the shorter operand allows them: their
+    // finalize pass is the cheaper one.
+    inline std::vector<DataT> MultiplyAtCrtCeiling(const std::vector<DataT> &a,
+                                                  const std::vector<DataT> &b, BaseT base, Int H)
+    {
+      const ULong shorter = (ULong)std::min(a.size(), b.size()) * CoeffsPerLimb(base);
+      return MultiplyAtCrtCeiling(a, b, base, H, shorter > CrtMaxTerms);
     }
 #endif
 
@@ -3832,29 +4297,37 @@ namespace BigMath
       return scratch;
     }
 
-    // Multiply beyond one transform by overlap-add in the limb radix. A
-    // block pair fits one supported transform. Each partial result is fully
-    // carry-normalized before adding it to the preallocated destination.
+    // Multiply by overlap-add in the limb radix. The shorter operand is cut
+    // into blocks of at most shorterLimbs limbs and the longer one into
+    // blocks that keep the limbs of a pair within pairLimbs (at least twice
+    // shorterLimbs); product(left, right) multiplies one pair. Each partial
+    // result is fully carry-normalized before adding it to the preallocated
+    // destination.
+    template <typename Product>
     inline std::vector<DataT> MultiplyBlocked(const std::vector<DataT> &a,
                                               const std::vector<DataT> &b, BaseT base,
-                                              size_t transformLimbs)
+                                              size_t pairLimbs, size_t shorterLimbs,
+                                              const Product &product)
     {
       if (a.empty() || b.empty()) return {};
       if (a.size() + b.size() > (size_t)std::numeric_limits<Int>::max())
         throw std::length_error("CRT product exceeds the supported limb index range");
-      const size_t half = transformLimbs / 2;
-      const size_t aBlock = ProductBlockLength(a.size(), transformLimbs - std::min(b.size(), half));
-      const size_t bBlock = ProductBlockLength(b.size(), transformLimbs - std::min(a.size(), half));
+      // The square below pairs equal blocks, so it cuts both sides alike.
+      const bool square = &a == &b;
+      const size_t shortBlock = ProductBlockLength(std::min(a.size(), b.size()), shorterLimbs);
+      const size_t longBlock = square ? shortBlock
+          : ProductBlockLength(std::max(a.size(), b.size()), pairLimbs - shortBlock);
+      const size_t aBlock = a.size() < b.size() ? shortBlock : longBlock;
+      const size_t bBlock = a.size() < b.size() ? longBlock : shortBlock;
       std::vector<DataT> result(a.size() + b.size(), 0);
       std::vector<DataT> aStorage, bStorage;
-      const bool square = &a == &b;
       for (size_t i = 0; i < a.size(); i += aBlock)
       {
         const auto &left = ProductBlock(a, i, aBlock, aStorage);
         for (size_t j = square ? i : 0; j < b.size(); j += bBlock)
         {
           const auto &right = square && i == j ? left : ProductBlock(b, j, bBlock, bStorage);
-          const auto partial = Multiply(left, right, base);
+          const std::vector<DataT> partial = product(left, right);
           if (partial.empty()) continue;
           const SizeT offset = (SizeT)(i + j), last = (SizeT)partial.size() - 1;
           AddTo(result, offset, offset + last, partial, 0, last, base);
@@ -3864,6 +4337,59 @@ namespace BigMath
       }
       TrimZeros(result);
       return result;
+    }
+
+    // Block pairs that each fit one transform of transformLimbs limbs.
+    inline std::vector<DataT> MultiplyBlocked(const std::vector<DataT> &a,
+                                              const std::vector<DataT> &b, BaseT base,
+                                              size_t transformLimbs)
+    {
+      return MultiplyBlocked(a, b, base, transformLimbs, transformLimbs / 2,
+                             [base](const std::vector<DataT> &left, const std::vector<DataT> &right) {
+                               return Multiply(left, right, base);
+                             });
+    }
+
+    // A product of more than H coefficients, H being the longest transform.
+    //
+    // While the shorter operand is longer than H/2 — a single transform could
+    // not hold it against a block of equal length — the product is one set of
+    // residues (MultiplyAtCrtCeiling): unsigned coefficients up to plainTerms
+    // in the shorter operand, biased ones up to biasedTerms. Past that limit
+    // the shorter operand is cut into blocks within it, and past the residue
+    // count the longer one is cut too; every block pair is such a product
+    // again. A shorter operand of at most H/2 coefficients is instead paired
+    // with blocks that keep each product within one transform.
+    inline std::vector<DataT> MultiplyAboveTransform(const std::vector<DataT> &a,
+                                                     const std::vector<DataT> &b, BaseT base, Int H,
+                                                     ULong plainTerms = CrtMaxTerms,
+                                                     ULong biasedTerms = CrtMaxBiasedTerms)
+    {
+      const SizeT perLimb = CoeffsPerLimb(base);
+      ULong pairCoeffs = (ULong)H, shorterCoeffs = (ULong)H / 2;
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+      const ULong aCoeffs = (ULong)a.size() * perLimb, bCoeffs = (ULong)b.size() * perLimb;
+      const ULong shorter = std::min(aCoeffs, bCoeffs);
+      const ULong residueCoeffs = (ULong)(MaxCeilingResidues + 1) * (ULong)H;
+      // Transforms of length H must be the cache-blocked ones or small.
+      if (shorter > (ULong)H / 2 && (H <= (Int)BIGMATH_NTT_MFA_LEAF || MfaFusedWindow(H)))
+      {
+        if (shorter <= biasedTerms && aCoeffs + bCoeffs - 1 <= residueCoeffs)
+          return MultiplyAtCrtCeiling(a, b, base, H, shorter > plainTerms);
+        pairCoeffs = residueCoeffs;
+        shorterCoeffs = std::min(biasedTerms, residueCoeffs / 2);
+      }
+#else
+      (void)plainTerms;
+      (void)biasedTerms;
+#endif
+      return MultiplyBlocked(a, b, base, (size_t)(pairCoeffs / perLimb), (size_t)(shorterCoeffs / perLimb),
+                             [&](const std::vector<DataT> &left, const std::vector<DataT> &right) {
+                               const ULong coeffs = (ULong)(left.size() + right.size()) * perLimb - 1;
+                               return coeffs > (ULong)H
+                                          ? MultiplyAboveTransform(left, right, base, H, plainTerms, biasedTerms)
+                                          : Multiply(left, right, base);
+                             });
     }
 
     // ─── Public Multiply ─────────────────────────────────────────────────────
@@ -3891,20 +4417,10 @@ namespace BigMath
       ULong aCoeffSize = (ULong)a.size() * coeffsPerLimb;
       ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
-      // Every block pair must fit the roots supported by all three primes.
+      // Every transform must fit the roots supported by all three primes.
       constexpr ULong MaxTransform = (ULong)1 << 26;
       if (coeffCount > MaxTransform)
-      {
-#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
-        // Both inputs would need two blocks. The largest coefficient is at
-        // most H*(2^32-1)^2, still below the product of the three CRT primes.
-        const Int H = (Int)MaxTransform;
-        if (std::min(aCoeffSize, bCoeffSize) > MaxTransform / 2 &&
-            std::max(aCoeffSize, bCoeffSize) <= MaxTransform && MfaFusedWindow(H))
-          return MultiplyAtCrtCeiling(a, b, base, H);
-#endif
-        return MultiplyBlocked(a, b, base, (size_t)(MaxTransform / coeffsPerLimb));
-      }
+        return MultiplyAboveTransform(a, b, base, (Int)MaxTransform);
       const Int n = (Int)std::bit_ceil(coeffCount);
 
       auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();

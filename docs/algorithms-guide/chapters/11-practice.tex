@@ -59,8 +59,9 @@ was faster). From \file{docs/images/}, generated from the November 2026 benchmar
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_large_products.png}
 \caption{Fresh-process measurements through one billion decimal digits per operand.
 The dotted line marks the largest single CRT transform. The next octave uses two
-residues and an optional short prefix product. The dashed line marks the return
-to blocked multiplication near 646.5M digits. Each point reports one warm
+residues and an optional short prefix product. The dashed line marks where the
+measured revision returned to blocked multiplication, near 646.5M digits; later
+revisions continue with more residues. Each point reports one warm
 product and the process peak RSS through that call.}
 \end{figure}
 
