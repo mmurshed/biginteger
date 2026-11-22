@@ -21,6 +21,25 @@ For each size the benchmark checks 24 cases per modulus parity, with positive an
 | 2,048 | 4,368.24 | 1,760.12 | 4,333.13 | 1,736.95 |
 | 4,096 | 27,232.04 | 13,691.51 | 27,686.43 | 14,158.38 |
 
+#### Faster modular exponentiation
+
+The optimized implementation uses native modular products for single-limb moduli and a sliding window for dense exponents. It uses Montgomery reduction for eligible odd moduli and combines the residues modulo the odd part and the power of two for even moduli with a sub-limb power-of-two factor. The existing division dispatcher handles larger moduli and cases outside those paths. Runtime depends on the operands.
+
+Seven paired trials on the Apple M1 Max alternated the existing binary implementation from `be665c1` and the optimized build, using the same Release flags and benchmark source. Each size and modulus parity checks 24 signed-base cases against GMP. The dense rows time a random exponent as wide as the modulus. The sparse rows time exponent 65,537. Times are medians in microseconds, with speedups computed from paired ratios. [All 224 paired observations](docs/benchmarks/2026-11-22-powmod-optimized-m1-max.csv)
+
+| Modulus bits | Modulus | Exponent | Binary (µs) | Optimized (µs) | GMP (µs) | Speedup |
+|---:|---|---|---:|---:|---:|---:|
+| 32 | Odd | Dense | 1.191 | 0.202 | 0.186 | 5.84× |
+| 256 | Odd | Dense | 41.78 | 15.30 | 10.97 | 2.73× |
+| 256 | Even | Dense | 40.84 | 13.64 | 11.10 | 2.99× |
+| 1,024 | Odd | Dense | 801.57 | 420.59 | 267.57 | 1.91× |
+| 1,024 | Even | Dense | 802.36 | 365.43 | 267.09 | 2.19× |
+| 4,096 | Odd | Dense | 26,965.81 | 18,586.34 | 12,714.99 | 1.45× |
+| 4,096 | Even | Dense | 27,093.14 | 17,054.31 | 13,114.41 | 1.59× |
+| 256 | Odd | 65,537 | 1.886 | 1.062 | 0.756 | 1.78× |
+| 4,096 | Odd | 65,537 | 73.86 | 72.69 | 56.94 | 1.01× |
+| 4,096 | Even | 65,537 | 73.73 | 67.64 | 56.37 | 1.09× |
+
 ### Greatest common divisors
 
 Each size checks 24 signed pairs, half with a planted common factor. Both BigMath operations match GMP's nonnegative divisor. Extended GCD also checks `a*x + b*y == gcd` because multiple coefficient pairs can be valid. Timing uses the last random pair, which has no planted factor. [CSV with all ten timing rows](docs/benchmarks/2026-11-22-gcd-m1-max.csv)

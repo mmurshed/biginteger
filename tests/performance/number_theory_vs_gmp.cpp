@@ -75,7 +75,7 @@ namespace
                 operation, shape, bits, cases, calls, bigmath[rounds / 2], gmp[rounds / 2]);
   }
 
-  void BenchmarkPowMod(unsigned bits, bool odd, std::mt19937_64 &rng)
+  void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng)
   {
     BigInteger base, exponent, modulus, result;
     Mpz gBase, gExponent, gModulus, expected, actual;
@@ -85,7 +85,13 @@ namespace
     for (unsigned i = 0; i < cases; ++i)
     {
       base = RandomInteger(bits + (i % 3) * 9, rng, i % 2 == 0);
-      exponent = RandomInteger(i == cases - 1 ? bits : 1 + (i * 131) % bits, rng);
+      if (sparse)
+      {
+        const DataT value = 65537;
+        exponent = BigInteger::FromLimbs({&value, 1}, false);
+      }
+      else
+        exponent = RandomInteger(i == cases - 1 ? bits : 1 + (i * 131) % bits, rng);
       auto bytes = RandomInteger(bits, rng).ToByteArray();
       bytes.back() = (bytes.back() & 0xfe) | static_cast<unsigned>(odd);
       modulus = BigInteger::FromByteArray(bytes, false);
@@ -98,8 +104,9 @@ namespace
       if (mpz_cmp(actual.value, expected.value) != 0)
         throw std::runtime_error("PowMod result differs from GMP");
     }
-    Measure("powmod", odd ? "odd" : "even", bits, cases, std::max(4u, 16384u / bits),
-            runBigMath, runGmp);
+    const char *shape = sparse ? (odd ? "odd_65537" : "even_65537") : (odd ? "odd" : "even");
+    const unsigned calls = sparse ? std::max(16u, 131072u / bits) : std::max(4u, 16384u / bits);
+    Measure("powmod", shape, bits, cases, calls, runBigMath, runGmp);
   }
 
   void BenchmarkGcd(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
@@ -192,9 +199,12 @@ int main(int argc, char **argv)
   std::mt19937_64 rng(0xB16B00B5);
   std::puts("operation,shape,bits,reference_checks,calls_per_round,bigmath_us,gmp_us");
   if (operation == "all" || operation == "powmod")
-    for (unsigned bits : {256, 512, 1024, 2048, 4096})
-      for (bool odd : {true, false})
-        BenchmarkPowMod(bits, odd, rng);
+  {
+    for (bool sparse : {false, true})
+      for (unsigned bits : {32, 64, 128, 256, 512, 1024, 2048, 4096})
+        for (bool odd : {true, false})
+          BenchmarkPowMod(bits, odd, sparse, rng);
+  }
   rng.seed(0x6CD);
   if (operation == "all" || operation == "gcd")
     for (const auto shape : {"balanced", "skewed", "common_factor"})
