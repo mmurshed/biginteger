@@ -21,7 +21,7 @@ This chapter collects the practical consequences of everything above.
         (\cref{sec:trunc}).
 \end{itemize}
 
-Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{9d3f1d4}.
+Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{c945bdc}.
 
 \begin{center}
 \small
@@ -29,15 +29,15 @@ Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{9d3
 \toprule
 operation (decimal digits) & BigMath 1 thread & BigMath default & GMP 1 thread \\
 \midrule
-multiply $10^4 \times 10^4$ & 0.05058\,ms & 0.03596\,ms & 0.02796\,ms \\
-multiply $10^6 \times 10^6$ & 9.542\,ms & 2.948\,ms & 9.133\,ms \\
-multiply $10^7 \times 10^7$ & 111.1\,ms & 16.52\,ms & 201.9\,ms \\
-multiply $50\,{\rm M} \times 50\,{\rm M}$ & 634.4\,ms & 172.2\,ms & 660\,ms \\
-multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,372\,ms & 388.4\,ms & 1\,392\,ms \\
-multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,885\,ms & 723.8\,ms & 2\,852\,ms \\
-divide $10^7 \div (2\cdot 10^6)$ (quotient) & 157.7\,ms & 53.45\,ms & 145.9\,ms \\
-parse $2\cdot10^7$ digits & 880.2\,ms & 159.4\,ms & 806.6\,ms \\
-print $2\cdot10^7$ digits & 2\,462\,ms & 503.9\,ms & 2\,144\,ms \\
+multiply $10^4 \times 10^4$ & 0.09025\,ms & 0.05008\,ms & 0.029\,ms \\
+multiply $10^6 \times 10^6$ & 9.856\,ms & 2.897\,ms & 9.11\,ms \\
+multiply $10^7 \times 10^7$ & 109.7\,ms & 18.83\,ms & 209.5\,ms \\
+multiply $50\,{\rm M} \times 50\,{\rm M}$ & 644.7\,ms & 182.6\,ms & 658.5\,ms \\
+multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,388\,ms & 346.1\,ms & 1\,394\,ms \\
+multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,921\,ms & 720.8\,ms & 2\,867\,ms \\
+divide $10^7 \div (2\cdot 10^6)$ (quotient) & 159.6\,ms & 53.57\,ms & 143.3\,ms \\
+parse $2\cdot10^7$ digits & 894.3\,ms & 166.2\,ms & 805.6\,ms \\
+print $2\cdot10^7$ digits & 2\,496\,ms & 498.7\,ms & 2\,120\,ms \\
 \bottomrule
 \end{tabular}
 
@@ -59,8 +59,9 @@ was faster). From \file{docs/images/}, generated from the November 2026 benchmar
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_large_products.png}
 \caption{Fresh-process measurements through one billion decimal digits per operand.
 The dotted line marks the largest single CRT transform. The next octave uses two
-residues and an optional short prefix product. The 500M point shows median warm
-time and peak memory across three fresh processes per build.}
+residues and an optional short prefix product. The dashed line marks the return
+to blocked multiplication near 646.5M digits. Each point reports one warm
+product and the process peak RSS through that call.}
 \end{figure}
 
 \section{Choosing the right call}

@@ -8,7 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
-from make_memory_plots import published_memory_rows
+from make_memory_plots import read_memory_rows
 
 HERE = Path(__file__).resolve().parent
 BENCHMARKS = HERE.parent / "benchmarks"
@@ -28,7 +28,7 @@ BEFORE_AFTER = [
 
 
 def large_product_ratios(library):
-    products = [r for r in published_memory_rows()
+    products = [r for r in read_memory_rows()
                 if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
                 and int(r["a_digits"]) >= 200_000_000 and r["status"] == "ok"]
     gmp = {r["id"]: float(r["warm_ms"]) for r in products if r["library"] == "gmp"}
@@ -86,7 +86,7 @@ def ratio_plot(path, results, figure_title, threads, library, legend_location="u
         ax.tick_params(labelsize=9)
         ax.yaxis.set_minor_formatter(NullFormatter())
         ax.legend(loc="best" if title == "Multiplication" else legend_location,
-                  frameon=False, fontsize=9)
+                  frameon=True, facecolor="white", edgecolor="none", framealpha=0.95, fontsize=9)
     ticks = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
     lo, hi = axes[0, 0].get_ylim()
     if lo > 0.5:
@@ -216,11 +216,11 @@ if __name__ == "__main__":
     parser.add_argument("--ratio-only", action="store_true", help="Generate both GMP comparison figures and skip the history figure")
     args = parser.parse_args()
     ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
-               BENCHMARKS / "2026-11-21-blocked-crt-m1-max-single-thread.csv",
+               BENCHMARKS / "2026-11-21-crt-ceiling-full-m1-max-single-thread.csv",
                "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
                "bigmath_single", legend_location="best")
     ratio_plot(HERE / "bigmath_vs_gmp.png",
-               BENCHMARKS / "2026-11-21-blocked-crt-m1-max.csv",
+               BENCHMARKS / "2026-11-21-crt-ceiling-full-m1-max.csv",
                "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread",
                "bigmath_default")
     small = BENCHMARKS / "2026-11-21-small-operands.csv"
