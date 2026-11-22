@@ -141,6 +141,9 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(equality_bench tests/performance/equality_bench.cpp)
     target_link_libraries(equality_bench PRIVATE bigmath::bigmath)
 
+    add_executable(comparison_bench tests/performance/comparison_bench.cpp)
+    target_link_libraries(comparison_bench PRIVATE bigmath::bigmath)
+
     add_executable(mfa_correctness tests/performance/mfa_correctness.cpp)
     target_link_libraries(mfa_correctness PRIVATE bigmath::bigmath)
 

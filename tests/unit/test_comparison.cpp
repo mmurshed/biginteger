@@ -131,3 +131,58 @@ REGISTER_TEST(Compare, RawVectorCompare)
   std::vector<DataT> d{1, 2, 3, 0};   // canonical equality with trailing-zero pad
   ASSERT_EQ(Compare(a, d), 0);
 }
+
+REGISTER_TEST(Compare, NumericOrderAcrossBlocks)
+{
+  const auto check = [](BigInteger const &a, BigInteger const &b, Int order) {
+    ASSERT_EQ(a.CompareTo(b), order);
+    ASSERT_EQ(b.CompareTo(a), -order);
+    ASSERT_EQ(a > b, order > 0);
+    ASSERT_EQ(a >= b, order >= 0);
+    ASSERT_EQ(a < b, order < 0);
+    ASSERT_EQ(a <= b, order <= 0);
+  };
+  for (SizeT size : {17u, 18u, 19u, 31u, 32u, 33u, 65u})
+  {
+    const std::vector<DataT> a(size, 0x100);
+    check(BigInteger(a, false), BigInteger(a, false), 0);
+    for (SizeT index = 1; index < size; ++index)
+    {
+      auto b = a;
+      b.front() = LimbMask;
+      b[index] = 0xff;
+      // The higher difference decides even though bytewise comparison on
+      // little-endian hardware and the low limb both favor the other side.
+      ASSERT_EQ(Compare(a, b), 1);
+      check(BigInteger(a, false), BigInteger(b, false), 1);
+      check(BigInteger(a, true), BigInteger(b, true), -1);
+    }
+  }
+
+  check(BigInteger(), BigInteger(65), 0);
+  check(BigIntegerBuilder::From("-1"), BigInteger(65), -1);
+}
+
+REGISTER_TEST(Compare, RawPaddingAndScalar)
+{
+  const std::vector<DataT> empty;
+  const std::vector<DataT> zeros(70, 0);
+  std::vector<DataT> padded(75, 0);
+  padded.front() = 5;
+  const std::vector<DataT> five{5};
+  ASSERT_EQ(Compare(empty, zeros), 0);
+  ASSERT_EQ(Compare(zeros, empty), 0);
+  ASSERT_EQ(Compare(empty, DataT{0}), 0);
+  ASSERT_EQ(Compare(padded, five), 0);
+  ASSERT_EQ(Compare(padded, DataT{5}), 0);
+  ASSERT_EQ(Compare(padded, DataT{6}), -1);
+  ASSERT_EQ(Compare(padded, DataT{4}), 1);
+  for (SizeT i : {1u, 16u, 17u, 32u, 73u, 74u})
+  {
+    padded[i] = 1;
+    ASSERT_EQ(Compare(padded, five), 1);
+    ASSERT_EQ(Compare(five, padded), -1);
+    ASSERT_EQ(Compare(padded, LimbMask), 1);
+    padded[i] = 0;
+  }
+}

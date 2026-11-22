@@ -455,21 +455,12 @@ namespace BigMath
     // -1 if this<with
     Int CompareTo(BigInteger const &with) const
     {
-      // Case 1: Positive , Negative
       if (!isNegative && with.isNegative)
         return 1;
-      // Case 2: Negative, Positive
-      else if (isNegative && !with.isNegative)
+      if (isNegative && !with.isNegative)
         return -1;
-
-      Int cmp = Compare(Limbs(), with.Limbs());
-
-      // Now, Both are Same Sign
-      Int neg = 1;
-      if (isNegative && with.isNegative)
-        neg = -1;
-
-      return cmp * neg;
+      const Int magnitude = Compare(Limbs(), with.Limbs());
+      return isNegative ? -magnitude : magnitude;
     }
   };
 }
