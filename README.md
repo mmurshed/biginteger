@@ -123,6 +123,7 @@ Outputs:
 - `build/{multperf_simple, divperf_simple, bench_vs_gmp}` — performance harnesses
 
 See [BUILDING.md](BUILDING.md) for shared-library mode, threshold overrides, and installation.
+For prebuilt libraries and the GitHub release workflow, see the [release guide](docs/RELEASING.md).
 
 ## Test
 

@@ -20,7 +20,8 @@ endif()
 # -march=native is critical: enables UMULH/CSEL optimal codegen on ARM64 and
 # AVX2/BMI2 on x86. The library specifically targets it. Without it, the
 # Karatsuba leaf and NTT butterfly regress noticeably.
-if(NOT CMAKE_CXX_FLAGS_RELEASE MATCHES "march=")
+option(BIGMATH_NATIVE_OPTIMIZATION "Optimize Release builds for the build CPU" ON)
+if(BIGMATH_NATIVE_OPTIMIZATION AND NOT CMAKE_CXX_FLAGS_RELEASE MATCHES "march=")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native -DNDEBUG")
     endif()
@@ -34,6 +35,8 @@ option(BIGMATH_BUILD_SHARED "Also build a shared-library variant" OFF)
 file(GLOB_RECURSE BIGMATH_SOURCES CONFIGURE_DEPENDS src/*.cpp bigdecimal/*.cpp)
 file(GLOB_RECURSE BIGMATH_HEADERS CONFIGURE_DEPENDS include/biginteger/*.h include/bigdecimal/*.h)
 
+find_package(Threads REQUIRED)
+
 add_library(bigmath STATIC ${BIGMATH_SOURCES} ${BIGMATH_HEADERS})
 add_library(bigmath::bigmath ALIAS bigmath)
 
@@ -43,6 +46,7 @@ target_include_directories(bigmath
         $<INSTALL_INTERFACE:include>)
 
 target_compile_features(bigmath PUBLIC cxx_std_20)
+target_link_libraries(bigmath PUBLIC Threads::Threads)
 
 # Shared library variant (optional; mirrors object code).
 if(BIGMATH_BUILD_SHARED)
@@ -53,6 +57,7 @@ if(BIGMATH_BUILD_SHARED)
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>)
     target_compile_features(bigmath_shared PUBLIC cxx_std_20)
+    target_link_libraries(bigmath_shared PRIVATE Threads::Threads)
     set_target_properties(bigmath_shared PROPERTIES
         OUTPUT_NAME bigmath
         SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -216,6 +221,7 @@ install(TARGETS bigmath
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/biginteger DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/bigdecimal DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/bigmath)
 
 # Export so `find_package(bigmath)` works against an installed prefix
 # (README/BUILDING document this consumption path).
@@ -230,7 +236,10 @@ write_basic_package_version_file(
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config.cmake
-    "include(\"\${CMAKE_CURRENT_LIST_DIR}/bigmath-targets.cmake\")\n")
+    [=[include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+include("${CMAKE_CURRENT_LIST_DIR}/bigmath-targets.cmake")
+]=])
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/bigmath-config-version.cmake
