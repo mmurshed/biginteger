@@ -34,7 +34,7 @@ static std::string HashMpz(const mpz_t z) {
     return out;
 }
 
-static unsigned long PrecBits(int digits) {
+static unsigned long PrecBits(long long digits) {
     return (unsigned long)(digits * 3.322) + 64;
 }
 

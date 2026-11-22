@@ -8,7 +8,7 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 The November 21, 2026 full benchmark measured revision `c945bdc` on an Apple M1 Max. Both BigMath builds used identical operands and a fresh single-thread GMP 6.3.0 reference. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
 
-In both timing figures, triangles show balanced products from 200M to 1B digits per operand. Each point compares BigMath and GMP on the same inputs in fresh processes. The 200M point appears in both timing runs. [Large-product measurements](BENCHMARK.md#balanced-products-through-one-billion-digits)
+In both timing figures, triangles show balanced products from 200M to 5B digits per operand. Each point compares BigMath and GMP on the same inputs in fresh processes. The 200M point appears in both timing runs; sizes above it were remeasured after the residue change described below. [Large-product measurements](BENCHMARK.md#balanced-products-through-five-billion-digits)
 
 ### Single-threaded BigMath and GMP
 
@@ -20,7 +20,7 @@ At 200M ÷ 40M digits, BigMath used 0.91× GMP’s time for the quotient and 0.8
 
 ### Multithreaded BigMath (up to eight threads) and single-threaded GMP
 
-Balanced products at 10M, 50M, 100M and 200M digits took 18.83, 182.6, 346.1 and 720.8 ms. The first transform doubling above 10M digits occurs near 10.10M digits per operand. [Transform sizes and measured boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
+Balanced products at 10M, 50M, 100M and 200M digits took 18.83, 182.6, 346.1 and 720.8 ms. The first transform doubling above 10M digits occurs near 10.10M digits per operand. [Transform sizes and measured boundaries](BENCHMARK.md#balanced-products-through-five-billion-digits)
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
@@ -42,21 +42,23 @@ Decimal conversion now reuses two scratch buffers for full fused transforms from
 
 In the full benchmark at `c945bdc`, multiplication at 5M × 500k digits had the largest threaded peak RSS relative to GMP in the integer sweep, 8.38× (88.2 versus 10.5 MiB). The single-thread maximum was 8.35× for multiplication at 10M × 1M digits (155.1 versus 18.6 MiB). [Full memory results](BENCHMARK.md#peak-memory-and-large-product-time)
 
-![Multithreaded BigMath peak memory relative to GMP, including balanced products through one billion digits per operand](docs/images/bigmath_vs_gmp_memory.png)
+![Multithreaded BigMath peak memory relative to GMP, including balanced products through five billion digits per operand](docs/images/bigmath_vs_gmp_memory.png)
 
-![Single-threaded BigMath peak memory relative to GMP, including balanced products through one billion digits per operand](docs/images/bigmath_vs_gmp_memory_single_thread.png)
+![Single-threaded BigMath peak memory relative to GMP, including balanced products through five billion digits per operand](docs/images/bigmath_vs_gmp_memory_single_thread.png)
 
 In the three-process comparison at 500M digits per operand, median warm multiplication fell from **3.13 to 1.50 s** with up to eight threads and from **18.84 to 8.85 s** on one thread. GMP took 8.41 s. Peak RSS rose from 3.03 to 3.14 GiB threaded and from 2.75 to 3.02 GiB single-threaded. The revised path uses additional convolution residues through about 646M digits per operand. [Before-and-after figure](docs/images/bigmath_crt_ceiling.png)
 
-The full rerun measured these warm multiplication times and peak resident memory in fresh processes. That revision used nine block products at 750M digits and sixteen at 1B. Products above 646M digits now continue with further convolution residues: in a paired run of the same benchmark the 750M product took 2.37 s with up to eight threads and 14.57 s on one thread, and the 1B product 3.42 s and 21.44 s, with threaded peaks of 4.28 and 5.41 GiB. The table and figures below predate that change. [Full table, transform boundaries and paired measurements](BENCHMARK.md#balanced-products-through-one-billion-digits)
+Products above 646M digits now continue with further convolution residues instead of block products. A fresh-process rerun on revision `99228ed` measured these warm multiplication times and peak resident memory. Above about 1.79B digits per operand the shorter operand is cut into blocks of residue products, and single-thread BigMath falls behind GMP: 2.05× its time at 2.5B and 3.10× at 5B. [Full table, transform boundaries and paired measurements](BENCHMARK.md#balanced-products-through-five-billion-digits)
 
 | Digits per operand | BigMath, up to 8 threads | BigMath, 1 thread | GMP, 1 thread |
 |---:|---:|---:|---:|
-| 500M | 1.50 s · 3.14 GiB | 8.99 s · 3.02 GiB | 8.64 s · 2.73 GiB |
-| 750M | 6.99 s · 3.61 GiB | 43.45 s · 3.33 GiB | 12.69 s · 4.12 GiB |
-| 1,000M | 12.29 s · 4.19 GiB | 75.27 s · 3.91 GiB | 18.58 s · 5.45 GiB |
+| 500M | 1.42 s · 3.14 GiB | 8.55 s · 3.03 GiB | 8.55 s · 2.73 GiB |
+| 750M | 2.29 s · 4.28 GiB | 14.49 s · 4.16 GiB | 12.30 s · 4.12 GiB |
+| 1B | 3.37 s · 5.41 GiB | 21.09 s · 5.28 GiB | 18.26 s · 5.45 GiB |
+| 2.5B | 16.55 s · 12.81 GiB | 93.16 s · 12.71 GiB | 45.35 s · 11.90 GiB |
+| 5B | 54.95 s · 20.46 GiB | 323.0 s · 20.16 GiB | 104.3 s · 16.86 GiB |
 
-![Warm multiplication time and peak memory through one billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
+![Warm multiplication time and peak memory through five billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
 
 ### Small operands (1–16 limbs)
 

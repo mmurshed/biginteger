@@ -16,7 +16,8 @@ FIELDS = ("id", "op", "a_digits", "b_digits", "scale", "warm_reps", "source",
 EXTRA_DIGITS = (10_200_000, 20_300_000, 40_000_000, 41_000_000, 80_000_000,
                 82_000_000, 160_000_000, 162_000_000, 320_000_000, 324_000_000,
                 500_000_000, 750_000_000, 1_000_000_000,
-                480_000_000, 484_000_000, 486_000_000, 520_000_000)
+                480_000_000, 484_000_000, 486_000_000, 520_000_000,
+                2_500_000_000, 5_000_000_000)
 INTEGER_INPUT = {"mul", "div", "div_q", "div_qr", "tostr"}
 CHECKED = {"mul", "div_q", "div_qr"}
 
@@ -121,7 +122,7 @@ def main():
     parser.add_argument("single_build", type=Path, help="Release build with BIGMATH_USE_THREADS=0")
     parser.add_argument("output", type=Path)
     cases = parser.add_mutually_exclusive_group()
-    cases.add_argument("--extended", action="store_true", help="include balanced products through 1B digits")
+    cases.add_argument("--extended", action="store_true", help="include balanced products through 5B digits")
     cases.add_argument("--balanced-digits", type=int, nargs="+", metavar="DIGITS",
                        help="measure only seeded balanced products at these decimal lengths")
     args = parser.parse_args()
