@@ -1,5 +1,26 @@
 # BigMath vs GMP benchmark results
 
+## BigInteger equality
+
+This benchmark compares the previous implementation of `a == b` (`a.CompareTo(b) == 0`) with the specialized equality operator in the same Release binary. The Apple M1 Max ran Apple Clang 21 with the default 64-bit limbs. Each timing is the median of nine warm batches on the same two operands. The harness calibrates repetitions separately for each predicate, alternates their measurement order, and checks the result of every batch. Construction and copying are outside the timer. Nanosecond-scale timings include an indirect function call. [CSV for 1, 4, 1,000 and 1,000,000 limbs](docs/benchmarks/2026-11-21-equality-m1-max.csv)
+
+| Comparison at 1,000,000 limbs | Previous equality | Specialized equality |
+|---|---:|---:|
+| Same object | 324 µs | 1.58 ns |
+| Equal copy | 337 µs | 247 µs |
+| Lowest limb differs | 336 µs | 2.19 ns |
+| Middle limb differs | 163 µs | 99.8 µs |
+| Second-highest limb differs | 3.14 ns | 4.72 ns |
+| Highest limb differs | 2.73 ns | 1.96 ns |
+| Opposite signs | 1.24 ns | 1.55 ns |
+
+Run the benchmark from a configured Release build.
+
+```sh
+cmake --build build --target equality_bench
+./build/equality_bench
+```
+
 ## Single-thread comparison
 
 The November 21, 2026 full timing run measured revision `9d3f1d4` on the Apple M1 Max. At 200M digits per operand the single-thread build took 2.88 s and GMP took 2.85 s. At 50M and 100M digits BigMath used 0.96× and 0.99× GMP’s time. [Measured revision](https://github.com/mmurshed/biginteger/tree/9d3f1d4)

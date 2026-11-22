@@ -54,6 +54,12 @@ Values of up to 4 limbs (256 bits) are stored inside the `BigInteger` object, an
 
 [Single-thread data and methodology](BENCHMARK.md#single-thread-comparison) · [Multithreaded data and methodology](BENCHMARK.md#default-build-with-up-to-eight-bigmath-threads) · [Small-operand data](BENCHMARK.md#small-operands)
 
+### BigInteger equality
+
+On the Apple M1 Max, comparing two one-million-limb integers that differed only in the lowest limb fell from 336 µs to 2.19 ns. Equal copies still require a full scan and fell from 337 to 247 µs. A difference in the second-highest limb took 4.72 ns, up from 3.14 ns. Both `==` and `!=` use the exact comparison with no per-integer hash storage. [Equality benchmark and data](BENCHMARK.md#biginteger-equality)
+
+![Previous and specialized BigInteger equality times for one-million-limb operands, by location of the difference](docs/images/bigmath_equality.png)
+
 ---
 
 ## Features

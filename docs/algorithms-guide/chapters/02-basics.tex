@@ -172,8 +172,18 @@ These kernels are used only with true 64-bit limbs. The legacy layout
 
 \section{Comparison and shifts}
 
-Comparing two magnitudes is cheap: first compare lengths (after trimming leading zeros,
-a longer number is larger), then compare limbs from the top down until one differs.
+For numeric ordering, \code{CompareTo} first checks the signs. It compares magnitudes
+by ignoring high zero limbs, comparing lengths, and then walking down from the most
+significant limb until a mismatch decides the order.
+
+For \code{a == b}, comparing an object with itself takes constant time. For distinct
+objects, the operator checks the signs, stored lengths and outermost limbs. If lengths
+differ and the longer value has a high zero limb, it compares the magnitudes to account
+for padding. For long values of the same width, it checks the lowest eight limbs as a
+block, then compares eight limbs at a time from the high end. This catches small
+low-order changes immediately and still exits early for differences near the top.
+Equal copies require an exact scan of all $n$ limbs, taking $O(n)$ time and $O(1)$
+extra space. The \code{!=} operator uses the same equality check.
 
 Shifting left by $s$ bits splits into a whole-limb part ($s / 64$ limbs, which just moves
 the array) and a bit part ($s \bmod 64$, handled by \code{Lshift}). Shifts show up
