@@ -11,7 +11,7 @@ unpacked="$build/unpacked"
 source .github/scripts/configure-platform.sh
 profile=$(platform_profile "$PWD")
 configure_platform "$build" "$profile"
-cmake --build "$build" --parallel 3 --target mult_correctness div_correctness unit_tests mfa_roundtrip
+cmake --build "$build" --parallel 3 --target mult_correctness div_correctness unit_tests pool_temperature mfa_roundtrip
 ctest --test-dir "$build" --output-on-failure --timeout 600
 cmake --install "$build" --prefix "$stage/$package"
 

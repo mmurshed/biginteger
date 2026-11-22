@@ -34,6 +34,13 @@
 
 namespace BigMath
 {
+#ifdef BIGMATH_TEST_POOL_CLOCK
+  // The isolated temperature test advances worker deadlines explicitly.
+  std::chrono::steady_clock::time_point PoolSpinNow() noexcept;
+#else
+  static inline auto PoolSpinNow() noexcept { return std::chrono::steady_clock::now(); }
+#endif
+
   namespace
   {
     // Nesting guard: a ParallelDo issued from inside a chunk body — worker
@@ -59,8 +66,7 @@ namespace BigMath
     inline bool SpinUntil(Pred &&done)
     {
 #if BIGMATH_POOL_SPIN_US > 0
-      using Clock = std::chrono::steady_clock;
-      const auto deadline = Clock::now() + std::chrono::microseconds(BIGMATH_POOL_SPIN_US);
+      const auto deadline = PoolSpinNow() + std::chrono::microseconds(BIGMATH_POOL_SPIN_US);
       for (;;)
       {
         for (int i = 0; i < 32; ++i)
@@ -68,7 +74,7 @@ namespace BigMath
           if (done()) return true;
           CpuRelax();
         }
-        if (Clock::now() >= deadline) return done();
+        if (PoolSpinNow() >= deadline) return done();
       }
 #else
       return done();

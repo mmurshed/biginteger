@@ -107,6 +107,15 @@ if(BIGMATH_BUILD_TESTS)
     target_include_directories(unit_tests PRIVATE tests/unit)
     add_test(NAME unit_tests COMMAND unit_tests)
 
+    # Compile the real pool against a controllable clock for the prewarm test.
+    # All other targets exercise the production clock.
+    add_executable(pool_temperature tests/pool_temperature.cpp tests/unit/test_main.cpp src/common/Parallel.cpp)
+    target_include_directories(pool_temperature PRIVATE include tests/unit)
+    target_link_libraries(pool_temperature PRIVATE Threads::Threads)
+    target_compile_definitions(pool_temperature PRIVATE BIGMATH_TEST_POOL_CLOCK)
+    add_test(NAME pool_temperature COMMAND pool_temperature)
+    set_tests_properties(pool_temperature PROPERTIES TIMEOUT 30)
+
     # Performance harnesses (no `add_test` because they print, not assert)
     add_executable(multperf_simple tests/multperf_simple.cpp)
     target_link_libraries(multperf_simple PRIVATE bigmath::bigmath)
