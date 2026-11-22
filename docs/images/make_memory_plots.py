@@ -16,7 +16,7 @@ DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-21-crt-ceiling-full-m1-max-m
 CEILING_CSV = HERE.parent / "benchmarks" / "2026-11-21-crt-ceiling-m1-max.csv"
 # Seeded balanced products remeasured after convolution residues replaced
 # block products above 646M digits; these replace the seeded rows above.
-LARGE_CSV = HERE.parent / "benchmarks" / "2026-11-21-residue-products-full-m1-max-memory.csv"
+LARGE_CSV = HERE.parent / "benchmarks" / "2026-11-21-wide-crt-m1-max-memory.csv"
 COLORS = ("#2165a1", "#a54718", "#438456")
 LIBRARIES = {"bigmath_default": "BigMath, up to 8 threads", "bigmath_single": "BigMath, 1 thread",
              "gmp": "GMP, 1 thread"}
@@ -119,7 +119,7 @@ def plot_ratios(rows, library, path, host, gmp_name, default_name):
     plt.close(fig)
 
 
-def plot_large(rows, path, host, default_name, *, show_block_boundary=False):
+def plot_large(rows, path, host, default_name, *, show_wide_boundary=False):
     samples = [r for r in rows if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
                and int(r["a_digits"]) >= 10_000_000]
     largest = max(int(r["a_digits"]) for r in samples) / 1e6
@@ -127,7 +127,7 @@ def plot_large(rows, path, host, default_name, *, show_block_boundary=False):
     ceiling = 2**24 * 64 * math.log10(2) / 1e6
     # Shorter operand of 185,794,560 coefficients: the most one set of
     # signed residues resolves (CrtMaxBiasedTerms).
-    block_boundary = 185_794_560 * 32 * math.log10(2) / 1e6
+    wide_boundary = 185_794_560 * 32 * math.log10(2) / 1e6
     limited = any(r["status"] == "crt_length_limit" for r in samples)
     for ax, field, divisor, title in zip(axes, ["warm_ms", "warm_peak_bytes"], [1000, 2**30],
                                          ["Warm product time (seconds)", "Peak resident memory (GiB)"]):
@@ -138,8 +138,8 @@ def plot_large(rows, path, host, default_name, *, show_block_boundary=False):
             ax.plot(*zip(*points), marker=["o", "s", "^"][i], ms=4, color=COLORS[i],
                     lw=1.6, ls=["-", "--", "-."][i], label=default_name if lib == "bigmath_default" else label)
         ax.axvline(ceiling, color="#555", ls=":", lw=1.2)
-        if show_block_boundary:
-            ax.axvline(block_boundary, color="#555", ls="--", lw=1.0)
+        if show_wide_boundary:
+            ax.axvline(wide_boundary, color="#555", ls="--", lw=1.0)
         if limited:
             ax.axvspan(ceiling, largest * 1.1, color="#f0f1f4", zorder=-2)
         if field == "warm_ms":
@@ -158,8 +158,8 @@ def plot_large(rows, path, host, default_name, *, show_block_boundary=False):
                ncol=3, frameon=False, fontsize=9)
     fig.supxlabel("Decimal digits per operand", fontsize=11, y=.09)
     note = "Shaded sizes exceed BigMath’s CRT limit (323.2M)" if limited else "Dotted line = single-transform CRT limit (323.2M)"
-    if show_block_boundary:
-        note += f"  ·  Dashed line = blocks of the shorter operand ({block_boundary / 1000:.2f}B)"
+    if show_wide_boundary:
+        note += f"  ·  Dashed line = wide CRT crossover ({wide_boundary / 1000:.2f}B)"
     fig.text(.5,.035, "  ·  ".join(filter(None, (host, note, "Points are measured products"))),
              ha="center", fontsize=9)
     fig.subplots_adjust(top=.74, bottom=.23, left=.077, right=.98, wspace=.18)
@@ -188,4 +188,4 @@ if __name__ == "__main__":
         plot_ratios(results, name, args.outdir / f"bigmath_vs_gmp_memory{suffix}.png", host, gmp_name, default_name)
     if any(r["source"] == "seeded_binary" and r["a_digits"] == "1000000000" for r in results):
         plot_large(results, args.outdir / "bigmath_vs_gmp_large_products.png", host, default_name,
-                   show_block_boundary=published_snapshot)
+                   show_wide_boundary=published_snapshot)
