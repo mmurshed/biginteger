@@ -105,6 +105,42 @@ Seven paired trials on the Apple M1 Max alternated the original Newton implement
 | 262,144 | 8,253.19800 | 467.75000 | 396.85425 | 16.68× |
 | 1,048,576 | 34,299.54175 | 2,247.83350 | 2,602.82300 | 15.17× |
 
+### Primality testing
+
+`IsProbablePrime` screens small factors before running Miller–Rabin. It tests the full unsigned 64-bit range deterministically, using Jaeschke's three bases through 32 bits and Sinclair's seven bases above that. For larger inputs, it first tests base 2, then samples witnesses uniformly from 2 through `n - 2` by rejection sampling using `std::random_device`. With independent uniform witnesses, `rounds` random tests accept any fixed odd composite with probability at most `4^(-rounds)`. The default is 32 rounds. The Montgomery path reuses the modulus and keeps the inner squaring steps in Montgomery form. [Established deterministic bases](https://miller-rabin.appspot.com/) · [GMP reference](https://gmplib.org/gmp-man-6.3.0.pdf)
+
+The benchmark uses BigMath's default 32 rounds and GMP 6.3.0 with `reps=56`, which requests up to 32 Miller–Rabin rounds after GMP's other tests. The libraries use different screening and witness selection. The harness checks GMP-generated primes, odd multiples of three, products of two similarly sized primes, and four known strong pseudoprimes. It times the last seeded fixture for each row, excluding fixture generation. The CSV includes all 28 rows through 4,096 bits. [Raw timings](docs/benchmarks/2026-11-22-primality-m1-max.csv)
+
+| Bits | Input | BigMath (µs) | GMP (µs) |
+|---:|---|---:|---:|
+| 32 | Prime | 0.584 | 1.941 |
+| 64 | Prime | 3.315 | 19.623 |
+| 256 | Prime | 592.22 | 403.88 |
+| 256 | Semiprime | 15.69 | 10.07 |
+| 1,024 | Prime | 12,474.13 | 9,555.92 |
+| 1,024 | Semiprime | 421.48 | 225.18 |
+| 4,096 | Prime | 616,482.92 | 437,564.96 |
+| 4,096 | Semiprime | 19,053.04 | 10,882.77 |
+| 4,096 | Small factor | 0.348 | 0.127 |
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp prime
+```
+
+#### Parallel Miller–Rabin rounds
+
+When the candidate has at least 1,024 bits, fits the Montgomery path and requests at least eight random witnesses, the default build can test the witnesses in parallel. The small-factor tests and the base-2 screen run before the dispatch. Each worker uses its own scratch space, with batches of up to 32 witnesses. The single-thread build runs the same tests serially.
+
+The Apple M1 Max reran the same fixtures sequentially with the original serial implementation from `13e9706`, the updated default build with up to eight threads, and the updated build with `BIGMATH_USE_THREADS=0`. Each run matched GMP on 286 cases. The table gives medians from seven batches and shows the GMP timing measured alongside the default build. All times are milliseconds. [Raw timings for all three builds](docs/benchmarks/2026-11-22-primality-parallel-m1-max.csv)
+
+| Bits | Input | Original (ms) | Updated single-thread (ms) | Updated default (ms) | GMP (ms) |
+|---:|---|---:|---:|---:|---:|
+| 1,024 | Prime | 12.64 | 13.19 | 2.43 | 9.60 |
+| 2,048 | Prime | 88.18 | 89.71 | 14.31 | 62.07 |
+| 4,096 | Prime | 616.65 | 615.67 | 103.03 | 445.02 |
+| 4,096 | Semiprime | 19.05 | 19.00 | 19.28 | 11.13 |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)

@@ -1,6 +1,7 @@
 #include "unit_test_framework.h"
 
 #include <stdexcept>
+#include <thread>
 
 #include "biginteger/common/Builder.h"
 #include "biginteger/ops/Operations.h"
@@ -37,6 +38,45 @@ REGISTER_TEST(NumberTheory, PowMod)
     catch (std::invalid_argument const &) { threw = true; }
     ASSERT_TRUE(threw);
   }
+}
+
+REGISTER_TEST(NumberTheory, Primality)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  for (const char *prime : {"2", "3", "53", "4294967291", "18446744073709551557",
+                            "18446744073709551629", "461168601842738790401",
+                            "170141183460469231731687303715884105727"})
+    ASSERT_TRUE(IsProbablePrime(value(prime)));
+  for (const char *composite : {"-3", "0", "1", "4", "561", "2047",
+                                "3215031751", "341550071728321", "3825123056546413051",
+                                "18446744073709551615", "18446744073709551617",
+                                "318665857834031151167461"})
+    ASSERT_TRUE(!IsProbablePrime(value(composite)));
+  const auto largePrime = value("170141183460469231731687303715884105727");
+  ASSERT_TRUE(!IsProbablePrime(largePrime * largePrime));
+  ASSERT_TRUE(!IsProbablePrime(BigInteger(12)));
+
+  bool threw = false;
+  try { (void)IsProbablePrime(value("7"), 0); }
+  catch (std::invalid_argument const &) { threw = true; }
+  ASSERT_TRUE(threw);
+}
+
+REGISTER_TEST(NumberTheory, MultiBatchAndConcurrentPrimality)
+{
+  // The Mersenne prime 2^2203 - 1 reaches the threaded witness path in
+  // both limb layouts. Thirty-three rounds cross the batch boundary.
+  constexpr DataT high = DataT{1} << (2203 % LimbBits);
+  const auto one = BigIntegerBuilder::From("1");
+  const auto prime = (BigInteger::FromLimbs({&high, 1}, false) << (2203 / LimbBits)) - one;
+  ASSERT_TRUE(IsProbablePrime(prime, 33));
+
+  bool first = false, second = false;
+  std::thread workerA([&] { first = IsProbablePrime(prime, 8); });
+  std::thread workerB([&] { second = IsProbablePrime(prime, 8); });
+  workerA.join();
+  workerB.join();
+  ASSERT_TRUE(first && second);
 }
 
 REGISTER_TEST(NumberTheory, GreatestCommonDivisors)

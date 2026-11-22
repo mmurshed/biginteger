@@ -1,11 +1,15 @@
 #include "biginteger/ops/NumberTheory.h"
 
 #include <array>
+#include <atomic>
 #include <bit>
+#include <exception>
+#include <random>
 #include <stdexcept>
 
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/common/LimbKernels.h"
+#include "biginteger/common/Parallel.h"
 #include "biginteger/ops/Operations.h"
 
 namespace BigMath
@@ -93,11 +97,11 @@ namespace BigMath
       return result;
     }
 
-    DataT InvertOddLimb(DataT odd)
+    DataT InvertOddLimb(DataT odd, unsigned width = LimbBits)
     {
       DataT inverse = 1;
       // Each Newton step doubles the number of correct low bits.
-      for (unsigned bits = 1; bits < LimbBits; bits *= 2)
+      for (unsigned bits = 1; bits < width; bits *= 2)
         inverse *= 2 - odd * inverse;
       return inverse;
     }
@@ -190,14 +194,20 @@ namespace BigMath
         Reduce(a);
       }
 
+      std::vector<DataT> PowerEncoded(std::vector<DataT> factor,
+                                      std::span<const DataT> bits, size_t length)
+      {
+        return SlidingWindowPower(std::move(factor), bits, length, [this](auto &a, auto &b) {
+          Multiply(a, b);
+        });
+      }
+
       BigInteger Power(BigInteger const &factor, BigInteger const &mod,
                        std::span<const DataT> bits, size_t length)
       {
         auto encoded = ((factor << size) % mod).GetInteger();
         encoded.resize(size);
-        auto result = SlidingWindowPower(std::move(encoded), bits, length, [this](auto &a, auto &b) {
-          Multiply(a, b);
-        });
+        auto result = PowerEncoded(std::move(encoded), bits, length);
         std::copy(result.begin(), result.end(), scratch.begin());
         std::fill(scratch.begin() + size, scratch.end(), 0);
         Reduce(result);
@@ -250,6 +260,150 @@ namespace BigMath
         a = (a * b) % mod;
       });
     }
+
+    template <class Value, class Square>
+    bool PassesMillerRabin(Value value, Value const &one, Value const &minusOne,
+                          size_t twos, Square square)
+    {
+      if (value == one || value == minusOne)
+        return true;
+      for (size_t i = 1; i < twos; ++i)
+      {
+        square(value);
+        if (value == minusOne)
+          return true;
+        if (value == one)
+          return false;
+      }
+      return false;
+    }
+
+    bool PrimeWord(DataT n)
+    {
+      for (const DataT p : {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47})
+        if (n % p == 0)
+          return n == p;
+      if (n < 53 * 53)
+        return true;
+
+      const unsigned twos = std::countr_zero(n - 1);
+      const DataT exponent = (n - 1) >> twos;
+      const bool fits32 = n <= UINT32_MAX;
+      const DataT inverse = fits32 ? 0 : 0 - InvertOddLimb(n, 64);
+      const DataT one = fits32 ? 1 : static_cast<DataT>((ULong128{1} << 64) % n);
+      const DataT minusOne = n - one;
+      const auto product = [n, fits32, inverse](DataT a, DataT b) {
+        if (fits32)
+          return (a * b) % n;
+        // In radix 2^64 the low limbs cancel. Their sum carries exactly
+        // when the low limb of a*b is nonzero.
+        const ULong128 ab = static_cast<ULong128>(a) * b;
+        const auto low = static_cast<DataT>(ab);
+        const ULong128 multiple = static_cast<ULong128>(low * inverse) * n;
+        const ULong128 reduced = (ab >> 64) + (multiple >> 64) + (low != 0);
+        return static_cast<DataT>(reduced >= n ? reduced - n : reduced);
+      };
+      const auto trial = [&](DataT base) {
+        base %= n;
+        if (base == 0)
+          return true;
+        if (!fits32)
+          base = static_cast<DataT>((static_cast<ULong128>(base) << 64) % n);
+        DataT power = base;
+        for (unsigned bit = std::bit_width(exponent) - 1; bit > 0; --bit)
+        {
+          power = product(power, power);
+          if ((exponent >> (bit - 1)) & 1)
+            power = product(power, base);
+        }
+        return PassesMillerRabin(power, one, minusOne, twos, [&](DataT &value) {
+          value = product(value, value);
+        });
+      };
+      // Jaeschke's three bases for 32 bits and Sinclair's seven for 64 bits.
+      if (fits32)
+        return trial(2) && trial(7) && trial(61);
+      for (const DataT base : {2, 325, 9375, 28178, 450775, 9780504, 1795265022})
+        if (!trial(base))
+          return false;
+      return true;
+    }
+
+    template <class WitnessTestFactory>
+    bool CheckRandomWitnesses(BigInteger const &n, BigInteger const &two,
+                              int rounds, WitnessTestFactory makeTest, bool allowParallel = false)
+    {
+      auto test = makeTest();
+      if (!test(two))
+        return false;
+
+      const auto upper = n - two;
+      const unsigned topBits = std::bit_width(upper.Limbs().back());
+      const DataT mask = LimbMask >> (LimbBits - topBits);
+      std::vector<DataT> randomLimbs(upper.size());
+      std::random_device source;
+      std::uniform_int_distribution<DataT> distribution(0, LimbMask);
+      const auto sample = [&] {
+        BigInteger witness;
+        do
+        {
+          for (auto &limb : randomLimbs)
+            limb = distribution(source);
+          randomLimbs.back() &= mask;
+          witness = BigInteger::FromLimbs(randomLimbs, false);
+        } while (witness < two || witness > upper);
+        return witness;
+      };
+
+      // Keep cheap screens and small tests on the calling thread. The
+      // randomized rounds are independent once the base-2 screen passes.
+      const auto workers = allowParallel && rounds >= 8 ? ParallelNumThreads() : 1;
+      if (workers <= 1)
+      {
+        for (int i = 0; i < rounds; ++i)
+          if (!test(sample()))
+            return false;
+        return true;
+      }
+
+      constexpr int maxBatch = 32;
+      std::vector<BigInteger> witnesses;
+      witnesses.reserve(std::min(rounds, maxBatch));
+      while (rounds > 0)
+      {
+        const int count = std::min(rounds, maxBatch);
+        witnesses.clear();
+        for (int i = 0; i < count; ++i)
+          witnesses.emplace_back(sample());
+        std::atomic<bool> stop{false};
+        std::array<std::exception_ptr, maxBatch> failures;
+        ParallelDo(count, [&](Int begin, Int end) {
+          try
+          {
+            auto workerTest = makeTest();
+            for (Int i = begin; i < end && !stop.load(std::memory_order_relaxed); ++i)
+              if (!workerTest(witnesses[i]))
+              {
+                stop.store(true, std::memory_order_relaxed);
+                break;
+              }
+          }
+          catch (...)
+          {
+            // Exceptions must not escape the worker before it reports completion.
+            failures[begin] = std::current_exception();
+            stop.store(true, std::memory_order_relaxed);
+          }
+        });
+        for (auto const &failure : failures)
+          if (failure)
+            std::rethrow_exception(failure);
+        if (stop.load(std::memory_order_relaxed))
+          return false;
+        rounds -= count;
+      }
+      return true;
+    }
   }
 
   BigInteger PowMod(BigInteger const &base, BigInteger const &exponent,
@@ -271,5 +425,75 @@ namespace BigMath
       factor = factor + mod;
     const auto bits = exponent.Limbs();
     return PowerReduced(factor, mod, bits, BitLength(bits));
+  }
+
+  bool IsProbablePrime(BigInteger const &n, int rounds)
+  {
+    if (rounds <= 0)
+      throw std::invalid_argument("IsProbablePrime requires a positive round count");
+    if (n.IsNegative() || n.Zero())
+      return false;
+    const auto bits = BitLength(n.Limbs());
+    if (bits <= 64)
+    {
+      DataT value = n[0];
+      if constexpr (LimbBits == 32)
+        if (n.size() > 1)
+          value |= n[1] << 32;
+      return value >= 2 && PrimeWord(value);
+    }
+    if (!(n[0] & 1))
+      return false;
+
+    // One reduction per group tests all of its prime factors.
+    constexpr DataT group1 = DataT{3} * 5 * 7 * 11 * 13 * 17 * 19 * 23 * 29;
+    constexpr DataT group2 = DataT{31} * 37 * 41 * 43 * 47;
+    if (gcd((n % group1)[0], group1) != 1 || gcd((n % group2)[0], group2) != 1)
+      return false;
+
+    const auto mod = BigInteger::FromLimbs(n.Limbs(), false);
+    constexpr DataT unit = 1, pair = 2;
+    const auto one = BigInteger::FromLimbs({&unit, 1}, false);
+    const auto two = BigInteger::FromLimbs({&pair, 1}, false);
+    const auto minusOne = mod - one;
+    auto oddLimbs = minusOne.Limbs();
+    while (oddLimbs.front() == 0)
+      oddLimbs = oddLimbs.subspan(1);
+    const unsigned trailing = std::countr_zero(oddLimbs.front());
+    const size_t twos = (minusOne.size() - oddLimbs.size()) * LimbBits + trailing;
+    const auto exponent = ShiftRightBits(oddLimbs, trailing, LimbBits);
+    const auto length = BitLength(exponent);
+
+    if (mod.size() <= 128)
+    {
+      const auto montOne = (one << mod.size()) % mod;
+      auto encodedOne = montOne.GetInteger();
+      auto encodedMinusOne = (mod - montOne).GetInteger();
+      auto radixSquared = ((montOne << mod.size()) % mod).GetInteger();
+      encodedOne.resize(mod.size());
+      encodedMinusOne.resize(mod.size());
+      radixSquared.resize(mod.size());
+      const auto makeTest = [&] {
+        return [&, context = Montgomery(mod)](BigInteger const &witness) mutable {
+          auto encoded = witness.GetInteger();
+          encoded.resize(mod.size());
+          context.Multiply(encoded, radixSquared);
+          auto power = context.PowerEncoded(std::move(encoded), exponent, length);
+          return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
+            context.Multiply(value, value);
+          });
+        };
+      };
+      return CheckRandomWitnesses(mod, two, rounds, makeTest, bits >= 1024);
+    }
+
+    return CheckRandomWitnesses(mod, two, rounds, [&] {
+      return [&](BigInteger const &witness) {
+        auto power = PowerReduced(witness, mod, exponent, length);
+        return PassesMillerRabin(std::move(power), one, minusOne, twos, [&](BigInteger &value) {
+          value = (value * value) % mod;
+        });
+      };
+    });
   }
 }
