@@ -225,6 +225,7 @@
 #include <arm_neon.h>
 #endif
 
+#include "../../common/DecimalConversionScope.h"
 #include "../../common/Parallel.h"
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
@@ -3961,7 +3962,9 @@ namespace BigMath
         if (MfaFusedWindow(n))
         {
           PackedOperandView va(a, base), vb(b, base);
-          const bool reuseScratch = n >= (1 << 24);
+          // Conversion also retains scratch for its worker subtrees and divider chain.
+          const bool reuseScratch = n >= (1 << 24) ||
+              (n >= (1 << 20) && detail::DecimalConversionScope::Active());
           if (reuseScratch)
           {
             // Earlier small products on this thread may have used six planes.

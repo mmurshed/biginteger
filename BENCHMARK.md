@@ -72,6 +72,7 @@ To regenerate all figures from their published inputs, run these commands from t
 python3 docs/images/make_benchmark_plots.py
 python3 docs/images/make_memory_plots.py
 python3 docs/images/make_memory_fix_plot.py
+python3 docs/images/make_conversion_workspace_plot.py
 python3 docs/images/make_division_balanced_plot.py
 python3 docs/images/make_mfa_fusion_plot.py
 python3 docs/algorithms-guide/figures/make_figures.py
@@ -266,6 +267,38 @@ The baseline is `c49f04c`. A separate instrumented run counted table capacities 
 | parse 50M | 1,588.4 MiB · 566.5 ms | 1,084.4 MiB · 543.6 ms | 307.0 MiB · 2,664.6 ms |
 | tostr 10M | 525.5 MiB · 242.0 ms | 372.2 MiB · 236.7 ms | 49.1 MiB · 914.5 ms |
 | tostr 20M | 1,052.1 MiB · 525.9 ms | 743.8 MiB · 509.4 ms | 102.3 MiB · 2,142.8 ms |
+
+### Reuse two scratch buffers during decimal conversion
+
+The baseline is `c861c9f` and the conversion change is `7b3cc04`. During parsing and formatting, full fused matrix products use three output planes and two shared scratch planes from 2²⁰ transform coefficients. Each CRT prime uses the scratch planes in turn. Parse joins, formatter divider construction and formatter subtrees on pool workers all use this schedule. Ordinary products retain their 2²⁴ cutoff.
+
+The Apple M1 Max sweep covered all 11 parse sizes, all 11 format sizes and four standalone balanced products. Each build and GMP ran three times per size in separate processes with identical operands and varied build order. Cells give median peak process RSS through the warm calls and median warm time. The CSV also records setup RSS, first-call results and repetition counts. [All 390 observations](docs/benchmarks/2026-11-21-decimal-conversion-scratch.csv) · [Allocation profile and alternative schedules](docs/benchmarks/2026-11-21-conversion-memory.md)
+
+| Conversion | Build | Before | After | GMP |
+| --- | --- | ---: | ---: | ---: |
+| Parse 20M | Up to 8 threads | 325.9 MiB · 164.3 ms | 288.6 MiB · 167.1 ms | 111.2 MiB · 809.8 ms |
+| Parse 20M | 1 thread | 238.8 MiB · 917.0 ms | 192.9 MiB · 910.3 ms | 111.2 MiB · 809.8 ms |
+| Parse 50M | Up to 8 threads | 1,082.5 MiB · 552.9 ms | 896.3 MiB · 550.8 ms | 305.2 MiB · 2,666.4 ms |
+| Parse 50M | 1 thread | 546.8 MiB · 2,665.9 ms | 549.4 MiB · 2,622.4 ms | 305.2 MiB · 2,666.4 ms |
+| Format 10M | Up to 8 threads | 367.3 MiB · 239.1 ms | 331.3 MiB · 249.2 ms | 47.8 MiB · 909.1 ms |
+| Format 10M | 1 thread | 289.9 MiB · 1,124.1 ms | 241.8 MiB · 1,191.2 ms | 47.8 MiB · 909.1 ms |
+| Format 20M | Up to 8 threads | 755.8 MiB · 507.6 ms | 645.6 MiB · 514.1 ms | 98.5 MiB · 2,117.7 ms |
+| Format 20M | 1 thread | 515.7 MiB · 2,530.9 ms | 466.3 MiB · 2,546.4 ms | 98.5 MiB · 2,117.7 ms |
+
+Threaded parsing at 50M digits used 17.2% less peak memory. The same input stayed near 550 MiB on one thread because its largest join already uses a truncated transform with shared scratch. Threaded formatting at 20M used 14.6% less memory and took 1.3% longer. At 10M the formatting time cost was 4.2% with threads and 6.0% on one thread.
+
+![Peak memory and warm time relative to GMP before and after the conversion change in both BigMath builds](docs/images/bigmath_conversion_scratch.png)
+
+The standalone product checks used equal-length operands at the affected transform sizes. Every product hash matched GMP.
+
+| Digits per operand | Threaded before | Threaded after | Single before | Single after |
+| ---: | ---: | ---: | ---: | ---: |
+| 5M | 7.18 ms | 9.43 ms | 50.09 ms | 49.49 ms |
+| 10M | 17.73 ms | 16.10 ms | 110.16 ms | 109.78 ms |
+| 20M | 38.11 ms | 37.48 ms | 214.92 ms | 215.15 ms |
+| 40M | 81.54 ms | 82.03 ms | 481.95 ms | 479.28 ms |
+
+The 5M threaded result varied most. In 12 additional pairs of fresh processes with alternating build order and one warm call, the median within-pair difference was +0.01 ms. Repeating 12 pairs with 16 warm calls per process gave median best times of 6.65 ms before and 6.75 ms after. A separate mixed-workload check verified that ordinary products used six scratch buffers both before and after a 9M-digit decimal round trip. [Follow-up timings and hashes](docs/benchmarks/2026-11-21-decimal-conversion-mul-control.csv)
 
 ## Peak memory and large-product time
 

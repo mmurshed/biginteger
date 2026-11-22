@@ -19,6 +19,7 @@ A technical reference for the decimal I/O subsystem of this BigInteger library: 
    - [Divide-and-conquer formatter (`ToStringDivConquer`)](#divide-and-conquer-formatter-tostringdivconquer)
    - [The Newton-Divider chain](#the-newton-divider-chain)
 6. [Top-level dispatch](#top-level-dispatch)
+   - [Scratch storage during conversion](#scratch-storage-during-conversion)
 7. [Benchmark results vs GMP](#benchmark-results-vs-gmp)
 8. [Optimizations already implemented](#optimizations-already-implemented)
 9. [Future opportunities](#future-opportunities)
@@ -400,9 +401,13 @@ The asymmetry between the parser and formatter thresholds reflects that the form
 
 ---
 
+### Scratch storage during conversion
+
+Parse joins multiply the upper half by its decimal scale. Formatting constructs cached Newton dividers and uses their products while splitting the value. The caller and each formatting worker enter a thread-local decimal conversion scope, and each parse join enters the same scope on its executing thread. Full fused matrix products in this scope process the three CRT primes sequentially from 2²⁰ coefficients, using three output planes and two scratch planes. The scope restores the previous setting when the call returns. Standalone multiplication switches to that schedule at 2²⁴ coefficients. [Measured RSS and times](../BENCHMARK.md#reuse-two-scratch-buffers-during-decimal-conversion)
+
 ## Benchmark results vs GMP
 
-**Current numbers live in [BENCHMARK.md](../BENCHMARK.md)** (canonical run 2026-06-12, v13.0) — the tables below are a **historical 2026-05-27 snapshot** kept for the optimization narrative and are heavily superseded. Post PRs #118/#119 (parallel D&C fan-out for ToString and parse), decimal I/O **beats GMP from 500k digits in both directions**: parse 0.38–0.69×, warm ToString 0.49–0.62× of GMP's time.
+The full benchmark covers both BigMath thread configurations and GMP. A separate allocation profile traces decimal conversion memory to the transform buffers, shared root tables and division workspaces. The tables below record the May 27, 2026 timing run. [Current timings and peak RSS](../BENCHMARK.md#peak-memory-and-large-product-time) · [Conversion memory investigation](benchmarks/2026-11-21-conversion-memory.md)
 
 Benchmark harness: `tests/performance/bench_vs_gmp.cpp`. Build:
 

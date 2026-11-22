@@ -16,6 +16,7 @@
 #include "biginteger/algorithms/division/ClassicDivision.h"
 #include "biginteger/algorithms/division/NewtonDivision.h"
 
+#include "biginteger/common/DecimalConversionScope.h"
 #include "biginteger/common/Parallel.h"
 
 #include <cstring>
@@ -152,6 +153,18 @@ namespace BigMath
     return cache.emplace(digits, value).first->second;
   }
 
+  static std::vector<DataT> CombineDecimalHalves(std::vector<DataT> const &high,
+                                                 std::vector<DataT> const &low,
+                                                 SizeT lowDigits)
+  {
+    detail::DecimalConversionScope conversion;
+    std::vector<DataT> scale = Pow10(lowDigits);
+    std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
+    std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
+    TrimZerosToOne(result);
+    return result;
+  }
+
   std::vector<DataT> ParseUnsignedDivideConquer(char const *num, Int start, Int end)
   {
     SizeT len = (SizeT)(end - start + 1);
@@ -163,11 +176,7 @@ namespace BigMath
 
     std::vector<DataT> high = ParseUnsignedDivideConquer(num, start, split);
     std::vector<DataT> low = ParseUnsignedDivideConquer(num, split + 1, end);
-    std::vector<DataT> scale = Pow10(lowDigits);
-    std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
-    std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
-    TrimZerosToOne(result);
-    return result;
+    return CombineDecimalHalves(high, low, lowDigits);
   }
 
 // Parallel parse fan-out: depth of the deterministic split replay before the
@@ -215,11 +224,7 @@ namespace BigMath
       Int split = end - (Int)lowDigits;
       std::vector<DataT> high = CombineParsed(start, split, splits - 1, leaves, idx);
       std::vector<DataT> low = CombineParsed(split + 1, end, splits - 1, leaves, idx);
-      std::vector<DataT> scale = Pow10(lowDigits);
-      std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
-      std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
-      TrimZerosToOne(result);
-      return result;
+      return CombineDecimalHalves(high, low, lowDigits);
     }
   }
 #endif
@@ -610,6 +615,7 @@ namespace BigMath
       out.resize(pos);
 
       ParallelDo((Int)(m - 1), [&](Int start, Int end) {
+        detail::DecimalConversionScope conversion;
         for (Int t = start; t < end; ++t)
         {
           SizeT i = (SizeT)t + 1;
@@ -660,6 +666,7 @@ namespace BigMath
     SizeT grid = std::max<SizeT>(SizeT(1) << (std::bit_width(approxDigits) - 5), 1);
     SizeT rounded = ((approxDigits + grid - 1) / grid) * grid;
 
+    detail::DecimalConversionScope conversion;
     auto const &chain = GetDecimalDcChain(rounded / 2);
 #if BIGMATH_USE_THREADS
     if (approxDigits >= ToStringParallelThreshold && ParallelNumThreads() > 1 &&
