@@ -6,19 +6,19 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 ## Performance
 
-The November 21, 2026 full benchmark measured revision `8e19932` on an Apple M1 Max. Both BigMath builds used identical operands and a fresh single-thread GMP 6.3.0 reference. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
+The November 21, 2026 full benchmark measured revision `9d3f1d4` on an Apple M1 Max. Both BigMath builds used identical operands and a fresh single-thread GMP 6.3.0 reference. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
 
 ### Single-threaded BigMath and GMP
 
-At 50, 100 and 200 million digits per operand, balanced multiplication took 0.96×, 0.98× and 1.02× GMP’s time. The 200-million-digit product took 2.91 s in BigMath and 2.87 s in GMP.
+At 50M, 100M and 200M digits per operand, balanced multiplication took 0.96×, 0.99× and 1.01× GMP’s time. The 200M-digit product took 2.88 s in BigMath and 2.85 s in GMP.
 
-At 200 million ÷ 40 million digits BigMath used 0.91× GMP’s time for the quotient and 0.85× for quotient and remainder. At 20 million digits, decimal parsing used 1.13× GMP’s time and formatting used 1.18×.
+At 200M ÷ 40M digits, BigMath used 0.90× GMP’s time for the quotient and 0.85× for quotient and remainder. At 20M digits, parsing took 1.09× GMP’s time and formatting took 1.15×.
 
 ![Single-thread BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp_single_thread.png)
 
 ### Multithreaded BigMath (up to eight threads) and single-threaded GMP
 
-The 10-million-digit balanced product took 17.74 ms. At 50, 100 and 200 million digits it took 164.7, 345.3 and 719.5 ms, about one quarter of GMP’s time at all three sizes. Just above 10.10 million digits per operand, BigMath doubles the transform length. [Transform sizes and before/after measurements](BENCHMARK.md#large-multiplication-follow-up)
+Balanced products at 10M, 50M, 100M and 200M digits took 16.52, 172.2, 388.4 and 723.8 ms. The first transform doubling above 10M digits occurs near 10.10M digits per operand. [Transform sizes and measured boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
@@ -34,13 +34,15 @@ Sharing immutable transform tables across workers and reusing per-thread buffers
 
 ![Peak memory and warm time before and after each optimization relative to GMP](docs/images/bigmath_memory_fixes.png)
 
-In the original November 21 sweep on the M1 Max, the largest relative peak in the standard suite was formatting 10 million digits. Threaded BigMath used 531 MiB and GMP used 46 MiB. Multiplying 10M × 1M digits used 173 MiB and 19 MiB respectively. At 200M × 200M digits, peak RSS was 2.90 GiB for threaded BigMath, 3.56 GiB for single-threaded BigMath and 1.09 GiB for GMP. [Memory measurements and controlled comparisons](BENCHMARK.md#peak-memory-and-large-product-time)
+Multiplication at 5M × 500k digits had the largest threaded peak ratio in the integer suite, 8.37× GMP (88.1 versus 10.5 MiB). [Full memory results](BENCHMARK.md#peak-memory-and-large-product-time)
 
 ![Peak memory of multithreaded BigMath relative to GMP](docs/images/bigmath_vs_gmp_memory.png)
 
 ![Peak memory of single-threaded BigMath relative to GMP](docs/images/bigmath_vs_gmp_memory_single_thread.png)
 
-The extended sweep measured GMP at 500M, 750M and one billion digits per operand. BigMath completed the 320M product and reached its transform-length limit at 324M. [Large-product timings and memory figure](BENCHMARK.md#balanced-products-through-one-billion-digits)
+Blocked multiplication completed at 500M, 750M and one billion digits per operand. At one billion digits the threaded build took **12.26 s** and peaked at **4.19 GiB**. Single-threaded BigMath took 75.10 s and 3.91 GiB. GMP took 18.28 s and 5.45 GiB. [Timings, memory and transform boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
+
+![Warm multiplication time and peak memory through one billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
 
 ### Small operands (1–16 limbs)
 
@@ -168,32 +170,32 @@ Each doc covers algorithms, dispatch, benchmark numbers vs GMP, optimizations th
 
 ## Performance numbers
 
-Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-factored-mfa-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-factored-mfa-m1-max.csv)
+Warm wall-clock times from the November 21, 2026 Apple M1 Max run. The first ratio compares the two single-thread timings shown. The last column gives the ratio for the default build (up to eight BigMath threads) against the same GMP timings. Ratios use the unrounded times. [Single-thread CSV](docs/benchmarks/2026-11-21-blocked-crt-m1-max-single-thread.csv) · [Default-build CSV](docs/benchmarks/2026-11-21-blocked-crt-m1-max.csv)
 
 | Operation | Decimal digits | BigMath 1 thread (ms) | GMP 1 thread (ms) | 1-thread ratio | Default-build ratio |
 |---|---:|---:|---:|---:|---:|
-| Multiply | 10,000 × 10,000 | 0.06425 | 0.03679 | 1.75× | 0.83× |
-| Multiply | 1,000,000 × 1,000,000 | 9.587 | 8.997 | 1.07× | 0.34× |
-| Multiply | 5,000,000 × 5,000,000 | 50.52 | 62.65 | 0.81× | 0.13× |
-| Multiply | 10,000,000 × 10,000,000 | 111.6 | 201.7 | 0.55× | 0.09× |
-| Multiply | 20,000,000 × 20,000,000 | 219 | 266 | 0.82× | 0.14× |
-| Multiply | 50,000,000 × 50,000,000 | 627.3 | 655 | 0.96× | 0.25× |
-| Multiply | 100,000,000 × 100,000,000 | 1,363 | 1,386 | 0.98× | 0.25× |
-| Multiply | 200,000,000 × 200,000,000 | 2,913 | 2,869 | 1.02× | 0.25× |
-| Multiply | 5,000,000 × 500,000 | 23.64 | 31.16 | 0.76× | 0.27× |
-| Multiply | 200,000,000 × 20,000,000 | 1,650 | 1,901 | 0.87× | 0.19× |
-| Divide, quotient | 200,000 ÷ 50,000 | 2.579 | 1.508 | 1.71× | 0.66× |
-| Divide, quotient | 10,000,000 ÷ 2,000,000 | 159.6 | 142.3 | 1.12× | 0.41× |
-| Divide, quotient | 50,000,000 ÷ 10,000,000 | 843 | 1,222 | 0.69× | 0.13× |
-| Divide, quotient | 200,000,000 ÷ 40,000,000 | 3,797 | 4,193 | 0.91× | 0.16× |
-| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.578 | 1.639 | 1.57× | 0.82× |
-| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 159.3 | 152 | 1.05× | 0.37× |
-| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 835.1 | 1,303 | 0.64× | 0.12× |
-| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 3,790 | 4,436 | 0.85× | 0.15× |
-| Parse | 100,000 | 1.601 | 1.114 | 1.44× | 0.52× |
-| Parse | 20,000,000 | 898.5 | 797.3 | 1.13× | 0.20× |
-| ToString | 100,000 | 3.048 | 2.295 | 1.33× | 0.50× |
-| ToString | 20,000,000 | 2,505 | 2,124 | 1.18× | 0.24× |
+| Multiply | 10,000 × 10,000 | 0.05058 | 0.02796 | 1.81× | 1.29× |
+| Multiply | 1,000,000 × 1,000,000 | 9.542 | 9.133 | 1.04× | 0.32× |
+| Multiply | 5,000,000 × 5,000,000 | 51.42 | 61.95 | 0.83× | 0.12× |
+| Multiply | 10,000,000 × 10,000,000 | 111.1 | 201.9 | 0.55× | 0.08× |
+| Multiply | 20,000,000 × 20,000,000 | 218.3 | 268.6 | 0.81× | 0.14× |
+| Multiply | 50,000,000 × 50,000,000 | 634.4 | 660 | 0.96× | 0.26× |
+| Multiply | 100,000,000 × 100,000,000 | 1,372 | 1,392 | 0.99× | 0.28× |
+| Multiply | 200,000,000 × 200,000,000 | 2,885 | 2,852 | 1.01× | 0.25× |
+| Multiply | 5,000,000 × 500,000 | 23.77 | 31.84 | 0.75× | 0.26× |
+| Multiply | 200,000,000 × 20,000,000 | 1,636 | 1,907 | 0.86× | 0.20× |
+| Divide, quotient | 200,000 ÷ 50,000 | 2.53 | 1.577 | 1.60× | 0.65× |
+| Divide, quotient | 10,000,000 ÷ 2,000,000 | 157.7 | 145.9 | 1.08× | 0.37× |
+| Divide, quotient | 50,000,000 ÷ 10,000,000 | 826.1 | 1,221 | 0.68× | 0.14× |
+| Divide, quotient | 200,000,000 ÷ 40,000,000 | 3,752 | 4,187 | 0.90× | 0.17× |
+| Divide, quotient and remainder | 200,000 ÷ 50,000 | 2.555 | 1.662 | 1.54× | 0.89× |
+| Divide, quotient and remainder | 10,000,000 ÷ 2,000,000 | 157.5 | 153 | 1.03× | 0.36× |
+| Divide, quotient and remainder | 50,000,000 ÷ 10,000,000 | 825.5 | 1,276 | 0.65× | 0.13× |
+| Divide, quotient and remainder | 200,000,000 ÷ 40,000,000 | 3,746 | 4,427 | 0.85× | 0.16× |
+| Parse | 100,000 | 1.603 | 1.064 | 1.51× | 0.49× |
+| Parse | 20,000,000 | 880.2 | 806.6 | 1.09× | 0.20× |
+| ToString | 100,000 | 3.054 | 2.327 | 1.31× | 0.48× |
+| ToString | 20,000,000 | 2,462 | 2,144 | 1.15× | 0.24× |
 
 Opt-out flags (`-DBIGMATH_USE_THREADS=0` / `-DBIGMATH_NTT_CRT=0` / `-DBIGMATH_LIMB_64=0`) revert any subset of the defaults — useful for embedded targets, header-only-strict consumers, or A/B comparison.
 

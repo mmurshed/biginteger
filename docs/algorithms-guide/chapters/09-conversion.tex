@@ -155,10 +155,10 @@ fixed width, each subtree can write straight into its slot of the output string.
 \toprule
 operation & BigMath, 1 thread & GMP, 1 thread & default build $\div$ GMP \\
 \midrule
-parse 100\,000 digits & 1.601\,ms & 1.114\,ms & 0.52$\times$ \\
-parse 20\,000\,000 digits & 898.5\,ms & 797.3\,ms & 0.20$\times$ \\
-print 100\,000 digits & 3.048\,ms & 2.295\,ms & 0.50$\times$ \\
-print 20\,000\,000 digits & 2\,505\,ms & 2\,124\,ms & 0.24$\times$ \\
+parse 100\,000 digits & 1.603\,ms & 1.064\,ms & 0.49$\times$ \\
+parse 20\,000\,000 digits & 880.2\,ms & 806.6\,ms & 0.20$\times$ \\
+print 100\,000 digits & 3.054\,ms & 2.327\,ms & 0.48$\times$ \\
+print 20\,000\,000 digits & 2\,462\,ms & 2\,144\,ms & 0.24$\times$ \\
 \bottomrule
 \end{tabular}
 
@@ -171,8 +171,8 @@ time of the default build (up to eight threads) divided by single-thread GMP tim
 \begin{itemize}
   \item The first conversion at a new size builds powers of ten and dividers; later ones reuse
         them. Benchmark the second call, and expect the first to be slower.
-  \item The caches are per thread. A worker thread that converts large numbers pays its own
-        first-call cost once.
+  \item Workers share immutable CRT transform tables. Each thread retains its own writable
+        arithmetic buffers, and successive linear and cyclic products reuse them.
   \item If no human needs to read the number (storage, hashing, sending it to another
         program), use its limbs directly (\code{x.Limbs()}): that needs no conversion at all.
 \end{itemize}

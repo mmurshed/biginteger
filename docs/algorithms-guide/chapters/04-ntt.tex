@@ -235,13 +235,16 @@ $\approx 90$-bit coefficients into the output limbs with carries. This last pass
 
 \begin{keyidea}
 Three transforms with small primes are cheaper than one with a huge prime: small primes fit
-in 32-bit lanes, and the three transforms are independent, so they run on different cores
-at the same time.
+in 32-bit lanes. Independent primes and independent row tiles within each prime
+provide two ways to distribute the work across cores.
 \end{keyidea}
 
-The largest transform is $2^{26}$ coefficients, which bounds a product at about 646 million
-decimal digits; past that the library throws an exception rather than return a wrong
-answer. A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
+A single transform holds at most $2^{26}$ coefficients, enough for about 323 million
+decimal digits in each of two equal-length operands. Above that size, BigMath splits
+the operands into nearly equal groups of whole limbs. It multiplies one pair of blocks,
+propagates its carry, and adds the result at the sum of the blocks' offsets in the output.
+The same transform workspace then serves the next pair. A billion-digit product uses
+four blocks per operand and sixteen block products. A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
 16-bit pieces) is still in the source as the \code{-DBIGMATH\_NTT\_CRT=0} build, but the
 three-prime version is faster at every measured size.
 
@@ -440,7 +443,9 @@ transforms, one per operand and prime. A threaded inverse of length at least
 are available. Below 2048 points the ordinary forward transforms run on the caller.
 
 The fused matrix method schedules smaller units. At each stage the caller partitions
-the rows of each plane into transpose tiles (32 rows by default). Workers process
+the rows of each plane into transpose tiles (32 rows by default). At lengths of $2^{24}$
+and above, an ordinary product processes one prime at a time so the three primes share
+two full-length transpose buffers. Smaller transforms batch all three primes. Workers process
 ranges of whole tiles, so two workers can operate on different rows of the same
 prime. The scratch tile has 16 extra 32-bit entries per row. This padding keeps
 successive rows from mapping to the same cache set. Each stage completes before
@@ -464,7 +469,7 @@ for propagation across range boundaries.
      propagate carries into the output limbs.};
   \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d);
 \end{tikzpicture}
-\caption{Scheduling a fused matrix product. Each transform stage distributes tiles
+\caption{Scheduling a fused matrix product in the three-prime batch. Each transform stage distributes tiles
 across the pool, which includes the caller and supports up to eight threads by default.}
 \end{figure}
 

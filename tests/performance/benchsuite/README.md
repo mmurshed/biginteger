@@ -83,8 +83,8 @@ division is checked against the GMP result hash.
 `--extended` adds balanced products around transform boundaries and at 500M,
 750M and 1B decimal digits **per operand**. These extra fixtures use seeded
 binary magnitudes with exactly the specified decimal length, generated outside
-the measurement process. A public multiplication rejected by the CRT length
-guard is recorded as `crt_length_limit` with empty timing and memory fields.
+the measurement process. Current BigMath builds accumulate block products above the single-transform limit.
+Historical executables that rejected those sizes reported `crt_length_limit` with empty timing and memory fields.
 Other exceptions, hash mismatches and failed processes fail the run. Raw inputs
 are discarded after each case. The driver prints the unique CSV path under
 `$BENCH_DIR/results/`.

@@ -8,8 +8,8 @@
  * reconstruction.
  *
  * Prime selection: all three primes have 2-adic order ≥ 2^26, so the CRT
- * NTT length ceiling is 2^26 ≈ 67M coefficients — supports operand pairs
- * up to ~640M decimal digits. Earlier triple (998244353, 985661441,
+ * NTT length ceiling is 2^26 ≈ 67M coefficients per transform. Larger
+ * linear products accumulate block products directly into the output. Earlier triple (998244353, 985661441,
  * 754974721) had P2 capped at 2^22, silently breaking correctness for
  * operand pairs above ~20M digits.
  *
@@ -227,6 +227,7 @@
 #include "../../common/Parallel.h"
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
+#include "../Addition.h"
 
 namespace BigMath
 {
@@ -3636,6 +3637,60 @@ namespace BigMath
       return buffers;
     }
 
+    inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
+                                       const std::vector<DataT> &b, BaseT base);
+
+    // Spread the tail across all blocks so neighboring block pairs can reuse
+    // the same transform plans and scratch capacities.
+    inline size_t ProductBlockLength(size_t limbs, size_t room)
+    {
+      const size_t count = 1 + (limbs - 1) / room;
+      return 1 + (limbs - 1) / count;
+    }
+
+    inline const std::vector<DataT> &ProductBlock(const std::vector<DataT> &v, size_t offset,
+                                                  size_t length, std::vector<DataT> &scratch)
+    {
+      if (length == v.size()) return v;
+      const size_t end = std::min(v.size(), offset + length);
+      scratch.assign(v.begin() + offset, v.begin() + end);
+      return scratch;
+    }
+
+    // Multiply beyond one transform by overlap-add in the limb radix. A
+    // block pair fits one supported transform. Each partial result is fully
+    // carry-normalized before adding it to the preallocated destination.
+    inline std::vector<DataT> MultiplyBlocked(const std::vector<DataT> &a,
+                                              const std::vector<DataT> &b, BaseT base,
+                                              size_t transformLimbs)
+    {
+      if (a.empty() || b.empty()) return {};
+      if (a.size() + b.size() > (size_t)std::numeric_limits<Int>::max())
+        throw std::length_error("CRT product exceeds the supported limb index range");
+      const size_t half = transformLimbs / 2;
+      const size_t aBlock = ProductBlockLength(a.size(), transformLimbs - std::min(b.size(), half));
+      const size_t bBlock = ProductBlockLength(b.size(), transformLimbs - std::min(a.size(), half));
+      std::vector<DataT> result(a.size() + b.size(), 0);
+      std::vector<DataT> aStorage, bStorage;
+      const bool square = &a == &b;
+      for (size_t i = 0; i < a.size(); i += aBlock)
+      {
+        const auto &left = ProductBlock(a, i, aBlock, aStorage);
+        for (size_t j = square ? i : 0; j < b.size(); j += bBlock)
+        {
+          const auto &right = square && i == j ? left : ProductBlock(b, j, bBlock, bStorage);
+          const auto partial = Multiply(left, right, base);
+          if (partial.empty()) continue;
+          const SizeT offset = (SizeT)(i + j), last = (SizeT)partial.size() - 1;
+          AddTo(result, offset, offset + last, partial, 0, last, base);
+          if (square && i != j)
+            AddTo(result, offset, offset + last, partial, 0, last, base);
+        }
+      }
+      TrimZeros(result);
+      return result;
+    }
+
     // ─── Public Multiply ─────────────────────────────────────────────────────
 
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
@@ -3661,18 +3716,11 @@ namespace BigMath
       ULong aCoeffSize = (ULong)a.size() * coeffsPerLimb;
       ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
       ULong coeffCount = aCoeffSize + bCoeffSize - 1;
-      ULong nWide = std::bit_ceil(coeffCount);
-      // CRT length ceiling: the primes' 2-adic order is 2^26 (see the prime
-      // table at the top of this file). Beyond it BuildRoots' (P-1)/n is no
-      // longer exact and the transform silently corrupts — fail loudly. The
-      // pre-guard behavior was undefined output at ≥ ~8 GB operand pairs.
-      // Check BEFORE narrowing to Int: bit_ceil > 2^30 wraps negative in Int
-      // and would sail past the guard.
-      if (nWide > (1u << 26))
-        throw std::invalid_argument(
-            "NttCrt: operands exceed the CRT NTT length ceiling (2^26 coefficients, "
-            "~640M decimal digits)");
-      Int n = (Int)nWide;
+      // Every block pair must fit the roots supported by all three primes.
+      constexpr ULong MaxTransform = (ULong)1 << 26;
+      if (coeffCount > MaxTransform)
+        return MultiplyBlocked(a, b, base, (size_t)(MaxTransform / coeffsPerLimb));
+      const Int n = (Int)std::bit_ceil(coeffCount);
 
       // Three parallel transforms. Buffer zero-fill + packing happen inside
       // the branch that needs them: the fused MFA path (F3) packs straight
