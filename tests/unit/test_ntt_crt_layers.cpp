@@ -147,3 +147,29 @@ REGISTER_TEST(NttCrtLayers, ReuseTransposePlanesAcrossPrimes)
               ClassicMultiplication::Multiply(a, b, Base2_64));
 }
 #endif
+
+REGISTER_TEST(NttCrtLayers, BlockedProductsMatchSchoolbook)
+{
+  std::mt19937_64 random(0x320324);
+  // A small transform budget forces the production block loops, carry
+  // propagation, uneven tails, zero blocks, and the square diagonal.
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    const DataT mask = base == Base2_64 ? ~DataT{0} : 0xffffffffu;
+    for (size_t shortLen : {1, 7, 16, 17, 36, 79})
+    {
+      std::vector<DataT> a(79), b(shortLen);
+      for (auto &v : a) v = random() & mask;
+      for (auto &v : b) v = random() & mask;
+      for (int pattern = 0; pattern < 3; ++pattern)
+      {
+        if (pattern == 1) { std::fill(a.begin(), a.end(), mask); std::fill(b.begin(), b.end(), mask); }
+        if (pattern == 2) std::fill(a.begin() + 10, a.end() - 10, 0);
+        const auto want = ClassicMultiplication::Multiply(a, b, base);
+        ASSERT_TRUE(MultiplyBlocked(a, b, base, 32) == want);
+        ASSERT_TRUE(MultiplyBlocked(b, a, base, 32) == want);
+        ASSERT_TRUE(MultiplyBlocked(a, a, base, 32) == ClassicMultiplication::Multiply(a, a, base));
+      }
+    }
+  }
+}
