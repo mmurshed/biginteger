@@ -528,6 +528,37 @@ For `Base2_64`, each 64-bit limb is split into two 32-bit coefficients instead o
 
 The design trades three smaller 32-bit NTTs against one longer 64-bit Goldilocks NTT. It wins once the transform is large enough because the CRT path halves coefficient count, uses denser 32-bit buffers, and maps naturally onto the cross-prime threaded execution described below. Opt out with `-DBIGMATH_NTT_CRT=0`; adjust the crossover with `-DBIGMATH_NTT_CRT_THRESHOLD=N`.
 
+#### Experimental Fermat outer FFT
+
+The 64-bit-limb prototype computes a zero-padded convolution of operand
+pieces in `Z/(2^n + 1)`. With `K = 2^k` points it uses
+`m = ceil((a_limbs + b_limbs)/(K-1))` limbs per piece. The ring width is
+`128*m + k + 1` bits rounded up to a multiple of `max(64, K/2)`.
+Every coefficient fits below the ring modulus, so the inverse transform
+recovers the exact integer coefficients before overlapped carry assembly.
+
+Power-of-two shifts implement the twiddles, using
+`2^n ≡ -1 (mod 2^n + 1)`. Forward DIF and inverse DIT share bit-reversed
+order. Large butterfly layers run in parallel. Pointwise multiplication
+runs on the dispatching thread so it can use the existing multiplier and
+its worker pool. The current inner product computes the full product and
+folds its high half. A square reuses one forward transform.
+
+The automatic selector starts at `k = 6` and uses the first exponent
+through 14 that keeps the ring width at or below `2^28` bits. The signed
+limb-index cap is shared with CRT overlap-add. The dispatch hook requires
+the fused wide-CRT build, a product beyond both residue-product limits,
+and a build-time `BIGMATH_NTT_FERMAT_MIN_COEFFS` override in product
+32-bit coefficients. The default is disabled. Base-2³² products use the
+existing dispatch. Before entering the outer FFT, the dispatcher releases
+cached CRT buffers larger than an inner transform can use.
+
+The prototype was built and tested on a 32 GiB M1 Max. Actual crossover
+and peak memory above the wide CRT limits await a larger machine.
+The weighted negacyclic inner product is a follow-up. The local
+benchmark forces wide-CRT block geometry at smaller sizes.
+[Local results and reproduction](../BENCHMARK.md#experimental-fermat-outer-fft)
+
 ### Radix-4 + radix-8 fused NTT butterflies (2026-05, PRs #59, #60)
 
 Adjacent radix-2 layers collapse into single load/store butterflies. **Radix-4** fuses 2 layers across 4 elements (4 muls + 4 add + 4 sub per butterfly); **radix-8** fuses 3 layers across 8 elements (12 muls + 12 add + 12 sub, structured as two radix-4 sub-butterflies on slots {0,2,4,6} and {1,3,5,7} followed by 4 radix-2 on the resulting pairs). Modular op count unchanged vs the radix-2 sequence; the win is **memory bandwidth** — radix-8 makes log₈(n) full-array sweeps instead of log₂(n), a 3× reduction.

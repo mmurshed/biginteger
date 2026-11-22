@@ -7,10 +7,12 @@
 // (incrementing run id) and appends the entries flagged `historical` in the
 // manifest to a long-lived comparison table.
 
+#include <charconv>
 #include <cstdio>
 #include <fstream>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "case_measurement.h"
@@ -19,6 +21,8 @@
 #include "biginteger/ops/Operations.h"
 #include "biginteger/common/Builder.h"
 #include "biginteger/common/Parser.h"
+#include "biginteger/algorithms/multiplication/FermatOuterMultiplication.h"
+#include "biginteger/algorithms/multiplication/NTTMultiplicationCrt.h"
 #include "bigdecimal/BigDecimal.h"
 
 using namespace bench;
@@ -81,14 +85,52 @@ static BigInteger LoadInteger(const std::string &dir, int id, int slot, bool raw
     return BigInteger(std::move(limbs), false);
 }
 
+template <class Product>
+static void MeasureProduct(const std::string &dir, const Entry &e, CaseMeasurement &result,
+                           const Product &product) {
+    BigInteger a = LoadInteger(dir, e.id, 0, result.memory);
+    BigInteger b = LoadInteger(dir, e.id, 1, result.memory);
+    BigInteger c;
+    result.Run(e.reps, [&] { c = product(a, b); if (c.Limbs().empty()) abort(); });
+    result.hash = HashBigInteger(c);
+}
+
+static BigInteger MultiplyForMemoryTest(const BigInteger &a, const BigInteger &b,
+                                        std::string_view mode, unsigned setting) {
+    if (BigInteger::Base() != Base2_64)
+        throw std::invalid_argument("Fermat comparisons require 64-bit limbs");
+    const auto left = a.AsVector(), right = b.AsVector();
+    const auto &x = left.get(), &y = right.get();
+    if (mode == "--fermat") {
+        const auto p = setting ? FermatOuter::MakeParameters(x.size(), y.size(), setting)
+                               : FermatOuter::SelectParameters(x.size(), y.size());
+        if (!p) throw std::invalid_argument("Fermat ring cannot hold the requested product");
+        return BigInteger(FermatOuter::MultiplyFermat(x, y, *p), false);
+    }
+
+#if BIGMATH_NTT_WIDE && BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+    if (setting < 2 || x.size() != y.size() || setting > x.size())
+        throw std::invalid_argument("wide-block comparisons require equal lengths and at least two blocks");
+    const size_t block = FermatOuter::DivideUp(x.size(), setting);
+    if (FermatOuter::DivideUp(x.size(), block) != setting)
+        throw std::invalid_argument("operand cannot be spread across that many equal-width blocks");
+    // Choose the block geometry without changing the library's global
+    // thresholds. Each eligible pair uses the ordinary wide-prime path.
+    auto partial = [](const auto &lhs, const auto &rhs) {
+        if (2 * (lhs.size() + rhs.size()) - 1 > (size_t)NttCrt::Wide::WideResidueLength)
+            return NttCrt::Wide::MultiplyWide(lhs, rhs, Base2_64);
+        return NttCrt::Multiply(lhs, rhs, Base2_64);
+    };
+    return BigInteger(NttCrt::MultiplyBlocked(x, y, Base2_64, 2 * block, block, partial), false);
+#else
+    throw std::invalid_argument("wide-block comparisons require the fused wide CRT build");
+#endif
+}
+
 static void MeasureCase(const std::string &dir, const Entry &e, CaseMeasurement &result) {
     switch (e.op) {
         case Op::Mul: {
-            BigInteger a = LoadInteger(dir, e.id, 0, result.memory);
-            BigInteger b = LoadInteger(dir, e.id, 1, result.memory);
-            BigInteger c;
-            result.Run(e.reps, [&] { c = a * b; if (c.Limbs().empty()) abort(); });
-            result.hash = HashBigInteger(c);
+            MeasureProduct(dir, e, result, [](const auto &a, const auto &b) { return a * b; });
             break;
         }
         case Op::Div:
@@ -157,8 +199,24 @@ int main(int argc, char **argv) {
         std::puts(BIGMATH_USE_THREADS ? "threaded" : "single");
         return 0;
     }
-    if (argc == 4 && std::string(argv[1]) == "--memory-case")
+    if (argc == 4 && std::string_view(argv[1]) == "--memory-case")
         return RunMemoryCase(argv[2], argv[3], MeasureCase);
+    if (argc == 6 && std::string_view(argv[1]) == "--memory-case") {
+        const std::string_view mode(argv[4]), input(argv[5]);
+        unsigned setting = 0;
+        const auto parsed = std::from_chars(input.data(), input.data() + input.size(), setting);
+        if ((mode != "--fermat" && mode != "--wide-blocks") || parsed.ec != std::errc{} ||
+            parsed.ptr != input.data() + input.size()) {
+            std::fprintf(stderr, "expected --fermat EXPONENT or --wide-blocks COUNT\n");
+            return 2;
+        }
+        return RunMemoryCase(argv[2], argv[3], [&](const auto &dir, const Entry &e, CaseMeasurement &result) {
+            if (e.op != Op::Mul) throw std::invalid_argument("Fermat comparisons require multiplication");
+            MeasureProduct(dir, e, result, [&](const auto &a, const auto &b) {
+                return MultiplyForMemoryTest(a, b, mode, setting);
+            });
+        });
+    }
     if (argc < 8) {
         fprintf(stderr, "usage: %s <dataset_dir> <gmp_csv> <out_csv> <run_id> "
                         "<machine> <profile> <history_md>\n", argv[0]);

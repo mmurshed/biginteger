@@ -132,6 +132,11 @@
 #define BIGMATH_NTT_WIDE_MAX_TERMS 836075521ULL
 #endif
 
+// Experimental Fermat outer FFT above the wide CRT limits. Disabled by default.
+#ifndef BIGMATH_NTT_FERMAT_MIN_COEFFS
+#define BIGMATH_NTT_FERMAT_MIN_COEFFS 0xffffffffffffffffULL
+#endif
+
 // Post-PR-#107 retune (2026-06-12): the row-chunked ParallelDo(6) fused MFA
 // stages flipped the old 2^24 break-even — the whole-transform non-MFA path
 // idles cores (6-unit forward, 3-unit inverse) while the fused path keeps

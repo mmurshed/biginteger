@@ -278,6 +278,14 @@ from consecutive powers of the prime's primitive root. Powers are stored
 in two tables, indexed by the low and high bits of the coefficient index.
 Above the wide limits, overlap-add combines fully carried block products.
 
+An experimental 64-bit-limb path uses a zero-padded outer FFT of operand
+pieces in $\mathbb{Z}/(2^n+1)$. Twiddles are power-of-two shifts. Pointwise
+products use the library's full multiplier and reduce by folding the
+high half. The inverse FFT recovers exact integer coefficients for carry
+assembly. This path is disabled by default. Local tests on a 32~GiB
+M1~Max force wide-CRT block geometry at smaller sizes. The crossover at
+actual operand sizes above the wide-CRT limits awaits a larger machine.
+
 A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
 16-bit pieces) is still in the source as the \code{-DBIGMATH\_NTT\_CRT=0} build, but the
 three-prime version is faster at every measured size.

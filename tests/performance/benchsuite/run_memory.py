@@ -27,6 +27,8 @@ def generate_raw(path, digits, slot):
     # and 10^d. Write the GMP raw header and a seeded big-endian magnitude.
     bits = math.floor(digits * math.log2(10))
     size = (bits + 7) // 8
+    if size >= 1 << 31:
+        raise ValueError("operand exceeds the signed GMP raw length field")
     high_bits = (bits - 1) % 8 + 1
     rng = random.Random(2 * digits + slot)
     with path.open("wb") as out:
@@ -39,7 +41,7 @@ def generate_raw(path, digits, slot):
             left -= count
 
 
-def measure(dataset, scratch, output, builds, extended, balanced_digits=None):
+def measure(dataset, scratch, output, builds, extended, balanced_digits, product_options):
     with (dataset / "manifest.csv").open() as f:
         reader = csv.DictReader(f)
         manifest_fields = reader.fieldnames
@@ -85,8 +87,9 @@ def measure(dataset, scratch, output, builds, extended, balanced_digits=None):
             print(f"  {eid} {mode} {entry['a_digits']} x {entry['b_digits']}", flush=True)
             ref = None
             for library, executable in builds.items():
-                result = subprocess.check_output([executable, "--memory-case", scratch, str(index)],
-                                                 text=True).strip().split(",")
+                command = [executable, "--memory-case", scratch, str(index),
+                           *product_options.get(library, ())]
+                result = subprocess.check_output(command, text=True).strip().split(",")
                 if len(result) != len(METRICS) or result[0] not in {"ok", "crt_length_limit"}:
                     raise RuntimeError(f"invalid {library} result: {result}")
                 metrics = dict(zip(METRICS, result))
@@ -125,14 +128,44 @@ def main():
     cases.add_argument("--extended", action="store_true", help="include balanced products through 5B digits")
     cases.add_argument("--balanced-digits", type=int, nargs="+", metavar="DIGITS",
                        help="measure only seeded balanced products at these decimal lengths")
+    parser.add_argument("--fermat-blocks", type=int,
+                        help="compare the Fermat FFT with this many wide CRT blocks per operand")
+    parser.add_argument("--fermat-exponents", type=int, nargs="+",
+                        help="sweep FFT exponents for the Fermat path (0 selects automatically)")
+    parser.add_argument("--fermat-threads", choices=("both", "default", "single"), default="both",
+                        help="build modes to measure in the Fermat comparison")
     args = parser.parse_args()
+    if args.fermat_blocks is not None and (args.fermat_blocks < 2 or not args.balanced_digits):
+        parser.error("--fermat-blocks requires at least 2 blocks and --balanced-digits")
+    if args.fermat_blocks is None and (args.fermat_exponents is not None or args.fermat_threads != "both"):
+        parser.error("Fermat options require --fermat-blocks")
+    args.fermat_exponents = args.fermat_exponents or [0]
+    if any(k != 0 and not 6 <= k <= 14 for k in args.fermat_exponents):
+        parser.error("Fermat exponents must be 0 (automatic) or 6 through 14")
+    if len(set(args.fermat_exponents)) != len(args.fermat_exponents):
+        parser.error("Fermat exponents must be distinct")
     if args.balanced_digits and any(d < 1 for d in args.balanced_digits):
         parser.error("--balanced-digits requires positive decimal lengths")
     builds = {"gmp": args.build.resolve() / "bench_run_gmp",
               "bigmath_default": args.build.resolve() / "bench_run_bigmath",
               "bigmath_single": args.single_build.resolve() / "bench_run_bigmath"}
-    for library, expected in [("bigmath_default", "threaded"), ("bigmath_single", "single")]:
-        mode = subprocess.check_output([builds[library], "--thread-mode"], text=True).strip()
+    product_options = {}
+    for label, expected in [("default", "threaded"), ("single", "single")]:
+        library = f"bigmath_{label}"
+        executable = builds[library]
+        if args.fermat_blocks is not None:
+            del builds[library]
+            if args.fermat_threads not in ("both", label):
+                continue
+            block_label = f"wide_blocks{args.fermat_blocks}_{label}"
+            builds[block_label] = executable
+            product_options[block_label] = ("--wide-blocks", str(args.fermat_blocks))
+            for exponent in args.fermat_exponents:
+                choice = f"k{exponent}" if exponent else "auto"
+                fft_label = f"fermat_{label}_{choice}"
+                builds[fft_label] = executable
+                product_options[fft_label] = ("--fermat", str(exponent))
+        mode = subprocess.check_output([executable, "--thread-mode"], text=True).strip()
         if mode != expected:
             parser.error(f"{library} requires a {expected} build, got {mode}")
     # Keep existing results intact if a child fails halfway through the sweep.
@@ -140,7 +173,8 @@ def main():
         scratch = Path(tmp).resolve()
         partial = scratch / "results.csv"
         with partial.open("w", newline="") as out:
-            measure(args.dataset.resolve(), scratch, out, builds, args.extended, args.balanced_digits)
+            measure(args.dataset.resolve(), scratch, out, builds, args.extended, args.balanced_digits,
+                    product_options)
         partial.replace(args.output)
 
 
