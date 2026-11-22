@@ -52,3 +52,30 @@ REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
       check(BigInteger(left).SetSign(negativeLeft), BigInteger(right).SetSign(negativeRight), expected);
   check(right, left, expected);
 }
+
+REGISTER_TEST(NumberTheory, SquareRootAndRemainder)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  const auto check = [](BigInteger const &n, BigInteger const &expectedRoot,
+                        BigInteger const &expectedRemainder) {
+    const auto [root, remainder] = SqrtRem(n);
+    ASSERT_TRUE(root == expectedRoot);
+    ASSERT_TRUE(remainder == expectedRemainder);
+  };
+  check(BigInteger(12), value("0"), value("0"));
+  check(value("1"), value("1"), value("0"));
+  check(value("3"), value("1"), value("2"));
+  check(value("18446744073709551615"), value("4294967295"), value("8589934590"));
+
+  const auto one = value("1");
+  const auto root = value("340282366920938463463374607431768211456");
+  const auto square = root * root;
+  check(square - one, root - one, root + root - value("2"));
+  check(square, root, value("0"));
+  check(square + one, root, one);
+
+  bool threw = false;
+  try { (void)SqrtRem(value("-1")); }
+  catch (std::invalid_argument const &) { threw = true; }
+  ASSERT_TRUE(threw);
+}

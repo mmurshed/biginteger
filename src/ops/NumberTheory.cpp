@@ -97,4 +97,43 @@ namespace BigMath
     }
     return {std::move(left), std::move(x), std::move(y)};
   }
+
+  std::pair<BigInteger, BigInteger> SqrtRem(BigInteger const &n)
+  {
+    if (n.IsNegative())
+      throw std::invalid_argument("SqrtRem requires a nonnegative input");
+    if (n.Zero())
+      return {BigInteger(), BigInteger()};
+
+    auto limbs = n.Limbs();
+    while (limbs.back() == 0)
+      limbs = limbs.first(limbs.size() - 1);
+    const auto bits = (limbs.size() - 1) * uint64_t{LimbBits} + std::bit_width(limbs.back());
+    // Start at 2^ceil(bits / 2), above the true root. Integer Newton steps
+    // decrease this upper bound until division reports n/root >= root.
+    const auto seedBit = (bits + 1) / 2;
+    const DataT seedLimb = DataT{1} << (seedBit % LimbBits);
+    if (limbs.size() == 1)
+    {
+      const DataT value = limbs.front();
+      DataT root = seedLimb;
+      for (DataT quotient = value / root; quotient < root; quotient = value / root)
+        root = (root + quotient) / 2;
+      const DataT remainder = value - root * root;
+      return {BigInteger::FromLimbs({&root, 1}, false),
+              BigInteger::FromLimbs({&remainder, 1}, false)};
+    }
+
+    auto root = BigInteger::FromLimbs({&seedLimb, 1}, false) << static_cast<SizeT>(seedBit / LimbBits);
+    for (;;)
+    {
+      const auto quotient = n / root;
+      if (quotient >= root)
+      {
+        auto remainder = n - root * root;
+        return {std::move(root), std::move(remainder)};
+      }
+      root = (root + quotient) / DataT{2};
+    }
+  }
 }

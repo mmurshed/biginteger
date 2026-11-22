@@ -33,6 +33,21 @@ Each size checks 24 signed pairs, half with a planted common factor. Both BigMat
 | 2,048 | 115.88 | 7.80 | 296.95 | 9.54 |
 | 4,096 | 301.97 | 17.31 | 810.39 | 24.58 |
 
+### Integer square root and remainder
+
+Each size checks 24 random integers, perfect squares and values one below or above a perfect square. The timing fixture is a random integer with the stated bit length. BigMath uses integer Newton iteration, with a scalar path when the input fits in one limb. [CSV with all eight timing rows](docs/benchmarks/2026-11-22-sqrtrem-m1-max.csv)
+
+| Input bits | BigMath | GMP |
+|---:|---:|---:|
+| 32 | 0.010437 | 0.008759 |
+| 64 | 0.012472 | 0.008667 |
+| 65 | 0.312335 | 0.031973 |
+| 256 | 0.811279 | 0.041342 |
+| 1,024 | 2.800125 | 0.184570 |
+| 4,096 | 15.093750 | 0.841156 |
+| 16,384 | 140.390625 | 5.822875 |
+| 65,536 | 1,283.833250 | 49.875000 |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)

@@ -1,6 +1,8 @@
 #ifndef BIGINTEGER_NUMBER_THEORY
 #define BIGINTEGER_NUMBER_THEORY
 
+#include <utility>
+
 #include "../BigInteger.h"
 
 namespace BigMath
@@ -25,6 +27,10 @@ namespace BigMath
   // Return gcd, x and y such that a*x + b*y == gcd. Both inputs may be signed.
   // For two zero inputs all three result fields are zero.
   ExtendedGcdResult ExtendedGcd(BigInteger const &a, BigInteger const &b);
+
+  // Return {root, remainder}, where root is floor(sqrt(n)) and
+  // remainder is n - root*root. Throws std::invalid_argument for n < 0.
+  std::pair<BigInteger, BigInteger> SqrtRem(BigInteger const &n);
 }
 
 #endif
