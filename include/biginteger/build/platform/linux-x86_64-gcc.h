@@ -1,5 +1,5 @@
 #pragma once
-// Selected from the three sweeps in GitHub Actions run 44997161065.
+// Survey run 44997161065, with cutoffs refined using validation timings.
 #if BIGMATH_LIMB_64 == 1
 #ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
 #define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 4096
@@ -11,6 +11,6 @@
 #define BIGMATH_NTT_SQUARE_THRESHOLD 2048
 #endif
 #ifndef BIGMATH_NTT_SQUARE_COLD_THRESHOLD
-#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 4096
+#define BIGMATH_NTT_SQUARE_COLD_THRESHOLD 2560
 #endif
 #endif
