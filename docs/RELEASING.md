@@ -66,5 +66,5 @@ gh run download RUN_ID --pattern 'release-*'
    left a draft, inspect it in Releases before retrying publication.
 
 The release workflow uses baseline CPU instructions. Source builds continue to
-default to native optimization. Dispatch thresholds follow the checked-in
-platform profiles at the tagged commit. See [Platform tuning](PLATFORM_TUNING.md).
+default to native optimization. The package embeds the matching platform profile at the tagged commit.
+Use the exported CMake target so applications see the same thresholds. See [Platform tuning](PLATFORM_TUNING.md).

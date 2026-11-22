@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -164,6 +165,86 @@ namespace
     return best;
   }
 
+  template <class Fn>
+  void TimeDispatch(const char *operation, const char *state, SizeT a, SizeT b, Fn fn)
+  {
+    vector<double> elapsed;
+    for (int sample = 0; sample < 9; ++sample)
+    {
+      if (string_view(state) == "parked")
+        do { this_thread::sleep_for(chrono::milliseconds(2)); } while (ParallelWarm());
+      const auto start = chrono::steady_clock::now();
+      const SizeT checksum = fn();
+      const auto end = chrono::steady_clock::now();
+      sink += checksum;
+      elapsed.push_back(chrono::duration<double, micro>(end - start).count());
+    }
+    sort(elapsed.begin(), elapsed.end());
+    cout << operation << ',' << state << ',' << a << ',' << b << ','
+         << fixed << setprecision(6) << elapsed[elapsed.size() / 2] << '\n';
+  }
+
+  void Holdout()
+  {
+    mt19937_64 gen(0xE86452A2);
+    const auto base = BigInteger::Base();
+    cout << "operation,state,a_limbs,b_limbs,median_us\n";
+    for (const auto [aSize, bSize] : vector<pair<SizeT, SizeT>>{
+             {27, 27}, {29, 29}, {35, 35}, {55, 55}, {312, 312}, {336, 336},
+             {421, 421}, {496, 496}, {531, 531}, {700, 700}, {991, 991}, {1131, 1131},
+             {1501, 1501}, {1981, 1981}, {2129, 2129}, {2461, 2461},
+             {2639, 2639}, {2949, 2949}, {3973, 3973}, {4219, 4219}, {6173, 6173},
+             {703, 23}, {859, 29}, {1631, 37}, {2101, 73}, {1337, 119},
+             {3007, 359}, {4817, 1221}})
+    {
+      const auto a = RandomNumber(aSize, gen), b = RandomNumber(bSize, gen);
+      if (Multiply(a, b, base) != ClassicMultiplication::Multiply(a, b, base))
+        throw runtime_error("holdout multiplication mismatch");
+      auto run = [&] { return Multiply(a, b, base).size(); };
+      const char *op = aSize == bSize ? "mul-balanced" : "mul-skew";
+      TimeDispatch(op, "burst", aSize, bSize, run);
+      TimeDispatch(op, "parked", aSize, bSize, run);
+    }
+
+    for (const SizeT size : {303, 340, 378, 484, 535, 599, 627, 723, 811, 991, 1153,
+                            1277, 1349, 1441, 1973, 2123, 2483, 2671, 3011, 4001, 4229, 6037})
+    {
+      const auto a = RandomNumber(size, gen);
+      if (Square(a, base) != ClassicMultiplication::Multiply(a, a, base))
+        throw runtime_error("holdout square mismatch");
+      auto run = [&] { return Square(a, base).size(); };
+      TimeDispatch("square", "burst", size, size, run);
+      TimeDispatch("square", "parked", size, size, run);
+    }
+
+    struct DivisionShape
+    {
+      const char *operation;
+      SizeT a, b;
+    };
+    for (const auto [op, aSize, bSize] : vector<DivisionShape>{
+             {"div-bz", 146, 73}, {"div-bz", 174, 87}, {"div-bz", 202, 101},
+             {"div-bz", 262, 131}, {"div-bz", 378, 189},
+             {"div-balanced", 2042, 1021}, {"div-balanced", 2894, 1447},
+             {"div-balanced", 3154, 1577}, {"div-balanced", 3622, 1811},
+             {"div-balanced", 4502, 2251}, {"div-balanced", 6298, 3149},
+             {"div-skew", 1653, 551}, {"div-skew", 2217, 739}, {"div-skew", 2397, 799},
+             {"div-skew", 2865, 955}, {"div-skew", 3459, 1153},
+             {"div-near2", 4489, 2565}, {"div-near2", 5249, 2999},
+             {"div-near2", 5557, 3175}, {"div-near2", 6533, 3733},
+             {"div-short", 8028, 6021}, {"div-short", 11996, 8997},
+             {"div-short", 12812, 9609}, {"div-short", 14212, 10659}})
+    {
+      const auto a = RandomNumber(aSize, gen), b = RandomNumber(bSize, gen);
+      if (DivideAndRemainder(a, b, base) != FastDivision::DivideAndRemainder(a, b, base))
+        throw runtime_error("holdout division mismatch");
+      TimeDispatch(op, "burst", aSize, bSize, [&] {
+        const auto [q, r] = DivideAndRemainder(a, b, base);
+        return q.size() + r.size();
+      });
+    }
+  }
+
   void TuneMultiplication(bool full, ThresholdSuggestions &s)
   {
     PrintHeader("Multiplication Dispatch");
@@ -238,7 +319,7 @@ namespace
       warmNtt.Observe(2 * limbs, karaMs, nttMs);
 
       cout << limbs << ',' << limbs * 2 << ','
-           << fixed << setprecision(4) << classicMs << ','
+           << fixed << setprecision(6) << classicMs << ','
            << karaMs << ',' << toom3Ms << ',' << toom5Ms << ',' << nttMs << ',' << parked << ','
            << winner << '\n';
       previousTotal = limbs * 2;
@@ -293,7 +374,7 @@ namespace
         classicWinsPrefix = false;
 
       cout << small << ',' << largeLimbs << ','
-           << fixed << setprecision(4) << classicMs << ','
+           << fixed << setprecision(6) << classicMs << ','
            << karaMs << ',' << nttMs << ','
            << winner << '\n';
     }
@@ -362,7 +443,7 @@ namespace
       coldSquare.Observe(limbs, karaMs, parked);
 
       cout << limbs << ','
-           << fixed << setprecision(4) << classicMs << ','
+           << fixed << setprecision(6) << classicMs << ','
            << karaMs << ',' << nttMs << ',' << parked << ','
            << winner << '\n';
     }
@@ -493,7 +574,7 @@ namespace
 
       cout << dividendLimbs << ',' << divisorLimbs << ','
            << fixed << setprecision(2) << ratio << ','
-           << setprecision(4) << fastMs << ',' << bzMs << ',' << newtonMs << ','
+           << setprecision(6) << fastMs << ',' << bzMs << ',' << newtonMs << ','
            << winner << '\n';
     }
 
@@ -528,6 +609,12 @@ namespace
 
 int main(int argc, char **argv)
 {
+  if (argc == 2 && string_view(argv[1]) == "--holdout")
+  {
+    Holdout();
+    return 0;
+  }
+
   bool full = false;
   bool emitHeaderRequested = false;
   string emitHeaderPath;

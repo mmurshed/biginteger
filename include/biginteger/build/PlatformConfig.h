@@ -31,6 +31,10 @@
 
 #include BIGMATH_PLATFORM_OVERRIDE
 
+#elif !defined(BIGMATH_PLATFORM_NONE) && defined(BIGMATH_PACKAGED_PLATFORM)
+
+#include "biginteger/build/PackagedPlatform.h"
+
 #elif !defined(BIGMATH_PLATFORM_NONE)
 
 // ─── architecture detection ───────────────────────────────────────────────────

@@ -106,7 +106,7 @@ docs/                technical references (see below)
 ## Requirements
 
 - CMake ≥ 3.16
-- C++20 compiler with `__uint128_t` + `__builtin_*_overflow` — GCC ≥ 10, Clang ≥ 11, or Apple Clang. MSVC is not supported.
+- A current C++20 GCC, Clang, or Apple Clang toolchain with `__uint128_t` and `__builtin_*_overflow`. On Windows, use MSYS2 UCRT64 Clang.
 - (Optional) `libgmp` for the GMP comparison benchmark.
 
 ## Build

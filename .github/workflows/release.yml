@@ -9,6 +9,7 @@ on:
       - '.github/workflows/release.yml'
       - '.github/platforms.json'
       - '.github/scripts/package-release.sh'
+      - '.github/scripts/configure-platform.sh'
       - '.github/package-smoke/**'
       - 'CMakeLists.txt'
       - 'cmake/**'
@@ -66,7 +67,7 @@ jobs:
     env:
       CXX: ${{ matrix.cxx }}
       BIGMATH_CPU: ${{ matrix.cpu }}
-      PACKAGE_KEY: ${{ matrix.key }}
+      PLATFORM_KEY: ${{ matrix.key }}
       PACKAGE_VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4

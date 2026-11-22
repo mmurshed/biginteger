@@ -31,6 +31,20 @@ endif()
 option(BIGMATH_BUILD_TESTS "Build correctness and performance tests" ON)
 option(BIGMATH_BUILD_SHARED "Also build a shared-library variant" OFF)
 
+# Explicit profiles keep the library and its installed headers on the same
+# thresholds even when a compatible consumer uses a different compiler.
+set(BIGMATH_PLATFORM_PROFILE "" CACHE STRING
+    "Dispatch profile header (absolute path), none for defaults, empty for auto-selection")
+if(NOT BIGMATH_PLATFORM_PROFILE STREQUAL "")
+    set(BIGMATH_PROFILE_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/profile-include")
+    set(BIGMATH_PROFILE_HEADER "${BIGMATH_PROFILE_INCLUDE}/biginteger/build/PackagedPlatform.h")
+    if(BIGMATH_PLATFORM_PROFILE STREQUAL "none")
+        configure_file(cmake/DefaultPlatform.h "${BIGMATH_PROFILE_HEADER}" COPYONLY)
+    else()
+        configure_file("${BIGMATH_PLATFORM_PROFILE}" "${BIGMATH_PROFILE_HEADER}" COPYONLY)
+    endif()
+endif()
+
 # ─── library target ───────────────────────────────────────────────────────────
 file(GLOB_RECURSE BIGMATH_SOURCES CONFIGURE_DEPENDS src/*.cpp bigdecimal/*.cpp)
 file(GLOB_RECURSE BIGMATH_HEADERS CONFIGURE_DEPENDS include/biginteger/*.h include/bigdecimal/*.h)
@@ -47,6 +61,10 @@ target_include_directories(bigmath
 
 target_compile_features(bigmath PUBLIC cxx_std_20)
 target_link_libraries(bigmath PUBLIC Threads::Threads)
+if(DEFINED BIGMATH_PROFILE_HEADER)
+    target_include_directories(bigmath PUBLIC $<BUILD_INTERFACE:${BIGMATH_PROFILE_INCLUDE}>)
+    target_compile_definitions(bigmath PUBLIC BIGMATH_PACKAGED_PLATFORM)
+endif()
 
 # Shared library variant (optional; mirrors object code).
 if(BIGMATH_BUILD_SHARED)
@@ -58,6 +76,10 @@ if(BIGMATH_BUILD_SHARED)
             $<INSTALL_INTERFACE:include>)
     target_compile_features(bigmath_shared PUBLIC cxx_std_20)
     target_link_libraries(bigmath_shared PRIVATE Threads::Threads)
+    if(DEFINED BIGMATH_PROFILE_HEADER)
+        target_include_directories(bigmath_shared PUBLIC $<BUILD_INTERFACE:${BIGMATH_PROFILE_INCLUDE}>)
+        target_compile_definitions(bigmath_shared PUBLIC BIGMATH_PACKAGED_PLATFORM)
+    endif()
     set_target_properties(bigmath_shared PROPERTIES
         OUTPUT_NAME bigmath
         SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -222,6 +244,9 @@ install(TARGETS bigmath
 install(DIRECTORY include/biginteger DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/bigdecimal DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/bigmath)
+if(DEFINED BIGMATH_PROFILE_HEADER)
+    install(FILES "${BIGMATH_PROFILE_HEADER}" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/biginteger/build)
+endif()
 
 # Export so `find_package(bigmath)` works against an installed prefix
 # (README/BUILDING document this consumption path).

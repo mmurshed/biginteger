@@ -1,86 +1,76 @@
-name: tune
+name: Tune platform dispatch
 
-# Per-platform dispatch-threshold tuning.
-#
-# Manual trigger only. For each OS/arch/compiler it builds and runs
-# tests/performance/dispatch_tuner (Release, -march=native), which emits a
-# profile header into include/biginteger/build/platform/<key>.h. The profiles
-# are collected and a single PR is opened for review.
-#
-# CAVEAT: GitHub-hosted runners are shared VMs whose host CPU varies between
-# runs, and the build uses -march=native. Values produced here reflect *that
-# runner's* CPU, not a canonical chip — treat the PR as a baseline and prefer
-# tuning on real target hardware for values you depend on.
+run-name: Tune ${{ inputs.stage }} (${{ inputs.mode }}) on ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
     inputs:
+      stage:
+        description: Measure crossovers or validate the profile headers on this branch
+        type: choice
+        default: survey
+        options: [survey, validate]
       mode:
-        description: "Tuner mode (full = wider size sweep, slower)"
+        description: Crossover sweep size (survey only)
         type: choice
         default: full
         options: [full, quick]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  tune-unix:
-    name: tune ${{ matrix.key }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.matrix.outputs.platforms }}
+      baseline: ${{ steps.matrix.outputs.baseline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: matrix
+        env:
+          BASELINE_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          STAGE: ${{ inputs.stage }}
+        shell: bash
+        run: |
+          echo "platforms=$(jq -c . .github/platforms.json)" >> "$GITHUB_OUTPUT"
+          if [[ "$STAGE" == validate ]]; then
+            baseline=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASELINE_BRANCH" --jq .object.sha)
+            [[ "$baseline" =~ ^[a-f0-9]{40}$ ]]
+            echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+          fi
+
+  benchmark:
+    name: ${{ inputs.stage }} ${{ matrix.key }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            key: linux-x86_64-gcc
-            cc: gcc
-            cxx: g++
-          - os: ubuntu-latest
-            key: linux-x86_64-clang
-            cc: clang
-            cxx: clang++
-          - os: macos-latest
-            key: macos-arm64-clang
-            cc: clang
-            cxx: clang++
+      matrix: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    env:
+      CXX: ${{ matrix.cxx }}
+      BIGMATH_CPU: ${{ matrix.cpu }}
+      PLATFORM_KEY: ${{ matrix.key }}
+      TUNING_BASELINE_SHA: ${{ needs.plan.outputs.baseline }}
+      TUNING_STAGE: ${{ inputs.stage }}
+      TUNING_MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build tuner
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --target dispatch_tuner -j
-
-      - name: Run tuner
-        run: |
-          MODE_FLAG=""
-          [ "${{ inputs.mode }}" = "full" ] && MODE_FLAG="--full"
-          ./build/dispatch_tuner $MODE_FLAG --emit-header \
-            "include/biginteger/build/platform/${{ matrix.key }}.h"
-
-      - uses: actions/upload-artifact@v4
         with:
-          name: profile-${{ matrix.key }}
-          path: include/biginteger/build/platform/${{ matrix.key }}.h
-          if-no-files-found: error
-
-  tune-windows:
-    name: tune windows-x86_64-clang
-    runs-on: windows-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
+          persist-credentials: false
       - uses: actions/checkout@v4
-
+        if: inputs.stage == 'validate'
+        with:
+          ref: ${{ needs.plan.outputs.baseline }}
+          path: build/tune-baseline-source
+          sparse-checkout: include/biginteger/build/platform
+          persist-credentials: false
       - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
         with:
           msystem: UCRT64
           update: true
@@ -88,56 +78,38 @@ jobs:
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
-
-      - name: Build tuner
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --target dispatch_tuner -j
-
-      - name: Run tuner
-        run: |
-          MODE_FLAG=""
-          [ "${{ inputs.mode }}" = "full" ] && MODE_FLAG="--full"
-          ./build/dispatch_tuner.exe $MODE_FLAG --emit-header \
-            "include/biginteger/build/platform/windows-x86_64-clang.h"
-
+      - name: Benchmark on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash .github/scripts/tune-platform.sh
+      - name: Benchmark on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: bash .github/scripts/tune-platform.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: profile-windows-x86_64-clang
-          path: include/biginteger/build/platform/windows-x86_64-clang.h
-          if-no-files-found: error
+          name: ${{ inputs.stage }}-${{ matrix.key }}
+          path: build/tuning-results/
+          if-no-files-found: warn
 
-  open-pr:
-    name: Collect profiles and open PR
-    needs: [tune-unix, tune-windows]
+  summary:
+    if: inputs.stage == 'validate'
+    needs: benchmark
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download tuned profiles
-        uses: actions/download-artifact@v4
         with:
-          pattern: profile-*
-          merge-multiple: true
-          path: include/biginteger/build/platform
-
-      - name: Open pull request
-        uses: peter-evans/create-pull-request@v6
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
         with:
-          branch: auto/platform-tuning
-          title: "Refresh platform tuning profiles"
-          commit-message: "Regenerate per-platform dispatch threshold profiles"
-          body: |
-            Auto-generated by the **tune** workflow (mode: `${{ inputs.mode }}`).
-
-            Each `include/biginteger/build/platform/<os>-<arch>-<compiler>.h` was
-            produced by `dispatch_tuner` on its respective CI runner.
-
-            ⚠️ CI runners are shared VMs with varying host CPUs and the build
-            uses `-march=native`. Review the deltas before merging; for values
-            you depend on, regenerate on real target hardware.
-          add-paths: include/biginteger/build/platform/*.h
-          delete-branch: true
+          pattern: validate-*
+          path: results
+      - name: Compare held-out timings
+        run: |
+          python3 .github/scripts/compare-tuning.py results/validate-* | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validation-comparison
+          path: results/*/comparison.csv
+          if-no-files-found: error
