@@ -206,6 +206,17 @@ The large serial truncated transform now factors each weight into a block and of
 | mul 162M × 162M | 3,410.6 MiB · 2,400.2 ms | 1,112.5 MiB · 2,419.3 ms | 932.3 MiB · 2,369.8 ms |
 | mul 200M × 200M | 3,640.6 MiB · 2,860.5 ms | 1,342.5 MiB · 2,917.0 ms | 1,116.8 MiB · 2,872.3 ms |
 
+### Reuse threaded transform buffers
+
+Compared with `4e13510`, fused products of length 2²⁴ and above process each prime in parallel over rows, then reuse both scratch planes for the next prime. This cuts four full-size planes. The 160M and 162M cases straddle a transform doubling. [All observations](docs/benchmarks/memory-fix-planes-default.csv)
+
+| Shape | Before | After | GMP |
+|---|---:|---:|---:|
+| mul 50M × 50M | 766.4 MiB · 168.4 ms | 533.7 MiB · 175.2 ms | 281.8 MiB · 675.0 ms |
+| mul 160M × 160M | 1,658.7 MiB · 365.1 ms | 1,181.5 MiB · 377.7 ms | 895.5 MiB · 2,498.3 ms |
+| mul 162M × 162M | 2,878.4 MiB · 693.5 ms | 1,898.3 MiB · 715.8 ms | 932.3 MiB · 2,409.0 ms |
+| mul 200M × 200M | 2,966.6 MiB · 713.9 ms | 1,988.5 MiB · 720.4 ms | 1,117.4 MiB · 2,912.1 ms |
+
 ## Peak memory and large-product time
 
 The November 21, 2026 run measured the implementation from `e62e77f` on an Apple M1 Max with 32 GiB of RAM. Each operation ran in three fresh processes, one each for GMP 6.3.0, threaded BigMath (up to eight threads), and single-threaded BigMath. The 111 standard cases use the same operands as the timing tables above. Thirteen additional balanced products bracket transform boundaries and extend the sweep to one billion decimal digits per operand. [All times, RSS readings, statuses and hashes](docs/benchmarks/2026-11-21-peak-memory-m1-max.csv) · [Run the benchmark](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)

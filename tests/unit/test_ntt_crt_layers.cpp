@@ -123,3 +123,27 @@ REGISTER_TEST(NttCrtLayers, ForwardInverseMatchRadix2ReferenceP3)
 {
   CheckField<F3, G3>(0x5EED0003ULL);
 }
+
+#if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+REGISTER_TEST(NttCrtLayers, ReuseTransposePlanesAcrossPrimes)
+{
+  const Int n = 1 << 15;
+  if (!MfaFusedWindow(n)) return;
+  std::mt19937_64 random(0x2badd00d);
+  std::vector<DataT> a(n / 4), b(n / 4);
+  for (auto &x : a) x = random();
+  for (auto &x : b) x = random();
+  PackedOperandView va(a, Base2_64), vb(b, Base2_64);
+  std::vector<UInt> sa(n), sb(n), f1(n), f2(n), f3(n);
+  auto prime = [&]<typename F, UInt G>(std::vector<UInt> &result) {
+    MfaPlanTree<F> tree;
+    BuildMfaPlanTree<F, G>(n, tree);
+    MfaFusedProductPrime<F>(va, vb, result.data(), sa.data(), sb.data(), n, tree);
+  };
+  prime.template operator()<F1, G1>(f1);
+  prime.template operator()<F2, G2>(f2);
+  prime.template operator()<F3, G3>(f3);
+  ASSERT_TRUE(FinalizeProduct(f1, f2, f3, n - 1, Base2_64, n / 2) ==
+              ClassicMultiplication::Multiply(a, b, Base2_64));
+}
+#endif

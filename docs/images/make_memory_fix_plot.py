@@ -11,6 +11,7 @@ HERE = Path(__file__).resolve().parent
 CASES = [
     ("skew-default", "mul", 10_000_000, 1_000_000, "Skewed product\n10M × 1M"),
     ("weights-single", "mul", 200_000_000, 200_000_000, "Single-thread\n200M × 200M"),
+    ("planes-default", "mul", 200_000_000, 200_000_000, "Threaded\n200M × 200M"),
 ]
 fig, axes = plt.subplots(1, 2, figsize=(8.2, 3.7), layout="constrained")
 for ax, field, title in zip(axes, ("warm_peak_bytes", "warm_ms"),

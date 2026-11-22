@@ -3354,6 +3354,36 @@ namespace BigMath
       });
     }
 
+    // At large lengths a single prime supplies enough row tiles to occupy
+    // the pool. Reuse the two transpose planes across all three primes.
+    template <typename F>
+    inline void MfaFusedProductPrime(const PackedOperandView &a, const PackedOperandView &b,
+                                     UInt *out, UInt *scratchA, UInt *scratchB, Int n,
+                                     const MfaPlanTree<F> &tree)
+    {
+      Int n1, n2;
+      MFAFactor(n, n1, n2);
+      const auto &roots = tree.Roots(n);
+      const auto &plan1 = tree.Leaf(n1);
+      const auto &plan2 = tree.Leaf(n2);
+      const Int *br = GetBitReverseTable(n2).data();
+
+      MfaParallelRows(2, n1, [&](Int operand, Int start, Int end) {
+        FusedForwardAPack<F>(operand == 0 ? a : b, operand == 0 ? scratchA : scratchB,
+                             n, n1, n2, plan2, roots.forward.data(), br, start, end);
+      });
+      MfaParallelRows(1, n2, [&](Int, Int start, Int end) {
+        FusedForwardB<F>(out, scratchA, n1, n2, plan1, start, end);
+        FusedForwardBMul<F>(out, scratchB, n1, n2, plan1, start, end);
+      });
+      MfaParallelRows(1, n2, [&](Int, Int start, Int end) {
+        FusedInverseA<F>(out, scratchA, n1, n2, plan1, start, end);
+      });
+      MfaParallelRows(1, n1, [&](Int, Int start, Int end) {
+        FusedInverseB<F>(out, scratchA, n, n1, n2, plan2, roots.inverse.data(), br, start, end);
+      });
+    }
+
     // Forward stage A packs both operands for all three primes. Stage B
     // transforms matching rows of a and b, multiplying b into a on scatter.
     // a/b are zero-copy limb views (pass fusion F3 — stage A packs each
@@ -3657,20 +3687,30 @@ namespace BigMath
 #if BIGMATH_NTT_MFA_FUSE
         if (MfaFusedWindow(n))
         {
-          // Pass fusion F1 + F3 + row-chunked stages — see
-          // MfaFusedForwardPointwise. Stage A packs straight from the limb
-          // arrays (no input planes), so fa/fb were never packed or zeroed
-          // above; fa and the scratches are fully written before first read,
-          // so resize (no zero fill) suffices — on warm thread_local reuse
-          // that skips 9 serial plane writes.
-          for (int i = 0; i < 6; ++i) mfaScratch[i].resize(n);
-          fa1.resize(n); fa2.resize(n); fa3.resize(n);
-          UInt *fap[3] = {fa1.data(), fa2.data(), fa3.data()};
-          UInt *scrs[6] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
-                           mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
           PackedOperandView va(a, base), vb(b, base);
-          MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
-          MfaFusedInverse(fap, scrs, n, tree1, tree2, tree3);
+          const bool reuseScratch = n >= (1 << 24);
+          if (reuseScratch)
+          {
+            // Earlier small products on this thread may have used six planes.
+            for (Int i = 2; i < 6; ++i) std::vector<UInt>().swap(mfaScratch[i]);
+          }
+          for (Int i = 0; i < (reuseScratch ? 2 : 6); ++i) mfaScratch[i].resize(n);
+          fa1.resize(n); fa2.resize(n); fa3.resize(n);
+          if (reuseScratch)
+          {
+            UInt *sa = mfaScratch[0].data(), *sb = mfaScratch[1].data();
+            MfaFusedProductPrime<F1>(va, vb, fa1.data(), sa, sb, n, tree1);
+            MfaFusedProductPrime<F2>(va, vb, fa2.data(), sa, sb, n, tree2);
+            MfaFusedProductPrime<F3>(va, vb, fa3.data(), sa, sb, n, tree3);
+          }
+          else
+          {
+            UInt *fap[3] = {fa1.data(), fa2.data(), fa3.data()};
+            UInt *scrs[6] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
+                             mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
+            MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
+            MfaFusedInverse(fap, scrs, n, tree1, tree2, tree3);
+          }
         }
         else
 #endif
