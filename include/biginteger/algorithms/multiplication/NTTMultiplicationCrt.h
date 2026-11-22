@@ -11,8 +11,8 @@
  * NTT length ceiling is 2^26 ≈ 67M coefficients per transform. Longer
  * products are recombined from several residues of that length
  * (MultiplyAboveTransform): up to seven transform lengths and a shorter
- * operand of about 1.79 billion digits, then overlap-add blocks of such
- * products. Earlier triple (998244353, 985661441,
+ * operand of about 1.79 billion digits. Wider CRT primes extend the
+ * residue path to about 8.05 billion balanced digits before overlap-add. Earlier triple (998244353, 985661441,
  * 754974721) had P2 capped at 2^22, silently breaking correctness for
  * operand pairs above ~20M digits.
  *
@@ -43,6 +43,17 @@
 // -DBIGMATH_NTT_CRT=0.
 #ifndef BIGMATH_NTT_CRT
 #define BIGMATH_NTT_CRT 1
+#endif
+
+// Wider CRT primes for products beyond the standard residue limits.
+#ifndef BIGMATH_NTT_WIDE
+#define BIGMATH_NTT_WIDE 1
+#endif
+#ifndef BIGMATH_NTT_WIDE_MAX_COEFFS
+#define BIGMATH_NTT_WIDE_MAX_COEFFS 1811939328ULL
+#endif
+#ifndef BIGMATH_NTT_WIDE_MAX_TERMS
+#define BIGMATH_NTT_WIDE_MAX_TERMS 836075521ULL
 #endif
 
 // Default-on Matrix Fourier Algorithm (Bailey 6-step) for very large NTT
@@ -220,6 +231,7 @@
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -4123,23 +4135,37 @@ namespace BigMath
       }
     };
 
+    struct StandardCrt
+    {
+      using Inverses = InvTable;
+      static constexpr ULong128 Modulus = CrtModulus;
+      static const Inverses &GetInverses() { return GarnerInverses(); }
+      static ULong128 Value(UInt r1, UInt r2, UInt r3, const Inverses &inv)
+      {
+        return Garner(r1, r2, r3, inv);
+      }
+    };
+
     // Limbs [ls, le) of the product from the residues of the biased
     // convolution, computed with carry-in 0. Returns the carry out of limb
-    // le − 1; it is below 2^61.
+    // le − 1. For up to 2^30 terms, each true coefficient is below 2^94.
+    // In radix B = 2^32 the carry is at most terms·(B − 1) < 2^62:
+    // (terms·(B − 1)^2 + terms·(B − 1)) / B = terms·(B − 1).
+    template <typename Crt = StandardCrt>
     inline ULong BiasedCarryRange(const UInt *f1, const UInt *f2, const UInt *f3,
                                   const PackedOperandView &a, const PackedOperandView &b,
-                                  DataT *out, SizeT ls, SizeT le, SizeT perLimb, const InvTable &inv)
+                                  DataT *out, SizeT ls, SizeT le, SizeT perLimb, const typename Crt::Inverses &inv)
     {
-      constexpr ULong128 half = (CrtModulus - 1) / 2;
+      constexpr ULong128 half = (Crt::Modulus - 1) / 2;
       const ULong coeffCount = a.coeffCount + b.coeffCount - 1;
       ULong k = (ULong)ls * perLimb;
       CoefficientWindow wa(a, b.coeffCount, k), wb(b, a.coeffCount, k);
-      // Product coefficient k from its residue x in [0, p1·p2·p3); moves on
-      // to k + 1. The result is below 2^92.
+      // Recover product coefficient k from the centered CRT residue, then
+      // move the windows to k + 1.
       auto coefficient = [&](ULong128 x) {
         const ULong first = k + 1 > b.coeffCount ? k + 1 - b.coeffCount : 0;
         const ULong terms = std::min<ULong>(k + 1, a.coeffCount) - first;
-        if (x > half) x -= CrtModulus;
+        if (x > half) x -= Crt::Modulus;
         x += ((ULong128)(wa.sum + wb.sum) << 31) - ((ULong128)terms << 62);
         wa.Advance(k);
         wb.Advance(k);
@@ -4150,36 +4176,40 @@ namespace BigMath
       ULong carry = 0;
       SizeT i = ls;
 #if BIGMATH_NEON
-      if (perLimb == 2)
+      if constexpr (std::is_same_v<Crt, StandardCrt>)
       {
-        const GarnerNeonConsts consts(inv);
-        const ULong p1 = P1;
-        const ULong p1p2 = (ULong)inv.p1p2;
-        for (; i + 2 <= le && k + 4 <= coeffCount; i += 2)
+        if (perLimb == 2)
         {
-          const UInt *r1 = f1 + k;
-          uint32x4_t u2v, u3v;
-          NeonGarnerDigits(vld1q_u32(r1), vld1q_u32(f2 + k), vld1q_u32(f3 + k), consts, u2v, u3v);
-          UInt u2[4], u3[4];
-          vst1q_u32(u2, u2v);
-          vst1q_u32(u3, u3v);
-          for (SizeT h = 0; h < 2; ++h)
+          const GarnerNeonConsts consts(inv);
+          const ULong p1 = P1;
+          const ULong p1p2 = (ULong)inv.p1p2;
+          for (; i + 2 <= le && k + 4 <= coeffCount; i += 2)
           {
-            const ULong128 x0 = coefficient((ULong128)p1p2 * u3[2 * h] + ((ULong)r1[2 * h] + p1 * u2[2 * h]));
-            const ULong128 x1 =
-                coefficient((ULong128)p1p2 * u3[2 * h + 1] + ((ULong)r1[2 * h + 1] + p1 * u2[2 * h + 1]));
-            const ULong128 t = x0 + (x1 << 32) + carry; // < 2^125
-            out[i + h] = (DataT)t;
-            carry = (ULong)(t >> 64);
+            const UInt *r1 = f1 + k;
+            uint32x4_t u2v, u3v;
+            NeonGarnerDigits(vld1q_u32(r1), vld1q_u32(f2 + k), vld1q_u32(f3 + k), consts, u2v, u3v);
+            UInt u2[4], u3[4];
+            vst1q_u32(u2, u2v);
+            vst1q_u32(u3, u3v);
+            for (SizeT h = 0; h < 2; ++h)
+            {
+              const ULong128 x0 = coefficient((ULong128)p1p2 * u3[2 * h] + ((ULong)r1[2 * h] + p1 * u2[2 * h]));
+              const ULong128 x1 =
+                  coefficient((ULong128)p1p2 * u3[2 * h + 1] + ((ULong)r1[2 * h + 1] + p1 * u2[2 * h + 1]));
+              const ULong128 t = x0 + (x1 << 32) + carry; // < 2^125
+              out[i + h] = (DataT)t;
+              carry = (ULong)(t >> 64);
+            }
           }
         }
       }
 #endif
       for (; i < le; ++i)
       {
+        // Even with two coefficients, x0 + (x1 << 32) + carry < 2^127.
         ULong128 t = carry;
         for (SizeT h = 0; h < perLimb && k < coeffCount; ++h)
-          t += coefficient(Garner(f1[k], f2[k], f3[k], inv)) << (32 * h);
+          t += coefficient(Crt::Value(f1[k], f2[k], f3[k], inv)) << (32 * h);
         if (perLimb == 2)
         {
           out[i] = (DataT)t;
@@ -4196,6 +4226,7 @@ namespace BigMath
 
     // FinalizeProduct for residue planes computed from BiasedOperandView
     // inputs; a and b are the unbiased views of the same operands.
+    template <typename Crt = StandardCrt>
     inline std::vector<DataT> FinalizeBiasedProduct(const std::vector<UInt> &fa1,
                                                     const std::vector<UInt> &fa2,
                                                     const std::vector<UInt> &fa3,
@@ -4206,13 +4237,13 @@ namespace BigMath
       const SizeT perLimb = CoeffsPerLimb(base);
       const ULong coeffCount = a.coeffCount + b.coeffCount - 1;
       const SizeT nLimbs = (SizeT)((coeffCount + perLimb - 1) / perLimb);
-      const InvTable &inv = GarnerInverses();
+      const auto &inv = Crt::GetInverses();
       std::vector<DataT> result;
       result.reserve(std::max<SizeT>(reserveLimbs, nLimbs + 2));
       result.resize(nLimbs);
       DataT *out = result.data();
       auto range = [&](SizeT ls, SizeT le) {
-        return BiasedCarryRange(fa1.data(), fa2.data(), fa3.data(), a, b, out, ls, le, perLimb, inv);
+        return BiasedCarryRange<Crt>(fa1.data(), fa2.data(), fa3.data(), a, b, out, ls, le, perLimb, inv);
       };
       // The chunk stitch ripples whole 64-bit limbs.
       ULong carry = perLimb == 2 ? CarryChunks64(out, nLimbs, range) : range((SizeT)0, nLimbs);
@@ -4350,20 +4381,24 @@ namespace BigMath
                              });
     }
 
+#include "NTTWideCrt.h"
+
     // A product of more than H coefficients, H being the longest transform.
     //
     // While the shorter operand is longer than H/2 — a single transform could
     // not hold it against a block of equal length — the product is one set of
     // residues (MultiplyAtCrtCeiling): unsigned coefficients up to plainTerms
     // in the shorter operand, biased ones up to biasedTerms. Past that limit
-    // the shorter operand is cut into blocks within it, and past the residue
-    // count the longer one is cut too; every block pair is such a product
-    // again. A shorter operand of at most H/2 coefficients is instead paired
-    // with blocks that keep each product within one transform.
+    // or the standard node limit, try the wide prime set. If neither set fits,
+    // cut the operands into blocks whose pairs fit the available limits.
+    // A shorter operand of at most H/2 coefficients is instead paired with
+    // blocks that keep each product within one transform.
     inline std::vector<DataT> MultiplyAboveTransform(const std::vector<DataT> &a,
                                                      const std::vector<DataT> &b, BaseT base, Int H,
                                                      ULong plainTerms = CrtMaxTerms,
-                                                     ULong biasedTerms = CrtMaxBiasedTerms)
+                                                     ULong biasedTerms = CrtMaxBiasedTerms,
+                                                     ULong wideTerms = BIGMATH_NTT_WIDE_MAX_TERMS,
+                                                     ULong wideCoeffs = BIGMATH_NTT_WIDE_MAX_COEFFS)
     {
       const SizeT perLimb = CoeffsPerLimb(base);
       ULong pairCoeffs = (ULong)H, shorterCoeffs = (ULong)H / 2;
@@ -4378,16 +4413,34 @@ namespace BigMath
           return MultiplyAtCrtCeiling(a, b, base, H, shorter > plainTerms);
         pairCoeffs = residueCoeffs;
         shorterCoeffs = std::min(biasedTerms, residueCoeffs / 2);
+#if BIGMATH_NTT_WIDE
+        const Int wideH = std::min(H, Wide::WideResidueLength);
+        const ULong wideCapacity = std::min(wideCoeffs, (ULong)(Wide::WideMaxResidues + 1) * wideH);
+        const ULong wideShorter = std::min({wideTerms, Wide::WideMaxBiasedTerms, wideCapacity / 2});
+        const ULong coeffCount = aCoeffs + bCoeffs - 1;
+        if (shorter <= std::min(wideTerms, Wide::WideMaxBiasedTerms) && coeffCount <= wideCapacity)
+          return Wide::MultiplyWide(a, b, base, wideH);
+        if (wideShorter >= shorterCoeffs && wideCapacity >= pairCoeffs)
+        {
+          pairCoeffs = wideCapacity;
+          shorterCoeffs = wideShorter;
+        }
+#endif
       }
 #else
       (void)plainTerms;
       (void)biasedTerms;
 #endif
+#if !BIGMATH_NTT_WIDE || !(BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE)
+      (void)wideTerms;
+      (void)wideCoeffs;
+#endif
       return MultiplyBlocked(a, b, base, (size_t)(pairCoeffs / perLimb), (size_t)(shorterCoeffs / perLimb),
                              [&](const std::vector<DataT> &left, const std::vector<DataT> &right) {
                                const ULong coeffs = (ULong)(left.size() + right.size()) * perLimb - 1;
                                return coeffs > (ULong)H
-                                          ? MultiplyAboveTransform(left, right, base, H, plainTerms, biasedTerms)
+                                          ? MultiplyAboveTransform(left, right, base, H, plainTerms, biasedTerms,
+                                                                   wideTerms, wideCoeffs)
                                           : Multiply(left, right, base);
                              });
     }

@@ -268,8 +268,15 @@ unsigned 32-bit pieces can exceed that once the shorter operand passes about
 895 million digits. From there the pieces are shifted to the signed range
 $[-2^{31},2^{31})$ before the transforms, and the carry pass adds the shift
 back from two running sums of the input pieces. This doubles the limit to about
-1.79 billion digits. Larger operands are cut into blocks whose pairs are
-multiplied the same way.
+1.79 billion digits. Beyond the standard magnitude or node limit, the wider
+CRT set replaces $469\,762\,049$ with $2\,113\,929\,217$. The retained
+primes use $H=2^{26}$ and the new prime uses $H=2^{25}$. The larger
+modulus resolves $836\,075\,521$ biased terms, or about 8.05 billion
+digits in the shorter operand, and the evaluation nodes cover up to
+$1\,811\,939\,328$ product coefficients. Each wide residue uses a weight
+from consecutive powers of the prime's primitive root. Powers are stored
+in two tables, indexed by the low and high bits of the coefficient index.
+Above the wide limits, overlap-add combines fully carried block products.
 
 A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
 16-bit pieces) is still in the source as the \code{-DBIGMATH\_NTT\_CRT=0} build, but the
