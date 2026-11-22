@@ -334,3 +334,25 @@ REGISTER_TEST(NttCrtTruncatedSerial, DispatchSizes)
 #endif // BIGMATH_NTT_MFA
 
 #endif
+
+#if BIGMATH_NTT_MFA
+REGISTER_TEST(NttCrtTruncatedSerial, FactoredWeightsCrossBlockBoundaries)
+{
+  std::mt19937_64 gen(0xC01DF00D);
+  // An odd coefficient count exercises the scalar tail after complete blocks.
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    const Int h = 2048;
+    const SizeT count = h / (2 * NttCrt::CoeffsPerLimb(base)) + 1;
+    auto a = Limbs(count, 0, gen);
+    auto b = Limbs(count, 0, gen);
+    if (base == Base2_32)
+    {
+      for (auto &x : a) x &= 0xffffffffu;
+      for (auto &x : b) x &= 0xffffffffu;
+    }
+    ASSERT_TRUE(NttCrt::MultiplyTruncSerial(a, b, base, h, 64) ==
+                ClassicMultiplication::Multiply(a, b, base));
+  }
+}
+#endif

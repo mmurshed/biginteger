@@ -1235,6 +1235,11 @@ scheme continues for `2^21 ≤ H ≤ 2^25` (`BIGMATH_NTT_TRUNC_SERIAL_MAX`) as
   last stage writes it, so four planes of `H + L` entries and one of `H` are
   live, against nine of `2H` for the full fused transform.
 
+The serial transform stores negacyclic weights in blocks of 256 coefficients.
+For index `j = 256b + t`, it applies the block factor `ψ^(256b)` and the offset
+factor `ψ^t`. At `H = 2^25`, both directions across the three primes occupy
+about 6 MiB on NEON. The former length-`2H` plans occupied 2.25 GiB.
+
 Its band is the whole octave (`BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT = 0`,
 `c ≤ 2H`): at `L = H` the transform work equals the full transform's, but two
 length-`H` transforms on five planes still cost less than one length-`2H`
