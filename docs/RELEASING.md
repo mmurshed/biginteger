@@ -38,7 +38,7 @@ cmake --build build
 Open [Actions → Release libraries](https://github.com/mmurshed/biginteger/actions/workflows/release.yml),
 choose **Run workflow**, and select a branch. Download the `release-*` artifacts
 from the completed run. The same workflow verifies packaging changes in pull
-requests. Both paths build, run the four correctness suites, and compile and run
+requests. Both paths build, run the five correctness suites, and compile and run
 a separate CMake consumer against the extracted archive.
 
 ```sh
