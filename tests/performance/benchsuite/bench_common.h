@@ -95,8 +95,9 @@ inline bool HasAnswerHash(Op op) { return op == Op::Mul || op == Op::Div || op =
 struct Entry {
     int  id        = 0;
     Op   op        = Op::Mul;
-    int  a_digits  = 0;   // primary operand digit count (int part for Dec ops)
-    int  b_digits  = 0;   // secondary operand digits (frac part for 1-operand Dec ops)
+    // 64-bit: seeded memory cases reach billions of digits.
+    long long a_digits = 0;   // primary operand digit count (int part for Dec ops)
+    long long b_digits = 0;   // secondary operand digits (frac part for 1-operand Dec ops)
     int  scale     = 0;   // DecDiv target scale; 0 elsewhere
     int  reps      = 1;   // timed repetitions; report the minimum
     int  historical = 0;  // 1 => row is mirrored into the long-lived history table
@@ -106,16 +107,16 @@ struct Entry {
         char buf[96];
         switch (op) {
             case Op::DecAdd: case Op::DecMul:
-                snprintf(buf, sizeof(buf), "%d.%d digits", a_digits, b_digits);
+                snprintf(buf, sizeof(buf), "%lld.%lld digits", a_digits, b_digits);
                 break;
             case Op::DecDiv:
-                snprintf(buf, sizeof(buf), "%d.%d / %d dp", a_digits, b_digits, scale);
+                snprintf(buf, sizeof(buf), "%lld.%lld / %d dp", a_digits, b_digits, scale);
                 break;
             default:
                 if (b_digits > 0 && OperandCount(op) == 2)
-                    snprintf(buf, sizeof(buf), "%dx%d digits", a_digits, b_digits);
+                    snprintf(buf, sizeof(buf), "%lldx%lld digits", a_digits, b_digits);
                 else
-                    snprintf(buf, sizeof(buf), "%d digits", a_digits);
+                    snprintf(buf, sizeof(buf), "%lld digits", a_digits);
         }
         return buf;
     }
@@ -131,14 +132,14 @@ inline int IterationsForDigits(int digits) {
 
 // ─── deterministic operand generation ───────────────────────────────────────
 // Random digit string of the given length, no leading zero.
-inline std::string GenerateRandomDigits(int length, uint64_t seed) {
+inline std::string GenerateRandomDigits(long long length, uint64_t seed) {
     std::mt19937_64 gen(seed);
     std::uniform_int_distribution<int> dis(0, 9);
     std::uniform_int_distribution<int> first_dis(1, 9);
     std::string s;
     s.reserve(length);
     s += char('0' + first_dis(gen));
-    for (int i = 1; i < length; ++i)
+    for (long long i = 1; i < length; ++i)
         s += char('0' + dis(gen));
     return s;
 }
@@ -231,8 +232,8 @@ inline std::vector<Entry> ReadManifest(const std::string &dir) {
         Entry e;
         e.id         = std::stoi(f[0]);
         e.op         = OpFromName(f[1]);
-        e.a_digits   = std::stoi(f[2]);
-        e.b_digits   = std::stoi(f[3]);
+        e.a_digits   = std::stoll(f[2]);
+        e.b_digits   = std::stoll(f[3]);
         e.scale      = std::stoi(f[4]);
         e.reps       = std::stoi(f[5]);
         e.historical = std::stoi(f[6]);

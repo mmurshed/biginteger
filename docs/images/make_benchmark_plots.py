@@ -8,7 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
-from make_memory_plots import read_memory_rows
+from make_memory_plots import read_published_rows
 
 HERE = Path(__file__).resolve().parent
 BENCHMARKS = HERE.parent / "benchmarks"
@@ -28,7 +28,7 @@ BEFORE_AFTER = [
 
 
 def large_product_ratios(library):
-    products = [r for r in read_memory_rows()
+    products = [r for r in read_published_rows()
                 if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
                 and int(r["a_digits"]) >= 200_000_000 and r["status"] == "ok"]
     gmp = {r["id"]: float(r["warm_ms"]) for r in products if r["library"] == "gmp"}
@@ -80,7 +80,7 @@ def ratio_plot(path, results, figure_title, threads, library, legend_location="u
         if title == "Multiplication":
             ax.plot(*zip(*large_product_ratios(library)), label="Equal lengths · fresh process",
                     color="#438456", marker="^", markersize=4.5, linewidth=1.7)
-        ax.set_xlim(700, 1.35e9)
+        ax.set_xlim(700, 7e9)
         ax.spines[["top", "right"]].set_visible(False)
         ax.spines[["bottom", "left"]].set_color("#a9b1b9")
         ax.tick_params(labelsize=9)

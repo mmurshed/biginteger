@@ -27,7 +27,7 @@ The November 21, 2026 full timing run measured revision `c945bdc` on the Apple M
 
 The full CSV includes the first call, fastest subsequent call, warm repetition count and arithmetic check status for all 111 rows. Most large sizes have one warm observation per library. All 24 product checks and 40 division checks matched GMP’s reference hashes. Each division mode was checked against the corresponding GMP operation. [README performance table](README.md#performance-numbers) · [Single-thread CSV](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-single-thread.csv) · [Single-thread figure](docs/images/bigmath_vs_gmp_single_thread.png)
 
-The timing figures also show balanced products from 200M to 1B digits measured in fresh processes on the same revision. The two 200M samples use the same operands and show how the long-lived and fresh-process runs compare. [Isolated timings, peaks and hashes](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-memory.csv)
+The timing figures also show balanced products from 200M to 5B digits measured in fresh processes. The 200M sample is from the same revision and uses the same operands as the long-lived run; the larger sizes were remeasured on revision `99228ed`. [Isolated timings, peaks and hashes](docs/benchmarks/2026-11-21-residue-products-full-m1-max-memory.csv)
 
 To repeat the single-thread run, give the driver its own build and results directory. The figure generator uses the checked-in CSVs and requires Matplotlib.
 
@@ -60,7 +60,7 @@ To repeat the default-build run with fresh GMP timings, run the full profile fro
 bash tests/performance/benchsuite/run_benchmark.sh full --force-gmp
 ```
 
-To measure time and peak RSS in fresh processes, including the 500M, 750M and 1B products, run the extended profile.
+To measure time and peak RSS in fresh processes, including the 500M, 750M, 1B, 2.5B and 5B products, run the extended profile. The 5B case needs about 21 GiB of RAM.
 
 ```sh
 bash tests/performance/benchsuite/run_benchmark.sh full --extended
@@ -302,7 +302,7 @@ The 5M threaded result varied most. In 12 additional pairs of fresh processes wi
 
 ## Peak memory and large-product time
 
-The November 21, 2026 run measured revision `c945bdc` on an Apple M1 Max with 32 GiB of RAM. Each case ran in its own process for each library. The 111 standard cases share operands with the timing tables above. Seventeen additional balanced products use seeded inputs up to one billion decimal digits per operand. All 81 integer arithmetic results per BigMath build matched GMP. [Times, RSS and hashes](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-memory.csv) · [Previous full sweep](docs/benchmarks/2026-11-21-blocked-crt-memory-m1-max.csv) · [Benchmark instructions](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)
+The November 21, 2026 run measured revision `c945bdc` on an Apple M1 Max with 32 GiB of RAM. Each case ran in its own process for each library. The 111 standard cases share operands with the timing tables above. Seventeen additional balanced products used seeded inputs up to one billion decimal digits per operand. All 81 integer arithmetic results per BigMath build matched GMP. The figures replace those seeded products with 19 sizes through five billion digits measured on revision `99228ed`. [Times, RSS and hashes](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-memory.csv) · [Seeded products through 5B](docs/benchmarks/2026-11-21-residue-products-full-m1-max-memory.csv) · [Previous full sweep](docs/benchmarks/2026-11-21-blocked-crt-memory-m1-max.csv) · [Benchmark instructions](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)
 
 **How to read the figures.** RSS is the operating system’s high-water mark for resident process memory. We record it with the inputs ready, after the first operation, and after the last warm call, before hashing. Arithmetic panels show the last high-water mark. The warm BigMath product assigns a new result to the previous output variable. GMP passes the same destination back to `mpz_mul`. The measurements include the storage each public operation uses. Conversion panels show both readings. A ratio of 4 means BigMath reached four times GMP’s peak. Small operands include roughly 2 MiB of process startup memory. A fresh process at every size excludes caches built by preceding cases. The ordinary timing tables use a long-lived benchmark process.
 
@@ -329,38 +329,42 @@ These historical controls measured the implementation before the four memory opt
 
 The controls motivated the threaded dispatch change, compact serial weights and conversion cache sharing. [Before-and-after measurements](#memory-optimization-benchmarks)
 
-### Balanced products through one billion digits
+### Balanced products through five billion digits
 
-Each cell reports one warm product time and the process peak RSS through that call. The 17 additional sizes use seeded binary operands, and the standard sizes use operands from the full manifest. All three libraries ran on matching inputs. [Full isolated measurements](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-memory.csv)
+Each cell reports one warm product time and the process peak RSS through that call. The 19 additional sizes use seeded binary operands and were measured on revision `99228ed`, after convolution residues replaced block products above 646M digits. The standard sizes (10M, 20M, 50M, 100M and 200M) use operands from the full manifest and come from the `c945bdc` sweep; the change does not affect products of one transform. All three libraries ran on matching inputs, and all 38 BigMath products matched GMP. [Seeded measurements](docs/benchmarks/2026-11-21-residue-products-full-m1-max-memory.csv) · [Standard sizes](docs/benchmarks/2026-11-21-crt-ceiling-full-m1-max-memory.csv)
 
 | Digits per operand | BigMath, up to 8 threads | BigMath, 1 thread | GMP, 1 thread |
 |---:|---:|---:|---:|
 | 10M | 0.017 s · 0.12 GiB | 0.109 s · 0.10 GiB | 0.205 s · 0.07 GiB |
-| 10.2M | 0.035 s · 0.19 GiB | 0.110 s · 0.08 GiB | 0.209 s · 0.07 GiB |
+| 10.2M | 0.032 s · 0.20 GiB | 0.105 s · 0.08 GiB | 0.199 s · 0.07 GiB |
 | 20M | 0.042 s · 0.22 GiB | 0.222 s · 0.13 GiB | 0.278 s · 0.11 GiB |
-| 20.3M | 0.080 s · 0.38 GiB | 0.250 s · 0.14 GiB | 0.342 s · 0.13 GiB |
-| 40M | 0.083 s · 0.43 GiB | 0.487 s · 0.25 GiB | 0.554 s · 0.22 GiB |
-| 41M | 0.168 s · 0.50 GiB | 0.544 s · 0.29 GiB | 0.746 s · 0.27 GiB |
+| 20.3M | 0.067 s · 0.38 GiB | 0.233 s · 0.14 GiB | 0.335 s · 0.13 GiB |
+| 40M | 0.073 s · 0.43 GiB | 0.467 s · 0.25 GiB | 0.544 s · 0.22 GiB |
+| 41M | 0.159 s · 0.50 GiB | 0.521 s · 0.29 GiB | 0.732 s · 0.27 GiB |
 | 50M | 0.171 s · 0.52 GiB | 0.658 s · 0.34 GiB | 0.672 s · 0.28 GiB |
-| 80M | 0.193 s · 0.59 GiB | 1.074 s · 0.49 GiB | 1.221 s · 0.44 GiB |
-| 82M | 0.352 s · 0.97 GiB | 1.192 s · 0.56 GiB | 1.450 s · 0.51 GiB |
+| 80M | 0.170 s · 0.59 GiB | 1.029 s · 0.49 GiB | 1.187 s · 0.44 GiB |
+| 82M | 0.321 s · 0.97 GiB | 1.137 s · 0.56 GiB | 1.388 s · 0.51 GiB |
 | 100M | 0.399 s · 1.01 GiB | 1.412 s · 0.66 GiB | 1.404 s · 0.55 GiB |
-| 160M | 0.379 s · 1.15 GiB | 2.328 s · 0.98 GiB | 2.557 s · 0.87 GiB |
-| 162M | 0.720 s · 1.85 GiB | 2.475 s · 1.09 GiB | 2.421 s · 0.91 GiB |
+| 160M | 0.353 s · 1.15 GiB | 2.250 s · 0.98 GiB | 2.432 s · 0.87 GiB |
+| 162M | 0.674 s · 1.85 GiB | 2.357 s · 1.09 GiB | 2.350 s · 0.91 GiB |
 | 200M | 0.706 s · 1.94 GiB | 2.906 s · 1.31 GiB | 2.906 s · 1.09 GiB |
-| 320M | 0.778 s · 2.22 GiB | 4.856 s · 1.95 GiB | 5.076 s · 1.75 GiB |
-| 324M | 1.119 s · 2.24 GiB | 6.527 s · 2.13 GiB | 5.078 s · 1.82 GiB |
-| 480M | 1.392 s · 3.03 GiB | 8.232 s · 2.91 GiB | 8.202 s · 2.62 GiB |
-| 484M | 1.383 s · 3.05 GiB | 8.368 s · 2.93 GiB | 8.282 s · 2.63 GiB |
-| 486M | 1.378 s · 3.06 GiB | 8.287 s · 2.94 GiB | 8.278 s · 2.73 GiB |
-| 500M | 1.502 s · 3.14 GiB | 8.991 s · 3.02 GiB | 8.640 s · 2.73 GiB |
-| 520M | 1.683 s · 3.25 GiB | 9.419 s · 3.13 GiB | 8.865 s · 2.84 GiB |
-| 750M | 6.990 s · 3.61 GiB | 43.454 s · 3.33 GiB | 12.695 s · 4.12 GiB |
-| 1,000M | 12.290 s · 4.19 GiB | 75.265 s · 3.91 GiB | 18.578 s · 5.45 GiB |
+| 320M | 0.728 s · 2.22 GiB | 4.688 s · 1.95 GiB | 4.881 s · 1.75 GiB |
+| 324M | 0.797 s · 2.24 GiB | 5.320 s · 2.13 GiB | 4.866 s · 1.82 GiB |
+| 480M | 1.232 s · 3.03 GiB | 8.161 s · 2.91 GiB | 8.075 s · 2.62 GiB |
+| 484M | 1.318 s · 3.05 GiB | 8.159 s · 2.93 GiB | 8.565 s · 2.63 GiB |
+| 486M | 1.232 s · 3.06 GiB | 8.002 s · 2.94 GiB | 8.280 s · 2.73 GiB |
+| 500M | 1.419 s · 3.14 GiB | 8.552 s · 3.03 GiB | 8.550 s · 2.73 GiB |
+| 520M | 1.475 s · 3.25 GiB | 9.260 s · 3.13 GiB | 8.928 s · 2.84 GiB |
+| 750M | 2.290 s · 4.28 GiB | 14.49 s · 4.16 GiB | 12.30 s · 4.12 GiB |
+| 1B | 3.368 s · 5.41 GiB | 21.09 s · 5.28 GiB | 18.26 s · 5.45 GiB |
+| 2.5B | 16.55 s · 12.81 GiB | 93.16 s · 12.71 GiB | 45.35 s · 11.90 GiB |
+| 5B | 54.95 s · 20.46 GiB | 323.0 s · 20.16 GiB | 104.3 s · 16.86 GiB |
 
-The rerun crossed the old 485M timing boundary smoothly. From 484M to 486M digits, warm time changed from 1.383 to 1.378 s threaded and from 8.368 to 8.287 s single-threaded. At 750M and 1B, both BigMath builds used less peak memory than GMP.
+**Above 1.79B digits.** Up to eight threads, BigMath took 0.37× GMP’s time at 2.5B digits and 0.53× at 5B. On one thread it took 2.05× and 3.10×. One set of signed residues resolves a shorter operand of at most 185,794,560 coefficients, about 1.79B digits. Beyond it the shorter operand is cut into blocks and every block pair is a residue product again. At 2.5B digits that means two products of 1.25B by 2.5B digits, each transforming the whole longer operand. At 5B the longer operand is cut too, into six products of about 1.67B by 2.5B digits. Transform work therefore grows faster than the product: per prime, the residues add up to 12 transforms of length 2²⁶ at 2.5B and 39 at 5B, against 3.125 at 1B, while the product grows 2.5× and 5×. Peak RSS was 1.08× GMP’s at 2.5B and 1.21× at 5B in the threaded build.
 
-**Why the old curve jumps.** A single CRT transform holds 2²⁶ coefficients, enough for 323.23M decimal digits per balanced operand. Just above that limit, the old dispatcher split each operand in half and ran four full block products. Around 484.84M, the single-thread build additionally doubled the shorter convolution inside each of those four products. From 484M to 486M the previous single-thread time rose from 14.32 to 18.93 s. The threaded build used a full matrix transform for each block on both sides and took 2.95 and 3.08 s.
+The curve crosses the 485M timing boundary smoothly. From 484M to 486M digits, warm time changed from 1.318 to 1.232 s threaded and from 8.159 to 8.002 s single-threaded. From 520M to 750M and 1B it follows the product length with no step at 646M digits.
+
+**Why the curve jumped at revision `c945bdc`.** A single CRT transform holds 2²⁶ coefficients, enough for 323.23M decimal digits per balanced operand. Just above that limit, the old dispatcher split each operand in half and ran four full block products. Around 484.84M, the single-thread build additionally doubled the shorter convolution inside each of those four products. From 484M to 486M the previous single-thread time rose from 14.32 to 18.93 s. The threaded build used a full matrix transform for each block on both sides and took 2.95 and 3.08 s.
 
 **What changed.** In the default configurations, balanced inputs in the next octave use two convolution residues. A short product of the low input coefficients resolves the 485M boundary. At 500M the three lengths are 2²⁶, 2²⁵ and 2²³ per prime. In the earlier three-process comparison, median warm time fell from 3.13 to 1.50 s threaded and from 18.84 to 8.85 s single-threaded. Threaded peak RSS went from 3.03 to 3.14 GiB and single-threaded peak RSS from 2.75 to 3.02 GiB. At that revision the dispatcher returned to blocked multiplication above about 646M digits, with nine block products at 750M and sixteen at 1B. Those are the last two rows of the table. [Paired measurements before and after PR #175](docs/benchmarks/2026-11-21-crt-ceiling-m1-max.csv) · [Convolution and reconstruction](docs/MULTIPLICATION.md#balanced-products-above-the-transform-limit)
 
@@ -376,7 +380,7 @@ The rerun crossed the old 485M timing boundary smoothly. From 484M to 486M digit
 
 From 640M to 650M the threaded time now rises by 13% instead of 3.5×, and the single-thread time by 5% instead of 2.7×. Peak RSS is higher than with blocks, by 0.67 GiB at 750M and 1.22 GiB at 1B in the threaded build: one product holds three residue planes for all of its coefficients, where a block pair held them for a third or a quarter of that length. The threaded peak is 4% above GMP's at 750M and below it at 900M and 1B. In the first pass, three warm calls of the previous threaded build were disturbed (11.1 to 11.6 s after first calls of 7.1 to 7.4 s); those sizes were measured again, and the CSV keeps both passes.
 
-Reproduce the focused run with the isolated benchmark. Run each build pair three times at 500M for the median.
+Reproduce the focused run with the isolated benchmark. Run each build pair three times at 500M for the median. The 5B case needs about 21 GiB of RAM per process.
 
 ```sh
 python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD boundary.csv \
@@ -385,7 +389,7 @@ python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_
 
 ![Previous and revised warm multiplication times for both thread modes across the 323M and 485M boundaries](docs/images/bigmath_crt_ceiling.png)
 
-![Measured warm product time and peak memory from ten million to one billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
+![Measured warm product time and peak memory from ten million to five billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
 
 ## Large multiplication follow-up
 
