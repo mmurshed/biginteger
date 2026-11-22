@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Driver for the split BigMath-vs-GMP benchmark.
 #
-#   ./run_benchmark.sh [profile] [--force-dataset] [--force-gmp]
+#   ./run_benchmark.sh [profile] [--force-dataset] [--force-gmp] [--memory | --extended]
 #
 #   profile = quick | default | full   (default: "default")
 #
@@ -22,9 +22,13 @@ REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PROFILE="default"
 FORCE_DATASET=0
 FORCE_GMP=0
+MEMORY=0
+EXTENDED=0
 for arg in "$@"; do
     case "$arg" in
         quick|default|full) PROFILE="$arg" ;;
+        --memory)           MEMORY=1 ;;
+        --extended)         MEMORY=1; EXTENDED=1 ;;
         --force-dataset)    FORCE_DATASET=1 ;;
         --force-gmp)        FORCE_GMP=1 ;;
         *) echo "unknown arg: $arg" >&2; exit 2 ;;
@@ -71,6 +75,28 @@ if [[ ! -f "$DATA_DIR/manifest.csv" ]]; then
     fi
 else
     echo "[dataset] using existing $DATA_DIR"
+fi
+
+# RSS is a process high-water mark. Run each library/case in its own process
+# and use the same isolated GMP run for both BigMath configurations.
+if [[ $MEMORY -eq 1 ]]; then
+    SINGLE_BIN="$BENCH_DIR/cmake-memory-single"
+    cmake -S "$REPO" -B "$SINGLE_BIN" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER="${CXX:-c++}" \
+        -DCMAKE_CXX_FLAGS="${CXXFLAGS:-} -DBIGMATH_USE_THREADS=0" -DBIGMATH_BUILD_TESTS=ON
+    cmake --build "$SINGLE_BIN" --target bench_run_bigmath --parallel
+    memory_args=()
+    memory_profile="$PROFILE"
+    if [[ $EXTENDED -eq 1 ]]; then
+        memory_args+=(--extended)
+        memory_profile="${PROFILE}_extended"
+    fi
+    out=$(mktemp "$RESULTS_DIR/memory_${MACHINE}_${memory_profile}_XXXXXX")
+    trap 'rm -f "$out"' EXIT
+    python3 "$SCRIPT_DIR/run_memory.py" "$DATA_DIR" "$BIN_DIR" "$SINGLE_BIN" "$out" ${memory_args[@]+"${memory_args[@]}"}
+    mv "$out" "$out.csv"
+    echo "[driver] memory and timing results: $out.csv"
+    exit 0
 fi
 
 # ── stage 2: GMP reference (per machine) ─────────────────────────────────────

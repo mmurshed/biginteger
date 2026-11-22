@@ -259,8 +259,12 @@ inline std::string LoadOperand(const std::string &dir, int id, int operand_index
     std::ifstream in(OperandPath(dir, id, operand_index), std::ios::binary);
     if (!in) throw std::runtime_error("missing operand file: " +
                                       OperandPath(dir, id, operand_index));
-    std::string s((std::istreambuf_iterator<char>(in)),
-                  std::istreambuf_iterator<char>());
+    in.seekg(0, std::ios::end);
+    const auto bytes = in.tellg();
+    if (bytes < 0) throw std::runtime_error("cannot size operand file");
+    std::string s(static_cast<size_t>(bytes), '\0');
+    in.seekg(0);
+    if (!in.read(s.data(), bytes)) throw std::runtime_error("cannot read operand file");
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     return s;
 }
@@ -315,21 +319,6 @@ inline std::vector<GmpResult> ReadGmpResults(const std::string &path, const std:
         res.push_back(r);
     }
     return res;
-}
-
-// ─── timing ─────────────────────────────────────────────────────────────────
-template <typename F>
-inline double BestWarmMs(double &first, F &&fn, int reps) {
-    double best = 1e300;
-    for (int i = 0; i <= reps; ++i) {
-        auto t0 = std::chrono::steady_clock::now();
-        fn();
-        auto t1 = std::chrono::steady_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        if (i == 0) first = ms;
-        else if (ms < best) best = ms;
-    }
-    return best;
 }
 
 } // namespace bench
