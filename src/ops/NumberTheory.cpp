@@ -7,6 +7,92 @@
 
 namespace BigMath
 {
+  namespace
+  {
+    constexpr int64_t LehmerCoefficientLimit = int64_t{1} << 30;
+
+    struct LehmerRow
+    {
+      int64_t left;
+      int64_t right;
+
+      bool Fits() const
+      {
+        constexpr auto limit = LehmerCoefficientLimit;
+        return -limit < left && left < limit && -limit < right && right < limit;
+      }
+
+      BigInteger Apply(BigInteger const &a, BigInteger const &b) const
+      {
+        const auto scaled = [](BigInteger const &n, int64_t coefficient) {
+          auto product = n * static_cast<DataT>(coefficient < 0 ? -coefficient : coefficient);
+          product.SetSign(n.IsNegative() != (coefficient < 0));
+          return product;
+        };
+        return scaled(a, left) + scaled(b, right);
+      }
+    };
+
+    struct LehmerMatrix
+    {
+      LehmerRow first{1, 0};
+      LehmerRow second{0, 1};
+
+      void Apply(BigInteger &a, BigInteger &b) const
+      {
+        auto nextA = first.Apply(a, b);
+        b = second.Apply(a, b);
+        a = std::move(nextA);
+      }
+    };
+
+    // Simulate Euclidean steps on a common prefix of at most 62 bits.
+    // Each omitted suffix is in [0, 1) in units of that prefix. The
+    // current matrix row bounds its contribution to each remainder.
+    bool BuildLehmerMatrix(BigInteger const &a, BigInteger const &b, LehmerMatrix &matrix)
+    {
+      const auto left = a.Limbs();
+      const auto right = b.Limbs();
+      if (left.size() != right.size() || left.size() < 2)
+        return false;
+
+      const unsigned width = LimbBits + std::bit_width(std::max(left.back(), right.back()));
+      const unsigned shift = width > 62 ? width - 62 : 0;
+      const auto prefix = [shift](std::span<const DataT> limbs) {
+        const auto high = static_cast<ULong128>(limbs.back()) << LimbBits;
+        return static_cast<int64_t>((high | limbs[limbs.size() - 2]) >> shift);
+      };
+      int64_t u = prefix(left);
+      int64_t v = prefix(right);
+      unsigned steps = 0;
+      while (v > 0 && u >= v)
+      {
+        const auto [a0, a1] = matrix.first;
+        const auto [b0, b1] = matrix.second;
+        const int64_t lowerU = u + std::min<int64_t>(0, a0) + std::min<int64_t>(0, a1);
+        const int64_t upperU = u + std::max<int64_t>(0, a0) + std::max<int64_t>(0, a1);
+        const int64_t lowerV = v + std::min<int64_t>(0, b0) + std::min<int64_t>(0, b1);
+        const int64_t upperV = v + std::max<int64_t>(0, b0) + std::max<int64_t>(0, b1);
+        const int64_t q = u / v;
+        // Accept q only if every possible quotient is in [q, q+1).
+        // The prefix and coefficient bounds keep each product in int64_t.
+        if (q >= LehmerCoefficientLimit || lowerV <= 0 ||
+            lowerU < q * upperV || upperU >= (q + 1) * lowerV)
+          break;
+        const LehmerRow next{a0 - q * b0, a1 - q * b1};
+        if (!next.Fits())
+          break;
+        matrix.first = matrix.second;
+        matrix.second = next;
+        const int64_t remainder = u - q * v;
+        u = v;
+        v = remainder;
+        ++steps;
+      }
+      return steps >= 2;
+    }
+  }
+
   BigInteger PowMod(BigInteger const &base, BigInteger const &exponent,
                     BigInteger const &modulus)
   {
@@ -58,6 +144,12 @@ namespace BigMath
         const DataT result = gcd(right[0], reduced);
         return BigInteger::FromLimbs({&result, 1}, false);
       }
+      LehmerMatrix matrix;
+      if (BuildLehmerMatrix(left, right, matrix))
+      {
+        matrix.Apply(left, right);
+        continue;
+      }
       auto remainder = left % right;
       left = std::move(right);
       right = std::move(remainder);
@@ -80,6 +172,14 @@ namespace BigMath
     // linear combinations of the original signed inputs.
     while (!right.Zero())
     {
+      LehmerMatrix matrix;
+      if (BuildLehmerMatrix(left, right, matrix))
+      {
+        matrix.Apply(left, right);
+        matrix.Apply(x, nextX);
+        matrix.Apply(y, nextY);
+        continue;
+      }
       auto [quotient, remainder] = DivideAndRemainder(left, right);
       left = std::move(right);
       right = std::move(remainder);
