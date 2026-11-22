@@ -24,7 +24,11 @@ The 10-million-digit balanced product took 17.74 ms. At 50, 100 and 200 million 
 
 ### Peak memory compared with GMP
 
-In fresh processes on the M1 Max, the largest relative peak in the standard suite was formatting 10 million digits. Threaded BigMath used 531 MiB and GMP used 46 MiB. Multiplying 10M × 1M digits used 173 MiB and 19 MiB respectively. At 200M × 200M digits, peak RSS was 2.90 GiB for threaded BigMath, 3.56 GiB for single-threaded BigMath and 1.09 GiB for GMP. [Memory measurements and controlled comparisons](BENCHMARK.md#peak-memory-and-large-product-time)
+Threaded multiplication now uses the fused matrix transform for large operands at ratios of at least 8 to 1. At 10M × 1M digits, peak RSS fell from 173.3 to 109.9 MiB and warm time from 18.0 to 15.8 ms. [Paired measurements](BENCHMARK.md#memory-optimization-benchmarks)
+
+![Peak memory and warm time before and after each optimization relative to GMP](docs/images/bigmath_memory_fixes.png)
+
+In the original November 21 sweep on the M1 Max, the largest relative peak in the standard suite was formatting 10 million digits. Threaded BigMath used 531 MiB and GMP used 46 MiB. Multiplying 10M × 1M digits used 173 MiB and 19 MiB respectively. At 200M × 200M digits, peak RSS was 2.90 GiB for threaded BigMath, 3.56 GiB for single-threaded BigMath and 1.09 GiB for GMP. [Memory measurements and controlled comparisons](BENCHMARK.md#peak-memory-and-large-product-time)
 
 ![Peak memory of multithreaded BigMath relative to GMP](docs/images/bigmath_vs_gmp_memory.png)
 

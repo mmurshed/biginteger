@@ -3518,7 +3518,16 @@ namespace BigMath
       };
 
       // Just above a power of two: H + L instead of 2H (see TruncCyclicLength).
-      if (const Int truncL = TruncCyclicLength(coeffCount, n >> 1); truncL != 0)
+      Int truncL = TruncCyclicLength(coeffCount, n >> 1);
+#if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+      // At this transform size, skewed operands use less memory and time
+      // when the threaded matrix transform packs directly into its tiles.
+      if (truncL && n >= (1 << 21) && ParallelNumThreads() > 1 &&
+          std::max(a.size(), b.size()) / std::min(a.size(), b.size()) >= 8 &&
+          UseMfaForShape(a.size(), b.size(), n) && MfaFusedWindow(n))
+        truncL = 0;
+#endif
+      if (truncL)
       {
         const auto &plan1 = GetPlan<F1, G1>(n);
         const auto &plan2 = GetPlan<F2, G2>(n);
