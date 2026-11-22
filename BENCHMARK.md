@@ -264,6 +264,36 @@ cmake --build build --target equality_bench
 ./build/equality_bench
 ```
 
+## Ordered comparison
+
+`CompareTo` and the four relational operators share the unsigned limb comparator. It checks the top two limbs first. When a longer prefix matches, it scans 16 limbs at a time and compares whole limb values within the first differing block. The raw `Compare` overloads also use block scans to skip high zero padding. Large comparisons against the same operand can return immediately when both spans refer to the same data.
+
+The Apple M1 Max ran Apple Clang 21 with 64-bit limbs and `-O3 -march=native -DNDEBUG`. The baseline was `a9a2829`. Each value is the median of five process runs per revision, with the revision order alternated per pair. The harness measures seven warm batches per case and checks the result of each batch. Operand construction is outside the timer. Each timing includes an indirect function call. [Full paired CSV](docs/benchmarks/2026-11-22-ordered-comparison-m1-max.csv)
+
+| Operation and case | Limbs | Baseline | Optimized |
+|---|---:|---:|---:|
+| `<`, equal copy | 8 | 5.73 ns | 8.43 ns |
+| `CompareTo`, opposite signs | 4,096 | 0.94 ns | 0.93 ns |
+| `CompareTo`, highest limb differs | 4,096 | 2.84 ns | 2.49 ns |
+| `CompareTo`, different lengths | 4,096 | 2.39 ns | 3.12 ns |
+| `CompareTo`, equal copy | 4,096 | 1.29 µs | 0.446 µs |
+| `CompareTo`, lowest limb differs | 4,096 | 1.30 µs | 0.454 µs |
+| `>`, lowest limb differs | 4,096 | 1.32 µs | 0.452 µs |
+| `>=`, lowest limb differs | 4,096 | 1.30 µs | 0.457 µs |
+| `<`, lowest limb differs | 4,096 | 1.30 µs | 0.445 µs |
+| `<=`, lowest limb differs | 4,096 | 1.33 µs | 0.445 µs |
+| `Compare`, two vectors, lowest limb differs | 4,096 | 1.29 µs | 0.451 µs |
+| `Compare`, padded vector equals scalar | 4,096 | 1.33 µs | 0.251 µs |
+| `CompareTo`, equal copy | 1,000,000 | 336 µs | 253 µs |
+| `CompareTo`, same object | 1,000,000 | 322 µs | 3.12 ns |
+
+Run the benchmark from a configured Release build.
+
+```sh
+cmake --build build --target comparison_bench
+./build/comparison_bench
+```
+
 ## Balanced multiplication through one million digits
 
 This sweep compares the public `BigInteger` multiplication operator against GMP 6.3.0 on a 32 GiB Apple M1 Max running macOS 27.2.1. Both revisions used Apple Clang 21, 64-bit limbs and Release builds with `-O3 -march=native`. The baseline was `d733086`. The single-thread build used `-DBIGMATH_USE_THREADS=0`, and the default build could use eight threads. GMP used one thread throughout. [Per-pass first and warm timings, including the 2M and 5M controls](docs/benchmarks/2026-11-22-submillion-products-m1-max.csv)
