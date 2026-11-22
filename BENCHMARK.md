@@ -179,6 +179,58 @@ BigMath uses decimal fixed-point arithmetic and HALF_EVEN rounding for division.
 | tostr | 10000 digits | 0.1129 | 0.1052 | 1.07× | 5 |
 | tostr | 50000 digits | 1.02 | 1.098 | 0.93× | 3 |
 
+## Peak memory and large-product time
+
+The November 21, 2026 run measured the implementation from `e62e77f` on an Apple M1 Max with 32 GiB of RAM. Each operation ran in three fresh processes, one each for GMP 6.3.0, threaded BigMath (up to eight threads), and single-threaded BigMath. The 111 standard cases use the same operands as the timing tables above. Thirteen additional balanced products bracket transform boundaries and extend the sweep to one billion decimal digits per operand. [All times, RSS readings, statuses and hashes](docs/benchmarks/2026-11-21-peak-memory-m1-max.csv) · [Run the benchmark](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)
+
+**How to read the figures.** RSS is the operating system’s high-water mark for resident process memory. We record it with the inputs ready, after the first operation, and after the last warm call, before hashing. Arithmetic panels show the last high-water mark. Conversion panels show both readings. A ratio of 4 means BigMath reached four times GMP’s peak. Small operands include roughly 2 MiB of process startup memory. A fresh process at every size excludes caches built by preceding cases. The ordinary timing tables use a long-lived benchmark process.
+
+![Default BigMath versus GMP peak RSS across four operation families](docs/images/bigmath_vs_gmp_memory.png)
+
+![Single-threaded BigMath versus GMP peak RSS across four operation families](docs/images/bigmath_vs_gmp_memory_single_thread.png)
+
+### Memory spikes to investigate
+
+- **Formatting has the largest ratio in the standard suite.** For 10M digits, threaded BigMath reached 530.5 MiB versus 45.8 MiB (11.59×). At 20M digits it reached 1,057.0 MiB versus 102.4 MiB (10.32×). BigMath fans the conversion tree out over workers, and its divider and transform workspaces include thread-local caches. The controlled run below measures what disabling conversion fan-out changes while keeping arithmetic threading enabled.
+- **Skewed multiplication has a local peak.** At 10M × 1M digits the default build used 173.4 MiB versus 18.6 MiB (9.34×). This shape selects the truncated product. Its three primes each cache plans of lengths 2H, H and L. At this size their NEON roots and interleaved companions alone account for 112.5 MiB, calculated from the plan lengths.
+- **Balanced multiplication jumps at transform doublings.** Increasing each operand from 160M to 162M raised threaded peak RSS from 1.62 to 2.81 GiB. GMP moved from 0.87 to 0.91 GiB. The fused transform doubles nine 32-bit planes at that boundary. At 200M digits, single-threaded BigMath used **3.56 GiB**. Its truncated path keeps one length-2H weighting plan per prime. Those three plans alone total 2.25 GiB.
+
+### Controlled comparisons
+
+Each cell gives the median peak RSS through warm calls and the median warm time across three independent processes, using the same operands and reversing the build order for the second repeat. The transform control sets `BIGMATH_NTT_TRUNC=0`. The conversion control raises the separate parsing and formatting parallel thresholds above the tested sizes. Other build flags match the corresponding stock build. To reproduce, select entries 11, 19, 54 and 64 of the full manifest and run the isolated benchmark on the stock and control builds. [Control measurements](docs/benchmarks/2026-11-21-memory-controls-m1-max.csv) · [CRT plans and workspaces](include/biginteger/algorithms/multiplication/NTTMultiplicationCrt.h) · [Conversion implementation](src/common/Parser.cpp)
+
+| Operation | Build | Stock | Control |
+|---|---|---:|---:|
+| 10M × 1M multiply | Up to 8 threads | 173 MiB · 20.0 ms | 110 MiB · 15.6 ms |
+| 50M × 50M multiply | 1 thread | 920 MiB · 624.4 ms | 735 MiB · 1,055.0 ms |
+| Format 10M digits | Up to 8 threads | 527 MiB · 234.6 ms | 324 MiB · 439.0 ms |
+| Parse 50M digits | Up to 8 threads | 1,595 MiB · 554.8 ms | 874 MiB · 1,190.0 ms |
+
+For threaded multiplication, the 10M × 1M case is the first dispatch choice worth revisiting. The full transform reduced both peak RSS and elapsed time in all three paired runs at that shape. At 50M × 50M in the single-thread build, the full transform saved memory but took longer. Disabling conversion fan-out cut peak RSS by 39% for formatting and 45% for parsing at the tested sizes. Both conversions took roughly twice as long. These controls point to worker workspace reuse as a way to investigate the conversion peaks while retaining parallelism.
+
+### Balanced products through one billion digits
+
+Each cell reports one warm product time and peak RSS through that call. The full CSV also records first-call time, setup peak and first-call peak. The extra cases use seeded raw magnitudes with exactly the stated decimal digit count. Every completed BigMath product matched the GMP hash.
+
+| Digits per operand | BigMath, up to 8 threads | BigMath, 1 thread | GMP, 1 thread |
+|---:|---:|---:|---:|
+| 10M | 0.016 s · 0.12 GiB | 0.107 s · 0.10 GiB | 0.199 s · 0.07 GiB |
+| 10.2M | 0.033 s · 0.20 GiB | 0.103 s · 0.22 GiB | 0.200 s · 0.07 GiB |
+| 50M | 0.155 s · 0.75 GiB | 0.621 s · 0.90 GiB | 0.652 s · 0.27 GiB |
+| 100M | 0.322 s · 1.48 GiB | 1.352 s · 1.78 GiB | 1.376 s · 0.55 GiB |
+| 160M | 0.340 s · 1.62 GiB | 2.236 s · 2.10 GiB | 2.423 s · 0.87 GiB |
+| 162M | 0.658 s · 2.81 GiB | 2.345 s · 3.33 GiB | 2.351 s · 0.91 GiB |
+| 200M | 0.670 s · 2.90 GiB | 2.850 s · 3.56 GiB | 2.833 s · 1.09 GiB |
+| 320M | 0.708 s · 3.17 GiB | 4.696 s · 4.19 GiB | 4.891 s · 1.75 GiB |
+| 324M | CRT limit | CRT limit | 4.916 s · 1.82 GiB |
+| 500M | CRT limit | CRT limit | 8.330 s · 2.73 GiB |
+| 750M | CRT limit | CRT limit | 12.270 s · 4.12 GiB |
+| 1,000M | CRT limit | CRT limit | 18.223 s · 5.45 GiB |
+
+BigMath returned its CRT length exception at 324M, 500M, 750M and 1,000M in both builds. For equal operands of `m` 64-bit limbs the transform must hold `4m − 1` coefficients. The three-prime implementation supports at most 2²⁶ points, or about 323.23M decimal digits per balanced operand. The 500M product requires 2²⁷ points. Both 750M and 1,000M require 2²⁸. A failed call has no completed-product timing or peak in the CSV.
+
+![Measured warm product time and peak memory from ten million to one billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
+
 ## Large multiplication follow-up
 
 The default threaded build uses a power-of-two NTT in this range. Two equal operands of `m` 64-bit limbs need `4m − 1` coefficients. The transform doubles just above 10.10M, 20.20M and 40.40M decimal digits per operand. The 10M and 20M products fill 99% of their transforms. The 50M, 100M and 200M products fill 62%. A sweep around the first boundary on the M1 Max measured 27.3 ms at 10M and 65.1 ms at 11M on revision `1fa44fa`, while GMP took 200.7 and 200.6 ms on those same inputs (median of three warm products, seeded binary operands).

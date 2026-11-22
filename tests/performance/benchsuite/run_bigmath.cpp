@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "bench_common.h"
+#include "case_measurement.h"
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/ops/Operations.h"
@@ -54,7 +54,111 @@ struct Row {
     std::string correct = "n/a"; // ok / FAIL / n/a
 };
 
+// GMP raw magnitudes have a four-byte big-endian length followed by that
+// many big-endian bytes. Decode into the final limb vector in bounded chunks.
+static BigInteger LoadInteger(const std::string &dir, int id, int slot, bool raw) {
+    if (!raw) return Parse(LoadOperand(dir, id, slot).c_str());
+    const std::string path = RawOperandPath(dir, id, slot);
+    std::ifstream input(path, std::ios::binary);
+    unsigned char header[4];
+    if (!input.read(reinterpret_cast<char *>(header), 4) || (header[0] & 0x80))
+        throw std::runtime_error("expected a nonnegative GMP raw operand: " + path);
+    size_t bytes = 0;
+    for (unsigned char b : header) bytes = (bytes << 8) | b;
+    const size_t limb_bytes = BigInteger::Base() == Base2_64 ? 8 : 4;
+    std::vector<DataT> limbs((bytes + limb_bytes - 1) / limb_bytes);
+    unsigned char chunk[32768];
+    size_t left = bytes;
+    while (left) {
+        const size_t count = std::min(left, sizeof(chunk));
+        if (!input.read(reinterpret_cast<char *>(chunk), count))
+            throw std::runtime_error("truncated raw operand: " + path);
+        for (size_t i = 0; i < count; ++i) {
+            const size_t pos = --left;
+            limbs[pos / limb_bytes] |= DataT(chunk[i]) << (8 * (pos % limb_bytes));
+        }
+    }
+    return BigInteger(std::move(limbs), false);
+}
+
+static void MeasureCase(const std::string &dir, const Entry &e, CaseMeasurement &result) {
+    switch (e.op) {
+        case Op::Mul: {
+            BigInteger a = LoadInteger(dir, e.id, 0, result.memory);
+            BigInteger b = LoadInteger(dir, e.id, 1, result.memory);
+            BigInteger c;
+            result.Run(e.reps, [&] { c = a * b; if (c.Limbs().empty()) abort(); });
+            result.hash = HashBigInteger(c);
+            break;
+        }
+        case Op::Div:
+        case Op::DivQR: {
+            BigInteger a = LoadInteger(dir, e.id, 0, result.memory);
+            BigInteger b = LoadInteger(dir, e.id, 1, result.memory);
+            std::string answer;
+            if (e.op == Op::Div) {
+                BigInteger q;
+                result.Run(e.reps, [&] { q = a / b; });
+                answer = HashBigInteger(q);
+            } else {
+                std::pair<BigInteger, BigInteger> qr;
+                result.Run(e.reps, [&] { qr = DivideAndRemainder(a, b); });
+                answer = HashBigInteger(qr.first) + "/" + HashBigInteger(qr.second);
+            }
+            result.hash = answer;
+            break;
+        }
+        case Op::Parse: {
+            std::string sa = LoadOperand(dir, e.id, 0);
+            result.Run(e.reps, [&] {
+                BigInteger b = Parse(sa.c_str()); if (b.Limbs().empty()) abort();
+            });
+            break;
+        }
+        case Op::ToStr: {
+            BigInteger b = LoadInteger(dir, e.id, 0, result.memory);
+            result.Run(e.reps, [&] {
+                std::string o = ToString(b); if (o.empty()) abort();
+            });
+            break;
+        }
+        case Op::DecAdd: case Op::DecMul: case Op::DecDiv: {
+            BigDecimal a = BigDecimal::FromString(LoadOperand(dir, e.id, 0));
+            BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 1));
+            BigDecimal c;
+            if (e.op == Op::DecAdd)
+                result.Run(e.reps, [&] { c = a + b; });
+            else if (e.op == Op::DecMul)
+                result.Run(e.reps, [&] { c = a * b; });
+            else
+                result.Run(e.reps, [&] { c = a.Divide(b, e.scale, RoundingMode::HALF_EVEN); });
+            if (c.Scale() < -1000000) abort();
+            break;
+        }
+        case Op::DecParse: {
+            std::string sa = LoadOperand(dir, e.id, 0);
+            result.Run(e.reps, [&] {
+                BigDecimal b = BigDecimal::FromString(sa); if (b.Scale() < -1000000) abort();
+            });
+            break;
+        }
+        case Op::DecToStr: {
+            BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 0));
+            result.Run(e.reps, [&] {
+                std::string o = b.ToPlainString(); if (o.empty()) abort();
+            });
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
+    if (argc == 2 && std::string(argv[1]) == "--thread-mode") {
+        std::puts(BIGMATH_USE_THREADS ? "threaded" : "single");
+        return 0;
+    }
+    if (argc == 4 && std::string(argv[1]) == "--memory-case")
+        return RunMemoryCase(argv[2], argv[3], MeasureCase);
     if (argc < 8) {
         fprintf(stderr, "usage: %s <dataset_dir> <gmp_csv> <out_csv> <run_id> "
                         "<machine> <profile> <history_md>\n", argv[0]);
@@ -90,74 +194,12 @@ int main(int argc, char **argv) {
         row.gmp_ms = gmp[i].gmp_ms;
         fprintf(stderr, "  e%-4d %-9s %-22s ...\n", e.id, OpName(e.op), e.Label().c_str());
 
-        switch (e.op) {
-            case Op::Mul: {
-                BigInteger a = Parse(LoadOperand(dir, e.id, 0).c_str());
-                BigInteger b = Parse(LoadOperand(dir, e.id, 1).c_str());
-                BigInteger c;
-                row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; if (c.Limbs().empty()) abort(); }, e.reps);
-                row.correct = (HashBigInteger(c) == gmp[i].hash) ? "ok" : "FAIL";
-                break;
-            }
-            case Op::Div:
-            case Op::DivQR: {
-                BigInteger a = Parse(LoadOperand(dir, e.id, 0).c_str());
-                BigInteger b = Parse(LoadOperand(dir, e.id, 1).c_str());
-                std::string answer;
-                if (e.op == Op::Div) {
-                    BigInteger q;
-                    row.bm_ms = BestWarmMs(row.first_ms, [&] { q = a / b; }, e.reps);
-                    answer = HashBigInteger(q);
-                } else {
-                    std::pair<BigInteger, BigInteger> qr;
-                    row.bm_ms = BestWarmMs(row.first_ms, [&] { qr = DivideAndRemainder(a, b); }, e.reps);
-                    answer = HashBigInteger(qr.first) + "/" + HashBigInteger(qr.second);
-                }
-                row.correct = answer == gmp[i].hash ? "ok" : "FAIL";
-                break;
-            }
-            case Op::Parse: {
-                std::string sa = LoadOperand(dir, e.id, 0);
-                row.bm_ms = BestWarmMs(row.first_ms, [&] {
-                    BigInteger b = Parse(sa.c_str()); if (b.Limbs().empty()) abort();
-                }, e.reps);
-                break;
-            }
-            case Op::ToStr: {
-                BigInteger b = Parse(LoadOperand(dir, e.id, 0).c_str());
-                row.bm_ms = BestWarmMs(row.first_ms, [&] {
-                    std::string o = ToString(b); if (o.empty()) abort();
-                }, e.reps);
-                break;
-            }
-            case Op::DecAdd: case Op::DecMul: case Op::DecDiv: {
-                BigDecimal a = BigDecimal::FromString(LoadOperand(dir, e.id, 0));
-                BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 1));
-                BigDecimal c;
-                if (e.op == Op::DecAdd)
-                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a + b; }, e.reps);
-                else if (e.op == Op::DecMul)
-                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a * b; }, e.reps);
-                else
-                    row.bm_ms = BestWarmMs(row.first_ms, [&] { c = a.Divide(b, e.scale, RoundingMode::HALF_EVEN); }, e.reps);
-                if (c.Scale() < -1000000) abort();
-                break;
-            }
-            case Op::DecParse: {
-                std::string sa = LoadOperand(dir, e.id, 0);
-                row.bm_ms = BestWarmMs(row.first_ms, [&] {
-                    BigDecimal b = BigDecimal::FromString(sa); if (b.Scale() < -1000000) abort();
-                }, e.reps);
-                break;
-            }
-            case Op::DecToStr: {
-                BigDecimal b = BigDecimal::FromString(LoadOperand(dir, e.id, 0));
-                row.bm_ms = BestWarmMs(row.first_ms, [&] {
-                    std::string o = b.ToPlainString(); if (o.empty()) abort();
-                }, e.reps);
-                break;
-            }
-        }
+        CaseMeasurement measurement;
+        MeasureCase(dir, e, measurement);
+        row.first_ms = measurement.first_ms;
+        row.bm_ms = measurement.warm_ms;
+        if (HasAnswerHash(e.op))
+            row.correct = measurement.hash == gmp[i].hash ? "ok" : "FAIL";
         if (row.correct == "FAIL") ++failures;
 
         double ratio = row.gmp_ms > 0 ? row.bm_ms / row.gmp_ms : std::numeric_limits<double>::quiet_NaN();

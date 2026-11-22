@@ -7,7 +7,7 @@ repeated BigMath runs only pay for BigMath.
 ## Usage
 
 ```
-./run_benchmark.sh [profile] [--force-dataset] [--force-gmp]
+./run_benchmark.sh [profile] [--force-dataset] [--force-gmp] [--memory | --extended]
 ```
 
 `profile` = `quick` | `default` | `full` (default `default`). The driver runs
@@ -51,3 +51,47 @@ Set `HISTORY_MD` to direct local test runs to a separate history file.
   of truth at run time.
 - CMake also exposes `bench_gen_dataset`, `bench_run_gmp`, `bench_run_bigmath`
   for IDE/CI parity; the shell driver is the primary interface.
+
+## Isolated peak memory and time
+
+On macOS or Linux, the memory mode runs GMP, the default BigMath build and a
+second BigMath build compiled with `-DBIGMATH_USE_THREADS=0`. Use a threaded
+default build for the first comparison. The coordinator requires Python 3.9
+or later. Run either command from the repository root.
+
+```sh
+bash tests/performance/benchsuite/run_benchmark.sh quick --memory
+bash tests/performance/benchsuite/run_benchmark.sh full --extended
+```
+
+Each library and operation gets a fresh executable process. The CSV records
+the operating system's peak resident set size (RSS) in bytes
+after input setup, after the first call, and after all warm calls. Each peak
+includes earlier phases, the resident inputs, output, allocator and thread
+workspaces. Result hashing follows the last reading. Subtracting the setup peak gives an increase in the high-water mark. For
+small inputs the runtime itself can account for most of the total. The
+`warm_ms` column is the fastest warm call, with repetitions from the manifest.
+
+Integer arithmetic and formatting use the original decimal fixtures converted
+to GMP raw integers in a separate preparation process. Both libraries read the
+same bytes directly into integer storage. Parsing still starts from decimal
+text. The full sweep includes the existing BigDecimal cases against GMP's
+`mpf`; those operations have different decimal/rounding semantics and are
+timed without an equality check. Every completed integer multiplication and
+division is checked against the GMP result hash.
+
+`--extended` adds balanced products around transform boundaries and at 500M,
+750M and 1B decimal digits **per operand**. These extra fixtures use seeded
+binary magnitudes with exactly the specified decimal length, generated outside
+the measurement process. A public multiplication rejected by the CRT length
+guard is recorded as `crt_length_limit` with empty timing and memory fields.
+Other exceptions, hash mismatches and failed processes fail the run. Raw inputs
+are discarded after each case. The driver prints the unique CSV path under
+`$BENCH_DIR/results/`.
+
+Use the Python driver directly with existing builds and an extracted dataset.
+
+```sh
+python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD results.csv --extended
+python3 docs/images/make_memory_plots.py --csv results.csv
+```

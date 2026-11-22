@@ -22,6 +22,16 @@ The 10-million-digit balanced product took 17.74 ms. At 50, 100 and 200 million 
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
+### Peak memory compared with GMP
+
+In fresh processes on the M1 Max, the largest relative peak in the standard suite was formatting 10 million digits. Threaded BigMath used 531 MiB and GMP used 46 MiB. Multiplying 10M × 1M digits used 173 MiB and 19 MiB respectively. At 200M × 200M digits, peak RSS was 2.90 GiB for threaded BigMath, 3.56 GiB for single-threaded BigMath and 1.09 GiB for GMP. [Memory measurements and controlled comparisons](BENCHMARK.md#peak-memory-and-large-product-time)
+
+![Peak memory of multithreaded BigMath relative to GMP](docs/images/bigmath_vs_gmp_memory.png)
+
+![Peak memory of single-threaded BigMath relative to GMP](docs/images/bigmath_vs_gmp_memory_single_thread.png)
+
+The extended sweep measured GMP at 500M, 750M and one billion digits per operand. BigMath completed the 320M product and reached its transform-length limit at 324M. [Large-product timings and memory figure](BENCHMARK.md#balanced-products-through-one-billion-digits)
+
 ### Small operands (1–16 limbs)
 
 Values of up to 4 limbs (256 bits) are stored inside the `BigInteger` object, and operands of up to 16 limbs are combined in a stack buffer. Before and after that change, single-threaded, against GMP writing into a reused output: a 1-limb product went from 5.7× to 2.1× GMP's time, a 1-limb remainder from 3.9× to 1.1×, and copying a small value from 5.3× to 0.12×.
