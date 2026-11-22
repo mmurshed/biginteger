@@ -12,8 +12,9 @@ CASES = [
     ("skew-default", "mul", 10_000_000, 1_000_000, "Skewed product\n10M × 1M"),
     ("weights-single", "mul", 200_000_000, 200_000_000, "Single-thread\n200M × 200M"),
     ("planes-default", "mul", 200_000_000, 200_000_000, "Threaded\n200M × 200M"),
+    ("conversion-default", "tostr", 10_000_000, 0, "Format\n10M digits"),
 ]
-fig, axes = plt.subplots(1, 2, figsize=(8.2, 3.7), layout="constrained")
+fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), layout="constrained")
 for ax, field, title in zip(axes, ("warm_peak_bytes", "warm_ms"),
                             ("Peak resident memory", "Warm operation time")):
     for i, (file, op, digits, rhs, label) in enumerate(CASES):

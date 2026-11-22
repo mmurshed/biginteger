@@ -1,0 +1,11 @@
+operation,digits,category,capacity_bytes,unique_table_bytes
+parse,50000000,mfaScratch,201326592,
+parse,50000000,plan,679329792,150976512
+parse,50000000,product,226492416,
+parse,50000000,root,28311552,28311552
+tostr,10000000,cyclic,34603008,
+tostr,10000000,mfaScratch,50331648,
+tostr,10000000,newton,7560576,
+tostr,10000000,plan,207097344,75492864
+tostr,10000000,product,83361792,
+tostr,10000000,root,9437184,9437184
