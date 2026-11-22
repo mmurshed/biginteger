@@ -1,80 +1,92 @@
 # Platform tuning
 
-Dispatch thresholds (when multiplication switches Classic → Karatsuba → Toom →
-NTT, when division switches Fast → Burnikel-Ziegler → Newton, etc.) have
-crossover points that depend on the CPU and compiler. BigMath ships portable
-defaults and lets each platform override them with a tuned profile.
+BigMath chooses multiplication, squaring, and division algorithms using
+size and shape thresholds. The right switch points depend on the CPU,
+compiler, and whether worker threads are active. A platform profile overrides
+individual thresholds while using the library defaults for the rest.
 
-## How resolution works
+## Survey the crossovers
 
-`common/Constants.h` includes, in order (first definition wins; every threshold
-macro is `#ifndef`-guarded):
-
-1. command-line `-D` overrides
-2. `build/PlatformConfig.h` → the per-platform tuned profile, if one exists
-3. `build/DispatchThresholds.h` → generic portable defaults
-
-`PlatformConfig.h` auto-selects a profile with `__has_include`, keyed on the host
-OS / arch / compiler:
-
-```
-include/biginteger/build/platform/<os>-<arch>-<compiler>.h
-```
-
-e.g. `linux-x86_64-gcc.h`, `macos-arm64-clang.h`, `windows-x86_64-clang.h`. If
-the matching file isn't committed, the defaults apply unchanged — no profile is
-required to build. A profile only `#define`s the macros it tuned, so it overrides
-individual defaults without disabling the fallback for the rest.
-
-Escape hatches: `-DBIGMATH_PLATFORM_OVERRIDE='"path/to/profile.h"'` forces a
-specific profile; `-DBIGMATH_PLATFORM_NONE` disables auto-selection.
-
-## Generating a profile
-
-### On real hardware (recommended)
+Open [Actions → Tune platform dispatch](https://github.com/mmurshed/biginteger/actions/workflows/tune.yml).
+Run the workflow with `stage=survey` and `mode=full`. A quick survey uses fewer
+sizes. The workflow builds for the same five OS, architecture, and compiler
+combinations as the [release workflow](RELEASING.md), with the same CPU instruction
+baseline.
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release        # adds -march=native
-cmake --build build --target dispatch_tuner -j
-./build/dispatch_tuner --full --emit-header \
-    include/biginteger/build/platform/<os>-<arch>-<compiler>.h
+gh workflow run tune.yml --ref main -f stage=survey -f mode=full
+gh run list --workflow tune.yml --limit 5
+gh run download RUN_ID --pattern 'survey-*' --dir survey
 ```
 
-`--full` runs a wider size sweep (slower, more accurate). Drop it for a quick
-pass. The profile applies only to the limb width used for the sweep. The
-tuner uses full-width limbs and the configured square transform. It records
-back-to-back calls and calls after workers have parked. The 64-bit division
-sweep compares matching quotient-and-remainder kernels around the BZ, Newton
-and short-quotient gates. It keeps the compiled division floor unless the
-challenger leads by 5% at two adjacent sizes.
+Each `survey-<platform>` artifact contains three sweeps (`survey-*.log`), the
+suggested headers from each sweep (`survey-*.h`), the profile used for the build,
+and compiler, runner, and commit metadata. Times in the survey are in
+milliseconds. The logs show competing kernels around multiplication,
+squaring, and division crossovers. The tuner compares burst and parked
+worker states for multiplication and squaring. Across the current 64-bit
+division sweep it checks both quotient and remainder and requires a 5%
+challenger lead at two adjacent sizes before proposing a new floor.
 
-Rebuild with the profile, run the correctness tests, and compare held-out
-shapes on the same machine before committing the thresholds. For example,
-run these commands with and without the generated platform header and compare
-the dispatch times. The arguments are divisor limb counts.
+## Choose and validate a profile
+
+1. Compare all three sweeps. Keep changes with a repeatable crossover, and
+   preserve the current values when the measurements disagree. Avoid moving
+   unrelated thresholds together so you can tell which change caused a result.
+2. On a branch, copy the relevant proposal to
+   `include/biginteger/build/platform/<platform>.h`. Keep the limb-width and
+   `#ifndef` guards, and remove definitions for thresholds you want to leave
+   at their defaults. Commit the selected files and push the branch.
+3. Run `stage=validate` on the branch. This builds both the proposed profile
+   and the profile from the default branch at dispatch time, using the proposed
+   branch's source code and the same runner for both. The candidate must pass
+   all four correctness suites. The benchmark also checks results against
+   schoolbook multiplication and FastDivision on the held-out inputs.
+
+   ```sh
+   gh workflow run tune.yml --ref your-profile-branch -f stage=validate
+   gh run list --workflow tune.yml --limit 5
+   gh run download RUN_ID --pattern 'validate-*' --dir validation
+   gh run download RUN_ID --name validation-comparison --dir validation-summary
+   ```
+
+4. Read the workflow summary and the per-shape CSVs. Speedup is baseline time
+   divided by candidate time, so values above 1 favor the candidate. The
+   comparison uses the median of three paired runs and includes the slowest
+   case in each operation and worker state. Review any regressions, including
+   when the average improves. If the evidence is mixed, adjust the branch and
+   repeat validation. Link the runs and summarize the changes in the PR before
+   merging.
+
+Hosted runners can vary by CPU and load even with the same runner label. Treat
+the results as a baseline for the published packages. For deployment-specific
+thresholds, run the tuner and validate on the deployment hardware.
 
 ```sh
-cmake --build build --target division_shape_bench unit_tests -j
-./build/unit_tests
-./build/division_shape_bench 101 777 1553 3091
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target dispatch_tuner --parallel
+./build/dispatch_tuner --full --emit-header /tmp/bigmath-candidate.h
+./build/dispatch_tuner --holdout
 ```
 
-### Via CI
+Use `dispatch_tuner.exe` in the Windows MSYS2 UCRT64 shell. To build locally
+with a specific profile, configure a clean build with
+`-DBIGMATH_PLATFORM_PROFILE=/absolute/path/to/profile.h`, then rebuild the
+tuner, library and tests. Use `-DBIGMATH_PLATFORM_PROFILE=none` for the generic
+baseline. The native optimization default in local Release builds can be
+disabled with `-DBIGMATH_NATIVE_OPTIMIZATION=OFF`.
 
-The **tune** workflow (`.github/workflows/tune.yml`, manual `workflow_dispatch`)
-runs the tuner across the CI matrix (Linux gcc/clang, macOS clang, Windows
-clang) and opens a single PR with the regenerated profiles.
+## How builds pick up the profile
 
-> ⚠️ **CI values are not canonical.** GitHub-hosted runners are shared VMs whose
-> host CPU varies between runs, and the build uses `-march=native`. A profile
-> generated on CI reflects *that runner's* CPU. Use the workflow for convenience
-> and as a baseline; for values you rely on, tune on the deployment hardware.
+A release package embeds the profile matching its OS, architecture and
+compiler at the tagged commit. Its exported `bigmath::bigmath` target uses
+the same profile for library headers seen by applications. If no matching
+header exists, the package embeds the generic defaults. Use the exported
+CMake target when consuming release binaries.
 
-## Adding a new platform
-
-1. Add a matrix entry (and, if a new OS, a job) to `tune.yml` with a `key`
-   matching the `<os>-<arch>-<compiler>.h` naming.
-2. Add the corresponding auto-selection branch to `PlatformConfig.h`.
-
-The Windows path uses MSYS2 + Clang because the library requires a GCC/Clang
-toolchain (`__int128`, `__builtin_*_overflow`); MSVC cannot compile it.
+A source build without an explicit CMake profile auto-selects a checked-in
+header for the compiler's target. Command-line threshold macros take
+precedence, and absent settings fall through to
+[`DispatchThresholds.h`](../include/biginteger/build/DispatchThresholds.h).
+For source builds, `BIGMATH_PLATFORM_OVERRIDE` can force a profile header and
+`BIGMATH_PLATFORM_NONE` disables profile selection.
