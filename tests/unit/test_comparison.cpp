@@ -9,6 +9,53 @@
 
 using namespace BigMath;
 
+static void CheckEquality(const BigInteger &a, const BigInteger &b, bool expected)
+{
+  ASSERT_EQ(a.CompareTo(b) == 0, expected);
+  ASSERT_EQ(a == b, expected);
+  ASSERT_EQ(b == a, expected);
+  ASSERT_EQ(a != b, !expected);
+  ASSERT_EQ(b != a, !expected);
+}
+
+REGISTER_TEST(Compare, EqualityAcrossLimbPositions)
+{
+  for (SizeT size : {SizeT{1}, SizeT{2}, SizeT{3}, BigInteger::InlineLimbs,
+                     BigInteger::InlineLimbs + 1, SizeT{8}, SizeT{9}, SizeT{17}, SizeT{64}})
+  {
+    std::vector<DataT> limbs(size, 0x12345678);
+    for (bool negative : {false, true})
+    {
+      const BigInteger a(limbs, negative);
+      CheckEquality(a, a, true);
+      CheckEquality(a, BigInteger(limbs, negative), true);
+      CheckEquality(a, BigInteger(limbs, !negative), false);
+      for (SizeT i = 0; i < size; ++i)
+      {
+        limbs[i] ^= DataT{1} << (LimbBits - 1);
+        CheckEquality(a, BigInteger(limbs, negative), false);
+        limbs[i] ^= DataT{1} << (LimbBits - 1);
+      }
+      auto longer = limbs;
+      longer.push_back(1);
+      CheckEquality(a, BigInteger(longer, negative), false);
+    }
+  }
+}
+
+REGISTER_TEST(Compare, EqualityWithPaddedZeros)
+{
+  const BigInteger zero;
+  const BigInteger inlineZero(BigInteger::InlineLimbs, true);
+  const BigInteger heapZero(BigInteger::InlineLimbs + 1, false);
+  const BigInteger one(std::vector<DataT>{1}, false);
+  CheckEquality(zero, inlineZero, true);
+  CheckEquality(zero, heapZero, true);
+  CheckEquality(inlineZero, heapZero, true);
+  CheckEquality(heapZero, BigInteger(heapZero), true);
+  CheckEquality(one, heapZero, false);
+}
+
 REGISTER_TEST(Compare, EqualPositive)
 {
   BigInteger a = BigIntegerBuilder::From("123456789");

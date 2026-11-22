@@ -158,6 +158,36 @@ def small_ops_plot(path, results):
     print("wrote", path)
 
 
+def equality_plot(path):
+    with (BENCHMARKS / "2026-11-21-equality-m1-max.csv").open(newline="") as src:
+        rows = [r for r in csv.DictReader(src) if int(r["limbs"]) == 1_000_000]
+    fig, ax = plt.subplots(figsize=(8.4, 4.4), dpi=160, layout="constrained")
+    y = range(len(rows))
+    before = [float(r["compare_to_ns"]) for r in rows]
+    after = [float(r["equality_ns"]) for r in rows]
+    ax.hlines(y, before, after, color="#acb6be", linewidth=1.1)
+    ax.scatter(before, y, facecolors="white", edgecolors="#555e69", s=63, zorder=3,
+               label="Previous equality (CompareTo)")
+    ax.scatter(after, y, marker="D", color="#2165a1", s=22, zorder=4, label="Specialized equality")
+    ax.set_xscale("log")
+    ax.set_xticks([1, 10, 100, 1e3, 1e4, 1e5, 1e6],
+                  ["1 ns", "10 ns", "100 ns", "1 µs", "10 µs", "100 µs", "1 ms"])
+    labels = [r["comparison"].capitalize() for r in rows]
+    ax.set_yticks(y, [s + " differs" if "limb" in s or s.startswith("Second") else s for s in labels])
+    ax.invert_yaxis()
+    ax.margins(y=0.10)
+    ax.grid(axis="x", color="#dce1e6")
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("Median warm time per comparison · lower is faster")
+    ax.set_title("Exact equality at one million limbs · Apple M1 Max", loc="left", weight="bold")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=False)
+    fig.savefig(path)
+    plt.close(fig)
+    print("wrote", path)
+
+
 def progress_plot(path):
     fig, ax = plt.subplots(figsize=(8.4, 4.6), dpi=150)
     labels = [r[0] for r in BEFORE_AFTER]
@@ -198,4 +228,5 @@ if __name__ == "__main__":
     if small.exists():
         small_ops_plot(HERE / "bigmath_vs_gmp_small.png", small)
     if not args.ratio_only:
+        equality_plot(HERE / "bigmath_equality.png")
         progress_plot(HERE / "session_2026_06_11.png")
