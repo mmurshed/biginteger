@@ -2113,11 +2113,107 @@ namespace BigMath
         dst[i] = F::Add(dst[i], src[i]);
     }
 
+    // The large serial H + L transform needs only the negacyclic weights
+    // from its length-2H plan. For j = 256*b + t, store ψ^(256*b) and ψ^t.
+    template <typename F>
+    struct FactoredWeights
+    {
+      static constexpr SizeT Block = 256;
+#if BIGMATH_NEON
+      static constexpr SizeT Stride = 2;  // interleaved Shoup companion
+#else
+      static constexpr SizeT Stride = 1;
+#endif
+      std::vector<UInt> offsets, blocks;
+
+      static std::vector<UInt> Powers(UInt step, SizeT count)
+      {
+        std::vector<UInt> table(count * Stride);
+        UInt value = 1;
+        for (SizeT i = 0; i < count; ++i)
+        {
+          table[Stride * i] = value;
+#if BIGMATH_NEON
+          table[Stride * i + 1] = ShoupCompanion<F>(value);
+#endif
+          value = F::Mul(value, step);
+        }
+        return table;
+      }
+
+      FactoredWeights(UInt root, SizeT h)
+          : offsets(Powers(root, std::min(Block, h))),
+            blocks(Powers(F::Power(root, Block), (h + Block - 1) / Block)) {}
+
+      UInt Apply(SizeT j, UInt x) const
+      {
+        return F::Mul(F::Mul(x, offsets[Stride * (j % Block)]), blocks[Stride * (j / Block)]);
+      }
+#if BIGMATH_NEON
+      // Callers advance four aligned coefficients at a time within a block.
+      uint32x4_t Apply(SizeT j, uint32x4_t x) const
+      {
+        const auto offset = vld2q_u32(offsets.data() + Stride * (j % Block));
+        const UInt *block = blocks.data() + Stride * (j / Block);
+        return NeonShoupMul<F>(vdupq_n_u32(block[0]), vdupq_n_u32(block[1]),
+                               NeonShoupMul<F>(offset.val[0], offset.val[1], x));
+      }
+#endif
+    };
+
+    template <typename F>
+    struct FullWeights
+    {
+      const UInt *roots;
+#if BIGMATH_NEON
+      const UInt *interleaved;
+      uint32x4_t Apply(SizeT j, uint32x4_t x) const
+      {
+        const auto tw = vld2q_u32(interleaved + 2 * j);
+        return NeonShoupMul<F>(tw.val[0], tw.val[1], x);
+      }
+#endif
+      UInt Apply(SizeT j, UInt x) const { return F::Mul(x, roots[j]); }
+    };
+
+    template <bool Inverse, typename F>
+    inline FullWeights<F> WeightDirection(const Plan<F> &plan)
+    {
+      return {Inverse ? plan.inverseRoots.data() : plan.forwardRoots.data()
+#if BIGMATH_NEON
+              , Inverse ? plan.inverseIl.data() : plan.forwardIl.data()
+#endif
+      };
+    }
+
+    template <typename F>
+    struct NegacyclicWeights
+    {
+      FactoredWeights<F> forward, inverse;
+      NegacyclicWeights(UInt root, SizeT h) : forward(root, h), inverse(F::Inv(root), h) {}
+    };
+
+    template <bool Inverse, typename F>
+    inline const FactoredWeights<F> &WeightDirection(const NegacyclicWeights<F> &weights)
+    {
+      return Inverse ? weights.inverse : weights.forward;
+    }
+
+    template <typename F, UInt G>
+    inline const NegacyclicWeights<F> &GetNegacyclicWeights(Int h)
+    {
+      static thread_local std::unordered_map<Int, NegacyclicWeights<F>> cache;
+      auto it = cache.find(h);
+      if (it != cache.end()) return it->second;
+      const UInt root = F::Power(G, (F::Prime - 1) / (UInt)(2 * h));
+      return cache.try_emplace(h, root, (SizeT)h).first->second;
+    }
+
     // Pack one operand for one prime into [ lower | cyc ]:
     //   lower[j] = (a_j − a_{j+H}) · ψ^j,   cyc[i] = Σ_k a_{i+kL}   (mod P).
-    template <typename F>
+    template <typename F, typename Weights>
     inline void TruncPackWeightFold(const std::vector<DataT> &v, BaseT base, UInt *plane,
-                                    Int H, Int L, const Plan<F> &plan2H)
+                                    Int H, Int L, const Weights &plan2H)
     {
       UInt *lower = plane;
       UInt *cyc = plane + H;
@@ -2151,44 +2247,40 @@ namespace BigMath
       }
 
       // Negacyclic weights ψ^j on the non-zero prefix.
-      const UInt *roots = plan2H.forwardRoots.data();
+      const auto &weights = WeightDirection<false>(plan2H);
       SizeT j = 0;
 #if BIGMATH_NEON
-      const UInt *il = plan2H.forwardIl.data();
       for (; j + 4 <= lowCount; j += 4)
       {
-        uint32x4x2_t tw = vld2q_u32(il + 2 * j); // val[0] = ψ^j, val[1] = companion
-        vst1q_u32(lower + j, NeonShoupMul<F>(tw.val[0], tw.val[1], vld1q_u32(lower + j)));
+        vst1q_u32(lower + j, weights.Apply(j, vld1q_u32(lower + j)));
       }
 #endif
       for (; j < lowCount; ++j)
-        lower[j] = F::Mul(lower[j], roots[j]);
+        lower[j] = weights.Apply(j, lower[j]);
     }
 
     // After both inverse transforms (each scaled): unweight the lower part,
     // then recombine into [ C_lo | C_hi ] as derived above.
-    template <typename F>
-    inline void TruncUnweightReconstruct(UInt *plane, Int H, Int L, const Plan<F> &plan2H)
+    template <typename F, typename Weights>
+    inline void TruncUnweightReconstruct(UInt *plane, Int H, Int L, const Weights &plan2H)
     {
       UInt *lower = plane;
       UInt *cyc = plane + H;
-      const UInt *roots = plan2H.inverseRoots.data();
+      const auto &weights = WeightDirection<true>(plan2H);
       for (Int k = 0; k < H; k += L)
       {
         Int i = 0;
 #if BIGMATH_NEON
-        const UInt *il = plan2H.inverseIl.data() + 2 * (SizeT)k;
         for (; i + 4 <= L; i += 4)
         {
-          uint32x4x2_t tw = vld2q_u32(il + 2 * i); // ψ^−(k+i) and companion
-          uint32x4_t x = NeonShoupMul<F>(tw.val[0], tw.val[1], vld1q_u32(lower + k + i));
+          uint32x4_t x = weights.Apply(k + i, vld1q_u32(lower + k + i));
           vst1q_u32(lower + k + i, x);                              // C1[k + i]
           vst1q_u32(cyc + i, NeonSub<F>(vld1q_u32(cyc + i), x));    // C2[i] − F[i], accumulating
         }
 #endif
         for (; i < L; ++i)
         {
-          const UInt x = F::Mul(lower[k + i], roots[k + i]);
+          const UInt x = weights.Apply(k + i, lower[k + i]);
           lower[k + i] = x;
           cyc[i] = F::Sub(cyc[i], x);
         }
@@ -3380,7 +3472,7 @@ namespace BigMath
     template <typename F, UInt G>
     inline void TruncSerialPrime(const std::vector<DataT> &a, const std::vector<DataT> *b,
                                  BaseT base, Int H, Int L, Int mfaMin,
-                                 UInt *pa, UInt *pb, UInt *scratch, const Plan<F> &plan2H)
+                                 UInt *pa, UInt *pb, UInt *scratch, const NegacyclicWeights<F> &plan2H)
     {
       const bool mfaH = H >= mfaMin && H > (Int)BIGMATH_NTT_MFA_LEAF;
       const bool mfaL = L >= mfaMin && L > (Int)BIGMATH_NTT_MFA_LEAF;
@@ -3440,9 +3532,9 @@ namespace BigMath
       f3.resize(len);
       if (b != nullptr) fb.resize(len);
       scratch.resize((SizeT)H);
-      TruncSerialPrime<F1, G1>(a, b, base, H, L, mfaMin, f1.data(), fb.data(), scratch.data(), GetPlan<F1, G1>(2 * H));
-      TruncSerialPrime<F2, G2>(a, b, base, H, L, mfaMin, f2.data(), fb.data(), scratch.data(), GetPlan<F2, G2>(2 * H));
-      TruncSerialPrime<F3, G3>(a, b, base, H, L, mfaMin, f3.data(), fb.data(), scratch.data(), GetPlan<F3, G3>(2 * H));
+      TruncSerialPrime<F1, G1>(a, b, base, H, L, mfaMin, f1.data(), fb.data(), scratch.data(), GetNegacyclicWeights<F1, G1>(H));
+      TruncSerialPrime<F2, G2>(a, b, base, H, L, mfaMin, f2.data(), fb.data(), scratch.data(), GetNegacyclicWeights<F2, G2>(H));
+      TruncSerialPrime<F3, G3>(a, b, base, H, L, mfaMin, f3.data(), fb.data(), scratch.data(), GetNegacyclicWeights<F3, G3>(H));
     }
 
     // The product through CrtTruncSerial with explicit lengths. NttCrt::Multiply

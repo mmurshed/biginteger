@@ -195,6 +195,17 @@ Compared with `9a3f89a`, skewed products with an available fused matrix transfor
 | mul 10M × 625k | 169.1 MiB · 18.0 ms | 110.5 MiB · 16.7 ms | 17.3 MiB · 78.3 ms |
 | mul 12M × 1.2M | 180.4 MiB · 24.9 ms | 112.2 MiB · 17.7 ms | 26.3 MiB · 65.0 ms |
 
+### Compact single-thread weights
+
+The large serial truncated transform now factors each weight into a block and offset. The baseline is the single-thread path from `9a3f89a`, also used by `dbe3b06`. The 10M case exercises the smaller transform. The 162M inputs use the seeded generator. [All observations](docs/benchmarks/memory-fix-weights-single.csv)
+
+| Shape | Before | After | GMP |
+|---|---:|---:|---:|
+| mul 10M × 10M | 107.4 MiB · 110.9 ms | 107.4 MiB · 111.1 ms | 75.4 MiB · 207.4 ms |
+| mul 50M × 50M | 919.9 MiB · 632.7 ms | 345.2 MiB · 640.7 ms | 280.6 MiB · 653.8 ms |
+| mul 162M × 162M | 3,410.6 MiB · 2,400.2 ms | 1,112.5 MiB · 2,419.3 ms | 932.3 MiB · 2,369.8 ms |
+| mul 200M × 200M | 3,640.6 MiB · 2,860.5 ms | 1,342.5 MiB · 2,917.0 ms | 1,116.8 MiB · 2,872.3 ms |
+
 ## Peak memory and large-product time
 
 The November 21, 2026 run measured the implementation from `e62e77f` on an Apple M1 Max with 32 GiB of RAM. Each operation ran in three fresh processes, one each for GMP 6.3.0, threaded BigMath (up to eight threads), and single-threaded BigMath. The 111 standard cases use the same operands as the timing tables above. Thirteen additional balanced products bracket transform boundaries and extend the sweep to one billion decimal digits per operand. [All times, RSS readings, statuses and hashes](docs/benchmarks/2026-11-21-peak-memory-m1-max.csv) · [Run the benchmark](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)
