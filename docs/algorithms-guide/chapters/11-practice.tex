@@ -11,7 +11,8 @@ This chapter collects the practical consequences of everything above.
         multiplications of decreasing size. The cost of a square depends on whether the
         transform reuses the first operand's spectrum (\cref{sec:nttreuse}).
   \item \textbf{Doubling the size} roughly quadruples the time below about 25 limbs, triples it in
-        the Karatsuba range, and slightly more than doubles it in the NTT range.
+        the Karatsuba range, and usually a little more than doubles it within the single-transform
+        NTT range. Above that range the number of block pairs also determines the cost.
   \item \textbf{Lopsided products are cheap.} $10 \times 100\,000$ limbs is a million limb products,
         no worse than adding the long number to itself ten times.
   \item \textbf{Transform boundaries matter for latency.} For balanced threaded
@@ -20,7 +21,7 @@ This chapter collects the practical consequences of everything above.
         (\cref{sec:trunc}).
 \end{itemize}
 
-Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{8e19932}.
+Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{9d3f1d4}.
 
 \begin{center}
 \small
@@ -28,15 +29,15 @@ Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{8e1
 \toprule
 operation (decimal digits) & BigMath 1 thread & BigMath default & GMP 1 thread \\
 \midrule
-multiply $10^4 \times 10^4$ & 0.06425\,ms & 0.03067\,ms & 0.03679\,ms \\
-multiply $10^6 \times 10^6$ & 9.587\,ms & 3.031\,ms & 8.997\,ms \\
-multiply $10^7 \times 10^7$ & 111.6\,ms & 17.74\,ms & 201.7\,ms \\
-multiply $50\,{\rm M} \times 50\,{\rm M}$ & 627.3\,ms & 164.7\,ms & 655\,ms \\
-multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,363\,ms & 345.3\,ms & 1\,386\,ms \\
-multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,913\,ms & 719.5\,ms & 2\,869\,ms \\
-divide $10^7 \div (2\cdot 10^6)$ (quotient) & 159.6\,ms & 57.94\,ms & 142.3\,ms \\
-parse $2\cdot10^7$ digits & 898.5\,ms & 160.6\,ms & 797.3\,ms \\
-print $2\cdot10^7$ digits & 2\,505\,ms & 502\,ms & 2\,124\,ms \\
+multiply $10^4 \times 10^4$ & 0.05058\,ms & 0.03596\,ms & 0.02796\,ms \\
+multiply $10^6 \times 10^6$ & 9.542\,ms & 2.948\,ms & 9.133\,ms \\
+multiply $10^7 \times 10^7$ & 111.1\,ms & 16.52\,ms & 201.9\,ms \\
+multiply $50\,{\rm M} \times 50\,{\rm M}$ & 634.4\,ms & 172.2\,ms & 660\,ms \\
+multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,372\,ms & 388.4\,ms & 1\,392\,ms \\
+multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,885\,ms & 723.8\,ms & 2\,852\,ms \\
+divide $10^7 \div (2\cdot 10^6)$ (quotient) & 157.7\,ms & 53.45\,ms & 145.9\,ms \\
+parse $2\cdot10^7$ digits & 880.2\,ms & 159.4\,ms & 806.6\,ms \\
+print $2\cdot10^7$ digits & 2\,462\,ms & 503.9\,ms & 2\,144\,ms \\
 \bottomrule
 \end{tabular}
 
@@ -51,6 +52,15 @@ observation for most large inputs. Data and repetition counts are in \file{BENCH
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_single_thread.png}
 \caption{Single-threaded BigMath time divided by single-threaded GMP time (below 1 means BigMath
 was faster). From \file{docs/images/}, generated from the November 2026 benchmark run.}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_large_products.png}
+\caption{Fresh-process measurements through one billion decimal digits per operand.
+The dotted line marks the largest single CRT transform. Products above it accumulate
+multiple block products. Each point reports one warm multiplication and the process
+peak through that call.}
 \end{figure}
 
 \section{Choosing the right call}

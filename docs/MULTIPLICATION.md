@@ -504,7 +504,7 @@ A loosely chronological summary of optimizations that landed and stuck.
 | 469 762 049 | 3 | 7·2^26 + 1 | 2^26 |
 | 1 811 939 329 | 13 | 27·2^26 + 1 | 2^26 |
 
-CRT length ceiling = min across all three = **2^26 ≈ 67M coefficients ≈ 640M-digit operand pairs**.
+The largest single CRT transform has **2²⁶ coefficients**, enough for balanced operands of about 323.23 million decimal digits each. For larger ordinary products, the dispatcher splits the operands into nearly equal limb blocks. Each pair fits a single supported transform. It normalizes carries in each partial product and immediately adds it into the final limb vector at the sum of the block offsets. For squares it computes each off-diagonal block product once and adds it twice. The 500M, 750M and one-billion-digit balanced cases require four, nine and sixteen block products. Prepared spectra and the cyclic division primitive each describe a single transform and keep its size limit. [Measured time and peak memory](../BENCHMARK.md#balanced-products-through-one-billion-digits)
 
 > **Correctness note (2026-05-27 prime ceiling lift).** The original triple `{998244353, 985661441, 754974721}` had a P2 2-adic order of only 2^22. At transform length `n > 2^22` (≈ 20M-digit balanced operand pairs), `BuildRoots` computed `G^((P-1)/n)` with truncating integer division — producing a value that was **not** a primitive n-th root, silently corrupting one of the three CRT residues. Garner reconstruction blended the bad residue and returned mathematically wrong limbs. The bug surfaced when `mfa_vs_gmp_check` showed BigMath ≠ GMP at 22M digits while passing at 20M. The fix swaps all three primes to the triple shown above. Earlier BENCHMARK numbers at 50M / 100M digits timed *invalid* output and were replaced after the fix.
 
@@ -730,7 +730,7 @@ The NTT butterfly is 95–97% of cost for large mults (confirmed via profile at 
 
 ### MFA recursion below the leaf
 
-The current MFA implementation factors `n = n1·n2` once and stops at a leaf level of `BIGMATH_NTT_MFA_LEAF = 2^13`. For `n > 2^26` (operand pairs above ~640M digits) the sub-FFTs themselves exceed L1 again and a second level of MFA would be needed. Not built because the prime ceiling caps `n` at `2^26` — going larger requires a fourth CRT prime or a fundamentally different scheme.
+A single MFA transform factors `n = n1·n2` down to leaves of at most `BIGMATH_NTT_MFA_LEAF = 2^13`. The primes support single transforms through `2^26`. Larger linear products use the block accumulation described above.
 
 ---
 

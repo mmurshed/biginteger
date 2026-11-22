@@ -31,8 +31,8 @@ records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
 \begin{description}[leftmargin=0pt,style=nextline,itemsep=6pt]
   \item[Schönhage--Strassen multiplication]
         A parameter sweep found no winning size band for the single-level implementation
-        considered here. The current three-prime NTT accepts up to $2^{26}$ coefficients,
-        about 323 million digits per balanced operand. Factoring the cross-twiddles and
+        considered here. Each three-prime NTT block accepts up to $2^{26}$ coefficients,
+        about 323 million digits per balanced operand. Larger products accumulate those blocks. Factoring the cross-twiddles and
         distributing matrix tiles across the pool reduced its cost within that range
         (\cref{sec:mfa,sec:nttthreads}). Measured times appear in \cref{ch:practice}.
   \item[Toom-3 as a top-level band]

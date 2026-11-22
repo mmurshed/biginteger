@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, NullFormatter
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-21-peak-memory-m1-max.csv"
+DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-21-blocked-crt-memory-m1-max.csv"
 COLORS = ("#2165a1", "#a54718", "#438456")
 LIBRARIES = {"bigmath_default": "BigMath, up to 8 threads", "bigmath_single": "BigMath, 1 thread",
              "gmp": "GMP, 1 thread"}
