@@ -249,9 +249,27 @@ the folded $A$ from it gives $(1-s)C_1$ modulo $x^L-1$.
 
 If $C_1$ just exceeds $L$, a short product of the low input limbs supplies the
 low coefficients needed to resolve the wrap. At 500 million digits the three
-convolution lengths are $2^{26}$, $2^{25}$ and $2^{23}$ per prime. Beyond about
-646.46 million balanced digits the library accumulates block products. A
-billion-digit multiplication uses four blocks per operand and sixteen products.
+convolution lengths are $2^{26}$, $2^{25}$ and $2^{23}$ per prime.
+
+Longer products use more residues of the same kind. Each prime field has an
+element of odd order 15, 7 or 9, and $k$ of its powers give weights with distinct
+values $s_1,\dots,s_k\ne 1$. Write the product as
+$C_0+x^H C_1+\dots+x^{kH}C_k$. At each index, residue $j$ holds
+$\sum_m s_j^m C_m$, and the cyclic convolution of length $L$ supplies the same
+sum at $s=1$ for the blocks folded to length $L$. The top block $C_k$ fits $L$
+and is the leading coefficient of the polynomial through those $k+1$ values.
+The other blocks follow from the $k$ weighted residues through the inverse of a
+small Vandermonde matrix. Transform work follows the product length:
+$2H+2^{25}$ points per prime at 750 million digits and $3H+2^{23}$ at one
+billion.
+
+Three primes resolve a coefficient below $p_1p_2p_3\approx 2^{90.47}$. Sums of
+unsigned 32-bit pieces can exceed that once the shorter operand passes about
+895 million digits. From there the pieces are shifted to the signed range
+$[-2^{31},2^{31})$ before the transforms, and the carry pass adds the shift
+back from two running sums of the input pieces. This doubles the limit to about
+1.79 billion digits. Larger operands are cut into blocks whose pairs are
+multiplied the same way.
 
 A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
 16-bit pieces) is still in the source as the \code{-DBIGMATH\_NTT\_CRT=0} build, but the

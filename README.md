@@ -48,7 +48,7 @@ In the full benchmark at `c945bdc`, multiplication at 5M × 500k digits had the 
 
 In the three-process comparison at 500M digits per operand, median warm multiplication fell from **3.13 to 1.50 s** with up to eight threads and from **18.84 to 8.85 s** on one thread. GMP took 8.41 s. Peak RSS rose from 3.03 to 3.14 GiB threaded and from 2.75 to 3.02 GiB single-threaded. The revised path uses additional convolution residues through about 646M digits per operand. [Before-and-after figure](docs/images/bigmath_crt_ceiling.png)
 
-The full rerun measured these warm multiplication times and peak resident memory in fresh processes. BigMath uses nine block products at 750M digits and sixteen at 1B. [Full table and transform boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
+The full rerun measured these warm multiplication times and peak resident memory in fresh processes. That revision used nine block products at 750M digits and sixteen at 1B. Products above 646M digits now continue with further convolution residues: in a paired run of the same benchmark the 750M product took 2.37 s with up to eight threads and 14.57 s on one thread, and the 1B product 3.42 s and 21.44 s, with threaded peaks of 4.28 and 5.41 GiB. The table and figures below predate that change. [Full table, transform boundaries and paired measurements](BENCHMARK.md#balanced-products-through-one-billion-digits)
 
 | Digits per operand | BigMath, up to 8 threads | BigMath, 1 thread | GMP, 1 thread |
 |---:|---:|---:|---:|

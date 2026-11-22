@@ -12,6 +12,7 @@
 #include <random>
 #include <vector>
 
+#include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplicationCrt.h"
 
 using namespace BigMath;
@@ -155,6 +156,130 @@ REGISTER_TEST(NttCrtLayers, ProductAcrossTransformCeiling)
         };
         check(b);
         check(a);
+      }
+    }
+  }
+}
+
+namespace
+{
+  // An operand of the given coefficient count, rounded up to whole limbs.
+  // Pattern 1 is all ones, the largest convolution coefficients; pattern 2 is
+  // mostly zero limbs.
+  std::vector<DataT> PatternOperand(size_t coeffs, BaseT base, int pattern, std::mt19937_64 &random)
+  {
+    const size_t perLimb = CoeffsPerLimb(base);
+    const DataT mask = base == Base2_64 ? ~DataT{0} : 0xffffffffu;
+    std::vector<DataT> v(std::max<size_t>(1, (coeffs + perLimb - 1) / perLimb));
+    for (auto &x : v)
+      x = pattern == 1 ? mask : (pattern == 2 && random() % 4 ? 0 : random() & mask);
+    if (v.back() == 0) v.back() = 1;
+    return v;
+  }
+}
+
+REGISTER_TEST(NttCrtLayers, ResidueProductsMatchSchoolbook)
+{
+  std::mt19937_64 random(0x750750);
+  // Every residue count, with unsigned and biased coefficients. The sums of
+  // the two coefficient counts put the top block on both sides of each
+  // cyclic length and of the short-prefix cutoff; the uneven split makes one
+  // operand wrap around H several times.
+  constexpr Int H = 512;
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    const size_t perLimb = CoeffsPerLimb(base);
+    for (Int k = 1; k <= MaxCeilingResidues; ++k)
+    {
+      for (size_t over : {2, 64, 65, 66, 129, 130, 162, 258, 290, 322, 400, 512, 513})
+      {
+        const size_t sum = (size_t)k * H + over;
+        if (sum % perLimb) continue;
+        for (size_t left : {sum / 2, sum / 5})
+        {
+          left = std::max(perLimb, left - left % perLimb);
+          for (int pattern : {0, 1, 2})
+          {
+            const auto a = PatternOperand(left, base, pattern, random);
+            const auto b = PatternOperand(sum - left, base, pattern, random);
+            const auto want = ClassicMultiplication::Multiply(a, b, base);
+            for (bool biased : {false, true})
+            {
+              ASSERT_TRUE(MultiplyAtCrtCeiling(a, b, base, H, biased) == want);
+              ASSERT_TRUE(MultiplyAtCrtCeiling(b, a, base, H, biased) == want);
+            }
+          }
+        }
+        // Squares pass the same vector twice.
+        const auto a = PatternOperand(sum / 2 - (sum / 2) % perLimb, base, k % 3, random);
+        const size_t count = 2 * a.size() * perLimb - 1;
+        if (count <= (size_t)H) continue;
+        const auto want = ClassicMultiplication::Multiply(a, a, base);
+        ASSERT_TRUE(MultiplyAtCrtCeiling(a, a, base, H, false) == want);
+        ASSERT_TRUE(MultiplyAtCrtCeiling(a, a, base, H, true) == want);
+      }
+    }
+  }
+}
+
+REGISTER_TEST(NttCrtLayers, ResidueProductsUseFusedTransforms)
+{
+  // Residues long enough for the tiled matrix transform and the pool. The
+  // shapes cover a fused cyclic tail shorter than H fed by folded operands,
+  // a tail of length H read through the folding view, the short prefix
+  // product, and four residues with one operand longer than 2H.
+  constexpr Int H = 1 << 15;
+  if (!MfaFusedWindow(H) || !MfaFusedWindow(H / 2)) return;
+  std::mt19937_64 random(0x1b1b);
+  const std::pair<size_t, size_t> shapes[] = {
+      {38000, 39000}, {37364, 37364}, {60000, 62000}, {40000, 100000}, {17000, 49000}};
+  for (const auto &[aCoeffs, bCoeffs] : shapes)
+  {
+    for (int pattern : {0, 1})
+    {
+      const auto a = PatternOperand(aCoeffs, Base2_64, pattern, random);
+      const auto b = PatternOperand(bCoeffs, Base2_64, pattern, random);
+      const auto want = KaratsubaMultiplication::Multiply(a, b, Base2_64);
+      ASSERT_TRUE(MultiplyAtCrtCeiling(a, b, Base2_64, H, false) == want);
+      ASSERT_TRUE(MultiplyAtCrtCeiling(a, b, Base2_64, H, true) == want);
+    }
+  }
+}
+
+REGISTER_TEST(NttCrtLayers, ProductsAboveTransformChooseResiduesOrBlocks)
+{
+  std::mt19937_64 random(0xab0fe);
+  // Small limits walk the production choices: one set of residues with
+  // unsigned or biased coefficients, blocks whose pairs are residue products
+  // again, and blocks within one transform for a short second operand.
+  constexpr Int H = 512;
+  constexpr ULong plainTerms = 400, biasedTerms = 700;
+  const std::pair<size_t, size_t> shapes[] = {
+      {300, 300},   // unsigned residues
+      {390, 2000},  // unsigned, long partner
+      {600, 640},   // biased residues
+      {700, 2800},  // biased at both limits
+      {702, 800},   // shorter operand past the biased limit: two blocks of it
+      {2000, 2000}, // three blocks against the whole partner; 3 x 3 as a square
+      {300, 5000},  // too many residues: blocks of the longer operand
+      {800, 6000},  // blocks of both
+      {100, 3000},  // short operand: pairs within one transform
+      {256, 4000},
+      {258, 258},
+  };
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    for (const auto &[aCoeffs, bCoeffs] : shapes)
+    {
+      for (int pattern : {0, 1, 2})
+      {
+        const auto a = PatternOperand(aCoeffs, base, pattern, random);
+        const auto b = PatternOperand(bCoeffs, base, pattern, random);
+        const auto want = ClassicMultiplication::Multiply(a, b, base);
+        ASSERT_TRUE(MultiplyAboveTransform(a, b, base, H, plainTerms, biasedTerms) == want);
+        ASSERT_TRUE(MultiplyAboveTransform(b, a, base, H, plainTerms, biasedTerms) == want);
+        ASSERT_TRUE(MultiplyAboveTransform(b, b, base, H, plainTerms, biasedTerms) ==
+                    ClassicMultiplication::Multiply(b, b, base));
       }
     }
   }
