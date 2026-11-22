@@ -1,7 +1,7 @@
 {
   "include": [
     {"key": "linux-x86_64-gcc", "runner": "ubuntu-22.04", "cxx": "g++", "cpu": "-march=x86-64"},
-    {"key": "linux-x86_64-clang", "runner": "ubuntu-22.04", "cxx": "clang++", "cpu": "-march=x86-64"},
+    {"key": "linux-x86_64-clang", "runner": "ubuntu-24.04", "cxx": "clang++", "cpu": "-march=x86-64"},
     {"key": "macos-arm64-clang", "runner": "macos-15", "cxx": "clang++", "cpu": "-mcpu=apple-m1"},
     {"key": "macos-x86_64-clang", "runner": "macos-15-intel", "cxx": "clang++", "cpu": "-march=x86-64"},
     {"key": "windows-x86_64-clang", "runner": "windows-2025", "cxx": "clang++", "cpu": "-march=x86-64"}

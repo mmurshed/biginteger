@@ -7,7 +7,7 @@ Download the archive for your platform from [GitHub Releases](https://github.com
 | Archive suffix | Requirements |
 | --- | --- |
 | `linux-x86_64-gcc.tar.gz` | Linux x86-64, GCC and GNU libstdc++ compatible with Ubuntu 22.04 |
-| `linux-x86_64-clang.tar.gz` | Linux x86-64, Clang and GNU libstdc++ compatible with Ubuntu 22.04 |
+| `linux-x86_64-clang.tar.gz` | Linux x86-64, Clang and GNU libstdc++ compatible with Ubuntu 24.04 |
 | `macos-arm64-clang.tar.gz` | macOS 12 or newer, Apple silicon and Apple Clang |
 | `macos-x86_64-clang.tar.gz` | macOS 12 or newer, Intel and Apple Clang |
 | `windows-x86_64-clang.zip` | Windows x86-64 and MSYS2 UCRT64 Clang |
