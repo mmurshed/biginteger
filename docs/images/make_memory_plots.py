@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, NullFormatter
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-21-crt-ceiling-full-m1-max-memory.csv"
+DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-22-full-158eb03-m1-max-memory.csv"
 CEILING_CSV = HERE.parent / "benchmarks" / "2026-11-21-crt-ceiling-m1-max.csv"
 # Seeded balanced products remeasured after convolution residues replaced
 # block products above 646M digits; these replace the seeded rows above.

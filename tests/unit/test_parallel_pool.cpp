@@ -98,45 +98,6 @@ REGISTER_TEST(ParallelPool, ConcurrentCallersStayCorrect)
 
 #if BIGMATH_USE_THREADS
 
-namespace
-{
-  // Poll `cond` for up to two seconds (CI runners can be slow to schedule).
-  template <typename Cond>
-  bool Eventually(Cond &&cond)
-  {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < deadline)
-    {
-      if (cond())
-        return true;
-      std::this_thread::sleep_for(std::chrono::microseconds(200));
-    }
-    return cond();
-  }
-}
-
-REGISTER_TEST(ParallelPool, TemperatureTracksParkAndPrewarm)
-{
-  if (ParallelNumThreads() < 2)
-    return; // no workers: the pool is never warm
-  // Idle long enough and every worker parks.
-  ASSERT_TRUE(Eventually([] { return !ParallelWarm(); }));
-  // A prewarm wakes them without any work being dispatched...
-  bool warmed = false;
-  for (int attempt = 0; attempt < 200 && !warmed; ++attempt)
-  {
-    ParallelPrewarm();
-    auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(80);
-    while (std::chrono::steady_clock::now() < until && !warmed)
-      warmed = ParallelWarm();
-  }
-#if !defined(BIGMATH_POOL_SPIN_US) || BIGMATH_POOL_SPIN_US > 0
-  ASSERT_TRUE(warmed);
-#endif
-  // ...and they park again once nothing arrives.
-  ASSERT_TRUE(Eventually([] { return !ParallelWarm(); }));
-}
-
 REGISTER_TEST(ParallelPool, ResultsIndependentOfTemperature)
 {
   // The dispatcher picks Karatsuba or the NTT for mid-sized products

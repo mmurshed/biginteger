@@ -60,7 +60,7 @@ record_profile "$base_profile" baseline
 configure_platform "$baseline" "$base_profile"
 cmake --build "$baseline" --parallel 3 --target dispatch_tuner
 cmake --build "$candidate" --parallel 3 \
-    --target dispatch_tuner mult_correctness div_correctness unit_tests mfa_roundtrip
+    --target dispatch_tuner mult_correctness div_correctness unit_tests pool_temperature mfa_roundtrip
 ctest --test-dir "$candidate" --output-on-failure --timeout 600 | tee "$out/ctest.log"
 
 for sample in 1 2 3; do
