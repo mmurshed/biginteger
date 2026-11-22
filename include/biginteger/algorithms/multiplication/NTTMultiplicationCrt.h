@@ -9,7 +9,8 @@
  *
  * Prime selection: all three primes have 2-adic order ≥ 2^26, so the CRT
  * NTT length ceiling is 2^26 ≈ 67M coefficients per transform. Larger
- * linear products accumulate block products directly into the output. Earlier triple (998244353, 985661441,
+ * balanced products use additional convolution residues above that size, then
+ * overlap-add blocks beyond the two-residue range. Earlier triple (998244353, 985661441,
  * 754974721) had P2 capped at 2^22, silently breaking correctness for
  * operand pairs above ~20M digits.
  *
@@ -2985,21 +2986,29 @@ namespace BigMath
       }
     };
 
+    // All coefficient readers for a prime share this worker's packing tile.
+    // A gather finishes with the tile before the next gather begins.
+    template <typename F>
+    inline UInt *MfaPackTile(SizeT size)
+    {
+      static thread_local std::vector<UInt> storage;
+      storage.resize(size);
+      return storage.data();
+    }
+
     // Forward stage A reading straight from the operand's limbs via a
     // PackedOperandView instead of a pre-packed coefficient plane. Identical
     // math: source element for tile slot (t, c) is coefficient c*n1+(r0+t),
     // exactly what the plane-based gather read.
-    template <typename F>
-    inline void FusedForwardAPack(const PackedOperandView &src, UInt *scratch,
+    template <typename F, typename Operand>
+    inline void FusedForwardAPack(const Operand &src, UInt *scratch,
                                   Int n, Int n1, Int n2,
                                   const Plan<F> &planN2, const UInt *fwdRoots,
                                   const Int *br, Int r0s, Int r0e)
     {
       constexpr Int TILE = BIGMATH_NTT_MFA_FUSE_TILE;
-      static thread_local std::vector<UInt> tilebuf;
       const SizeT pitch = MfaTilePitch(n2);
-      tilebuf.resize((SizeT)TILE * pitch);
-      UInt *tile = tilebuf.data();
+      UInt *tile = MfaPackTile<F>((SizeT)TILE * pitch);
       for (Int r0 = r0s; r0 < r0e; r0 += TILE)
       {
         Int tr = std::min<Int>(TILE, r0e - r0);
@@ -3008,7 +3017,7 @@ namespace BigMath
         {
           SizeT base = (SizeT)c * n1 + r0;
           UInt *d = tile + c;
-          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = src.Coeff<F>(base + t);
+          for (Int t = 0; t < tr; ++t) d[(SizeT)t * pitch] = src.template Coeff<F>(base + t);
         }
         for (Int t = 0; t < tr; ++t)
         {
@@ -3390,8 +3399,8 @@ namespace BigMath
 
     // At large lengths a single prime supplies enough row tiles to occupy
     // the pool. Reuse the two transpose planes across all three primes.
-    template <typename F>
-    inline void MfaFusedProductPrime(const PackedOperandView &a, const PackedOperandView &b,
+    template <typename F, typename Operand>
+    inline void MfaFusedProductPrime(const Operand &a, const Operand &b,
                                      UInt *out, UInt *scratchA, UInt *scratchB, Int n,
                                      const MfaPlanTree<F> &tree)
     {
@@ -3415,6 +3424,146 @@ namespace BigMath
       });
       MfaParallelRows(1, n1, [&](Int, Int start, Int end) {
         FusedInverseB<F>(out, scratchA, n, n1, n2, plan2, roots.inverse.data(), br, start, end);
+      });
+    }
+
+    // Readers for length-H products modulo x^H - w^H and length-L products
+    // modulo x^L - 1. Both are ordinary cyclic convolutions after packing.
+    template <size_t Period>
+    struct TwistedOperandView
+    {
+      const PackedOperandView &src;
+      const std::array<UInt, Period> &weights;
+
+      template <typename F>
+      UInt Coeff(SizeT i) const
+      {
+        return F::Mul(src.Coeff<F>(i), weights[i % Period]);
+      }
+    };
+
+    // For L < H, the upper halves of the two scratch planes are free during
+    // the cyclic convolution. Fold in contiguous passes before the transpose.
+    struct ResidueView
+    {
+      const UInt *data;
+      template <typename F> UInt Coeff(SizeT i) const { return data[i]; }
+    };
+
+    template <typename F>
+    inline void FoldOperand(const PackedOperandView &src, Int L, UInt *folded, UInt *temp)
+    {
+      const BaseT base = src.base64 ? Base2_64 : Base2_32;
+      const SizeT stride = L / CoeffsPerLimb(base);
+      PackPlaneLimbs<F>(src.v, std::min(stride, src.limbs), base, folded, L);
+      for (SizeT offset = stride; offset < src.limbs; offset += stride)
+      {
+        const SizeT count = std::min(stride, src.limbs - offset);
+        const SizeT coeffs = count * CoeffsPerLimb(base);
+        PackPlaneLimbs<F>(src.v + offset, count, base, temp, coeffs);
+        AddModInto<F>(folded, temp, coeffs);
+      }
+    }
+
+    template <typename F, UInt G, typename Operand>
+    inline void CyclicProductViews(const Operand &a, const Operand &b, Int n,
+                                   UInt *out, UInt *sa, UInt *sb)
+    {
+      if (MfaFusedWindow(n))
+      {
+        MfaPlanTree<F> tree;
+        BuildMfaPlanTree<F, G>(n, tree);
+        MfaFusedProductPrime<F>(a, b, out, sa, sb, n, tree);
+        return;
+      }
+      const auto &plan = GetPlan<F, G>(n);
+      for (Int i = 0; i < n; ++i)
+      {
+        out[i] = a.template Coeff<F>(i);
+        sa[i] = b.template Coeff<F>(i);
+      }
+      ForwardPtr<F>(out, n, plan);
+      ForwardPtr<F>(sa, n, plan);
+      for (Int i = 0; i < n; ++i) out[i] = F::Mul(out[i], sa[i]);
+      InversePtr<F>(out, n, plan, /*scale=*/ true);
+    }
+
+    // Recover c = H + tail coefficients using transforms no longer than H.
+    // H and L are powers of two, tail <= L <= H, and both inputs fit H.
+    // For each prime choose w of small odd order, hence s = w^H != 1.
+    // Twisting by w^i gives A = C_lo + s*C_hi modulo x^H - s. The other
+    // product gives B = fold_L(C_lo + C_hi) since x^H = 1 modulo x^L - 1.
+    // Thus d = B - fold_L(A) = (1-s)*fold_L(C_hi).
+    template <typename F, UInt G>
+    inline void CeilingProductPrime(const PackedOperandView &a, const PackedOperandView &b,
+                                    Int H, Int L, Int tail, UInt *out, UInt *sa, UInt *sb)
+    {
+      constexpr UInt period = (F::Prime - 1) % 3 == 0 ? 3 : 7;
+      static_assert((F::Prime - 1) % period == 0);
+      const UInt w = F::Power(G, (F::Prime - 1) / period);
+      std::array<UInt, period> weights{}, inverse{};
+      weights[0] = inverse[0] = 1;
+      for (UInt i = 1; i < period; ++i)
+        inverse[period - i] = weights[i] = F::Mul(weights[i - 1], w);
+
+      // When tail just exceeds L/2, recover the excess from the low
+      // coefficients of the ordinary product. Multiplying two prefixes of
+      // 'extra' coefficients needs just 2*extra-1 convolution coefficients.
+      Int extra = 0;
+      if (L >= 128 && tail > L / 2 && tail - L / 2 <= L / 8)
+      {
+        L /= 2;
+        extra = tail - L;
+        auto lowA = a, lowB = b;
+        lowA.coeffCount = lowB.coeffCount = extra;
+        const Int n = std::max<Int>(64, (Int)std::bit_ceil((UInt)(2 * extra - 1)));
+        CyclicProductViews<F, G>(lowA, lowB, n, out, sa, sb);
+        std::copy_n(out, extra, out + H + L);
+      }
+
+      // Save only the required prefix of B in the output tail. The length-H
+      // transform can overwrite the low part and reuse both scratch planes.
+      if (std::max(a.coeffCount, b.coeffCount) <= (ULong)L)
+        CyclicProductViews<F, G>(a, b, L, out, sa, sb);
+      else
+      {
+        FoldOperand<F>(a, L, sa + L, out);
+        FoldOperand<F>(b, L, sb + L, out);
+        CyclicProductViews<F, G>(ResidueView{sa + L}, ResidueView{sb + L}, L, out, sa, sb);
+      }
+      const Int foldedCount = std::min(tail, L);
+      std::copy_n(out, foldedCount, out + H);
+      CyclicProductViews<F, G>(TwistedOperandView<period>{a, weights}, TwistedOperandView<period>{b, weights},
+                               H, out, sa, sb);
+      ParallelFor(H, [&](Int first, Int end) {
+        for (Int i = first; i < end; ++i) out[i] = F::Mul(out[i], inverse[i % period]);
+      });
+      const UInt wrap = weights[H % period], invWrap = inverse[H % period];
+      const UInt invDifference = F::Inv(F::Sub(1, wrap));
+      ParallelFor(foldedCount, [&](Int first, Int end) {
+        for (Int i = first; i < end; ++i)
+        {
+          UInt d = out[H + i];
+          for (Int j = i; j < H; j += L) d = F::Sub(d, out[j]);
+          const UInt foldedHigh = F::Mul(d, invDifference);
+          if (i < extra)
+          {
+            // foldedHigh = hi[i] + hi[L+i]. The known low coefficient
+            // separates them via A[i] = low[i] + wrap*hi[i].
+            const UInt low = out[H + L + i];
+            const UInt high = F::Mul(F::Sub(out[i], low), invWrap);
+            const UInt upper = F::Sub(foldedHigh, high);
+            out[i] = low;
+            out[L + i] = F::Sub(out[L + i], F::Mul(wrap, upper));
+            out[H + i] = high;
+            out[H + L + i] = upper;
+          }
+          else
+          {
+            out[i] = F::Sub(out[i], F::Mul(wrap, foldedHigh));
+            out[H + i] = foldedHigh;
+          }
+        }
       });
     }
 
@@ -3637,6 +3786,31 @@ namespace BigMath
       return buffers;
     }
 
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+    // Both coefficient counts fit H, their sum minus one exceeds H, and the
+    // shorter operand supplies the low prefix used at a cyclic length boundary.
+    inline std::vector<DataT> MultiplyAtCrtCeiling(const std::vector<DataT> &a,
+                                                  const std::vector<DataT> &b, BaseT base, Int H)
+    {
+      const PackedOperandView va(a, base), vb(b, base);
+      const ULong coeffCount = va.coeffCount + vb.coeffCount - 1;
+      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
+      const Int tail = (Int)(coeffCount - H);
+      const Int L = std::max<Int>(64, (Int)std::bit_ceil((UInt)tail));
+      fa1.resize(coeffCount); fa2.resize(coeffCount); fa3.resize(coeffCount);
+      // Reuse the same two work planes as the preceding transform band.
+      const bool single = ParallelNumThreads() == 1;
+      auto &scratchA = single ? fb1 : mfaScratch[0];
+      auto &scratchB = single ? fb2 : mfaScratch[1];
+      scratchA.resize(H); scratchB.resize(H);
+      UInt *sa = scratchA.data(), *sb = scratchB.data();
+      CeilingProductPrime<F1, G1>(va, vb, H, L, tail, fa1.data(), sa, sb);
+      CeilingProductPrime<F2, G2>(va, vb, H, L, tail, fa2.data(), sa, sb);
+      CeilingProductPrime<F3, G3>(va, vb, H, L, tail, fa3.data(), sa, sb);
+      return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+    }
+#endif
+
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
                                        const std::vector<DataT> &b, BaseT base);
 
@@ -3719,14 +3893,20 @@ namespace BigMath
       // Every block pair must fit the roots supported by all three primes.
       constexpr ULong MaxTransform = (ULong)1 << 26;
       if (coeffCount > MaxTransform)
+      {
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+        // Both inputs would need two blocks. The largest coefficient is at
+        // most H*(2^32-1)^2, still below the product of the three CRT primes.
+        const Int H = (Int)MaxTransform;
+        if (std::min(aCoeffSize, bCoeffSize) > MaxTransform / 2 &&
+            std::max(aCoeffSize, bCoeffSize) <= MaxTransform && MfaFusedWindow(H))
+          return MultiplyAtCrtCeiling(a, b, base, H);
+#endif
         return MultiplyBlocked(a, b, base, (size_t)(MaxTransform / coeffsPerLimb));
+      }
       const Int n = (Int)std::bit_ceil(coeffCount);
 
-      // Three parallel transforms. Buffer zero-fill + packing happen inside
-      // the branch that needs them: the fused MFA path (F3) packs straight
-      // from the limb arrays and never touches fb at all.
       auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
-
       auto multiplySpectra = [&](Int length) {
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
                             sameOperand ? fa1.data() : fb1.data(),

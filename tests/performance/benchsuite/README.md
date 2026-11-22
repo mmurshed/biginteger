@@ -81,9 +81,9 @@ timed without an equality check. Every completed integer multiplication and
 division is checked against the GMP result hash.
 
 `--extended` adds balanced products around transform boundaries and at 500M,
-750M and 1B decimal digits **per operand**. These extra fixtures use seeded
+750M and 1B decimal digits **per operand**, including 484M and 486M on opposite sides of the short-transform boundary. These extra fixtures use seeded
 binary magnitudes with exactly the specified decimal length, generated outside
-the measurement process. Current BigMath builds accumulate block products above the single-transform limit.
+the measurement process. Balanced inputs between about 323M and 646M digits use two convolution residues in the default configuration. Larger inputs use block products.
 Historical executables that rejected those sizes reported `crt_length_limit` with empty timing and memory fields.
 Other exceptions, hash mismatches and failed processes fail the run. Raw inputs
 are discarded after each case. The driver prints the unique CSV path under
@@ -93,5 +93,6 @@ Use the Python driver directly with existing builds and an extracted dataset.
 
 ```sh
 python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD results.csv --extended
+python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD boundary.csv --balanced-digits 484000000 486000000 500000000
 python3 docs/images/make_memory_plots.py --csv results.csv
 ```

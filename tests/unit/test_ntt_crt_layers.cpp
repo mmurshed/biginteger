@@ -124,6 +124,44 @@ REGISTER_TEST(NttCrtLayers, ForwardInverseMatchRadix2ReferenceP3)
   CheckField<F3, G3>(0x5EED0003ULL);
 }
 
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
+REGISTER_TEST(NttCrtLayers, ProductAcrossTransformCeiling)
+{
+  std::mt19937_64 random(0x484486);
+  // A small H exercises the same field twists and reconstruction as 2^26.
+  // Cover both sides of the short-prefix cutoff and compare every output limb.
+  constexpr Int H = 512;
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    const SizeT perLimb = CoeffsPerLimb(base);
+    for (int totalCoeffs : {H + 2, H + 64, H + 66, H + 128, H + 130, H + 160,
+                            H + 162, H + 256, H + 258, 2 * H})
+    {
+      const SizeT totalLimbs = totalCoeffs / perLimb;
+      // Alternate balanced and uneven splits, up to one full H-length input.
+      const SizeT left = totalCoeffs % 4 ? totalLimbs / 2 : std::min<SizeT>(H / perLimb, 3 * totalLimbs / 5);
+      std::vector<DataT> a(left), b(totalLimbs - left);
+      const DataT mask = base == Base2_64 ? ~DataT{0} : 0xffffffffu;
+      for (int pattern : {0, 1, 2})
+      {
+        for (auto *v : {&a, &b})
+          for (auto &x : *v)
+            x = pattern == 1 ? mask : (pattern == 2 && random() % 4 ? 0 : random() & mask);
+        auto check = [&](const std::vector<DataT> &rhs) {
+          const Int count = (Int)((a.size() + rhs.size()) * perLimb - 1);
+          if (count <= H) return;
+          ASSERT_TRUE(MultiplyAtCrtCeiling(a, rhs, base, H) ==
+                      ClassicMultiplication::Multiply(a, rhs, base));
+        };
+        check(b);
+        check(a);
+      }
+    }
+  }
+}
+
+#endif
+
 #if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
 REGISTER_TEST(NttCrtLayers, ReuseTransposePlanesAcrossPrimes)
 {

@@ -4,6 +4,7 @@ import argparse
 import csv
 import math
 from pathlib import Path
+from statistics import median
 
 import matplotlib
 matplotlib.use("Agg")
@@ -12,9 +13,28 @@ from matplotlib.ticker import FuncFormatter, NullFormatter
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_CSV = HERE.parent / "benchmarks" / "2026-11-21-blocked-crt-memory-m1-max.csv"
+CEILING_CSV = HERE.parent / "benchmarks" / "2026-11-21-crt-ceiling-m1-max.csv"
 COLORS = ("#2165a1", "#a54718", "#438456")
 LIBRARIES = {"bigmath_default": "BigMath, up to 8 threads", "bigmath_single": "BigMath, 1 thread",
              "gmp": "GMP, 1 thread"}
+
+
+def published_memory_rows():
+    """Overlay the measured 320M–520M cases on the earlier full sweep."""
+    with DEFAULT_CSV.open(newline="") as src:
+        rows = list(csv.DictReader(src))
+    with CEILING_CSV.open(newline="") as src:
+        samples = {}
+        for r in csv.DictReader(src):
+            if r["variant"] != "previous":
+                samples.setdefault((r["id"], r["library"]), []).append(r)
+    rows = [r for r in rows if (r["id"], r["library"]) not in samples]
+    for repeats in samples.values():
+        row = repeats[0].copy()
+        row["warm_ms"] = str(median(float(r["warm_ms"]) for r in repeats))
+        row["warm_peak_bytes"] = str(int(median(int(r["warm_peak_bytes"]) for r in repeats)))
+        rows.append(row)
+    return rows
 
 
 def axes_style(ax):
@@ -25,6 +45,37 @@ def axes_style(ax):
     ax.grid(axis="y", color="#dce1e6", linewidth=0.7)
     ax.spines[["right", "top"]].set_visible(False)
     ax.spines[["left", "bottom"]].set_color("#a9b1b9")
+
+
+def plot_ceiling(path):
+    with CEILING_CSV.open(newline="") as src:
+        times = {}
+        for row in csv.DictReader(src):
+            key = row["library"], row["variant"], int(row["a_digits"]) / 1e6
+            times.setdefault(key, []).append(float(row["warm_ms"]) / 1000)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True, layout="constrained")
+    for ax, lib in zip(axes, ["bigmath_single", "bigmath_default"]):
+        for key, name, color, marker in [
+                ((lib, "previous"), "Previous BigMath", "#747e88", "s"),
+                ((lib, "current"), "Revised BigMath", COLORS[0], "o"),
+                (("gmp", "reference"), "GMP, 1 thread", COLORS[2], "^")]:
+            series = sorted((digits, median(v)) for (library, variant, digits), v in times.items()
+                            if (library, variant) == key)
+            ax.plot(*zip(*series), color=color, marker=marker, ms=4, label=name)
+        for boundary in (323.23, 484.84):
+            ax.axvline(boundary, ls=":", color="#838c96", lw=1)
+        ax.set_title(LIBRARIES[lib], loc="left", fontsize=12, weight="bold")
+        ax.set_xticks([320, 360, 400, 440, 480, 520])
+        ax.set_ylim(bottom=0)
+        ax.grid(axis="y", color="#dce1e6", lw=.6)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0].set_ylabel("Warm product time (seconds)")
+    axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(.08, 1))
+    fig.supxlabel("Millions of decimal digits per operand", fontsize=10)
+    fig.suptitle("Balanced multiplication across the 323M and 485M boundaries · Apple M1 Max",
+                 fontsize=13, weight="bold")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
 
 
 def plot_ratios(rows, library, path, host, gmp_name, default_name):
@@ -109,19 +160,24 @@ def plot_large(rows, path, host, default_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
+    parser.add_argument("--csv", type=Path, help="plot just this CSV in place of the published measurements")
     parser.add_argument("--outdir", type=Path, default=HERE)
     parser.add_argument("--host", help="machine name for a new measurement")
     parser.add_argument("--gmp-version", help="GMP version used for a new measurement")
     args = parser.parse_args()
-    published = args.csv.resolve() == DEFAULT_CSV.resolve()
-    host = args.host or ("Apple M1 Max" if published else "")
-    version = args.gmp_version or ("6.3.0" if published else "")
+    published = args.csv is None
+    known_host = published or args.csv.resolve() == DEFAULT_CSV.resolve()
+    host = args.host or ("Apple M1 Max" if known_host else "")
+    version = args.gmp_version or ("6.3.0" if known_host else "")
     gmp_name = f"GMP {version}".rstrip()
-    default_name = LIBRARIES["bigmath_default"] if published else "BigMath, default build"
+    default_name = LIBRARIES["bigmath_default"] if known_host else "BigMath, default build"
     args.outdir.mkdir(parents=True, exist_ok=True)
-    with args.csv.open() as f:
-        results = list(csv.DictReader(f))
+    if published:
+        results = published_memory_rows()
+        plot_ceiling(args.outdir / "bigmath_crt_ceiling.png")
+    else:
+        with args.csv.open() as f:
+            results = list(csv.DictReader(f))
     for name, suffix in [("bigmath_default", ""), ("bigmath_single", "_single_thread")]:
         plot_ratios(results, name, args.outdir / f"bigmath_vs_gmp_memory{suffix}.png", host, gmp_name, default_name)
     if any(r["source"] == "seeded_binary" and r["a_digits"] == "1000000000" for r in results):

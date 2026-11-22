@@ -8,7 +8,7 @@ Target: portable C++ (with optional NEON intrinsics on aarch64, scalar fallbacks
 
 The November 21, 2026 full benchmark measured revision `9d3f1d4` on an Apple M1 Max. Both BigMath builds used identical operands and a fresh single-thread GMP 6.3.0 reference. Values below 1× mean BigMath was faster. The arithmetic panels show warm calls, and the decimal conversion panels show first and warm calls. Most large cases had one warm measurement per library.
 
-In both timing figures, triangles show balanced products from 200M to 1B digits per operand. Each point compares BigMath and GMP on the same inputs in fresh processes. The 200M point appears in both timing runs. [Large-product measurements](BENCHMARK.md#balanced-products-through-one-billion-digits)
+In both timing figures, triangles show balanced products from 200M to 1B digits per operand. Each point compares BigMath and GMP on the same inputs in fresh processes. The 200M point appears in both timing runs. The 320M–520M points use a focused rerun of the large-product path. [Large-product measurements](BENCHMARK.md#balanced-products-through-one-billion-digits)
 
 ### Single-threaded BigMath and GMP
 
@@ -42,7 +42,9 @@ Multiplication at 5M × 500k digits had the largest threaded peak ratio in the i
 
 ![Single-threaded BigMath peak memory relative to GMP, including balanced products through one billion digits per operand](docs/images/bigmath_vs_gmp_memory_single_thread.png)
 
-Blocked multiplication completed at 500M, 750M and one billion digits per operand. At one billion digits the threaded build took **12.26 s** and peaked at **4.19 GiB**. Single-threaded BigMath took 75.10 s and 3.91 GiB. GMP took 18.28 s and 5.45 GiB. [Timings, memory and transform boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
+At 500M digits per operand, warm multiplication fell from **3.13 to 1.50 s** with up to eight threads and from **18.84 to 8.85 s** on one thread. GMP took 8.41 s. Peak RSS rose from 3.03 to 3.14 GiB threaded and from 2.75 to 3.02 GiB single-threaded. The revised path uses additional convolution residues through about 646M digits per operand. [Before-and-after figure](docs/images/bigmath_crt_ceiling.png)
+
+At one billion digits the threaded build took **12.26 s** and peaked at **4.19 GiB**. Single-threaded BigMath took 75.10 s and 3.91 GiB. GMP took 18.28 s and 5.45 GiB. [Timings, memory and transform boundaries](BENCHMARK.md#balanced-products-through-one-billion-digits)
 
 ![Warm multiplication time and peak memory through one billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
 

@@ -15,7 +15,8 @@ FIELDS = ("id", "op", "a_digits", "b_digits", "scale", "warm_reps", "source",
 # Bracket transform doublings within the existing sweep, then test the ceiling.
 EXTRA_DIGITS = (10_200_000, 20_300_000, 40_000_000, 41_000_000, 80_000_000,
                 82_000_000, 160_000_000, 162_000_000, 320_000_000, 324_000_000,
-                500_000_000, 750_000_000, 1_000_000_000)
+                500_000_000, 750_000_000, 1_000_000_000,
+                480_000_000, 484_000_000, 486_000_000, 520_000_000)
 INTEGER_INPUT = {"mul", "div", "div_q", "div_qr", "tostr"}
 CHECKED = {"mul", "div_q", "div_qr"}
 
@@ -37,15 +38,17 @@ def generate_raw(path, digits, slot):
             left -= count
 
 
-def measure(dataset, scratch, output, builds, extended):
+def measure(dataset, scratch, output, builds, extended, balanced_digits=None):
     with (dataset / "manifest.csv").open() as f:
         reader = csv.DictReader(f)
         manifest_fields = reader.fieldnames
         entries = list(reader)
     extra_ids = set()
-    if extended:
-        next_id = max(int(e["id"]) for e in entries) + 1
-        for idx, digits in enumerate(EXTRA_DIGITS, next_id):
+    if extended or balanced_digits:
+        next_id = max((int(e["id"]) for e in entries), default=-1) + 1
+        if balanced_digits:
+            entries = []
+        for idx, digits in enumerate(balanced_digits or EXTRA_DIGITS, next_id):
             extra_ids.add(str(idx))
             entries.append(dict(id=str(idx), op="mul", a_digits=str(digits),
                                 b_digits=str(digits), scale="0", reps="1", historical="0"))
@@ -117,8 +120,13 @@ def main():
     parser.add_argument("build", type=Path, help="default Release build with both runners")
     parser.add_argument("single_build", type=Path, help="Release build with BIGMATH_USE_THREADS=0")
     parser.add_argument("output", type=Path)
-    parser.add_argument("--extended", action="store_true", help="include balanced products through 1B digits")
+    cases = parser.add_mutually_exclusive_group()
+    cases.add_argument("--extended", action="store_true", help="include balanced products through 1B digits")
+    cases.add_argument("--balanced-digits", type=int, nargs="+", metavar="DIGITS",
+                       help="measure only seeded balanced products at these decimal lengths")
     args = parser.parse_args()
+    if args.balanced_digits and any(d < 1 for d in args.balanced_digits):
+        parser.error("--balanced-digits requires positive decimal lengths")
     builds = {"gmp": args.build.resolve() / "bench_run_gmp",
               "bigmath_default": args.build.resolve() / "bench_run_bigmath",
               "bigmath_single": args.single_build.resolve() / "bench_run_bigmath"}
@@ -131,7 +139,7 @@ def main():
         scratch = Path(tmp).resolve()
         partial = scratch / "results.csv"
         with partial.open("w", newline="") as out:
-            measure(args.dataset.resolve(), scratch, out, builds, args.extended)
+            measure(args.dataset.resolve(), scratch, out, builds, args.extended, args.balanced_digits)
         partial.replace(args.output)
 
 

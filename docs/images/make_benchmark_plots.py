@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
+from make_memory_plots import published_memory_rows
 
 HERE = Path(__file__).resolve().parent
 BENCHMARKS = HERE.parent / "benchmarks"
@@ -27,11 +28,9 @@ BEFORE_AFTER = [
 
 
 def large_product_ratios(library):
-    path = BENCHMARKS / "2026-11-21-blocked-crt-memory-m1-max.csv"
-    with path.open(newline="") as src:
-        products = [r for r in csv.DictReader(src)
-                    if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
-                    and int(r["a_digits"]) >= 200_000_000 and r["status"] == "ok"]
+    products = [r for r in published_memory_rows()
+                if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
+                and int(r["a_digits"]) >= 200_000_000 and r["status"] == "ok"]
     gmp = {r["id"]: float(r["warm_ms"]) for r in products if r["library"] == "gmp"}
     return sorted((int(r["a_digits"]), float(r["warm_ms"]) / gmp[r["id"]])
                   for r in products if r["library"] == library)
