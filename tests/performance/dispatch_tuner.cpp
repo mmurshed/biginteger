@@ -226,8 +226,8 @@ namespace
              {"div-balanced", 4502, 2251}, {"div-balanced", 6298, 3149},
              {"div-skew", 1653, 551}, {"div-skew", 2217, 739}, {"div-skew", 2397, 799},
              {"div-skew", 2865, 955}, {"div-skew", 3459, 1153},
-             {"div-near2", 4488, 2565}, {"div-near2", 5248, 2999},
-             {"div-near2", 5556, 3175}, {"div-near2", 6532, 3733},
+             {"div-near2", 4489, 2565}, {"div-near2", 5249, 2999},
+             {"div-near2", 5557, 3175}, {"div-near2", 6533, 3733},
              {"div-short", 8028, 6021}, {"div-short", 11996, 8997},
              {"div-short", 12812, 9609}, {"div-short", 14212, 10659}})
     {

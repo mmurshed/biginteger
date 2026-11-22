@@ -32,12 +32,13 @@ jobs:
       - id: matrix
         env:
           BASELINE_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
           STAGE: ${{ inputs.stage }}
         shell: bash
         run: |
           echo "platforms=$(jq -c . .github/platforms.json)" >> "$GITHUB_OUTPUT"
           if [[ "$STAGE" == validate ]]; then
-            baseline=$(git ls-remote --exit-code origin "refs/heads/$BASELINE_BRANCH" | cut -f1)
+            baseline=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASELINE_BRANCH" --jq .object.sha)
             [[ "$baseline" =~ ^[a-f0-9]{40}$ ]]
             echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
           fi
