@@ -141,6 +141,26 @@ The Apple M1 Max reran the same fixtures sequentially with the original serial i
 | 4,096 | Prime | 616.65 | 615.67 | 103.03 | 445.02 |
 | 4,096 | Semiprime | 19.05 | 19.00 | 19.28 | 11.13 |
 
+### Next probable prime
+
+`NextProbablePrime(n, rounds = 32)` searches strictly above `n` and returns 2 if `n < 2`. Results below `2^64` are exact. Larger results pass the configured Miller–Rabin test. The search checks odd candidates in ascending order. For large inputs it screens 1,024 odd candidates per segment and carries the small-prime offsets forward to the next segment. The sieve uses primes below 4,096 through 512 bits and below 32,768 above that size.
+
+The benchmark times one seeded ordinary start and one constructed gap at each size on the Apple M1 Max. The constructed starts follow a multiple of the least common multiple of small integers, which guarantees an initial run of composites. The 4,096-bit searches span more than one sieve segment. All six results matched GMP's `mpz_nextprime`. Times are medians of seven batches. BigMath used 32 randomized rounds and GMP used its own next-prime test settings. [Raw measurements](docs/benchmarks/2026-11-22-next-probable-prime-m1-max.csv)
+
+| Input bits | Start | Distance to result | Odd candidates | Candidates tested by Miller–Rabin | BigMath (ms) | GMP (ms) |
+|---:|---|---:|---:|---:|---:|---:|
+| 256 | Ordinary | 23 | 12 | 1 | 1.46 | 0.25 |
+| 256 | Constructed gap | 652 | 326 | 43 | 2.40 | 0.82 |
+| 1,024 | Ordinary | 1,473 | 737 | 84 | 37.85 | 18.64 |
+| 1,024 | Constructed gap | 1,486 | 743 | 74 | 33.94 | 15.89 |
+| 4,096 | Ordinary | 2,185 | 1,093 | 116 | 2,290.37 | 966.91 |
+| 4,096 | Constructed gap | 3,270 | 1,635 | 50 | 1,029.03 | 472.44 |
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp nextprime
+```
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)

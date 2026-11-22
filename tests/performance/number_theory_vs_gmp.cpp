@@ -11,6 +11,7 @@
 #include <gmp.h>
 
 #include "biginteger/ops/Operations.h"
+#include "../../src/ops/PrimeSearch.h"
 
 namespace
 {
@@ -46,8 +47,7 @@ namespace
   }
 
   template <class BigMathCall, class GmpCall>
-  void Measure(const char *operation, const char *shape, unsigned bits, unsigned cases,
-               unsigned calls, BigMathCall runBigMath, GmpCall runGmp)
+  std::pair<double, double> MeasureTimes(unsigned calls, BigMathCall runBigMath, GmpCall runGmp)
   {
     constexpr size_t rounds = 7;
     std::array<double, rounds> bigmath{}, gmp{};
@@ -72,8 +72,16 @@ namespace
     }
     std::sort(bigmath.begin(), bigmath.end());
     std::sort(gmp.begin(), gmp.end());
+    return {bigmath[rounds / 2], gmp[rounds / 2]};
+  }
+
+  template <class BigMathCall, class GmpCall>
+  void Measure(const char *operation, const char *shape, unsigned bits, unsigned cases,
+               unsigned calls, BigMathCall runBigMath, GmpCall runGmp)
+  {
+    const auto [bigmath, gmp] = MeasureTimes(calls, runBigMath, runGmp);
     std::printf("%s,%s,%u,%u,%u,%.6f,%.6f\n",
-                operation, shape, bits, cases, calls, bigmath[rounds / 2], gmp[rounds / 2]);
+                operation, shape, bits, cases, calls, bigmath, gmp);
   }
 
   void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng)
@@ -273,15 +281,70 @@ namespace
       Measure("primality", "strong_pseudoprime", bits, 1, 128, checkBigMath, checkGmp);
     }
   }
+
+  void BenchmarkNextProbablePrime()
+  {
+    std::mt19937_64 rng(0x4E455854);
+    std::puts("bits,shape,guaranteed_composite_run,gap,odd_candidates,miller_rabin_candidates,bigmath_ms,gmp_ms");
+    for (unsigned bits : {256, 1024, 4096})
+      for (const bool longGap : {false, true})
+      {
+        Mpz input, reference, delta;
+        BigInteger result;
+        Import(input, RandomInteger(bits, rng));
+        unsigned guaranteed = 0;
+        if (longGap)
+        {
+          // If m is divisible by every integer through k, each of
+          // m+2, ..., m+k is composite. Start just before that run.
+          const unsigned k = bits * 2 / 3;
+          Mpz multiple;
+          mpz_set_ui(multiple.value, 1);
+          for (unsigned i = 2; i <= k; ++i)
+            mpz_lcm_ui(multiple.value, multiple.value, i);
+          mpz_fdiv_r(delta.value, input.value, multiple.value);
+          mpz_sub(input.value, input.value, delta.value);
+          mpz_add_ui(input.value, input.value, 1);
+          guaranteed = k - 1;
+        }
+        if (mpz_sizeinbase(input.value, 2) != bits)
+          throw std::runtime_error("next-prime fixture crossed its intended bit length");
+
+        const auto start = Export(input);
+        unsigned tested = 0;
+        const auto countedResult = PrimeSearch::FindNext(start, [&](BigInteger const &candidate) {
+          ++tested;
+          return IsProbablePrime(candidate);
+        });
+        const auto runBigMath = [&] { result = NextProbablePrime(start); };
+        const auto runGmp = [&] { mpz_nextprime(reference.value, input.value); };
+        const auto [bigmath, gmp] = MeasureTimes(1, runBigMath, runGmp);
+        if (result != Export(reference) || result != countedResult)
+          throw std::runtime_error("next prime differs from GMP");
+        mpz_sub(delta.value, reference.value, input.value);
+        const auto gap = mpz_get_ui(delta.value);
+        const auto candidates = (gap + (mpz_even_p(input.value) != 0)) / 2;
+        if (gap <= guaranteed || tested > candidates)
+          throw std::runtime_error("invalid next-prime candidate counts");
+        std::printf("%u,%s,%u,%lu,%lu,%u,%.6f,%.6f\n", bits, longGap ? "long_gap" : "ordinary",
+                    guaranteed, gap, candidates, tested, bigmath / 1000, gmp / 1000);
+        std::fflush(stdout);
+      }
+  }
 }
 
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
+  if (operation == "nextprime")
+  {
+    BenchmarkNextProbablePrime();
+    return 0;
+  }
   if (argc > 2 || (operation != "all" && operation != "powmod" &&
                    operation != "gcd" && operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem|prime]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem|prime|nextprime]\n", stderr);
     return 1;
   }
 

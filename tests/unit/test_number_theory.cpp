@@ -79,6 +79,23 @@ REGISTER_TEST(NumberTheory, MultiBatchAndConcurrentPrimality)
   ASSERT_TRUE(first && second);
 }
 
+REGISTER_TEST(NumberTheory, NextProbablePrime)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  for (const auto &[input, expected] : {
+           std::pair{"-100", "2"}, {"0", "2"}, {"1", "2"}, {"2", "3"},
+           {"100", "101"}, {"101", "103"}, {"4093", "4099"},
+           {"18446744073709551557", "18446744073709551629"},
+           {"340282366920938463463374607431768211455",
+            "340282366920938463463374607431768211507"}})
+    ASSERT_TRUE(NextProbablePrime(value(input)) == value(expected));
+
+  bool threw = false;
+  try { (void)NextProbablePrime(value("0"), 0); }
+  catch (std::invalid_argument const &) { threw = true; }
+  ASSERT_TRUE(threw);
+}
+
 REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
 {
   const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
