@@ -6,10 +6,12 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/common/Builder.h"
+#include "biginteger/common/DecimalConversionScope.h"
 #include "biginteger/common/Parser.h"
 #include "biginteger/ops/Comparison.h"
 #include "biginteger/ops/IO.h"
@@ -54,6 +56,24 @@ REGISTER_TEST(ToStringParallel, AllNines)
 REGISTER_TEST(ToStringParallel, PowerOfTen)
 {
   CheckRoundTrip("1" + std::string(150000, '0'));
+}
+
+REGISTER_TEST(DecimalConversion, ScratchScopeIsLocalAndRestoresNestedCalls)
+{
+  using detail::DecimalConversionScope;
+  ASSERT_FALSE(DecimalConversionScope::Active());
+  {
+    DecimalConversionScope outer;
+    CheckRoundTrip(std::string(150000, '9'));
+    ASSERT_TRUE(DecimalConversionScope::Active());
+#if BIGMATH_USE_THREADS
+    bool otherActive = true;
+    std::thread other([&] { otherActive = DecimalConversionScope::Active(); });
+    other.join();
+    ASSERT_FALSE(otherActive);
+#endif
+  }
+  ASSERT_FALSE(DecimalConversionScope::Active());
 }
 
 // ─── parse basics ────────────────────────────────────────────────────────────
