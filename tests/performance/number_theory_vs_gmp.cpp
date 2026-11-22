@@ -140,14 +140,50 @@ namespace
     Measure("gcd", "balanced", bits, cases, calls, runBigMath, runGmp);
     Measure("extended_gcd", "balanced", bits, cases, calls, runExtended, runGmpExtended);
   }
+
+  void BenchmarkSqrtRem(unsigned bits, std::mt19937_64 &rng)
+  {
+    BigInteger n;
+    std::pair<BigInteger, BigInteger> result;
+    Mpz input, root, remainder, actualRoot, actualRemainder;
+    const auto runBigMath = [&] { result = SqrtRem(n); };
+    const auto runGmp = [&] { mpz_sqrtrem(root.value, remainder.value, input.value); };
+    constexpr unsigned cases = 24;
+    constexpr DataT unit = 1;
+    const auto one = BigInteger::FromLimbs({&unit, 1}, false);
+    for (unsigned i = 0; i < cases; ++i)
+    {
+      if (i % 4 == 3)
+        n = RandomInteger(bits, rng);
+      else
+      {
+        const auto floor = RandomInteger(bits / 2, rng);
+        n = floor * floor;
+        if (i % 4 == 0)
+          n = n - one;
+        if (i % 4 == 2)
+          n = n + one;
+      }
+      Import(input, n);
+      runBigMath();
+      runGmp();
+      Import(actualRoot, result.first);
+      Import(actualRemainder, result.second);
+      if (mpz_cmp(actualRoot.value, root.value) != 0 ||
+          mpz_cmp(actualRemainder.value, remainder.value) != 0)
+        throw std::runtime_error("SqrtRem root or remainder differs from GMP");
+    }
+    Measure("sqrtrem", "random", bits, cases, std::max(4u, 131072u / bits), runBigMath, runGmp);
+  }
 }
 
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
-  if (argc > 2 || (operation != "all" && operation != "powmod" && operation != "gcd"))
+  if (argc > 2 || (operation != "all" && operation != "powmod" &&
+                   operation != "gcd" && operation != "sqrtrem"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem]\n", stderr);
     return 1;
   }
 
@@ -161,4 +197,8 @@ int main(int argc, char **argv)
   if (operation == "all" || operation == "gcd")
     for (unsigned bits : {256, 512, 1024, 2048, 4096})
       BenchmarkGcd(bits, rng);
+  rng.seed(0x5A27);
+  if (operation == "all" || operation == "sqrtrem")
+    for (unsigned bits : {32, 64, 65, 256, 1024, 4096, 16384, 65536})
+      BenchmarkSqrtRem(bits, rng);
 }

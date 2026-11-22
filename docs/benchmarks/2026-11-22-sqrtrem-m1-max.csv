@@ -1,0 +1,9 @@
+operation,shape,bits,reference_checks,calls_per_round,bigmath_us,gmp_us
+sqrtrem,random,32,24,4096,0.010437,0.008759
+sqrtrem,random,64,24,2048,0.012472,0.008667
+sqrtrem,random,65,24,2016,0.312335,0.031973
+sqrtrem,random,256,24,512,0.811279,0.041342
+sqrtrem,random,1024,24,128,2.800125,0.184570
+sqrtrem,random,4096,24,32,15.093750,0.841156
+sqrtrem,random,16384,24,8,140.390625,5.822875
+sqrtrem,random,65536,24,4,1283.833250,49.875000
