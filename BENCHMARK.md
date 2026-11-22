@@ -1,4 +1,61 @@
-# BigMath vs GMP benchmark results
+# BigMath benchmark results
+
+## Platform tuning for release builds
+
+On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)
+
+### Measurement method
+
+Each job measured 124 operand-size and worker-state cases with 64-bit limbs. A *burst* used consecutive calls. A *parked* sample waited for the worker pool to report a cold state before timing. Each pass took the median of nine timings per case. The job alternated the timing order over three paired passes. Each case's speedup is the median of its three baseline-time-to-tuned-time ratios. Values above 1× favor the tuned build. Group results are geometric means of those per-case speedups. The CSV stores per-case ratios to four decimal places. [Per-case CSV with both timing medians and paired speedups](docs/benchmarks/2026-11-22-platform-tuning-44998103595.csv)
+
+| Release target | Runner CPU reported by Actions | Compiler | CPU flags |
+|---|---|---|---|
+| Linux x86-64 GCC | AMD EPYC 7763 | GCC 11.4.0 | `-march=x86-64` |
+| Linux x86-64 Clang | Intel Xeon 6975P-C | Clang 18.1.3 | `-march=x86-64` |
+| macOS Apple silicon | Apple M1 (virtual) | Apple Clang 17.0.0 | `-mcpu=apple-m1` |
+| macOS Intel | Intel Core i7-8700B | Apple Clang 17.0.0 | `-march=x86-64` |
+| Windows x86-64 | Intel family 6, model 106 | UCRT64 Clang 23.1.5 | `-march=x86-64` |
+
+### Measured results
+
+![Geometric-mean speedups by platform for balanced multiplication and squaring in burst and parked states](docs/images/bigmath_platform_tuning.png)
+
+| Case | State | Linux GCC | Linux Clang | macOS Apple silicon | macOS Intel | Windows Clang |
+|---|---|---:|---:|---:|---:|---:|
+| Balanced multiply | burst | 1.172× | 1.327× | 1.012× | 1.061× | 1.271× |
+| Balanced multiply | parked | 1.105× | 1.239× | 1.128× | 1.117× | 1.192× |
+| Skewed multiply | burst | 1.158× | 1.484× | 1.191× | 0.999× | 1.169× |
+| Skewed multiply | parked | 1.057× | 1.012× | 1.424× | 1.154× | 1.115× |
+| Square | burst | 1.316× | 1.381× | 1.040× | 1.130× | 1.379× |
+| Square | parked | 1.186× | 1.307× | 1.066× | 1.325× | 1.255× |
+| Division near the BZ cutoff | burst | 0.973× | 1.001× | 1.020× | 1.143× | 0.995× |
+| Balanced division | burst | 1.140× | 1.214× | 0.719× | 1.222× | 1.068× |
+| Skewed division | burst | 1.120× | 1.254× | 0.902× | 1.268× | 1.123× |
+| Division at about a 7:4 operand ratio | burst | 1.164× | 1.227× | 0.834× | 1.185× | 1.127× |
+| Division with a short quotient | burst | 1.075× | 1.113× | 0.803× | 1.104× | 1.070× |
+
+![Per-case speedups for multiplication, squaring, and division on each of the five release targets. The vertical dashed line marks equal time.](docs/images/bigmath_platform_tuning_cases.png)
+
+The case plot combines balanced and skewed multiplication and shows both worker states wherever measured. Each dot is one case. Diamonds mark per-platform geometric means within each panel. Individual cases below 0.90× numbered 2 on Windows, 4 on Linux Clang, 5 on Linux GCC, 12 on Intel macOS, and 25 on Apple silicon. The only Apple silicon override was the parked-square cutoff. The hosted Apple silicon measurements had the widest spread, including in the division groups. These ratios describe the listed runner and workload, and the release profiles are a starting point for deployment-specific tuning. [Platform tuning guide](docs/PLATFORM_TUNING.md)
+
+### Cutoffs shipped in the release profiles
+
+| Profile | NTT multiplication floor (total limbs) | NTT square floor (limbs) | Parked NTT square floor (limbs) |
+|---|---:|---:|---:|
+| Generic baseline | 640 | 352 | 608 |
+| Linux x86-64 GCC | 4,096 | 2,048 | 2,560 |
+| Linux x86-64 Clang | 5,120 | 2,560 | 2,560 |
+| macOS Apple silicon | 640 | 352 | 512 |
+| macOS Intel | 2,048 | 768 | 1,280 |
+| Windows x86-64 Clang | 4,096 | 2,560 | 2,560 |
+
+The multiplication dispatcher also checks the shorter operand, the product of the operand lengths, and worker-pool state. [Dispatch thresholds](include/biginteger/build/DispatchThresholds.h) · [Profile headers](include/biginteger/build/platform/)
+
+Regenerate both charts with Matplotlib from the checked-in per-case CSV.
+
+```sh
+python3 docs/images/make_platform_tuning_plots.py
+```
 
 ## BigInteger equality
 

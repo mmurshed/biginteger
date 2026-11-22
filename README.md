@@ -24,6 +24,12 @@ Balanced products at 10M, 50M, 100M and 200M digits took 18.83, 182.6, 346.1 and
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
+### Platform tuning for release builds
+
+On the four x86-64 release targets, platform profiles delivered **1.06–1.33×** geometric-mean speedups for burst balanced multiplication and **1.13–1.38×** for burst squaring. Each comparison used the same BigMath source, compiler, and GitHub Actions runner for the generic and tuned profiles. Values above 1× favor the tuned profile. Apple silicon timings varied, especially in the division cases. [Runner details and per-case results](BENCHMARK.md#platform-tuning-for-release-builds)
+
+![Five release platforms compared on balanced multiplication and squaring in burst and parked states. Values above 1× favor the tuned profile.](docs/images/bigmath_platform_tuning.png)
+
 ### Peak memory compared with GMP
 
 Threaded multiplication now uses the fused matrix transform for large operands at ratios of at least 8 to 1. At 10M × 1M digits, peak RSS fell from 173.3 to 109.9 MiB and warm time from 18.0 to 15.8 ms. [Paired measurements](BENCHMARK.md#memory-optimization-benchmarks)
@@ -79,7 +85,7 @@ On the Apple M1 Max, comparing two one-million-limb integers that differed only 
 ## Features
 
 - **64-bit limb representation** (`BIGMATH_LIMB_64=1`, default). `DataT` stores true 64-bit values; every carry/borrow chain uses `__uint128_t` accumulators. Halves loop iteration counts in scalar paths vs the legacy 32-bit-in-64-bit layout. Opt out via `-DBIGMATH_LIMB_64=0`.
-- **Multiplication:** Classic schoolbook → Karatsuba (64-bit-hybrid leaf; levels with ≥ 168-limb operands split three ways, Toom-3) → 3-prime CRT NTT (2013265921 / 469762049 / 1811939329, 32-bit coefficient splitting) from 320 limbs per operand for balanced products with a warm pool, or 512 each with a cold pool. Toom-3 and the single-prime Goldilocks NTT remain as cross-check alternates; the NEON-accelerated CRT path beats both at every measured size.
+- **Multiplication:** Classic schoolbook → Karatsuba (64-bit-hybrid leaf; levels with ≥ 168-limb operands split three ways, Toom-3) → 3-prime CRT NTT (2013265921 / 469762049 / 1811939329, 32-bit coefficient splitting). With generic thresholds, balanced products switch at 320 limbs per operand with a warm pool or 512 each with a cold pool. Release builds use [per-platform cutoffs](BENCHMARK.md#platform-tuning-for-release-builds). Toom-3 and the single-prime Goldilocks NTT remain as cross-check alternates; the NEON-accelerated CRT path beats both at every measured size.
 - **Radix-4 + radix-8 fused NTT butterflies** (PRs #59, #60): 3× fewer memory passes vs radix-2; ~1.6× wall-clock at ≥2M limbs.
 - **NEON Shoup butterflies on aarch64** (PRs #96–#99, `BIGMATH_NEON=1` default on Apple Silicon): the radix-8/4/2 layers and 1/n scaling run 4 lanes wide using Shoup's precomputed-reciprocal multiplication — `(w·x) mod P` from one doubling multiply-high (`vqdmulhq_s32`), a multiply-subtract, and one conditional subtract, with interleaved `(twiddle, w′)` tables keeping the strided gathers at one cache line per pair. Bit-exact with the scalar path; ~4× per butterfly pass, −26…40% end-to-end on NTT-bound ops. Scalar fallback everywhere else.
 - **Matrix Fourier multiplication.** For large products, the three-prime NTT transforms cache-sized rows. With NEON enabled, rows of at least 256 coefficients use factored cross-twiddles. At 200 million digits per operand the top-level tables for all three primes occupy 108 MiB. Packing, transposition and pointwise multiplication are fused into the transform stages.
