@@ -179,6 +179,22 @@ BigMath uses decimal fixed-point arithmetic and HALF_EVEN rounding for division.
 | tostr | 10000 digits | 0.1129 | 0.1052 | 1.07× | 5 |
 | tostr | 50000 digits | 1.02 | 1.098 | 0.93× | 3 |
 
+## Memory optimization benchmarks
+
+Each comparison uses Release builds on the Apple M1 Max, identical operands and a fresh process for each measurement. Tables give peak RSS through the warm call and warm time. BigMath cells are medians of three processes per build, reversing the run order for the second pair. GMP 6.3.0 ran once per shape. Each process made one first call and one warm call. Products were hashed against GMP.
+
+### Threaded skew dispatch
+
+Compared with `9a3f89a`, skewed products with an available fused matrix transform now bypass truncation at transform lengths of at least 2²¹ and a limb ratio of at least eight. The 5M case exercises the original path. Standard shapes use the full benchmark manifest. Intermediate shapes use the seeded binary generator from `run_memory.py`. [All observations](docs/benchmarks/memory-fix-skew-default.csv)
+
+| Shape | Before | After | GMP |
+|---|---:|---:|---:|
+| mul 5M × 500k | 87.9 MiB · 8.4 ms | 87.9 MiB · 8.7 ms | 12.2 MiB · 31.8 ms |
+| mul 10M × 1.24M | 173.6 MiB · 19.0 ms | 110.8 MiB · 15.8 ms | 23.6 MiB · 69.8 ms |
+| mul 10M × 1M | 173.3 MiB · 18.0 ms | 109.9 MiB · 15.8 ms | 18.5 MiB · 69.3 ms |
+| mul 10M × 625k | 169.1 MiB · 18.0 ms | 110.5 MiB · 16.7 ms | 17.3 MiB · 78.3 ms |
+| mul 12M × 1.2M | 180.4 MiB · 24.9 ms | 112.2 MiB · 17.7 ms | 26.3 MiB · 65.0 ms |
+
 ## Peak memory and large-product time
 
 The November 21, 2026 run measured the implementation from `e62e77f` on an Apple M1 Max with 32 GiB of RAM. Each operation ran in three fresh processes, one each for GMP 6.3.0, threaded BigMath (up to eight threads), and single-threaded BigMath. The 111 standard cases use the same operands as the timing tables above. Thirteen additional balanced products bracket transform boundaries and extend the sweep to one billion decimal digits per operand. [All times, RSS readings, statuses and hashes](docs/benchmarks/2026-11-21-peak-memory-m1-max.csv) · [Run the benchmark](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)
