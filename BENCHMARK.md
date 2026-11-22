@@ -6,6 +6,8 @@ The November 21, 2026 full timing run measured revision `9d3f1d4` on the Apple M
 
 The full CSV includes the first call, fastest subsequent call, warm repetition count and arithmetic check status for all 111 rows. Most large sizes have one warm observation per library. All 24 product checks and 40 division checks matched GMP’s reference hashes. Each division mode was checked against the corresponding GMP operation. [README performance table](README.md#performance-numbers) · [Single-thread CSV](docs/benchmarks/2026-11-21-blocked-crt-m1-max-single-thread.csv) · [Single-thread figure](docs/images/bigmath_vs_gmp_single_thread.png)
 
+The timing figures also show a separate series for balanced multiplication from 200M to 1B digits. Its ratios use the warm times from the isolated run for both libraries. [Isolated measurements](docs/benchmarks/2026-11-21-blocked-crt-memory-m1-max.csv)
+
 To repeat the single-thread run, give the driver its own build and results directory. The figure generator uses the checked-in CSVs and requires Matplotlib.
 
 ```sh
