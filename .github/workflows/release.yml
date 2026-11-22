@@ -1,0 +1,128 @@
+name: Release libraries
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/platforms.json'
+      - '.github/scripts/package-release.sh'
+      - '.github/package-smoke/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'include/biginteger/build/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.plan.outputs.platforms }}
+      version: ${{ steps.plan.outputs.version }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: plan
+        shell: bash
+        run: |
+          version="snapshot-$(git rev-parse --short HEAD)"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            version="$GITHUB_REF_NAME"
+            if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Use a release tag in the form vMAJOR.MINOR.PATCH"
+              exit 1
+            fi
+            project_version=$(awk '/^[[:space:]]+VERSION / { print $2; exit }' CMakeLists.txt)
+            if [[ "$version" != "v$project_version" ]]; then
+              echo "::error::Tag $version must match CMake project version $project_version"
+              exit 1
+            fi
+          fi
+          {
+            echo "platforms=$(jq -c . .github/platforms.json)"
+            echo "count=$(jq '.include | length' .github/platforms.json)"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package ${{ matrix.key }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    env:
+      CXX: ${{ matrix.cxx }}
+      BIGMATH_CPU: ${{ matrix.cpu }}
+      PACKAGE_KEY: ${{ matrix.key }}
+      PACKAGE_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+      - name: Build, test and verify the Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash .github/scripts/package-release.sh
+      - name: Build, test and verify the Windows archive
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: bash .github/scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.key }}
+          path: dist/bigmath-*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [plan, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Publish archives and checksums
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_COUNT: ${{ needs.plan.outputs.count }}
+          TAG: ${{ needs.plan.outputs.version }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          archives=(bigmath-*.tar.gz bigmath-*.zip)
+          if [[ ${#archives[@]} -ne $EXPECTED_COUNT ]]; then
+            echo "::error::Expected $EXPECTED_COUNT archives, found ${#archives[@]}"
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          gh release create "$TAG" --verify-tag --generate-notes \
+            "${archives[@]}" SHA256SUMS

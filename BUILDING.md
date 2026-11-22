@@ -1,6 +1,6 @@
 # Building BigMath
 
-Production-ready CMake build, replacing the prior header-only `c++ -std=c++20 …` per-test recipes.
+For prebuilt libraries and the GitHub release workflow, see the [release guide](docs/RELEASING.md).
 
 ## Layout
 
