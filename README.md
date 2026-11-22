@@ -28,6 +28,8 @@ Threaded multiplication now uses the fused matrix transform for large operands a
 
 At 200M digits per operand, compact weights cut single-threaded peak RSS from 3.56 to 1.31 GiB. Warm products took 2.86 s before and 2.92 s after. GMP used 1.09 GiB.
 
+Processing the three primes in sequence lets threaded products reuse two scratch buffers. At 200M digits this reduced peak RSS from 2.90 to 1.94 GiB. The jump from 160M to 162M digits now runs from 1.15 to 1.85 GiB.
+
 ![Peak memory and warm time before and after each optimization relative to GMP](docs/images/bigmath_memory_fixes.png)
 
 In the original November 21 sweep on the M1 Max, the largest relative peak in the standard suite was formatting 10 million digits. Threaded BigMath used 531 MiB and GMP used 46 MiB. Multiplying 10M × 1M digits used 173 MiB and 19 MiB respectively. At 200M × 200M digits, peak RSS was 2.90 GiB for threaded BigMath, 3.56 GiB for single-threaded BigMath and 1.09 GiB for GMP. [Memory measurements and controlled comparisons](BENCHMARK.md#peak-memory-and-large-product-time)
