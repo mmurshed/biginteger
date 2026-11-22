@@ -26,7 +26,18 @@ BEFORE_AFTER = [
 ]
 
 
-def ratio_plot(path, results, figure_title, threads, legend_location="upper right"):
+def large_product_ratios(library):
+    path = BENCHMARKS / "2026-11-21-blocked-crt-memory-m1-max.csv"
+    with path.open(newline="") as src:
+        products = [r for r in csv.DictReader(src)
+                    if r["op"] == "mul" and r["a_digits"] == r["b_digits"]
+                    and int(r["a_digits"]) >= 200_000_000 and r["status"] == "ok"]
+    gmp = {r["id"]: float(r["warm_ms"]) for r in products if r["library"] == "gmp"}
+    return sorted((int(r["a_digits"]), float(r["warm_ms"]) / gmp[r["id"]])
+                  for r in products if r["library"] == library)
+
+
+def ratio_plot(path, results, figure_title, threads, library, legend_location="upper right"):
     with results.open(newline="") as src:
         rows = list(csv.DictReader(line for line in src if not line.startswith("#")))
 
@@ -67,12 +78,16 @@ def ratio_plot(path, results, figure_title, threads, legend_location="upper righ
             ax.plot(*series(op, phase, shape), label=label, color=color, marker=marker,
                     linestyle=style, markersize=4.4, linewidth=1.7,
                     markerfacecolor="white" if style == "--" else color)
-        ax.set_xlim(700, 3e8)
+        if title == "Multiplication":
+            ax.plot(*zip(*large_product_ratios(library)), label="Equal lengths · fresh process",
+                    color="#438456", marker="^", markersize=4.5, linewidth=1.7)
+        ax.set_xlim(700, 1.35e9)
         ax.spines[["top", "right"]].set_visible(False)
         ax.spines[["bottom", "left"]].set_color("#a9b1b9")
         ax.tick_params(labelsize=9)
         ax.yaxis.set_minor_formatter(NullFormatter())
-        ax.legend(loc=legend_location, frameon=False, fontsize=9)
+        ax.legend(loc="best" if title == "Multiplication" else legend_location,
+                  frameon=False, fontsize=9)
     ticks = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
     lo, hi = axes[0, 0].get_ylim()
     if lo > 0.5:
@@ -80,8 +95,8 @@ def ratio_plot(path, results, figure_title, threads, legend_location="upper righ
         axes[0, 0].set_ylim(bottom=lo)
     visible = [t for t in ticks if lo <= t <= hi]
     axes[0, 0].set_yticks(visible, [f"{t:g}×" for t in visible])
-    axes[0, 0].set_xticks([1e3, 1e4, 1e5, 1e6, 1e7, 1e8],
-                          ["1k", "10k", "100k", "1M", "10M", "100M"])
+    axes[0, 0].set_xticks([1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9],
+                          ["1k", "10k", "100k", "1M", "10M", "100M", "1B"])
     fig.suptitle(figure_title, fontsize=17, fontweight="bold", y=0.98)
     fig.text(0.5, 0.918, "Time relative to GMP  ·  Below 1× means BigMath is faster", ha="center", fontsize=11)
     fig.supxlabel("Decimal digits in the first operand", fontsize=11, y=0.066)
@@ -174,10 +189,11 @@ if __name__ == "__main__":
     ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
                BENCHMARKS / "2026-11-21-blocked-crt-m1-max-single-thread.csv",
                "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
-               legend_location="best")
+               "bigmath_single", legend_location="best")
     ratio_plot(HERE / "bigmath_vs_gmp.png",
                BENCHMARKS / "2026-11-21-blocked-crt-m1-max.csv",
-               "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread")
+               "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread",
+               "bigmath_default")
     small = BENCHMARKS / "2026-11-21-small-operands.csv"
     if small.exists():
         small_ops_plot(HERE / "bigmath_vs_gmp_small.png", small)

@@ -13,6 +13,7 @@ CASES = [
     ("weights-single", "mul", 200_000_000, 200_000_000, "Single-thread\n200M × 200M"),
     ("planes-default", "mul", 200_000_000, 200_000_000, "Threaded\n200M × 200M"),
     ("conversion-default", "tostr", 10_000_000, 0, "Format\n10M digits"),
+    ("conversion-default", "parse", 50_000_000, 0, "Parse\n50M digits"),
 ]
 fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), layout="constrained")
 for ax, field, title in zip(axes, ("warm_peak_bytes", "warm_ms"),
@@ -26,7 +27,8 @@ for ax, field, title in zip(axes, ("warm_peak_bytes", "warm_ms"),
         for name, offset, color in (("before", -.18, "#94adc4"), ("after", .18, "#2165a1")):
             ratio = value(name) / value("gmp")
             ax.bar(i + offset, ratio, .34, color=color, label=name.capitalize() if i == 0 else None)
-            ax.annotate(f"{ratio:.2g}×", (i + offset, ratio), xytext=(0, 3),
+            ax.annotate(f"{ratio:.3g}×", (i + offset, ratio),
+                        xytext=(-3, 3) if name == "before" else (3, 12),
                         textcoords="offset points", ha="center", fontsize=8)
     ax.axhline(1, color="#55616b", ls="--", lw=1)
     ax.set_xticks(range(len(CASES)), [case[-1] for case in CASES], fontsize=8)

@@ -29,8 +29,7 @@ def axes_style(ax):
 
 def plot_ratios(rows, library, path, host, gmp_name, default_name):
     ref = {(r["id"], r["op"]): r for r in rows if r["library"] == "gmp"}
-    data = [r for r in rows if r["library"] == library and r["status"] == "ok"
-            and r["source"] == "manifest"]
+    data = [r for r in rows if r["library"] == library and r["status"] == "ok"]
     warm, first = "warm_peak_bytes", "first_peak_bytes"
     panels = [
         ("Multiplication", [("Equal lengths", "mul", warm, True), ("10:1 lengths", "mul", warm, False)]),
@@ -50,8 +49,14 @@ def plot_ratios(rows, library, path, host, gmp_name, default_name):
                     marker=["o", "s"][i], ms=4, mfc=["white", COLORS[i]][i], lw=1.6)
         ax.set_title(title, loc="left", weight="bold", fontsize=12)
         ax.legend(frameon=False, fontsize=8, loc="best")
-    axes[0, 0].set_xticks([1e3, 1e4, 1e5, 1e6, 1e7, 1e8], ["1k", "10k", "100k", "1M", "10M", "100M"])
-    axes[0, 0].set_xlim(700, 3e8)
+    ticks = [1e3, 1e4, 1e5, 1e6, 1e7, 1e8]
+    labels = ["1k", "10k", "100k", "1M", "10M", "100M"]
+    largest = max(int(r["a_digits"]) for r in data)
+    if largest >= 1e9:
+        ticks.append(1e9)
+        labels.append("1B")
+    axes[0, 0].set_xticks(ticks, labels)
+    axes[0, 0].set_xlim(700, max(3e8, largest * 1.35))
     fig.suptitle("Peak resident memory relative to GMP", fontsize=17, weight="bold", y=.98)
     name = default_name if library == "bigmath_default" else LIBRARIES[library]
     fig.text(.5, .908, "  ·  ".join(filter(None, (name, f"{gmp_name}, 1 thread", host))), ha="center")
@@ -86,12 +91,14 @@ def plot_large(rows, path, host, default_name):
             ax.set_yticks([t for t in (.01, .03, .1, .3, 1, 3, 10, 30, 100) if lo <= t <= hi])
         ax.set_xlim(8.5, 1100)
         ax.set_title(title, loc="left", weight="bold", fontsize=12)
-        ax.set_xticks([10, 20, 50, 100, 200, 500, 1000], ["10", "20", "50", "100", "200", "500", "1,000"])
+        ax.set_xticks([10, 20, 50, 100, 200, 500, 750, 1000],
+                      ["10M", "20M", "50M", "100M", "200M", "500M", "750M", "1B"])
+        ax.get_xticklabels()[-1].set_ha("left")
         ax.tick_params(labelsize=9)
     fig.suptitle("Balanced multiplication through one billion digits", fontsize=16, weight="bold", y=.97)
     fig.legend(*axes[0].get_legend_handles_labels(), loc="upper center", bbox_to_anchor=(.5,.90),
                ncol=3, frameon=False, fontsize=9)
-    fig.supxlabel("Millions of decimal digits per operand", fontsize=11, y=.09)
+    fig.supxlabel("Decimal digits per operand", fontsize=11, y=.09)
     note = "Shaded sizes exceed BigMath’s CRT limit (323.2M)" if limited else "Dotted line = single-transform CRT limit (323.2M)"
     fig.text(.5,.035, "  ·  ".join(filter(None, (host, note, "Points are measured products"))),
              ha="center", fontsize=9)
