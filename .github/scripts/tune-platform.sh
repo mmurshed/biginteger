@@ -13,9 +13,10 @@ exec > >(tee "$out/run.log") 2>&1
 tuner=dispatch_tuner
 [[ "$PLATFORM_KEY" != windows-* ]] || tuner+=.exe
 profile=$(platform_profile "$PWD")
+candidate_commit="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 {
     echo "platform=$PLATFORM_KEY"
-    echo "candidate_commit=$(git rev-parse HEAD)"
+    echo "candidate_commit=$candidate_commit"
     echo "stage=$TUNING_STAGE"
     echo "mode=$TUNING_MODE"
     echo "release_cpu_flags=$BIGMATH_CPU"
@@ -53,7 +54,8 @@ if [[ "$TUNING_STAGE" == survey ]]; then
 fi
 
 base_profile=$(platform_profile "$baseline_source")
-git -C "$baseline_source" rev-parse HEAD > "$out/baseline-commit.txt"
+baseline_commit="${TUNING_BASELINE_SHA:-$(git -C "$baseline_source" rev-parse HEAD)}"
+printf '%s\n' "$baseline_commit" > "$out/baseline-commit.txt"
 record_profile "$base_profile" baseline
 configure_platform "$baseline" "$base_profile"
 cmake --build "$baseline" --parallel 3 --target dispatch_tuner

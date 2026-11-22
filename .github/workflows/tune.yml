@@ -55,6 +55,7 @@ jobs:
       CXX: ${{ matrix.cxx }}
       BIGMATH_CPU: ${{ matrix.cpu }}
       PLATFORM_KEY: ${{ matrix.key }}
+      TUNING_BASELINE_SHA: ${{ needs.plan.outputs.baseline }}
       TUNING_STAGE: ${{ inputs.stage }}
       TUNING_MODE: ${{ inputs.mode }}
     steps:
