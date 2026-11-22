@@ -9,7 +9,8 @@ dist="$PWD/dist"
 unpacked="$build/unpacked"
 
 source .github/scripts/configure-platform.sh
-configure_platform "$build" "$(platform_profile "$PWD")"
+profile=$(platform_profile "$PWD")
+configure_platform "$build" "$profile"
 cmake --build "$build" --parallel 3 --target mult_correctness div_correctness unit_tests mfa_roundtrip
 ctest --test-dir "$build" --output-on-failure --timeout 600
 cmake --install "$build" --prefix "$stage/$package"
@@ -24,6 +25,10 @@ else
 fi
 (cd "$unpacked" && cmake -E tar xf "$archive")
 test -f "$unpacked/$package/share/bigmath/LICENSE"
+if [[ "$profile" == none ]]; then
+    profile=cmake/DefaultPlatform.h
+fi
+cmake -E compare_files "$profile" "$unpacked/$package/include/biginteger/build/PackagedPlatform.h"
 
 smoke="$build/package-smoke"
 cmake -S .github/package-smoke -B "$smoke" -G Ninja \
