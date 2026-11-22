@@ -41,7 +41,7 @@ def generate_raw(path, digits, slot):
             left -= count
 
 
-def measure(dataset, scratch, output, builds, extended, balanced_digits, product_options):
+def measure(dataset, scratch, output, builds, extended, balanced_digits, product_options, warm_reps):
     with (dataset / "manifest.csv").open() as f:
         reader = csv.DictReader(f)
         manifest_fields = reader.fieldnames
@@ -54,7 +54,7 @@ def measure(dataset, scratch, output, builds, extended, balanced_digits, product
         for idx, digits in enumerate(balanced_digits or EXTRA_DIGITS, next_id):
             extra_ids.add(str(idx))
             entries.append(dict(id=str(idx), op="mul", a_digits=str(digits),
-                                b_digits=str(digits), scale="0", reps="1", historical="0"))
+                                b_digits=str(digits), scale="0", reps=str(warm_reps), historical="0"))
     with (scratch / "manifest.csv").open("w") as f:
         writer = csv.DictWriter(f, manifest_fields)
         writer.writeheader()
@@ -128,6 +128,8 @@ def main():
     cases.add_argument("--extended", action="store_true", help="include balanced products through 5B digits")
     cases.add_argument("--balanced-digits", type=int, nargs="+", metavar="DIGITS",
                        help="measure only seeded balanced products at these decimal lengths")
+    parser.add_argument("--balanced-warm-reps", type=int, metavar="N",
+                        help="record the fastest of N warm calls for each --balanced-digits case (default 1)")
     parser.add_argument("--fermat-blocks", type=int,
                         help="compare the Fermat FFT with this many wide CRT blocks per operand")
     parser.add_argument("--fermat-exponents", type=int, nargs="+",
@@ -146,6 +148,8 @@ def main():
         parser.error("Fermat exponents must be distinct")
     if args.balanced_digits and any(d < 1 for d in args.balanced_digits):
         parser.error("--balanced-digits requires positive decimal lengths")
+    if args.balanced_warm_reps is not None and (args.balanced_warm_reps < 1 or not args.balanced_digits):
+        parser.error("--balanced-warm-reps requires --balanced-digits and a positive count")
     builds = {"gmp": args.build.resolve() / "bench_run_gmp",
               "bigmath_default": args.build.resolve() / "bench_run_bigmath",
               "bigmath_single": args.single_build.resolve() / "bench_run_bigmath"}
@@ -174,7 +178,7 @@ def main():
         partial = scratch / "results.csv"
         with partial.open("w", newline="") as out:
             measure(args.dataset.resolve(), scratch, out, builds, args.extended, args.balanced_digits,
-                    product_options)
+                    product_options, args.balanced_warm_reps or 1)
         partial.replace(args.output)
 
 

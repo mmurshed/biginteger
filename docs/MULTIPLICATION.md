@@ -102,6 +102,7 @@ Default thresholds (overridable via `-D...`):
 |---|---|---|---|
 | `BIGMATH_SMALL_SELF_SQUARE_MAX` | `319` | limbs | Largest identical 64-bit operand routed to the square dispatcher |
 | `BIGMATH_NTT_COLD_AREA_THRESHOLD` | `262144` under LIMB_64 | limbs² | Unconditional NTT entry once the other size gates hold |
+| `BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS` | `0` generic, `704` on macOS Arm64 Clang | longer operand in limbs | NTT floor in a single-thread build for distinct 64-bit operands whose lengths differ by at most one limb |
 | `BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD` | `56` under LIMB_64 | sum of limbs | Classic small-product cutoff (96 → 64 → 56 on 2026-11-20) |
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `24` under LIMB_64 | min of limbs | Classic whenever the shorter operand is at or below the Karatsuba leaf cutoff |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `0` under LIMB_64 | min of limbs | Legacy high-skew Classic guard — retired 2026-11-20 (sliced Karatsuba wins) |

@@ -94,5 +94,6 @@ Use the Python driver directly with existing builds and an extracted dataset.
 ```sh
 python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD results.csv --extended
 python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD boundary.csv --balanced-digits 484000000 486000000 500000000
+python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD small-products.csv --balanced-digits 1000 5000 10000 50000 100000 500000 1000000 --balanced-warm-reps 9
 python3 docs/images/make_memory_plots.py --csv results.csv
 ```

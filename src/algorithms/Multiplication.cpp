@@ -56,6 +56,11 @@ namespace BigMath
         minSize >= NTT_MIN_LIMB_THRESHOLD &&
         area >= NTT_AREA_THRESHOLD)
     {
+#if !BIGMATH_USE_THREADS && BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS > 0
+      if (base == Base2_64 && &a != &b && maxSize < BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS &&
+          maxSize - minSize <= 1)
+        return KaratsubaMultiplication::Multiply(a, b, base);
+#endif
       // Small NTT products only pay off while the pool is awake: a parked
       // pool makes them cost about the serial time, which loses to Karatsuba
       // below NTT_COLD_AREA. When cold, run Karatsuba; if these multiplies

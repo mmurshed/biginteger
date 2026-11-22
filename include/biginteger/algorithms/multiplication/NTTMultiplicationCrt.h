@@ -653,6 +653,38 @@ namespace BigMath
       return r;
     }
 
+    // For k = j * n / len the first four roots are spaced by n/8. The
+    // remaining roots have indices 2k, 2k + n/4, and 4k.
+    struct Radix8Twiddles
+    {
+      NeonPair first, second, third, fourth, doubleFirst, doubleSecond, quadruple;
+    };
+
+    inline Radix8Twiddles GatherRadix8(const UInt *il, Int n, Int len, Int j)
+    {
+      const Int stride = n / len;
+      const Int k = j * stride;
+      return {NeonGatherPair(il, k, stride), NeonGatherPair(il, k + n / 8, stride),
+              NeonGatherPair(il, k + n / 4, stride), NeonGatherPair(il, k + 3 * (n / 8), stride),
+              NeonGatherPair(il, 2 * k, 2 * stride), NeonGatherPair(il, 2 * k + n / 4, 2 * stride),
+              NeonGatherPair(il, 4 * k, 4 * stride)};
+    }
+
+    // Every block in this layer uses the same roots. Keep the seven vector
+    // pairs together when a small stage is repeated across many blocks.
+    struct Radix8Stage
+    {
+      static constexpr Int MaxLength = 512;
+      Radix8Twiddles groups[MaxLength / 32];
+      bool Prepare(const UInt *il, Int n, Int len)
+      {
+        if (len < 32 || len > MaxLength || n / len < 8) return false;
+        for (Int j = 0; j < len / 8; j += 4)
+          groups[j / 4] = GatherRadix8(il, n, len, j);
+        return true;
+      }
+    };
+
     // ─── NEON tail layers (outerLen == 4 / 2, the log n % 3 remainder) ──────
     // At outerLen == 4 the twiddles collapse to constants: g = g2 = roots[0]
     // = 1 and gw = roots[n/4] — one broadcast Shoup pair serves the whole
@@ -968,6 +1000,8 @@ namespace BigMath
       Int stride = n / outerLen;
       Int stride4 = stride << 2;
       Int omega4_off = n / 4;
+      Radix8Stage stage;
+      const bool packed = stage.Prepare(il, n, outerLen);
       for (Int i = 0; i < n; i += outerLen)
       {
         Int j = 0;
@@ -982,13 +1016,8 @@ namespace BigMath
           uint32x4_t x6 = vld1q_u32(a + i + j + halflen + qlen4);
           uint32x4_t x7 = vld1q_u32(a + i + j + halflen + qlen4 + qlen8);
 
-          NeonPair g_a  = NeonGatherPair(il, j * stride, stride);
-          NeonPair gw_a = NeonGatherPair(il, j * stride + omega4_off, stride);
-          NeonPair g2_a = NeonGatherPair(il, 2 * j * stride, 2 * stride);
-          NeonPair g_b  = NeonGatherPair(il, (j + qlen8) * stride, stride);
-          NeonPair gw_b = NeonGatherPair(il, (j + qlen8) * stride + omega4_off, stride);
-          NeonPair g2_b = NeonGatherPair(il, 2 * (j + qlen8) * stride, 2 * stride);
-          NeonPair g3   = NeonGatherPair(il, j * stride4, stride4);
+          const auto &[g_a, g_b, gw_a, gw_b, g2_a, g2_b, g3] =
+              packed ? stage.groups[j / 4] : GatherRadix8(il, n, outerLen, j);
 
           uint32x4_t t0 = NeonAdd<F>(x0, x4);
           uint32x4_t t1 = NeonAdd<F>(x2, x6);
@@ -1095,6 +1124,8 @@ namespace BigMath
       Int qlen8 = outerLen >> 3;
       Int stride = n / outerLen;
       Int stride4 = stride << 2;
+      Radix8Stage stage;
+      const bool packed = stage.Prepare(il, n, outerLen);
       for (Int i = 0; i < n; i += outerLen)
       {
         Int j = 0;
@@ -1109,7 +1140,8 @@ namespace BigMath
           uint32x4_t x6 = vld1q_u32(a + i + j + halflen + qlen4);
           uint32x4_t x7 = vld1q_u32(a + i + j + halflen + qlen4 + qlen8);
 
-          NeonPair g_a = NeonGatherPair(il, j * stride4, stride4);
+          const auto &[g_c0, g_c1, g_c2, g_c3, g_b1, g_b2, g_a] =
+              packed ? stage.groups[j / 4] : GatherRadix8(il, n, outerLen, j);
 
           uint32x4_t v01 = NeonShoupMul<F>(g_a.w, g_a.ws, x1);
           uint32x4_t y0 = NeonAdd<F>(x0, v01);
@@ -1124,9 +1156,6 @@ namespace BigMath
           uint32x4_t y6 = NeonAdd<F>(x6, v67);
           uint32x4_t y7 = NeonSub<F>(x6, v67);
 
-          NeonPair g_b1 = NeonGatherPair(il, 2 * j * stride, 2 * stride);
-          NeonPair g_b2 = NeonGatherPair(il, 2 * (j + qlen8) * stride, 2 * stride);
-
           uint32x4_t w02 = NeonShoupMul<F>(g_b1.w, g_b1.ws, y2);
           uint32x4_t z0 = NeonAdd<F>(y0, w02);
           uint32x4_t z2 = NeonSub<F>(y0, w02);
@@ -1139,11 +1168,6 @@ namespace BigMath
           uint32x4_t w57 = NeonShoupMul<F>(g_b2.w, g_b2.ws, y7);
           uint32x4_t z5 = NeonAdd<F>(y5, w57);
           uint32x4_t z7 = NeonSub<F>(y5, w57);
-
-          NeonPair g_c0 = NeonGatherPair(il, j * stride, stride);
-          NeonPair g_c1 = NeonGatherPair(il, (j + qlen8) * stride, stride);
-          NeonPair g_c2 = NeonGatherPair(il, (j + qlen4) * stride, stride);
-          NeonPair g_c3 = NeonGatherPair(il, (j + qlen4 + qlen8) * stride, stride);
 
           uint32x4_t w04 = NeonShoupMul<F>(g_c0.w, g_c0.ws, z4);
           uint32x4_t w15 = NeonShoupMul<F>(g_c1.w, g_c1.ws, z5);

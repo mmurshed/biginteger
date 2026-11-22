@@ -78,6 +78,46 @@ cmake --build build --target equality_bench
 ./build/equality_bench
 ```
 
+## Balanced multiplication through one million digits
+
+This sweep compares the public `BigInteger` multiplication operator against GMP 6.3.0 on a 32 GiB Apple M1 Max running macOS 27.2.1. Both revisions used Apple Clang 21, 64-bit limbs and Release builds with `-O3 -march=native`. The baseline was `d733086`. The single-thread build used `-DBIGMATH_USE_THREADS=0`, and the default build could use eight threads. GMP used one thread throughout. [Per-pass first and warm timings, including the 2M and 5M controls](docs/benchmarks/2026-11-22-submillion-products-m1-max.csv)
+
+![Warm multiplication time relative to GMP, before and after the changes, with separate panels for single-threaded and threaded BigMath](docs/images/bigmath_submillion_products.png)
+
+**Where the crossover matters.** On one thread, forcing the optimized recursive kernel on 520 × 520 limbs took 40.0 µs, versus 46.5 µs for the NTT. At 720 × 720 the NTT won, 65.9 µs versus 69.7 µs. Operand shape also mattered. At 460 × 692 limbs the NTT took 49.0 µs versus 57.0 µs for recursion. The macOS Arm64 Clang profile now enters the NTT at 704 limbs (about 13,600 decimal digits) for distinct, single-thread operands whose lengths differ by at most one limb. Threaded dispatch still accounts for whether the worker pool is awake. [Direct kernel timings for 57 balanced sizes and 44 shape comparisons](docs/benchmarks/2026-11-22-submillion-crossover-m1-max.csv)
+
+**Where the kernels matter.** On Apple silicon with Clang, the schoolbook kernel specializes row widths from 12 through 24 limbs. Knowing the width at compile time lets the compiler schedule the carry chain across a row. This speeds up the base products inside Karatsuba and Toom-3. For larger inputs, the forward and inverse NEON radix-8 NTT now gather each group of roots and modular reduction constants once per stage when the stage length is at most 512 and repeats across at least eight blocks. Each transform uses at most 3.5 KiB of temporary stack space for those groups.
+
+| Digits per operand | One thread before (µs) | One thread after (µs) | After / GMP | Up to eight before (µs) | Up to eight after (µs) | After / GMP |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1,000 | 1.29 | 1.08 | 1.19× | 1.25 | 1.08 | 1.18× |
+| 5,000 | 16.83 | 13.69 | 1.17× | 16.85 | 13.75 | 1.17× |
+| 10,000 | 49.77 | 39.83 | 1.43× | 22.17 | 21.56 | 0.77× |
+| 13,500 | 68.62 | 61.17 | 1.31× | 30.21 | 30.38 | 0.65× |
+| 14,000 | 68.94 | 65.50 | 1.33× | 30.90 | 30.29 | 0.62× |
+| 15,000 | 90.29 | 82.35 | 1.57× | 38.81 | 38.62 | 0.73× |
+| 20,000 | 100.7 | 92.42 | 1.14× | 44.38 | 42.60 | 0.52× |
+| 50,000 | 307.7 | 287.1 | 1.03× | 107.3 | 100.7 | 0.36× |
+| 100,000 | 665.9 | 615.5 | 1.02× | 211.2 | 202.6 | 0.34× |
+| 500,000 | 4,586.0 | 4,089.0 | 0.99× | 1,112.7 | 818.3 | 0.20× |
+| 1,000,000 | 9,614.4 | 8,576.5 | 0.98× | 2,593.4 | 1,626.8 | 0.18× |
+
+Each pass used the same pair of independently seeded operands at each decimal length. A fresh process timed the first multiplication and the fastest of nine subsequent calls. Six paired passes alternated the order of the baseline and optimized builds. The table reports median warm times and the median of the six within-pass BigMath/GMP ratios. A ratio below 1 means BigMath ran faster. The first-call timings in the CSV include any transform-plan and worker-pool initialization. Generating and loading inputs and checking the result hash took place outside the timers.
+
+At 10,000 digits on one thread, delaying the first transform also reduced median first-call time from 186.6 to 54.85 µs. A remaining gap occurs at 15,000 digits, where the single-thread build took 1.57× GMP’s warm time. Here 779 limbs per operand require 3,115 convolution coefficients, just above the 3,072-coefficient cutoff for the shorter transform in this interval.
+
+All 21 measured sizes from 1,000 through one million digits had lower median warm times in the single-thread build. The threaded medians rose by 4.7% at 7,000 digits, 0.6% at 13,500 and 4.5% at 75,000. At 500,000 digits the threaded median fell from 1.11 ms to 0.82 ms. The 552 before-and-after product hashes across all 23 sizes, including the two larger controls, matched GMP.
+
+The default, single-thread, scalar (`BIGMATH_NEON=0`) and legacy-limb builds each passed all four CTest targets. Each build also matched GMP limb-for-limb on 480 additional products covering the cutoff, operand signs, all-ones carries, skewed lengths and self-squaring. These timings and cutoff measurements are local to the M1 Max.
+
+To repeat one pass with the benchmark executables built in separate Release directories, supply the quick dataset and choose the desired digit lengths.
+
+```sh
+python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_BUILD products.csv \
+  --balanced-digits 1000 5000 10000 12000 13500 14000 15000 20000 50000 100000 500000 1000000 \
+  --balanced-warm-reps 9
+```
+
 ## Single-thread comparison
 
 The November 21, 2026 full timing run measured revision `c945bdc` on the Apple M1 Max. At 200M digits per operand the single-thread build took 2.92 s and GMP took 2.87 s. At 50M and 100M digits BigMath used 0.98× and 1.00× GMP’s time. [Measured revision](https://github.com/mmurshed/biginteger/tree/c945bdc)
