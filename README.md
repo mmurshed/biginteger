@@ -36,7 +36,11 @@ Sharing immutable transform tables across workers and reusing per-thread buffers
 
 ![Peak memory and warm time relative to GMP before and after changes to multiplication, formatting 10M digits and parsing 50M digits](docs/images/bigmath_memory_fixes.png)
 
-Multiplication at 5M × 500k digits had the largest threaded peak RSS relative to GMP in the integer sweep, 8.38× (88.2 versus 10.5 MiB). The single-thread maximum was 8.35× for multiplication at 10M × 1M digits (155.1 versus 18.6 MiB). [Full memory results](BENCHMARK.md#peak-memory-and-large-product-time)
+Decimal conversion now reuses two scratch buffers for full fused transforms from 2²⁰ coefficients. In a three-run comparison on the M1 Max, threaded 50M-digit parsing went from 1,083 to 896 MiB, and 20M-digit formatting went from 756 to 646 MiB. Their median warm times went from 553 to 551 ms and from 508 to 514 ms, respectively. [Paired results and standalone multiplication controls](BENCHMARK.md#reuse-two-scratch-buffers-during-decimal-conversion)
+
+![Single-threaded and threaded decimal conversion before and after scratch reuse, relative to GMP](docs/images/bigmath_conversion_scratch.png)
+
+In the full benchmark at `c945bdc`, multiplication at 5M × 500k digits had the largest threaded peak RSS relative to GMP in the integer sweep, 8.38× (88.2 versus 10.5 MiB). The single-thread maximum was 8.35× for multiplication at 10M × 1M digits (155.1 versus 18.6 MiB). [Full memory results](BENCHMARK.md#peak-memory-and-large-product-time)
 
 ![Multithreaded BigMath peak memory relative to GMP, including balanced products through one billion digits per operand](docs/images/bigmath_vs_gmp_memory.png)
 
