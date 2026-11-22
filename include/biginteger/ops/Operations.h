@@ -19,4 +19,5 @@
 #include "Shift.h"
 #include "Comparison.h"
 #include "IO.h"
+#include "NumberTheory.h"
 #endif

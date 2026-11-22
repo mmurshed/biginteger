@@ -188,6 +188,10 @@ if(BIGMATH_BUILD_TESTS)
     find_library(GMP_LIBRARY gmp)
     find_path(GMP_INCLUDE_DIR gmp.h)
     if(GMP_LIBRARY AND GMP_INCLUDE_DIR)
+        add_executable(number_theory_vs_gmp tests/performance/number_theory_vs_gmp.cpp)
+        target_link_libraries(number_theory_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(number_theory_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
+
         add_executable(bench_vs_gmp tests/performance/bench_vs_gmp.cpp)
         target_link_libraries(bench_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
 
