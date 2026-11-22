@@ -56,6 +56,11 @@
 #define BIGMATH_NTT_WIDE_MAX_TERMS 836075521ULL
 #endif
 
+// Experimental Fermat outer FFT above the wide CRT limits. Disabled by default.
+#ifndef BIGMATH_NTT_FERMAT_MIN_COEFFS
+#define BIGMATH_NTT_FERMAT_MIN_COEFFS 0xffffffffffffffffULL
+#endif
+
 // Default-on Matrix Fourier Algorithm (Bailey 6-step) for very large NTT
 // transforms. Recursive 2D decomposition N = N1*N2 with sub-FFTs sized to
 // fit L1. Targets the bandwidth-bound regime where N exceeds L2 (~32 MB on
@@ -243,6 +248,7 @@
 #include "../../common/Parallel.h"
 #include "../../common/Util.h"
 #include "ClassicMultiplication.h"
+#include "FermatOuterMultiplication.h"
 #include "../Addition.h"
 
 namespace BigMath
@@ -4390,7 +4396,8 @@ namespace BigMath
     // residues (MultiplyAtCrtCeiling): unsigned coefficients up to plainTerms
     // in the shorter operand, biased ones up to biasedTerms. Past that limit
     // or the standard node limit, try the wide prime set. If neither set fits,
-    // cut the operands into blocks whose pairs fit the available limits.
+    // try the opt-in Fermat outer FFT before cutting the operands into
+    // blocks whose pairs fit the available limits.
     // A shorter operand of at most H/2 coefficients is instead paired with
     // blocks that keep each product within one transform.
     inline std::vector<DataT> MultiplyAboveTransform(const std::vector<DataT> &a,
@@ -4398,7 +4405,8 @@ namespace BigMath
                                                      ULong plainTerms = CrtMaxTerms,
                                                      ULong biasedTerms = CrtMaxBiasedTerms,
                                                      ULong wideTerms = BIGMATH_NTT_WIDE_MAX_TERMS,
-                                                     ULong wideCoeffs = BIGMATH_NTT_WIDE_MAX_COEFFS)
+                                                     ULong wideCoeffs = BIGMATH_NTT_WIDE_MAX_COEFFS,
+                                                     ULong fermatMinCoeffs = BIGMATH_NTT_FERMAT_MIN_COEFFS)
     {
       const SizeT perLimb = CoeffsPerLimb(base);
       ULong pairCoeffs = (ULong)H, shorterCoeffs = (ULong)H / 2;
@@ -4424,6 +4432,24 @@ namespace BigMath
         {
           pairCoeffs = wideCapacity;
           shorterCoeffs = wideShorter;
+          if (base == Base2_64 && fermatMinCoeffs != std::numeric_limits<ULong>::max() &&
+              coeffCount >= fermatMinCoeffs)
+          {
+            if (auto params = FermatOuter::SelectParameters(a.size(), b.size()))
+            {
+              // A previous wide product can leave multi-GiB residue planes
+              // cached. Keep only work buffers that can serve an inner product.
+              auto &work = GetProductWorkspace();
+              const size_t innerTransform = std::bit_ceil(params->ringLimbs * 4);
+              const auto discardOversize = [innerTransform](auto &buffer) {
+                if (buffer.capacity() > innerTransform) std::vector<UInt>().swap(buffer);
+              };
+              for (auto *plane : {&work.fa1, &work.fb1, &work.fa2, &work.fb2, &work.fa3, &work.fb3})
+                discardOversize(*plane);
+              for (auto &plane : work.transpose) discardOversize(plane);
+              return FermatOuter::MultiplyFermat(a, b, *params);
+            }
+          }
         }
 #endif
       }
@@ -4434,13 +4460,14 @@ namespace BigMath
 #if !BIGMATH_NTT_WIDE || !(BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE)
       (void)wideTerms;
       (void)wideCoeffs;
+      (void)fermatMinCoeffs;
 #endif
       return MultiplyBlocked(a, b, base, (size_t)(pairCoeffs / perLimb), (size_t)(shorterCoeffs / perLimb),
                              [&](const std::vector<DataT> &left, const std::vector<DataT> &right) {
                                const ULong coeffs = (ULong)(left.size() + right.size()) * perLimb - 1;
                                return coeffs > (ULong)H
                                           ? MultiplyAboveTransform(left, right, base, H, plainTerms, biasedTerms,
-                                                                   wideTerms, wideCoeffs)
+                                                                   wideTerms, wideCoeffs, fermatMinCoeffs)
                                           : Multiply(left, right, base);
                              });
     }

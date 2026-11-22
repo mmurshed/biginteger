@@ -66,6 +66,8 @@ Above about 1.79B digits per balanced operand, a wider prime set handles the pro
 
 ![Warm multiplication time and peak memory through five billion digits per operand](docs/images/bigmath_vs_gmp_large_products.png)
 
+The experimental Fermat outer FFT is disabled by default. Local tests on the 32 GiB M1 Max use smaller products with forced wide-CRT blocking. The actual large-size crossover awaits a larger machine. [Fermat validation and measurements](BENCHMARK.md#experimental-fermat-outer-fft)
+
 ### Small operands (1–16 limbs)
 
 Values of up to 4 limbs (256 bits) are stored inside the `BigInteger` object, and operands of up to 16 limbs are combined in a stack buffer. Before and after that change, single-threaded, against GMP writing into a reused output: a 1-limb product went from 5.7× to 2.1× GMP's time, a 1-limb remainder from 3.9× to 1.1×, and copying a small value from 5.3× to 0.12×.

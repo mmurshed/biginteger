@@ -483,6 +483,93 @@ The 10M × 1M skewed case uses the smaller truncated transform. Its threaded tim
 
 To repeat the comparison, select multiplication cases 8–13, 19, 21 and 23 from the full split-benchmark manifest, set their warm repetition counts to three, and use the same operand files for each build. Run `bench_run_gmp` once, then `bench_run_bigmath` from each Release build against that reference. The baseline is `1fa44fa`. The one-thread builds use `-DBIGMATH_USE_THREADS=0`.
 
+## Experimental Fermat outer FFT
+
+Phase 2 was built and tested locally on a 32 GiB Apple M1 Max with Apple
+Clang 21 and GMP 6.3.0. The Fermat path uses full products for the inner
+multiplications and folds the high half. Dispatch remains disabled by
+default. [Algorithm and dispatch](docs/MULTIPLICATION.md#experimental-fermat-outer-fft)
+
+The two BigMath variants used identical seeded balanced operands. The
+forced-block variant reused the existing overlap-add routine with exactly
+three blocks per operand. Each block pair used the wide-prime CRT path
+when large enough and a single CRT transform for the small controls.
+Three blocks approximate the block count for a balanced 20-billion-digit
+product. The local runs exercise that block geometry at smaller transform
+sizes. They leave the real large-size crossover and peak memory open.
+At 2.5B and 5B digits, the shipped build uses one wide residue product
+for these balanced inputs. Each experimental row runs in a fresh
+process, measures a first and one warm call, records the RSS high-water
+mark before hashing, and checks the warm result against GMP.
+
+### Local results
+
+Warm multiplication time and process peak RSS are paired in each cell.
+GMP used one thread. The Fermat rows use the automatic FFT size. The
+last column divides Fermat time by forced-block time. Values below 1×
+favor Fermat. [Timings, peaks, and verified hashes](docs/benchmarks/2026-11-22-fermat-outer-m1-max.csv)
+
+| Decimal digits per operand | BigMath threads | FFT points | Forced blocks | Fermat | GMP | Fermat / blocks time |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10M | Up to 8 | 64 | 0.106 s · 0.11 GiB | 0.104 s · 0.08 GiB | 0.206 s · 0.07 GiB | 0.979× |
+| 10M | 1 | 64 | 0.371 s · 0.11 GiB | 0.379 s · 0.08 GiB | 0.206 s · 0.07 GiB | 1.022× |
+| 250M | Up to 8 | 64 | 3.387 s · 1.49 GiB | 2.877 s · 1.71 GiB | 4.087 s · 1.39 GiB | 0.849× |
+| 250M | 1 | 64 | 11.112 s · 1.08 GiB | 14.675 s · 1.55 GiB | 4.087 s · 1.39 GiB | 1.321× |
+| 2.5B | Up to 8 | 128 | 27.662 s · 10.26 GiB | 29.119 s · 14.34 GiB | 45.358 s · 13.55 GiB | 1.053× |
+| 2.5B | 1 | 128 | 156.538 s · 10.14 GiB | 151.393 s · 14.25 GiB | 45.358 s · 13.55 GiB | 0.967× |
+| 5B | Up to 8 | 256 | 55.646 s · 19.30 GiB | 77.790 s · 20.12 GiB | 104.391 s · 17.00 GiB | 1.398× |
+
+![Local Fermat-to-forced-block ratios for warm multiplication time and peak resident memory on the 32 GiB M1 Max](docs/images/bigmath_fermat_outer.png)
+
+At 250M digits the 64-, 128-, and 256-point FFTs took 2.877, 2.766, and
+2.630 s with threading, and 14.675, 15.545, and 14.805 s on one thread.
+At 2.5B digits Fermat was 5.3% slower with threading and 3.3% faster on
+one thread. It used about 4 GiB more peak RSS in both builds. The
+threaded 5B result matched GMP. System-wide swap usage reached
+about 8.4 GiB during the run. Peak RSS measures resident pages. The extra
+512-point trial was stopped and the 5B single-thread trial was deferred.
+The 5B timing describes this memory-constrained run.
+
+The default, single-thread, and legacy-limb builds passed all four
+CTest targets. Unit tests passed with MFA fusion disabled. The Fermat
+tests cover modular arithmetic against an independent divider, FFT
+round trips, exact products against Karatsuba, and the opt-in dispatch.
+All five also passed with AddressSanitizer and UndefinedBehaviorSanitizer
+in the single-thread build.
+
+### Reproduce the local comparison
+
+These commands use the local Xcode SDK and Homebrew GMP. Run them from the repository root.
+
+```sh
+export SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+cmake -S . -B build/fermat/default -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix gmp)"
+cmake -S . -B build/fermat/single -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-DBIGMATH_USE_THREADS=0
+cmake --build build/fermat/default --parallel 8 --target bench_gen_dataset bench_run_bigmath bench_run_gmp
+cmake --build build/fermat/single --parallel 8 --target bench_run_bigmath
+mkdir -p build/fermat/dataset
+build/fermat/default/bench_gen_dataset build/fermat/dataset quick
+python3 tests/performance/benchsuite/run_memory.py \
+  build/fermat/dataset build/fermat/default build/fermat/single build/fermat/2p5b.csv \
+  --balanced-digits 2500000000 --fermat-blocks 3
+```
+
+Add `--fermat-exponents 0 7 8` for an exponent sweep on operand sizes
+that fit all selected ring widths. Here 0 means the automatic selector.
+Use `--fermat-threads default` or `single` to measure one build. For the
+verified threaded 5B run, use `--balanced-digits 5000000000` together
+with `--fermat-blocks 3 --fermat-threads default`. Generate the plot with
+`python3 docs/images/make_fermat_plot.py`.
+
+Future testing needs a machine with enough physical RAM for both planes,
+operands, output, and workspace. The 20B case's two planes and inputs
+alone are estimated at about 77 GiB. The current GMP raw fixture format
+has a signed four-byte length field. To validate 20B, generate or stream
+operands with a format that supports byte lengths above 2 GiB. Measure the
+actual Phase 1 and Fermat paths on the same machine against GMP. The
+weighted negacyclic inner product and any default activation remain
+subject to those results.
+
 ## Small operands
 
 `tests/performance/small_ops_vs_gmp.cpp` times the BigInteger operators against GMP on operands of 1–16 limbs (up to about 300 decimal digits), where per-call overhead and allocation decide the cost. It ran single-threaded on the same machine against two builds: **before** is `main` at 3dafa62, where every value lives in a heap-allocated vector; **after** is the inline-storage revision ([43aa64f](https://github.com/mmurshed/biginteger/tree/43aa64f), #156), which stores values of up to 4 limbs inside the object and computes operands of up to 16 limbs in a stack buffer. Each figure is the fastest of seven rounds of 400,000 calls. BigMath operators return a new value each call; the GMP loop writes into an output it reuses, which is GMP's usual pattern. Division and remainder use a 2n-limb dividend and an n-limb divisor. [CSV](docs/benchmarks/2026-11-21-small-operands.csv)
