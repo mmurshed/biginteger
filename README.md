@@ -24,6 +24,12 @@ Balanced products at 10M, 50M, 100M and 200M digits took 18.83, 182.6, 346.1 and
 
 ![Default-build BigMath time divided by single-thread GMP time for multiplication, division, decimal parsing and formatting](docs/images/bigmath_vs_gmp.png)
 
+### Balanced multiplication through one million digits
+
+On the M1 Max, the optimized single-thread build took 13.69 µs for a 5,000-digit product and 39.83 µs at 10,000 digits, down from 16.83 and 49.77 µs. At 100,000 digits it used 1.02× GMP’s warm time on one thread and 0.34× with up to eight threads. [Paired timings and crossover measurements](BENCHMARK.md#balanced-multiplication-through-one-million-digits)
+
+![Warm BigMath time divided by GMP time for balanced products from one thousand to one million digits, before and after optimization](docs/images/bigmath_submillion_products.png)
+
 ### Platform tuning for release builds
 
 On the four x86-64 release targets, platform profiles delivered **1.06–1.33×** geometric-mean speedups for burst balanced multiplication and **1.13–1.38×** for burst squaring. Each comparison used the same BigMath source, compiler, and GitHub Actions runner for the generic and tuned profiles. Values above 1× favor the tuned profile. Apple silicon timings varied, especially in the division cases. [Runner details and per-case results](BENCHMARK.md#platform-tuning-for-release-builds)

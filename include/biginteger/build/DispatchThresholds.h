@@ -113,6 +113,12 @@
 #endif
 #endif
 
+// Optional NTT floor on the longer operand for a serial, 64-bit product
+// of distinct operands whose lengths differ by at most one limb.
+#ifndef BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS
+#define BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS 0
+#endif
+
 // CRT+NEON beats single-prime Goldilocks at every measured size (512/op:
 // 0.106 vs 0.176 ms), so the CRT gate drops below the NTT entry point —
 // Goldilocks remains only as the non-aarch64-friendly fallback via

@@ -340,6 +340,16 @@ namespace BigMath
       return out;
     }
 
+    // A fixed row width lets the compiler schedule the carry chains across
+    // the whole schoolbook leaf and eliminate the loop and remainder tests.
+    template <SizeT Width>
+    static inline void MulFixedRows(DataT *r, const DataT *a, const DataT *b, SizeT lb)
+    {
+      r[Width] = Mul1(r, a, Width, b[0]);
+      for (SizeT i = 1; i < lb; ++i)
+        r[Width + i] = AddMul1(r + i, a, Width, b[i]);
+    }
+
     // r[0..la+lb) = a[0..la) * b[0..lb), schoolbook. la, lb >= 1. r must not
     // overlap a or b and need not be initialized. The inner loop runs over
     // the longer operand.
@@ -350,6 +360,24 @@ namespace BigMath
         std::swap(a, b);
         std::swap(la, lb);
       }
+#if defined(__APPLE__) && defined(__aarch64__) && defined(__clang__)
+      switch (la)
+      {
+        case 12: return MulFixedRows<12>(r, a, b, lb);
+        case 13: return MulFixedRows<13>(r, a, b, lb);
+        case 14: return MulFixedRows<14>(r, a, b, lb);
+        case 15: return MulFixedRows<15>(r, a, b, lb);
+        case 16: return MulFixedRows<16>(r, a, b, lb);
+        case 17: return MulFixedRows<17>(r, a, b, lb);
+        case 18: return MulFixedRows<18>(r, a, b, lb);
+        case 19: return MulFixedRows<19>(r, a, b, lb);
+        case 20: return MulFixedRows<20>(r, a, b, lb);
+        case 21: return MulFixedRows<21>(r, a, b, lb);
+        case 22: return MulFixedRows<22>(r, a, b, lb);
+        case 23: return MulFixedRows<23>(r, a, b, lb);
+        case 24: return MulFixedRows<24>(r, a, b, lb);
+      }
+#endif
       r[la] = Mul1(r, a, la, b[0]);
       for (SizeT i = 1; i < lb; ++i)
         r[la + i] = AddMul1(r + i, a, la, b[i]);
