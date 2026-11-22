@@ -19,6 +19,17 @@ REGISTER_TEST(NumberTheory, PowMod)
                      value("1000000007")) == value("800740594"));
   ASSERT_TRUE(PowMod(value("2"), BigInteger(12), value("17")) == value("1"));
 
+  const auto base = value("-12345678901234567890123456789012345");
+  const auto sparse = value("340282366920938463481821351505477828609");
+  ASSERT_TRUE(PowMod(base, sparse, value("340282366920938463463374607431768211455")) ==
+              value("293408806814659110257804787314180246610"));
+  ASSERT_TRUE(PowMod(base, sparse, value("170141183460469231731687303715884105824")) ==
+              value("47847993867134196767325167157259808199"));
+  ASSERT_TRUE(PowMod(base, sparse, value("42535295865117308763025309245900849152")) ==
+              value("28939521772930582829908416378337304711"));
+  ASSERT_TRUE(PowMod(base, sparse, value("680564733841876926926749214863536422912")) ==
+              value("481524715727764675644108224933147254919"));
+
   for (const auto &[exponent, modulus] : {std::pair{"-1", "5"}, {"1", "0"}, {"1", "-5"}})
   {
     bool threw = false;
