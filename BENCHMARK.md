@@ -21,6 +21,18 @@ For each size the benchmark checks 24 cases per modulus parity, with positive an
 | 2,048 | 4,368.24 | 1,760.12 | 4,333.13 | 1,736.95 |
 | 4,096 | 27,232.04 | 13,691.51 | 27,686.43 | 14,158.38 |
 
+### Greatest common divisors
+
+Each size checks 24 signed pairs, half with a planted common factor. Both BigMath operations match GMP's nonnegative divisor. Extended GCD also checks `a*x + b*y == gcd` because multiple coefficient pairs can be valid. Timing uses the last random pair, which has no planted factor. [CSV with all ten timing rows](docs/benchmarks/2026-11-22-gcd-m1-max.csv)
+
+| Operand bits | BigMath GCD | GMP GCD | BigMath extended GCD | GMP extended GCD |
+|---:|---:|---:|---:|---:|
+| 256 | 5.60 | 0.89 | 14.50 | 1.08 |
+| 512 | 15.75 | 1.76 | 38.30 | 1.98 |
+| 1,024 | 40.27 | 3.51 | 115.03 | 4.15 |
+| 2,048 | 115.88 | 7.80 | 296.95 | 9.54 |
+| 4,096 | 301.97 | 17.31 | 810.39 | 24.58 |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)

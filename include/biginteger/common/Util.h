@@ -20,7 +20,7 @@
 
 namespace BigMath
 {
-  // GCD on single limbs (Euclidean). No big-integer GCD exists in this library.
+  // GCD on single limbs (Euclidean).
   inline DataT gcd(DataT a, DataT b)
   {
     while (b != 0)

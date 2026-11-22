@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <random>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include <gmp.h>
@@ -100,13 +101,64 @@ namespace
     Measure("powmod", odd ? "odd" : "even", bits, cases, std::max(4u, 16384u / bits),
             runBigMath, runGmp);
   }
+
+  void BenchmarkGcd(unsigned bits, std::mt19937_64 &rng)
+  {
+    BigInteger a, b, divisor;
+    ExtendedGcdResult extended;
+    Mpz gA, gB, expected, x, y, actual;
+    const auto runBigMath = [&] { divisor = Gcd(a, b); };
+    const auto runGmp = [&] { mpz_gcd(expected.value, gA.value, gB.value); };
+    const auto runExtended = [&] { extended = ExtendedGcd(a, b); };
+    const auto runGmpExtended = [&] { mpz_gcdext(expected.value, x.value, y.value, gA.value, gB.value); };
+    constexpr unsigned cases = 24;
+    for (unsigned i = 0; i < cases; ++i)
+    {
+      const bool plantFactor = i % 2 == 0;
+      const unsigned factorBits = bits / 4;
+      const unsigned inputBits = plantFactor ? bits - factorBits : bits;
+      a = RandomInteger(inputBits, rng, i % 4 < 2);
+      b = RandomInteger(inputBits, rng, i % 3 == 0);
+      if (plantFactor)
+      {
+        const auto factor = RandomInteger(factorBits, rng);
+        a = a * factor;
+        b = b * factor;
+      }
+      Import(gA, a);
+      Import(gB, b);
+      runBigMath();
+      runGmp();
+      Import(actual, divisor);
+      if (mpz_cmp(actual.value, expected.value) != 0)
+        throw std::runtime_error("Gcd result differs from GMP");
+      runExtended();
+      if (extended.gcd != divisor || a * extended.x + b * extended.y != divisor)
+        throw std::runtime_error("ExtendedGcd returned an invalid divisor or coefficients");
+    }
+    const unsigned calls = std::max(4u, 16384u / bits);
+    Measure("gcd", "balanced", bits, cases, calls, runBigMath, runGmp);
+    Measure("extended_gcd", "balanced", bits, cases, calls, runExtended, runGmpExtended);
+  }
 }
 
-int main()
+int main(int argc, char **argv)
 {
+  const std::string_view operation = argc == 2 ? argv[1] : "all";
+  if (argc > 2 || (operation != "all" && operation != "powmod" && operation != "gcd"))
+  {
+    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd]\n", stderr);
+    return 1;
+  }
+
   std::mt19937_64 rng(0xB16B00B5);
   std::puts("operation,shape,bits,reference_checks,calls_per_round,bigmath_us,gmp_us");
-  for (unsigned bits : {256, 512, 1024, 2048, 4096})
-    for (bool odd : {true, false})
-      BenchmarkPowMod(bits, odd, rng);
+  if (operation == "all" || operation == "powmod")
+    for (unsigned bits : {256, 512, 1024, 2048, 4096})
+      for (bool odd : {true, false})
+        BenchmarkPowMod(bits, odd, rng);
+  rng.seed(0x6CD);
+  if (operation == "all" || operation == "gcd")
+    for (unsigned bits : {256, 512, 1024, 2048, 4096})
+      BenchmarkGcd(bits, rng);
 }

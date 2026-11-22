@@ -11,6 +11,20 @@ namespace BigMath
   // Execution time depends on the operands.
   BigInteger PowMod(BigInteger const &base, BigInteger const &exponent,
                     BigInteger const &modulus);
+
+  // Return the nonnegative greatest common divisor. Gcd(0, 0) is zero.
+  BigInteger Gcd(BigInteger const &a, BigInteger const &b);
+
+  struct ExtendedGcdResult
+  {
+    BigInteger gcd;
+    BigInteger x;
+    BigInteger y;
+  };
+
+  // Return gcd, x and y such that a*x + b*y == gcd. Both inputs may be signed.
+  // For two zero inputs all three result fields are zero.
+  ExtendedGcdResult ExtendedGcd(BigInteger const &a, BigInteger const &b);
 }
 
 #endif
