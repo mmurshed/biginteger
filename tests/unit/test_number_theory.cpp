@@ -51,6 +51,23 @@ REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
     for (bool negativeRight : {false, true})
       check(BigInteger(left).SetSign(negativeLeft), BigInteger(right).SetSign(negativeRight), expected);
   check(right, left, expected);
+
+  // Fibonacci pairs give long runs of quotient one. A large shared shift
+  // puts the nonzero common divisor well above the low limbs.
+  auto previous = value("1");
+  auto current = value("1");
+  for (unsigned i = 0; i < 350; ++i)
+  {
+    auto next = previous + current;
+    previous = std::move(current);
+    current = std::move(next);
+  }
+  const auto shared = value("1") << 5;
+  check(-(current << 5), previous << 5, shared);
+
+  // Equal limb counts can still yield a quotient too large for a batch.
+  const auto divisor = (value("1") << 4) + value("1");
+  check(divisor * value("2147483648") + value("1"), divisor, value("1"));
 }
 
 REGISTER_TEST(NumberTheory, SquareRootAndRemainder)

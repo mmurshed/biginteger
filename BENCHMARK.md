@@ -33,6 +33,23 @@ Each size checks 24 signed pairs, half with a planted common factor. Both BigMat
 | 2,048 | 115.88 | 7.80 | 296.95 | 9.54 |
 | 4,096 | 301.97 | 17.31 | 810.39 | 24.58 |
 
+#### Lehmer GCD
+
+Lehmer's algorithm batches Euclidean steps using the leading bits of both operands. Each batch verifies that the omitted low bits cannot change the predicted quotients. The same batch updates the Bézout coefficients in extended GCD. When a batch cannot verify at least two steps, the implementation uses one exact division step.
+
+On the Apple M1 Max, both variants used the same Release flags and the same GMP harness. The baseline uses the division-based implementation from `d6c2c9f`. Seven paired trials alternated which executable ran first. Each trial checks 24 signed pairs per shape and size, then times the last fixture. Each time below is the median across trials. Speedup is the median of the paired baseline-to-Lehmer ratios. [All 210 paired observations](docs/benchmarks/2026-11-22-lehmer-gcd-m1-max.csv)
+
+| Shape at 4,096 bits | Operation | Euclid (µs) | Lehmer (µs) | GMP (µs) | Speedup |
+|---|---|---:|---:|---:|---:|
+| Balanced | GCD | 303.08 | 58.14 | 16.97 | 5.22× |
+| Balanced | Extended GCD | 793.08 | 159.80 | 22.94 | 4.98× |
+| 8:1 bit lengths | GCD | 15.89 | 4.59 | 2.32 | 3.46× |
+| 8:1 bit lengths | Extended GCD | 74.76 | 18.56 | 3.15 | 4.02× |
+| Shared 3,072-bit factor | GCD | 93.54 | 17.96 | 4.86 | 5.21× |
+| Shared 3,072-bit factor | Extended GCD | 145.10 | 29.84 | 5.73 | 4.96× |
+
+Balanced inputs improved at every measured size from 256 to 4,096 bits. On skewed inputs with a one-limb smaller operand, the measured ratios ranged from 0.99× to 1.03×.
+
 ### Integer square root and remainder
 
 Each size checks 24 random integers, perfect squares and values one below or above a perfect square. The timing fixture is a random integer with the stated bit length. BigMath uses integer Newton iteration, with a scalar path when the input fits in one limb. [CSV with all eight timing rows](docs/benchmarks/2026-11-22-sqrtrem-m1-max.csv)

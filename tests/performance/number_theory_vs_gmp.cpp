@@ -102,7 +102,7 @@ namespace
             runBigMath, runGmp);
   }
 
-  void BenchmarkGcd(unsigned bits, std::mt19937_64 &rng)
+  void BenchmarkGcd(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
   {
     BigInteger a, b, divisor;
     ExtendedGcdResult extended;
@@ -114,11 +114,13 @@ namespace
     constexpr unsigned cases = 24;
     for (unsigned i = 0; i < cases; ++i)
     {
-      const bool plantFactor = i % 2 == 0;
-      const unsigned factorBits = bits / 4;
+      const bool skewed = shape == "skewed";
+      const bool largeFactor = shape == "common_factor";
+      const bool plantFactor = largeFactor || (!skewed && i % 2 == 0);
+      const unsigned factorBits = largeFactor ? 3 * bits / 4 : bits / 4;
       const unsigned inputBits = plantFactor ? bits - factorBits : bits;
       a = RandomInteger(inputBits, rng, i % 4 < 2);
-      b = RandomInteger(inputBits, rng, i % 3 == 0);
+      b = RandomInteger(skewed ? bits / 8 : inputBits, rng, i % 3 == 0);
       if (plantFactor)
       {
         const auto factor = RandomInteger(factorBits, rng);
@@ -137,8 +139,8 @@ namespace
         throw std::runtime_error("ExtendedGcd returned an invalid divisor or coefficients");
     }
     const unsigned calls = std::max(4u, 16384u / bits);
-    Measure("gcd", "balanced", bits, cases, calls, runBigMath, runGmp);
-    Measure("extended_gcd", "balanced", bits, cases, calls, runExtended, runGmpExtended);
+    Measure("gcd", shape.data(), bits, cases, calls, runBigMath, runGmp);
+    Measure("extended_gcd", shape.data(), bits, cases, calls, runExtended, runGmpExtended);
   }
 
   void BenchmarkSqrtRem(unsigned bits, std::mt19937_64 &rng)
@@ -195,8 +197,9 @@ int main(int argc, char **argv)
         BenchmarkPowMod(bits, odd, rng);
   rng.seed(0x6CD);
   if (operation == "all" || operation == "gcd")
-    for (unsigned bits : {256, 512, 1024, 2048, 4096})
-      BenchmarkGcd(bits, rng);
+    for (const auto shape : {"balanced", "skewed", "common_factor"})
+      for (unsigned bits : {256, 512, 1024, 2048, 4096})
+        BenchmarkGcd(bits, shape, rng);
   rng.seed(0x5A27);
   if (operation == "all" || operation == "sqrtrem")
     for (unsigned bits : {32, 64, 65, 256, 1024, 4096, 16384, 65536})
