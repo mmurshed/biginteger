@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased — ToString: regular division for small chain levels
+## v13.1.0 — 2026-11-22
+
+- Added `PowMod`, `Gcd`, `ExtendedGcd`, and `SqrtRem` in
+  `biginteger/ops/NumberTheory.h`. The implementations use Montgomery
+  reduction, Lehmer's algorithm, and divide-and-conquer square roots.
+- Improved multiplication below one million decimal digits and added wide
+  CRT for larger balanced products. [Benchmark results](BENCHMARK.md)
+- Added platform-tuned static library packages for Linux GCC and Clang,
+  macOS on Apple silicon and Intel, and Windows with MSYS2 UCRT64 Clang.
+  [Release guide](docs/RELEASING.md)
+
+### ToString: regular division for small chain levels
 
 Above 1,024 digits ToString splits the number by powers of ten, and every
 split used a precomputed Newton reciprocal. Below a few hundred limbs the
@@ -22,7 +33,7 @@ warm, ms, and ratio to GMP's `mpz_get_str`:
 First calls gain more, since the small reciprocals are no longer built
 (10,000 digits: 0.25 → 0.13 ms single-threaded, 0.32 → 0.16 ms threaded).
 
-## Unreleased — single-threaded products above 20 million digits
+### single-threaded products above 20 million digits
 
 A product whose coefficient count lands above a power of two `H` can be
 computed mod `x^H + 1` and mod `x^L − 1` and recombined, instead of with a
@@ -50,7 +61,7 @@ one thread are unchanged. `NttCrt::Multiply`, one thread, M1 Max, ms:
 transform of 2^21 points (equal operands up to about 10 million digits) take
 the same path as before.
 
-## Unreleased — cache-set aliasing in the large-transform transpose
+### cache-set aliasing in the large-transform transpose
 
 From a transform length of 2^20 the NTT runs as a two-pass matrix transform
 whose transposes go through a small tile of rows. The tile's rows were packed
@@ -70,7 +81,7 @@ unchanged bit for bit. `NttCrt::Multiply` on an M1 Max, equal operands, ms:
 | 100 million | 2^25 | 5173 → 3729 | 958 → 758 |
 | 200 million | 2^26 | 11185 → 8263 | 2125 → 1688 |
 
-## Unreleased — Toom-3 tier in the Karatsuba recursion
+### Toom-3 tier in the Karatsuba recursion
 
 Below the NTT entry, products and squares used plain Karatsuba. Inside the
 pointer-based Karatsuba recursion (64-bit limbs), a near-balanced level whose
@@ -91,7 +102,7 @@ A Toom-4 split (points 0, ±1, ±2, ½, ∞) is implemented and unit-tested but
 off (`BIGMATH_MUL_TOOM44_THRESHOLD = 1000000`): on M1 it has no window below
 the NTT entry. `tests/performance/toom_threshold_sweep.cpp` retunes both.
 
-## Unreleased — small-number storage
+### small-number storage
 
 `BigInteger` keeps values of up to 4 limbs (256 bits) inside the object
 instead of in a heap-allocated `std::vector`, and the operators work on
@@ -132,7 +143,7 @@ formatting and re-parsing the number, which is most of the `a + 5` gain.
   the quotient's vector is now freed at construction rather than with the
   `BigInteger`, which interacts with allocator state.
 
-## Unreleased — 2026-11-21 division pass (PRs #141–#149)
+### 2026-11-21 division pass (PRs #141–#149)
 
 The same treatment for division: measure the whole (divisor length, ratio)
 grid against GMP, then rebuild each layer. Quotient and remainder through
@@ -215,7 +226,7 @@ NTT and Newton suites.
   residues plus a low-limb CRT to halve Newton's transforms at power-of-two
   sizes; a 2/1 reciprocal without `__udivti3`.
 
-## Unreleased — 2026-11-20 multiplication pass (PRs #129–#139)
+### 2026-11-20 multiplication pass (PRs #129–#139)
 
 A top-to-bottom pass over multiplication. Through the public API, old `main`
 vs this tree on the same machine: multiplication is **1.5–4.5× faster at

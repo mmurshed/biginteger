@@ -143,6 +143,18 @@ Each job measured 124 operand-size and worker-state cases with 64-bit limbs. A *
 
 The case plot combines balanced and skewed multiplication and shows both worker states wherever measured. Each dot is one case. Diamonds mark per-platform geometric means within each panel. Individual cases below 0.90× numbered 2 on Windows, 4 on Linux Clang, 5 on Linux GCC, 12 on Intel macOS, and 25 on Apple silicon. The only Apple silicon override was the parked-square cutoff. The hosted Apple silicon measurements had the widest spread, including in the division groups. These ratios describe the listed runner and workload, and the release profiles are a starting point for deployment-specific tuning. [Platform tuning guide](docs/PLATFORM_TUNING.md)
 
+### v13.1.0 tuning verification
+
+The full survey on `d2eec44` ran three sweeps on each of the five release targets. Holdout validation compared the repeatable proposals in `27a2e9d` with the existing profiles, using the same library source and runner for each pair. All five correctness suites and all 124 cases passed their checks per target. The release retained the previously validated profiles. [Full survey](https://github.com/mmurshed/biginteger/actions/runs/45061071413) · [Holdout validation](https://github.com/mmurshed/biginteger/actions/runs/45061473555) · [Per-case comparison CSV](docs/benchmarks/2026-11-22-platform-validation-45061473555.csv)
+
+| Target | Holdout decision |
+|---|---|
+| Linux GCC | The higher multiplication and square cutoffs yielded 0.68× and 0.74× speedup in the slowest affected cases. The lower BZ cutoff had one affected holdout size. |
+| Linux Clang | The higher cutoffs yielded 0.78× in the slowest affected balanced product and 0.80× in the slowest affected square. |
+| Apple silicon | The lower BZ cutoff improved the one affected holdout size. This leaves limited coverage of the new cutoff. |
+| Intel macOS | Affected balanced products averaged 1.09×, with one burst case at 0.90×. One affected parked square measured 0.74×. |
+| Windows Clang | The proposed square cutoffs yielded 0.94× and 0.91× geometric mean speedup on affected burst and parked cases. |
+
 ### Cutoffs shipped in the release profiles
 
 | Profile | NTT multiplication floor (total limbs) | NTT square floor (limbs) | Parked NTT square floor (limbs) |
