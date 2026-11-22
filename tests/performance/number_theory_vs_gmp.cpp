@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <random>
@@ -184,15 +185,103 @@ namespace
     }
     Measure("sqrtrem", "random", bits, cases, std::max(4u, 131072u / bits), runBigMath, runGmp);
   }
+
+  BigInteger Export(Mpz const &input)
+  {
+    std::vector<uint8_t> bytes((mpz_sizeinbase(input.value, 2) + 7) / 8);
+    size_t count;
+    mpz_export(bytes.data(), &count, 1, 1, 0, 0, input.value);
+    return BigInteger::FromByteArray(std::span(bytes).first(count), false);
+  }
+
+  void BenchmarkPrimality(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
+  {
+    constexpr int bigMathRounds = 32, gmpReps = 56;
+    const bool prime = shape == "prime";
+    const unsigned cases = bits <= 512 ? 16 : (bits <= 1024 ? 8 : 3);
+    BigInteger candidate;
+    Mpz input, other;
+    auto checkBigMath = [&] {
+      std::atomic_signal_fence(std::memory_order_seq_cst);
+      if (IsProbablePrime(candidate, bigMathRounds) != prime)
+        throw std::runtime_error("unexpected BigMath primality result");
+    };
+    auto checkGmp = [&] {
+      std::atomic_signal_fence(std::memory_order_seq_cst);
+      if ((mpz_probab_prime_p(input.value, gmpReps) != 0) != prime)
+        throw std::runtime_error("unexpected GMP primality result");
+    };
+    for (unsigned i = 0; i < cases; ++i)
+    {
+      if (shape == "semiprime")
+      {
+        // Start in the upper quarter of each half-width range so the
+        // product of the two factors has the requested bit length.
+        const auto generateFactor = [&](Mpz &target) {
+          Import(target, RandomInteger(bits / 2, rng));
+          mpz_setbit(target.value, bits / 2 - 2);
+          mpz_nextprime(target.value, target.value);
+        };
+        generateFactor(input);
+        generateFactor(other);
+        mpz_mul(input.value, input.value, other.value);
+      }
+      else
+      {
+        Import(input, RandomInteger(bits, rng));
+        if (prime)
+          mpz_nextprime(input.value, input.value);
+        else
+        {
+          mpz_setbit(input.value, 0);
+          mpz_add_ui(input.value, input.value, 2 * mpz_fdiv_ui(input.value, 3));
+        }
+      }
+      if (mpz_sizeinbase(input.value, 2) != bits)
+        throw std::runtime_error("primality fixture crossed its intended bit length");
+      candidate = Export(input);
+      checkBigMath();
+      checkGmp();
+    }
+    const unsigned calls = shape == "small_factor" ? 1024
+        : std::max(1u, (prime && bits > 64 ? 1024u : 8192u) / bits);
+    Measure("primality", shape.data(), bits, cases, calls, checkBigMath, checkGmp);
+  }
+
+  void BenchmarkPseudoprimes()
+  {
+    for (const char *text : {"3215031751", "341550071728321", "3825123056546413051",
+                             "318665857834031151167461"})
+    {
+      Mpz input;
+      if (mpz_set_str(input.value, text, 10) != 0)
+        throw std::runtime_error("invalid pseudoprime fixture");
+      const auto candidate = Export(input);
+      const auto checkBigMath = [&] {
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (IsProbablePrime(candidate))
+          throw std::runtime_error("BigMath accepted a known pseudoprime");
+      };
+      const auto checkGmp = [&] {
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (mpz_probab_prime_p(input.value, 56) != 0)
+          throw std::runtime_error("GMP accepted a known pseudoprime");
+      };
+      checkBigMath();
+      checkGmp();
+      const auto bits = static_cast<unsigned>(mpz_sizeinbase(input.value, 2));
+      Measure("primality", "strong_pseudoprime", bits, 1, 128, checkBigMath, checkGmp);
+    }
+  }
 }
 
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
   if (argc > 2 || (operation != "all" && operation != "powmod" &&
-                   operation != "gcd" && operation != "sqrtrem"))
+                   operation != "gcd" && operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem|prime]\n", stderr);
     return 1;
   }
 
@@ -215,4 +304,12 @@ int main(int argc, char **argv)
     for (unsigned bits : {32, 64, 65, 127, 128, 129, 192, 254, 255, 256, 257,
                           1024, 4096, 16384, 65536, 262144, 1048576})
       BenchmarkSqrtRem(bits, rng);
+  rng.seed(0xAB1979);
+  if (operation == "all" || operation == "prime")
+  {
+    for (unsigned bits : {32, 64, 128, 256, 512, 1024, 2048, 4096})
+      for (const auto shape : {"prime", "small_factor", "semiprime"})
+        BenchmarkPrimality(bits, shape, rng);
+    BenchmarkPseudoprimes();
+  }
 }

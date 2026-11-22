@@ -14,6 +14,11 @@ namespace BigMath
   BigInteger PowMod(BigInteger const &base, BigInteger const &exponent,
                     BigInteger const &modulus);
 
+  // Exact for values below 2^64. For larger values, a true result means
+  // the input passed Miller–Rabin with the requested number of random bases.
+  // Returns false for n < 2. Throws std::invalid_argument if rounds <= 0.
+  bool IsProbablePrime(BigInteger const &n, int rounds = 32);
+
   // Return the nonnegative greatest common divisor. Gcd(0, 0) is zero.
   BigInteger Gcd(BigInteger const &a, BigInteger const &b);
 
