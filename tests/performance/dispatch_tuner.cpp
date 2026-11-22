@@ -191,8 +191,11 @@ namespace
     cout << "operation,state,a_limbs,b_limbs,median_us\n";
     for (const auto [aSize, bSize] : vector<pair<SizeT, SizeT>>{
              {27, 27}, {29, 29}, {35, 35}, {55, 55}, {312, 312}, {336, 336},
-             {421, 421}, {496, 496}, {531, 531}, {700, 700}, {1131, 1131},
-             {703, 23}, {859, 29}, {1631, 37}, {2101, 73}, {1337, 119}})
+             {421, 421}, {496, 496}, {531, 531}, {700, 700}, {991, 991}, {1131, 1131},
+             {1501, 1501}, {1981, 1981}, {2129, 2129}, {2949, 2949},
+             {3973, 3973}, {4219, 4219}, {6173, 6173},
+             {703, 23}, {859, 29}, {1631, 37}, {2101, 73}, {1337, 119},
+             {3007, 359}, {4817, 1221}})
     {
       const auto a = RandomNumber(aSize, gen), b = RandomNumber(bSize, gen);
       if (Multiply(a, b, base) != ClassicMultiplication::Multiply(a, b, base))
@@ -203,7 +206,8 @@ namespace
       TimeDispatch(op, "parked", aSize, bSize, run);
     }
 
-    for (const SizeT size : {303, 340, 378, 484, 599, 627, 723, 991, 1153})
+    for (const SizeT size : {303, 340, 378, 484, 535, 599, 627, 723, 991, 1153, 1441, 1973,
+                            2123, 3011, 4001, 4229, 6037})
     {
       const auto a = RandomNumber(size, gen);
       if (Square(a, base) != ClassicMultiplication::Multiply(a, a, base))
