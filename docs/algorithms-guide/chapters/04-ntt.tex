@@ -239,12 +239,21 @@ in 32-bit lanes. Independent primes and independent row tiles within each prime
 provide two ways to distribute the work across cores.
 \end{keyidea}
 
-A single transform holds at most $2^{26}$ coefficients, enough for about 323 million
-decimal digits in each of two equal-length operands. Above that size, BigMath splits
-the operands into nearly equal groups of whole limbs. It multiplies one pair of blocks,
-propagates its carry, and adds the result at the sum of the blocks' offsets in the output.
-The same transform workspace then serves the next pair. A billion-digit product uses
-four blocks per operand and sixteen block products. A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
+A single transform holds at most $H=2^{26}$ coefficients, about 323.23 million
+decimal digits per balanced operand. The next octave of balanced products uses
+two residues. Write the product as $C_0+x^H C_1$. For each prime, choose $w$ of
+order 3 or 7, so $s=w^H\ne 1$. Weighting the input coefficients by $w^j$ and
+unweighting after the transform gives $A=C_0+sC_1$. A cyclic convolution of
+length $L$ dividing $H$ gives the ordinary product modulo $x^L-1$. Subtracting
+the folded $A$ from it gives $(1-s)C_1$ modulo $x^L-1$.
+
+If $C_1$ just exceeds $L$, a short product of the low input limbs supplies the
+low coefficients needed to resolve the wrap. At 500 million digits the three
+convolution lengths are $2^{26}$, $2^{25}$ and $2^{23}$ per prime. Beyond about
+646.46 million balanced digits the library accumulates block products. A
+billion-digit multiplication uses four blocks per operand and sixteen products.
+
+A single-prime alternative (the ``Goldilocks'' prime $2^{64} - 2^{32} + 1$ with
 16-bit pieces) is still in the source as the \code{-DBIGMATH\_NTT\_CRT=0} build, but the
 three-prime version is faster at every measured size.
 

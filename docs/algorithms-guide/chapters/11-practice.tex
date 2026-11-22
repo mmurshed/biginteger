@@ -58,9 +58,9 @@ was faster). From \file{docs/images/}, generated from the November 2026 benchmar
 \centering
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_large_products.png}
 \caption{Fresh-process measurements through one billion decimal digits per operand.
-The dotted line marks the largest single CRT transform. Products above it accumulate
-multiple block products. Each point reports one warm multiplication and the process
-peak through that call.}
+The dotted line marks the largest single CRT transform. The next octave uses two
+residues and an optional short prefix product. The 500M point shows median warm
+time and peak memory across three fresh processes per build.}
 \end{figure}
 
 \section{Choosing the right call}
