@@ -143,7 +143,7 @@ The Apple M1 Max reran the same fixtures sequentially with the original serial i
 
 ### Next probable prime
 
-`NextProbablePrime(n, rounds = 32)` searches strictly above `n` and returns 2 if `n < 2`. Results below `2^64` are exact. Larger results pass the configured Miller–Rabin test. The search checks odd candidates in ascending order. For large inputs it screens 1,024 odd candidates per segment and carries the small-prime offsets forward to the next segment. The sieve uses primes below 4,096 through 512 bits and below 32,768 above that size.
+`NextProbablePrime(n, rounds = 32)` searches strictly above `n` and returns 2 if `n < 2`. Results below `2^64` are exact. Larger results pass the configured Miller–Rabin test. The initial implementation tests sieve survivors in ascending order. For large inputs it screens 1,024 odd candidates per segment and carries the small-prime offsets forward to the next segment. The sieve uses primes below 4,096 through 512 bits and below 32,768 above that size.
 
 The benchmark times one seeded ordinary start and one constructed gap at each size on the Apple M1 Max. The constructed starts follow a multiple of the least common multiple of small integers, which guarantees an initial run of composites. The 4,096-bit searches span more than one sieve segment. All six results matched GMP's `mpz_nextprime`. Times are medians of seven batches. BigMath used 32 randomized rounds and GMP used its own next-prime test settings. [Raw measurements](docs/benchmarks/2026-11-22-next-probable-prime-m1-max.csv)
 
@@ -160,6 +160,19 @@ The benchmark times one seeded ordinary start and one constructed gap at each si
 cmake --build build --target number_theory_vs_gmp
 ./build/number_theory_vs_gmp nextprime
 ```
+
+#### Parallel next-prime screening
+
+The default build tries the first sieve survivor on its own. For Montgomery candidates of at least 1,024 bits, it can then screen up to eight survivors at a time with the base-2 Miller–Rabin test. It checks the passing candidates with the requested randomized rounds in ascending order. Each batch can screen up to seven candidates beyond the result. The one-thread build checks each survivor immediately.
+
+This rerun used the same six fixtures, the serial search from `2146c83`, and matched Release builds with threads enabled and disabled. Each run matched GMP on all six results. Times are median milliseconds over seven batches, with GMP measured alongside the optimized default build. At 4,096 bits the default build screened 121 and 57 candidates, compared with 116 and 50 in the original search. [All 24 timing and candidate-count rows](docs/benchmarks/2026-11-22-next-probable-prime-parallel-m1-max.csv)
+
+| Bits | Start | Default before (ms) | Default after (ms) | Single thread before (ms) | Single thread after (ms) | GMP (ms) | Default speedup |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1,024 | Ordinary | 38.72 | 8.98 | 49.94 | 49.82 | 19.01 | 4.31× |
+| 1,024 | Constructed gap | 35.28 | 9.02 | 46.20 | 45.99 | 16.05 | 3.91× |
+| 4,096 | Ordinary | 2,344.80 | 447.41 | 2,847.49 | 2,848.28 | 975.17 | 5.24× |
+| 4,096 | Constructed gap | 1,054.93 | 261.94 | 1,569.76 | 1,570.05 | 477.57 | 4.03× |
 
 ## Platform tuning for release builds
 

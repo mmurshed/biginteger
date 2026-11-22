@@ -311,11 +311,8 @@ namespace
           throw std::runtime_error("next-prime fixture crossed its intended bit length");
 
         const auto start = Export(input);
-        unsigned tested = 0;
-        const auto countedResult = PrimeSearch::FindNext(start, [&](BigInteger const &candidate) {
-          ++tested;
-          return IsProbablePrime(candidate);
-        });
+        PrimeSearch::SearchStats stats;
+        const auto countedResult = PrimeSearch::FindNext(start, 32, &stats);
         const auto runBigMath = [&] { result = NextProbablePrime(start); };
         const auto runGmp = [&] { mpz_nextprime(reference.value, input.value); };
         const auto [bigmath, gmp] = MeasureTimes(1, runBigMath, runGmp);
@@ -324,10 +321,10 @@ namespace
         mpz_sub(delta.value, reference.value, input.value);
         const auto gap = mpz_get_ui(delta.value);
         const auto candidates = (gap + (mpz_even_p(input.value) != 0)) / 2;
-        if (gap <= guaranteed || tested > candidates)
+        if (gap <= guaranteed || stats.screenedCandidates > candidates + 7)
           throw std::runtime_error("invalid next-prime candidate counts");
-        std::printf("%u,%s,%u,%lu,%lu,%u,%.6f,%.6f\n", bits, longGap ? "long_gap" : "ordinary",
-                    guaranteed, gap, candidates, tested, bigmath / 1000, gmp / 1000);
+        std::printf("%u,%s,%u,%lu,%lu,%zu,%.6f,%.6f\n", bits, longGap ? "long_gap" : "ordinary",
+                    guaranteed, gap, candidates, stats.screenedCandidates, bigmath / 1000, gmp / 1000);
         std::fflush(stdout);
       }
   }

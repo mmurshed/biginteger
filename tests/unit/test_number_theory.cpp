@@ -94,6 +94,16 @@ REGISTER_TEST(NumberTheory, NextProbablePrime)
   try { (void)NextProbablePrime(value("0"), 0); }
   catch (std::invalid_argument const &) { threw = true; }
   ASSERT_TRUE(threw);
+
+  // In this search the first sieve survivor is composite. The primes at
+  // offsets 1493 and 1583 both fit in the first batch on an eight-thread build.
+  constexpr DataT high = DataT{1} << (1023 % LimbBits);
+  const auto base = BigInteger::FromLimbs({&high, 1}, false) << (1023 / LimbBits);
+  const auto start = base + value("1445");
+  const auto lower = base + value("1493");
+  const auto higher = base + value("1583");
+  ASSERT_TRUE(NextProbablePrime(start) == lower);
+  ASSERT_TRUE(NextProbablePrime(lower) == higher);
 }
 
 REGISTER_TEST(NumberTheory, GreatestCommonDivisors)

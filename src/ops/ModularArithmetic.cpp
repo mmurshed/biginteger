@@ -1,4 +1,5 @@
 #include "biginteger/ops/NumberTheory.h"
+#include "PrimeSearch.h"
 
 #include <array>
 #include <atomic>
@@ -333,10 +334,6 @@ namespace BigMath
     bool CheckRandomWitnesses(BigInteger const &n, BigInteger const &two,
                               int rounds, WitnessTestFactory makeTest, bool allowParallel = false)
     {
-      auto test = makeTest();
-      if (!test(two))
-        return false;
-
       const auto upper = n - two;
       const unsigned topBits = std::bit_width(upper.Limbs().back());
       const DataT mask = LimbMask >> (LimbBits - topBits);
@@ -360,6 +357,7 @@ namespace BigMath
       const auto workers = allowParallel && rounds >= 8 ? ParallelNumThreads() : 1;
       if (workers <= 1)
       {
+        auto test = makeTest();
         for (int i = 0; i < rounds; ++i)
           if (!test(sample()))
             return false;
@@ -451,7 +449,12 @@ namespace BigMath
     if (gcd((n % group1)[0], group1) != 1 || gcd((n % group2)[0], group2) != 1)
       return false;
 
-    const auto mod = BigInteger::FromLimbs(n.Limbs(), false);
+    return PrimeSearch::TestLargeCandidate(
+        BigInteger::FromLimbs(n.Limbs(), false), rounds, PrimeSearch::WitnessMode::All);
+  }
+
+  bool PrimeSearch::TestLargeCandidate(BigInteger const &mod, int rounds, WitnessMode mode)
+  {
     constexpr DataT unit = 1, pair = 2;
     const auto one = BigInteger::FromLimbs({&unit, 1}, false);
     const auto two = BigInteger::FromLimbs({&pair, 1}, false);
@@ -469,31 +472,53 @@ namespace BigMath
       const auto montOne = (one << mod.size()) % mod;
       auto encodedOne = montOne.GetInteger();
       auto encodedMinusOne = (mod - montOne).GetInteger();
-      auto radixSquared = ((montOne << mod.size()) % mod).GetInteger();
       encodedOne.resize(mod.size());
       encodedMinusOne.resize(mod.size());
+      const auto testEncoded = [&](Montgomery &context, std::vector<DataT> encoded) {
+        auto power = context.PowerEncoded(std::move(encoded), exponent, length);
+        return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
+          context.Multiply(value, value);
+        });
+      };
+
+      if (mode != WitnessMode::RandomOnly)
+      {
+        auto montTwo = montOne + montOne;
+        if (montTwo >= mod)
+          montTwo = montTwo - mod;
+        auto encodedTwo = montTwo.ReleaseInteger();
+        encodedTwo.resize(mod.size());
+        Montgomery context(mod);
+        const bool passes = testEncoded(context, std::move(encodedTwo));
+        if (!passes || mode == WitnessMode::BaseTwo)
+          return passes;
+      }
+
+      auto radixSquared = ((montOne << mod.size()) % mod).GetInteger();
       radixSquared.resize(mod.size());
       const auto makeTest = [&] {
         return [&, context = Montgomery(mod)](BigInteger const &witness) mutable {
           auto encoded = witness.GetInteger();
           encoded.resize(mod.size());
           context.Multiply(encoded, radixSquared);
-          auto power = context.PowerEncoded(std::move(encoded), exponent, length);
-          return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
-            context.Multiply(value, value);
-          });
+          return testEncoded(context, std::move(encoded));
         };
       };
-      return CheckRandomWitnesses(mod, two, rounds, makeTest, bits >= 1024);
+      return CheckRandomWitnesses(mod, two, rounds, makeTest, BitLength(mod.Limbs()) >= 1024);
     }
 
-    return CheckRandomWitnesses(mod, two, rounds, [&] {
-      return [&](BigInteger const &witness) {
-        auto power = PowerReduced(witness, mod, exponent, length);
-        return PassesMillerRabin(std::move(power), one, minusOne, twos, [&](BigInteger &value) {
-          value = (value * value) % mod;
-        });
-      };
-    });
+    const auto test = [&](BigInteger const &witness) {
+      auto power = PowerReduced(witness, mod, exponent, length);
+      return PassesMillerRabin(std::move(power), one, minusOne, twos, [&](BigInteger &value) {
+        value = (value * value) % mod;
+      });
+    };
+    if (mode != WitnessMode::RandomOnly)
+    {
+      const bool passes = test(two);
+      if (!passes || mode == WitnessMode::BaseTwo)
+        return passes;
+    }
+    return CheckRandomWitnesses(mod, two, rounds, [&] { return test; });
   }
 }
