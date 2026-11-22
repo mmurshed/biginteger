@@ -150,7 +150,7 @@ namespace
     Mpz input, root, remainder, actualRoot, actualRemainder;
     const auto runBigMath = [&] { result = SqrtRem(n); };
     const auto runGmp = [&] { mpz_sqrtrem(root.value, remainder.value, input.value); };
-    constexpr unsigned cases = 24;
+    const unsigned cases = bits <= 65536 ? 24 : 8;
     constexpr DataT unit = 1;
     const auto one = BigInteger::FromLimbs({&unit, 1}, false);
     for (unsigned i = 0; i < cases; ++i)
@@ -202,6 +202,7 @@ int main(int argc, char **argv)
         BenchmarkGcd(bits, shape, rng);
   rng.seed(0x5A27);
   if (operation == "all" || operation == "sqrtrem")
-    for (unsigned bits : {32, 64, 65, 256, 1024, 4096, 16384, 65536})
+    for (unsigned bits : {32, 64, 65, 127, 128, 129, 192, 254, 255, 256, 257,
+                          1024, 4096, 16384, 65536, 262144, 1048576})
       BenchmarkSqrtRem(bits, rng);
 }

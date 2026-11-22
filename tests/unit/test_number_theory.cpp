@@ -91,6 +91,18 @@ REGISTER_TEST(NumberTheory, SquareRootAndRemainder)
   check(square, root, value("0"));
   check(square + one, root, one);
 
+  // Exercise the native-word boundary and the first divide-and-conquer
+  // splits. The inputs just below a square require an exact correction.
+  for (unsigned bits : {32, 63, 64, 65, 95, 96, 126, 127, 128, 129, 192, 256})
+  {
+    const DataT bit = DataT{1} << (bits % LimbBits);
+    const auto boundary = BigInteger::FromLimbs({&bit, 1}, false) << (bits / LimbBits);
+    const auto exact = boundary * boundary;
+    check(exact - one, boundary - one, boundary + boundary - value("2"));
+    check(exact, boundary, value("0"));
+    check(exact + one, boundary, one);
+  }
+
   bool threw = false;
   try { (void)SqrtRem(value("-1")); }
   catch (std::invalid_argument const &) { threw = true; }

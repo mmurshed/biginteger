@@ -1,6 +1,7 @@
 #include "biginteger/ops/NumberTheory.h"
 
 #include <bit>
+#include <cmath>
 #include <stdexcept>
 
 #include "biginteger/ops/Operations.h"
@@ -198,6 +199,103 @@ namespace BigMath
     return {std::move(left), std::move(x), std::move(y)};
   }
 
+  namespace
+  {
+    template <class Word>
+    Word SqrtWord(Word value)
+    {
+      // Even when the floating-point estimate rounds up to 2^(word bits/2),
+      // clamping makes the trial square fit in Word.
+      constexpr Word maxRoot = (Word{1} << (sizeof(Word) * 4)) - 1;
+      Word root = std::min(static_cast<Word>(std::sqrt(static_cast<double>(value))), maxRoot);
+      const Word square = root * root;
+      if (square > value || value - square > root + root)
+      {
+        // If the estimate is low, the quotient provides an upper bound.
+        root = std::max(root, value / root);
+        for (Word quotient = value / root; quotient < root; quotient = value / root)
+          root = (root + quotient) / 2;
+      }
+      return root;
+    }
+
+    template <class Word>
+    std::pair<BigInteger, BigInteger> SqrtRemWord(Word value)
+    {
+      const Word root = SqrtWord(value);
+      const Word remainder = value - root * root;
+      const DataT rootLimb = static_cast<DataT>(root);
+      const DataT remainderLimbs[] = {
+          static_cast<DataT>(remainder) & LimbMask,
+          static_cast<DataT>(static_cast<ULong128>(remainder) >> LimbBits)};
+      return {BigInteger::FromLimbs({&rootLimb, 1}, false),
+              BigInteger::FromLimbs(remainderLimbs, false)};
+    }
+
+    std::pair<BigInteger, BigInteger> SqrtRemMagnitude(std::span<const DataT> limbs)
+    {
+      if (limbs.size() == 1)
+        return SqrtRemWord(limbs.front());
+      if (limbs.size() == 2)
+      {
+        const auto value = (static_cast<ULong128>(limbs.back()) << LimbBits) | limbs.front();
+        if constexpr (LimbBits == 32)
+          return SqrtRemWord(static_cast<DataT>(value));
+        else
+          return SqrtRemWord(value);
+      }
+
+      const auto bits = (limbs.size() - 1) * uint64_t{LimbBits} + std::bit_width(limbs.back());
+      // Choose a limb-aligned radix B so the high part has root at least B/2.
+      const auto block = static_cast<SizeT>((bits + 1) / (4 * LimbBits));
+      if (block == 0)
+      {
+        const auto value = BigInteger::FromLimbs(limbs, false);
+        // Keep 63 or 64 leading bits by discarding an even number of bits.
+        // The next integer above the prefix root gives an upper bound once
+        // scaled back to the original width.
+        const auto shift = (bits - 63) / 2;
+        const auto first = static_cast<SizeT>(2 * shift / LimbBits);
+        ULong128 prefix = 0;
+        for (size_t i = limbs.size(); i > first; --i)
+          prefix = (prefix << LimbBits) | limbs[i - 1];
+        const auto top = static_cast<DataT>(prefix >> (2 * shift % LimbBits));
+        const ULong128 seed = static_cast<ULong128>(SqrtWord(top) + 1) << (shift % LimbBits);
+        const DataT seedLimbs[] = {static_cast<DataT>(seed) & LimbMask,
+                                   static_cast<DataT>(seed >> LimbBits)};
+        auto root = BigInteger::FromLimbs(seedLimbs, false) << static_cast<SizeT>(shift / LimbBits);
+        for (;;)
+        {
+          const auto quotient = value / root;
+          if (quotient >= root)
+          {
+            auto remainder = value - root * root;
+            return {std::move(root), std::move(remainder)};
+          }
+          root = (root + quotient) / DataT{2};
+        }
+      }
+
+      // Zimmermann's divide-and-conquer square root. Take the root of the
+      // high part and use one division to recover the low part of the root.
+      auto [highRoot, highRemainder] = SqrtRemMagnitude(limbs.subspan(2 * block));
+      const auto middle = BigInteger::FromLimbs(limbs.subspan(block, block), false);
+      const auto low = BigInteger::FromLimbs(limbs.first(block), false);
+      auto [q, r] = DivideAndRemainder((highRemainder << block) + middle, highRoot + highRoot);
+      auto root = (highRoot << block) + q;
+      auto remainder = (r << block) + low - q * q;
+      if (remainder.IsNegative())
+      {
+        // The lower bound on highRoot guarantees one correction suffices.
+        constexpr DataT unit = 1;
+        const auto one = BigInteger::FromLimbs({&unit, 1}, false);
+        remainder = remainder + (root + root - one);
+        root = root - one;
+      }
+      return {std::move(root), std::move(remainder)};
+    }
+  }
+
   std::pair<BigInteger, BigInteger> SqrtRem(BigInteger const &n)
   {
     if (n.IsNegative())
@@ -208,32 +306,6 @@ namespace BigMath
     auto limbs = n.Limbs();
     while (limbs.back() == 0)
       limbs = limbs.first(limbs.size() - 1);
-    const auto bits = (limbs.size() - 1) * uint64_t{LimbBits} + std::bit_width(limbs.back());
-    // Start at 2^ceil(bits / 2), above the true root. Integer Newton steps
-    // decrease this upper bound until division reports n/root >= root.
-    const auto seedBit = (bits + 1) / 2;
-    const DataT seedLimb = DataT{1} << (seedBit % LimbBits);
-    if (limbs.size() == 1)
-    {
-      const DataT value = limbs.front();
-      DataT root = seedLimb;
-      for (DataT quotient = value / root; quotient < root; quotient = value / root)
-        root = (root + quotient) / 2;
-      const DataT remainder = value - root * root;
-      return {BigInteger::FromLimbs({&root, 1}, false),
-              BigInteger::FromLimbs({&remainder, 1}, false)};
-    }
-
-    auto root = BigInteger::FromLimbs({&seedLimb, 1}, false) << static_cast<SizeT>(seedBit / LimbBits);
-    for (;;)
-    {
-      const auto quotient = n / root;
-      if (quotient >= root)
-      {
-        auto remainder = n - root * root;
-        return {std::move(root), std::move(remainder)};
-      }
-      root = (root + quotient) / DataT{2};
-    }
+    return SqrtRemMagnitude(limbs);
   }
 }
