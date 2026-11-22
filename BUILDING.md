@@ -26,7 +26,7 @@ biginteger/                     repository root
 ## Requirements
 
 - CMake ≥ 3.16
-- C++20 compiler with `__uint128_t` and `__builtin_*_overflow`. GCC ≥ 10 or Clang ≥ 11. Apple Clang on macOS works.
+- C++20 compiler with `__uint128_t` and `__builtin_*_overflow`. The release matrix tests GCC on Ubuntu 22.04, Clang on Ubuntu 24.04, Apple Clang, and MSYS2 UCRT64 Clang.
 - For the GMP comparison bench: `libgmp` (Homebrew: `brew install gmp`).
 
 ## Quick build
@@ -74,7 +74,7 @@ cmake -S . -B build \
         -DBIGMATH_NEWTON_MEDIUM_B=1024"
 ```
 
-See `tests/performance/dispatch_tuner.cpp` for an empirical sweep that recommends values for the current machine.
+See the [platform tuning guide](docs/PLATFORM_TUNING.md) for running the dispatch tuner and validating profiles on the current machine or GitHub Actions.
 
 ## Consuming the library from another CMake project
 
