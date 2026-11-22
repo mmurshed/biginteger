@@ -1,5 +1,26 @@
 # BigMath benchmark results
 
+## Number theory
+
+These measurements use a native Release build on the Apple M1 Max (Apple Clang 21, 64-bit BigMath limbs, GMP 6.3.0). The harness checks each case against GMP before timing. Each timing is the median of seven batches on the last fixture for that row, with the library order alternating. Input creation, conversion and correctness checks are outside the timed loops. Times are in microseconds per call.
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp
+```
+
+### Modular exponentiation
+
+For each size the benchmark checks 24 cases per modulus parity, with positive and negative bases and varying exponent lengths. Timing uses an exponent as wide as the modulus. BigMath uses binary exponentiation with reduction after each multiplication or square. [CSV with all ten timing rows](docs/benchmarks/2026-11-22-powmod-m1-max.csv)
+
+| Modulus and exponent bits | BigMath odd | GMP odd | BigMath even | GMP even |
+|---:|---:|---:|---:|---:|
+| 256 | 50.82 | 13.21 | 43.77 | 10.49 |
+| 512 | 171.80 | 47.60 | 170.01 | 45.62 |
+| 1,024 | 815.30 | 268.57 | 797.39 | 271.32 |
+| 2,048 | 4,368.24 | 1,760.12 | 4,333.13 | 1,736.95 |
+| 4,096 | 27,232.04 | 13,691.51 | 27,686.43 | 14,158.38 |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)
