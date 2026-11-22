@@ -65,6 +65,27 @@ Each size checks 24 random integers, perfect squares and values one below or abo
 | 16,384 | 140.390625 | 5.822875 |
 | 65,536 | 1,283.833250 | 49.875000 |
 
+#### Faster integer square root
+
+Inputs of one or two limbs use native arithmetic. A floating-point estimate is checked with integer arithmetic, and integer Newton iteration corrects it when needed. For larger inputs, the divide-and-conquer algorithm obtains the high part of the root recursively and computes the low part with one division. A limb-aligned split keeps the high root large enough for a single correction. Inputs too small for that split use Newton iteration seeded from their leading bits. [Zimmermann's square root algorithm](https://gmplib.org/manual/Square-Root-Algorithm)
+
+Seven paired trials on the Apple M1 Max alternated the original Newton implementation from `668b5e7` and the optimized build using the same benchmark executable source and Release flags. Each trial checks against GMP on 24 inputs per size through 65,536 bits and eight inputs at each larger size, including squares and their immediate neighbors. The timed input at each size is a random integer. Figures are median times in microseconds per call. Speedup is the median of the paired ratios. [All 119 paired observations](docs/benchmarks/2026-11-22-sqrtrem-optimized-m1-max.csv)
+
+| Input bits | Newton (µs) | Optimized (µs) | GMP (µs) | Speedup |
+|---:|---:|---:|---:|---:|
+| 32 | 0.00789 | 0.00810 | 0.00664 | 0.97× |
+| 64 | 0.00975 | 0.00810 | 0.00657 | 1.20× |
+| 65 | 0.23789 | 0.01625 | 0.02424 | 14.65× |
+| 128 | 0.27865 | 0.04309 | 0.00973 | 6.47× |
+| 129 | 0.51571 | 0.15367 | 0.04532 | 3.40× |
+| 256 | 0.56437 | 0.17765 | 0.03459 | 3.17× |
+| 1,024 | 2.60970 | 1.12923 | 0.16699 | 2.29× |
+| 4,096 | 14.03125 | 2.63281 | 0.69269 | 5.21× |
+| 16,384 | 108.21875 | 10.41150 | 5.31775 | 10.39× |
+| 65,536 | 1,294.43750 | 64.20850 | 47.83350 | 20.11× |
+| 262,144 | 8,253.19800 | 467.75000 | 396.85425 | 16.68× |
+| 1,048,576 | 34,299.54175 | 2,247.83350 | 2,602.82300 | 15.17× |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)
