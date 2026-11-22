@@ -217,6 +217,17 @@ Compared with `4e13510`, fused products of length 2²⁴ and above process each 
 | mul 162M × 162M | 2,878.4 MiB · 693.5 ms | 1,898.3 MiB · 715.8 ms | 932.3 MiB · 2,409.0 ms |
 | mul 200M × 200M | 2,966.6 MiB · 713.9 ms | 1,988.5 MiB · 720.4 ms | 1,117.4 MiB · 2,912.1 ms |
 
+### Share conversion transform storage
+
+The baseline is `c49f04c`. A separate instrumented run counted table capacities at construction and writable vector capacities at thread exit. Parsing 50M digits built 648 MiB of leaf plans across workers for 144 MiB of distinct tables. Formatting 10M digits built 198 MiB for 72 MiB of distinct tables and retained 33 MiB of cyclic-product buffers in addition to linear-product buffers. Capacity counts exclude allocator overhead. The timing runs use uninstrumented binaries. [Capacity measurements](docs/benchmarks/memory-conversion-retained-capacity.csv) [All observations](docs/benchmarks/memory-fix-conversion-default.csv)
+
+| Shape | Before | After | GMP |
+|---|---:|---:|---:|
+| parse 1M | 34.2 MiB · 6.9 ms | 28.5 MiB · 7.9 ms | 8.1 MiB · 21.1 ms |
+| parse 50M | 1,588.4 MiB · 566.5 ms | 1,084.4 MiB · 543.6 ms | 307.0 MiB · 2,664.6 ms |
+| tostr 10M | 525.5 MiB · 242.0 ms | 372.2 MiB · 236.7 ms | 49.1 MiB · 914.5 ms |
+| tostr 20M | 1,052.1 MiB · 525.9 ms | 743.8 MiB · 509.4 ms | 102.3 MiB · 2,142.8 ms |
+
 ## Peak memory and large-product time
 
 The November 21, 2026 run measured the implementation from `e62e77f` on an Apple M1 Max with 32 GiB of RAM. Each operation ran in three fresh processes, one each for GMP 6.3.0, threaded BigMath (up to eight threads), and single-threaded BigMath. The 111 standard cases use the same operands as the timing tables above. Thirteen additional balanced products bracket transform boundaries and extend the sweep to one billion decimal digits per operand. [All times, RSS readings, statuses and hashes](docs/benchmarks/2026-11-21-peak-memory-m1-max.csv) · [Run the benchmark](tests/performance/benchsuite/README.md#isolated-peak-memory-and-time)

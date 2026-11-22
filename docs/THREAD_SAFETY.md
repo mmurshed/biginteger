@@ -8,9 +8,9 @@ Concurrent mutation of the *same* object from multiple threads is **not** suppor
 
 ## What's shared, what's not
 
-### Per-thread caches (already isolated)
+### Transform tables and scratch buffers
 
-All of the library's internal caches and scratch buffers are `static thread_local` — private to each thread. No coordination is needed; each thread pays a first-touch cost. Grouped by subsystem:
+In threaded builds, callers share immutable CRT leaf plans and matrix roots for each prime and transform length. First use publishes the table under a per-length mutex. Each participating thread keeps an owning reference, so its warm lookup needs no lock. The table is released when its last owning thread exits. Mutable arithmetic buffers remain private to each thread.
 
 | cache group | file | what it holds |
 |---|---|---|
@@ -21,7 +21,7 @@ All of the library's internal caches and scratch buffers are `static thread_loca
 | ToString divider-chain cache | `src/common/Parser.cpp` (`GetDecimalDcChain`) | per-size chains of `10^k` values + precomputed Newton reciprocals |
 | `BigDecimal` `Pow10Bi` cache | `bigdecimal/BigDecimal.cpp` | `BigInteger` wrappers over cached powers of 10 |
 
-The point is per-thread isolation, not the exact inventory — any new cache or scratch buffer added to the library follows the same `static thread_local` pattern. The map-like caches grow monotonically (NTT plan caches are keyed by transform size; Pow10 and divider-chain caches by digit count). They are never invalidated mid-process and never written from outside the owning thread.
+Linear and cyclic CRT products on one thread reuse the same residue and transpose buffers. Each operation reconstructs its result into an owned limb vector before the next operation uses those buffers. Decimal powers and divider chains remain cached per thread.
 
 For a thread-pool worker pattern, warm each pool thread by issuing one representative NTT-bound mult and one `Pow10(d)` call from each worker at startup. Otherwise the first call from each worker pays the cache-fill cost.
 
@@ -75,7 +75,7 @@ The pool has one work slot, and exactly one caller owns it at a time (`dispatchM
 
 - **Pool size**: `min(hardware_concurrency(), BIGMATH_MAX_THREADS=8)` — on shared-L2 architectures (M1 Max etc.), going beyond 8 cores hits L2 cache pressure on NTT working sets (~512 KB at 32k-coeff transforms).
 - **Linkage**: pool implementation lives in `src/common/Parallel.cpp`. Public headers stay free of `<thread>` so consumers don't pick up pthread unconditionally.
-- **First-touch cost**: the `static thread_local` caches above remain per-thread. Each pool worker fills its own NTT plan / Pow10 caches on first use. For latency-sensitive workloads, warm the pool with one large `Multiply` from each worker at startup.
+- **First-touch cost**. Pool workers share constructed CRT tables. A worker still allocates its own mutable workspace and decimal power cache as needed.
 - **Caller participation**: the calling thread runs the first work chunk itself, so effective parallelism = pool size (not pool size + 1).
 - **The user-facing thread safety guarantees above are unchanged.** Internal parallelism is an implementation detail of single operation calls, not a change in the concurrency model.
 

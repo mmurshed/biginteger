@@ -16,6 +16,7 @@
 
 #include "biginteger/BigInteger.h"
 #include "biginteger/algorithms/Multiplication.h"
+#include "biginteger/algorithms/multiplication/NTTMultiplicationCrt.h"
 #include "biginteger/algorithms/Squaring.h"
 #include "biginteger/common/Parallel.h"
 
@@ -242,3 +243,21 @@ REGISTER_TEST(ParallelPool, EveryWorkerAnswersEveryDispatch)
       ASSERT_EQ(entered.load(), threads);
     }
 }
+
+#if BIGMATH_USE_THREADS
+REGISTER_TEST(ParallelPool, ShareReadOnlyTransformPlans)
+{
+  const auto &held = NttCrt::GetPlan<NttCrt::F2, NttCrt::G2>(32768);
+  constexpr int count = 4;
+  std::array<const NttCrt::Plan<NttCrt::F2> *, count> plans{};
+  std::vector<std::thread> threads;
+  for (int i = 0; i < count; ++i)
+  {
+    threads.emplace_back([&, i] {
+      plans[i] = &NttCrt::GetPlan<NttCrt::F2, NttCrt::G2>(32768);
+    });
+  }
+  for (auto &thread : threads) thread.join();
+  for (auto *plan : plans) ASSERT_TRUE(plan == &held);
+}
+#endif

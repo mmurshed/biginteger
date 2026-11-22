@@ -213,6 +213,9 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -384,13 +387,47 @@ namespace BigMath
       return p;
     }
 
+    // Every key is a transform length (a power of two). The builder type
+    // identifies the prime and kind of table. The hot lookup is thread-local.
+    // Workers share immutable storage; the last owner releases it on exit.
+    template <typename Table, typename Builder>
+    inline const Table &CachedTransformTable(Int n, Builder build)
+    {
+#if BIGMATH_USE_THREADS
+      struct Slot
+      {
+        std::mutex mutex;
+        std::weak_ptr<const Table> published;
+      };
+      constexpr size_t Slots = std::numeric_limits<UInt>::digits;
+      static std::array<Slot, Slots> slots;
+      static thread_local std::array<std::shared_ptr<const Table>, Slots> owners;
+      const auto index = std::countr_zero((UInt)n);
+      auto &owner = owners[index];
+      if (!owner)
+      {
+        auto &slot = slots[index];
+        std::lock_guard lock(slot.mutex);
+        owner = slot.published.lock();
+        if (!owner)
+        {
+          owner = std::make_shared<const Table>(build());
+          slot.published = owner;
+        }
+      }
+      return *owner;
+#else
+      static thread_local std::unordered_map<Int, Table> tables;
+      auto it = tables.find(n);
+      if (it != tables.end()) return it->second;
+      return tables.emplace(n, build()).first->second;
+#endif
+    }
+
     template <typename F, UInt G>
     inline const Plan<F> &GetPlan(Int n)
     {
-      static thread_local std::unordered_map<Int, Plan<F>> cache;
-      auto it = cache.find(n);
-      if (it != cache.end()) return it->second;
-      return cache.emplace(n, BuildPlan<F, G>(n)).first->second;
+      return CachedTransformTable<Plan<F>>(n, [n] { return BuildPlan<F, G>(n); });
     }
 
     // Always-serial Forward/Inverse. Parallelism in the CRT path is coarse-
@@ -1975,7 +2012,7 @@ namespace BigMath
       {
         // Six units per phase instead of three whole transforms — see
         // InverseSplitPtr. The half plans are fetched here, on the
-        // dispatching thread (plan caches are thread_local).
+        // dispatching thread (plans are acquired before dispatch).
         const Int h = n >> 1;
         const Plan<F1> *h1 = &GetPlan<F1, G1>(h);
         const Plan<F2> *h2 = &GetPlan<F2, G2>(h);
@@ -2699,12 +2736,9 @@ namespace BigMath
       if (tree.cross.count(n)) return;
       Int n1, n2;
       MFAFactor(n, n1, n2);
-      static thread_local std::unordered_map<Int, MfaRoots> cache;
-      auto it = cache.find(n);
-      if (it == cache.end())
-        it = cache.emplace(n, MfaRoots{BuildMfaRoots<F, G>(n, n2, false),
-                                       BuildMfaRoots<F, G>(n, n2, true)}).first;
-      tree.cross[n] = &it->second;
+      tree.cross[n] = &CachedTransformTable<MfaRoots>(n, [n, n2] {
+        return MfaRoots{BuildMfaRoots<F, G>(n, n2, false), BuildMfaRoots<F, G>(n, n2, true)};
+      });
       BuildMfaPlanTree<F, G>(n1, tree);
       if (n2 != n1) BuildMfaPlanTree<F, G>(n2, tree);
     }
@@ -2721,8 +2755,7 @@ namespace BigMath
     inline void ForwardMFAMul(UInt *b, Int n, UInt *scratch, bool parallel,
                               const MfaPlanTree<F> &tree, UInt *acc);
 
-    // Backward-compat wrappers that build a fresh plan tree per call. Safe
-    // only when called from a context that is NOT already inside ParallelDo.
+    // Wrappers for callers that have not already assembled the plan tree.
     template <typename F, UInt G>
     inline void ForwardMFA(UInt *a, Int n, UInt *scratch, bool parallel = true)
     {
@@ -3589,6 +3622,20 @@ namespace BigMath
     }
 #endif // BIGMATH_NTT_MFA
 
+    // Linear and cyclic products run successively inside Newton division.
+    // Both finish reconstructing into an owned limb vector before returning.
+    struct ProductWorkspace
+    {
+      std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
+      std::array<std::vector<UInt>, 6> transpose;
+    };
+
+    inline ProductWorkspace &GetProductWorkspace()
+    {
+      static thread_local ProductWorkspace buffers;
+      return buffers;
+    }
+
     // ─── Public Multiply ─────────────────────────────────────────────────────
 
     inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
@@ -3630,7 +3677,7 @@ namespace BigMath
       // Three parallel transforms. Buffer zero-fill + packing happen inside
       // the branch that needs them: the fused MFA path (F3) packs straight
       // from the limb arrays and never touches fb at all.
-      static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
+      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
 
       auto multiplySpectra = [&](Int length) {
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
@@ -3674,12 +3721,10 @@ namespace BigMath
 
       if (UseMfaForShape(a.size(), b.size(), n))
       {
-        static thread_local std::vector<UInt> mfaScratch[6];
         MfaPlanTree<F1> tree1;
         MfaPlanTree<F2> tree2;
         MfaPlanTree<F3> tree3;
-        // Pre-warm all plans in main thread: worker threads cannot call
-        // GetPlan() safely from inside ParallelDo (BuildRoots reenters pool).
+        // Acquire plans before dispatch so every row tile can use them directly.
         BuildMfaPlanTree<F1, G1>(n, tree1);
         BuildMfaPlanTree<F2, G2>(n, tree2);
         BuildMfaPlanTree<F3, G3>(n, tree3);
@@ -3831,7 +3876,7 @@ namespace BigMath
       if (a.size() > L || b.size() > L)
         throw std::invalid_argument("MultiplyMod2km1: operand exceeds L limbs");
 
-      static thread_local std::vector<UInt> fa1, fb1, fa2, fb2, fa3, fb3;
+      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
 
 #if BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
       // Same fused MFA pipeline as the linear path (forward + fused
@@ -3844,8 +3889,7 @@ namespace BigMath
       // butterfly layers).
       if (n >= BIGMATH_NTT_MFA_THRESHOLD && MfaFusedWindow(n))
       {
-        static thread_local std::vector<UInt> cycScratch[6];
-        for (int i = 0; i < 6; ++i) cycScratch[i].resize(n);
+        for (int i = 0; i < 6; ++i) mfaScratch[i].resize(n);
         MfaPlanTree<F1> tree1;
         MfaPlanTree<F2> tree2;
         MfaPlanTree<F3> tree3;
@@ -3854,8 +3898,8 @@ namespace BigMath
         BuildMfaPlanTree<F3, G3>(n, tree3);
         fa1.resize(n); fa2.resize(n); fa3.resize(n);
         UInt *fap[3] = {fa1.data(), fa2.data(), fa3.data()};
-        UInt *scrs[6] = {cycScratch[0].data(), cycScratch[1].data(), cycScratch[2].data(),
-                         cycScratch[3].data(), cycScratch[4].data(), cycScratch[5].data()};
+        UInt *scrs[6] = {mfaScratch[0].data(), mfaScratch[1].data(), mfaScratch[2].data(),
+                         mfaScratch[3].data(), mfaScratch[4].data(), mfaScratch[5].data()};
         PackedOperandView va(a, base), vb(b, base);
         MfaFusedForwardPointwise(va, vb, fap, scrs, n, tree1, tree2, tree3);
         MfaFusedInverse(fap, scrs, n, tree1, tree2, tree3);
