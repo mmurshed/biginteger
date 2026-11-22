@@ -79,6 +79,33 @@ REGISTER_TEST(NumberTheory, MultiBatchAndConcurrentPrimality)
   ASSERT_TRUE(first && second);
 }
 
+REGISTER_TEST(NumberTheory, NextProbablePrime)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  for (const auto &[input, expected] : {
+           std::pair{"-100", "2"}, {"0", "2"}, {"1", "2"}, {"2", "3"},
+           {"100", "101"}, {"101", "103"}, {"4093", "4099"},
+           {"18446744073709551557", "18446744073709551629"},
+           {"340282366920938463463374607431768211455",
+            "340282366920938463463374607431768211507"}})
+    ASSERT_TRUE(NextProbablePrime(value(input)) == value(expected));
+
+  bool threw = false;
+  try { (void)NextProbablePrime(value("0"), 0); }
+  catch (std::invalid_argument const &) { threw = true; }
+  ASSERT_TRUE(threw);
+
+  // In this search the first sieve survivor is composite. The primes at
+  // offsets 1493 and 1583 both fit in the first batch on an eight-thread build.
+  constexpr DataT high = DataT{1} << (1023 % LimbBits);
+  const auto base = BigInteger::FromLimbs({&high, 1}, false) << (1023 / LimbBits);
+  const auto start = base + value("1445");
+  const auto lower = base + value("1493");
+  const auto higher = base + value("1583");
+  ASSERT_TRUE(NextProbablePrime(start) == lower);
+  ASSERT_TRUE(NextProbablePrime(lower) == higher);
+}
+
 REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
 {
   const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };

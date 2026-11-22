@@ -19,6 +19,11 @@ namespace BigMath
   // Returns false for n < 2. Throws std::invalid_argument if rounds <= 0.
   bool IsProbablePrime(BigInteger const &n, int rounds = 32);
 
+  // Search strictly above n, returning 2 for n < 2. Results below 2^64
+  // are exact. Larger candidates use the same test as IsProbablePrime.
+  // Throws std::invalid_argument if rounds <= 0.
+  BigInteger NextProbablePrime(BigInteger const &n, int rounds = 32);
+
   // Return the nonnegative greatest common divisor. Gcd(0, 0) is zero.
   BigInteger Gcd(BigInteger const &a, BigInteger const &b);
 
