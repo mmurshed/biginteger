@@ -83,7 +83,7 @@ division is checked against the GMP result hash.
 `--extended` adds balanced products around transform boundaries and at 500M,
 750M, 1B, 2.5B and 5B decimal digits **per operand**, including 484M and 486M on opposite sides of the short-transform boundary. These extra fixtures use seeded
 binary magnitudes with exactly the specified decimal length, generated outside
-the measurement process. Balanced inputs above about 323M digits use convolution residues of one transform length in the default configuration; above about 1.79B digits those residue products are combined in blocks. The 5B case needs about 21 GiB of RAM per process and several minutes per library.
+the measurement process. Balanced inputs above about 323M digits use convolution residues of one transform length in the default configuration; above about 1.79B digits the wide prime set extends the single residue product to about 8.05B digits. Larger products use overlap-add blocks. The 5B case needs about 21 GiB of RAM per process and several minutes per library.
 Historical executables that rejected those sizes reported `crt_length_limit` with empty timing and memory fields.
 Other exceptions, hash mismatches and failed processes fail the run. Raw inputs
 are discarded after each case. The driver prints the unique CSV path under

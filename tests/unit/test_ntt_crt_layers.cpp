@@ -254,6 +254,7 @@ REGISTER_TEST(NttCrtLayers, ProductsAboveTransformChooseResiduesOrBlocks)
   // again, and blocks within one transform for a short second operand.
   constexpr Int H = 512;
   constexpr ULong plainTerms = 400, biasedTerms = 700;
+  constexpr ULong wideTerms = 0; // Exercise the standard-prime block path.
   const std::pair<size_t, size_t> shapes[] = {
       {300, 300},   // unsigned residues
       {390, 2000},  // unsigned, long partner
@@ -276,9 +277,9 @@ REGISTER_TEST(NttCrtLayers, ProductsAboveTransformChooseResiduesOrBlocks)
         const auto a = PatternOperand(aCoeffs, base, pattern, random);
         const auto b = PatternOperand(bCoeffs, base, pattern, random);
         const auto want = ClassicMultiplication::Multiply(a, b, base);
-        ASSERT_TRUE(MultiplyAboveTransform(a, b, base, H, plainTerms, biasedTerms) == want);
-        ASSERT_TRUE(MultiplyAboveTransform(b, a, base, H, plainTerms, biasedTerms) == want);
-        ASSERT_TRUE(MultiplyAboveTransform(b, b, base, H, plainTerms, biasedTerms) ==
+        ASSERT_TRUE(MultiplyAboveTransform(a, b, base, H, plainTerms, biasedTerms, wideTerms) == want);
+        ASSERT_TRUE(MultiplyAboveTransform(b, a, base, H, plainTerms, biasedTerms, wideTerms) == want);
+        ASSERT_TRUE(MultiplyAboveTransform(b, b, base, H, plainTerms, biasedTerms, wideTerms) ==
                     ClassicMultiplication::Multiply(b, b, base));
       }
     }
