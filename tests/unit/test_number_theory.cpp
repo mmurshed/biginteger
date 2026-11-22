@@ -27,3 +27,28 @@ REGISTER_TEST(NumberTheory, PowMod)
     ASSERT_TRUE(threw);
   }
 }
+
+REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  const auto check = [](BigInteger const &a, BigInteger const &b, BigInteger const &expected) {
+    ASSERT_TRUE(Gcd(a, b) == expected);
+    const auto [divisor, x, y] = ExtendedGcd(a, b);
+    ASSERT_TRUE(divisor == expected);
+    ASSERT_TRUE(a * x + b * y == divisor);
+  };
+
+  check(BigInteger(12), BigInteger(), BigInteger());
+  check(value("-18"), value("0"), value("18"));
+  check(value("0"), value("-18"), value("18"));
+  check(value("19"), value("35"), value("1"));
+
+  const auto factor = value("340282366920938463463374607431768211457");
+  const auto left = factor * value("462");
+  const auto right = factor * value("1071");
+  const auto expected = factor * value("21");
+  for (bool negativeLeft : {false, true})
+    for (bool negativeRight : {false, true})
+      check(BigInteger(left).SetSign(negativeLeft), BigInteger(right).SetSign(negativeRight), expected);
+  check(right, left, expected);
+}

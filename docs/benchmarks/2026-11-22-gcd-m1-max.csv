@@ -1,0 +1,11 @@
+operation,shape,bits,reference_checks,calls_per_round,bigmath_us,gmp_us
+gcd,balanced,256,24,64,5.598297,0.890625
+extended_gcd,balanced,256,24,64,14.502609,1.083984
+gcd,balanced,512,24,32,15.751312,1.760406
+extended_gcd,balanced,512,24,32,38.300781,1.976562
+gcd,balanced,1024,24,16,40.270812,3.505187
+extended_gcd,balanced,1024,24,16,115.028625,4.148438
+gcd,balanced,2048,24,8,115.875000,7.796875
+extended_gcd,balanced,2048,24,8,296.948000,9.536500
+gcd,balanced,4096,24,4,301.968750,17.312500
+extended_gcd,balanced,4096,24,4,810.385250,24.583500
