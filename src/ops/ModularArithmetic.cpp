@@ -1,12 +1,15 @@
 #include "biginteger/ops/NumberTheory.h"
 
 #include <array>
+#include <atomic>
 #include <bit>
+#include <exception>
 #include <random>
 #include <stdexcept>
 
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/common/LimbKernels.h"
+#include "biginteger/common/Parallel.h"
 #include "biginteger/ops/Operations.h"
 
 namespace BigMath
@@ -326,10 +329,11 @@ namespace BigMath
       return true;
     }
 
-    template <class WitnessTest>
+    template <class WitnessTestFactory>
     bool CheckRandomWitnesses(BigInteger const &n, BigInteger const &two,
-                              int rounds, WitnessTest test)
+                              int rounds, WitnessTestFactory makeTest, bool allowParallel = false)
     {
+      auto test = makeTest();
       if (!test(two))
         return false;
 
@@ -339,8 +343,7 @@ namespace BigMath
       std::vector<DataT> randomLimbs(upper.size());
       std::random_device source;
       std::uniform_int_distribution<DataT> distribution(0, LimbMask);
-      for (int i = 0; i < rounds; ++i)
-      {
+      const auto sample = [&] {
         BigInteger witness;
         do
         {
@@ -349,8 +352,55 @@ namespace BigMath
           randomLimbs.back() &= mask;
           witness = BigInteger::FromLimbs(randomLimbs, false);
         } while (witness < two || witness > upper);
-        if (!test(witness))
+        return witness;
+      };
+
+      // Keep cheap screens and small tests on the calling thread. The
+      // randomized rounds are independent once the base-2 screen passes.
+      const auto workers = allowParallel && rounds >= 8 ? ParallelNumThreads() : 1;
+      if (workers <= 1)
+      {
+        for (int i = 0; i < rounds; ++i)
+          if (!test(sample()))
+            return false;
+        return true;
+      }
+
+      constexpr int maxBatch = 32;
+      std::vector<BigInteger> witnesses;
+      witnesses.reserve(std::min(rounds, maxBatch));
+      while (rounds > 0)
+      {
+        const int count = std::min(rounds, maxBatch);
+        witnesses.clear();
+        for (int i = 0; i < count; ++i)
+          witnesses.emplace_back(sample());
+        std::atomic<bool> stop{false};
+        std::array<std::exception_ptr, maxBatch> failures;
+        ParallelDo(count, [&](Int begin, Int end) {
+          try
+          {
+            auto workerTest = makeTest();
+            for (Int i = begin; i < end && !stop.load(std::memory_order_relaxed); ++i)
+              if (!workerTest(witnesses[i]))
+              {
+                stop.store(true, std::memory_order_relaxed);
+                break;
+              }
+          }
+          catch (...)
+          {
+            // Exceptions must not escape the worker before it reports completion.
+            failures[begin] = std::current_exception();
+            stop.store(true, std::memory_order_relaxed);
+          }
+        });
+        for (auto const &failure : failures)
+          if (failure)
+            std::rethrow_exception(failure);
+        if (stop.load(std::memory_order_relaxed))
           return false;
+        rounds -= count;
       }
       return true;
     }
@@ -383,7 +433,8 @@ namespace BigMath
       throw std::invalid_argument("IsProbablePrime requires a positive round count");
     if (n.IsNegative() || n.Zero())
       return false;
-    if (BitLength(n.Limbs()) <= 64)
+    const auto bits = BitLength(n.Limbs());
+    if (bits <= 64)
     {
       DataT value = n[0];
       if constexpr (LimbBits == 32)
@@ -415,7 +466,6 @@ namespace BigMath
 
     if (mod.size() <= 128)
     {
-      Montgomery context(mod);
       const auto montOne = (one << mod.size()) % mod;
       auto encodedOne = montOne.GetInteger();
       auto encodedMinusOne = (mod - montOne).GetInteger();
@@ -423,22 +473,27 @@ namespace BigMath
       encodedOne.resize(mod.size());
       encodedMinusOne.resize(mod.size());
       radixSquared.resize(mod.size());
-      return CheckRandomWitnesses(mod, two, rounds, [&](BigInteger const &witness) {
-        auto encoded = witness.GetInteger();
-        encoded.resize(mod.size());
-        context.Multiply(encoded, radixSquared);
-        auto power = context.PowerEncoded(std::move(encoded), exponent, length);
-        return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
-          context.Multiply(value, value);
-        });
-      });
+      const auto makeTest = [&] {
+        return [&, context = Montgomery(mod)](BigInteger const &witness) mutable {
+          auto encoded = witness.GetInteger();
+          encoded.resize(mod.size());
+          context.Multiply(encoded, radixSquared);
+          auto power = context.PowerEncoded(std::move(encoded), exponent, length);
+          return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
+            context.Multiply(value, value);
+          });
+        };
+      };
+      return CheckRandomWitnesses(mod, two, rounds, makeTest, bits >= 1024);
     }
 
-    return CheckRandomWitnesses(mod, two, rounds, [&](BigInteger const &witness) {
-      auto power = PowerReduced(witness, mod, exponent, length);
-      return PassesMillerRabin(std::move(power), one, minusOne, twos, [&](BigInteger &value) {
-        value = (value * value) % mod;
-      });
+    return CheckRandomWitnesses(mod, two, rounds, [&] {
+      return [&](BigInteger const &witness) {
+        auto power = PowerReduced(witness, mod, exponent, length);
+        return PassesMillerRabin(std::move(power), one, minusOne, twos, [&](BigInteger &value) {
+          value = (value * value) % mod;
+        });
+      };
     });
   }
 }

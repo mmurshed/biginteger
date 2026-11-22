@@ -1,6 +1,7 @@
 #include "unit_test_framework.h"
 
 #include <stdexcept>
+#include <thread>
 
 #include "biginteger/common/Builder.h"
 #include "biginteger/ops/Operations.h"
@@ -59,6 +60,23 @@ REGISTER_TEST(NumberTheory, Primality)
   try { (void)IsProbablePrime(value("7"), 0); }
   catch (std::invalid_argument const &) { threw = true; }
   ASSERT_TRUE(threw);
+}
+
+REGISTER_TEST(NumberTheory, MultiBatchAndConcurrentPrimality)
+{
+  // The Mersenne prime 2^2203 - 1 reaches the threaded witness path in
+  // both limb layouts. Thirty-three rounds cross the batch boundary.
+  constexpr DataT high = DataT{1} << (2203 % LimbBits);
+  const auto one = BigIntegerBuilder::From("1");
+  const auto prime = (BigInteger::FromLimbs({&high, 1}, false) << (2203 / LimbBits)) - one;
+  ASSERT_TRUE(IsProbablePrime(prime, 33));
+
+  bool first = false, second = false;
+  std::thread workerA([&] { first = IsProbablePrime(prime, 8); });
+  std::thread workerB([&] { second = IsProbablePrime(prime, 8); });
+  workerA.join();
+  workerB.join();
+  ASSERT_TRUE(first && second);
 }
 
 REGISTER_TEST(NumberTheory, GreatestCommonDivisors)

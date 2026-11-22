@@ -128,6 +128,19 @@ cmake --build build --target number_theory_vs_gmp
 ./build/number_theory_vs_gmp prime
 ```
 
+#### Parallel Miller–Rabin rounds
+
+When the candidate has at least 1,024 bits, fits the Montgomery path and requests at least eight random witnesses, the default build can test the witnesses in parallel. The small-factor tests and the base-2 screen run before the dispatch. Each worker uses its own scratch space, with batches of up to 32 witnesses. The single-thread build runs the same tests serially.
+
+The Apple M1 Max reran the same fixtures sequentially with the original serial implementation from `13e9706`, the updated default build with up to eight threads, and the updated build with `BIGMATH_USE_THREADS=0`. Each run matched GMP on 286 cases. The table gives medians from seven batches and shows the GMP timing measured alongside the default build. All times are milliseconds. [Raw timings for all three builds](docs/benchmarks/2026-11-22-primality-parallel-m1-max.csv)
+
+| Bits | Input | Original (ms) | Updated single-thread (ms) | Updated default (ms) | GMP (ms) |
+|---:|---|---:|---:|---:|---:|
+| 1,024 | Prime | 12.64 | 13.19 | 2.43 | 9.60 |
+| 2,048 | Prime | 88.18 | 89.71 | 14.31 | 62.07 |
+| 4,096 | Prime | 616.65 | 615.67 | 103.03 | 445.02 |
+| 4,096 | Semiprime | 19.05 | 19.00 | 19.28 | 11.13 |
+
 ## Platform tuning for release builds
 
 On November 22, 2026 UTC, GitHub Actions validated the five release profiles against the generic thresholds. Each job compiled both variants from source revision `415afbc` using the same runner and compiler. The baseline profile came from `83b1417`, which used generic thresholds on all five targets. All four correctness suites passed per target. The timing harness also checked multiplication and squaring against schoolbook multiplication and quotient and remainder against FastDivision on the measured inputs. [Survey run](https://github.com/mmurshed/biginteger/actions/runs/44997161065) · [Final validation and raw logs](https://github.com/mmurshed/biginteger/actions/runs/44998103595) · [Published profiles](https://github.com/mmurshed/biginteger/pull/182)
