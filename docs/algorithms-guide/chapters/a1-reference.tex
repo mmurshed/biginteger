@@ -61,6 +61,7 @@ macro & default & meaning \\
 \bottomrule
 \end{longtable}
 
+\newpage
 \subsection*{Decimal conversion and threads}
 
 \begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
@@ -77,8 +78,15 @@ macro & default & meaning \\
 \code{BIGMATH\_USE\_THREADS} & 1 & thread pool on/off \\
 \code{BIGMATH\_MAX\_THREADS} & 8 & pool size cap \\
 \code{BIGMATH\_POOL\_SPIN\_US} & 100 & \textmu s an idle worker spins before sleeping \\
+\code{BIGMATH\_ADD\_PARALLEL\_WARM\_LIMBS} & 0 & warm magnitude addition cutoff \\
+\code{BIGMATH\_ADD\_PARALLEL\_PARKED\_LIMBS} & 0 & parked magnitude addition cutoff \\
+\code{BIGMATH\_SUB\_PARALLEL\_WARM\_LIMBS} & 0 & warm magnitude subtraction cutoff \\
+\code{BIGMATH\_SUB\_PARALLEL\_PARKED\_LIMBS} & 0 & parked magnitude subtraction cutoff \\
 \bottomrule
 \end{longtable}
+
+Add and subtract cutoffs count limbs per operand. Zero keeps that magnitude
+operation serial in the corresponding worker state (\cref{sec:paralleladdsub}).
 
 \section{Checked-in platform profiles}
 \label{sec:platformprofiles}
@@ -110,6 +118,7 @@ The macOS Arm64 Clang profile also sets the single-thread floor for
 distinct, nearly equal operands to 704 limbs. Source builds normally
 select the profile for the compiler target. Packaged builds use the
 profile embedded at their tagged revision. See \file{docs/PLATFORM\_TUNING.md}.
+All checked-in profiles use the generic add and subtract cutoffs.
 
 \section{Costs at a glance}
 

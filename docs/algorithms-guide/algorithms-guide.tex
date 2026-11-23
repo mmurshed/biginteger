@@ -110,7 +110,9 @@
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
-\hypersetup{pdftitle={BigMath: How the Algorithms Work},pdfauthor={BigMath project}}
+\newcommand{\guideauthor}{S M Mahbub Murshed}
+\newcommand{\guideauthoremail}{murshed@gmail.com}
+\hypersetup{pdftitle={BigMath: How the Algorithms Work},pdfauthor={\guideauthor}}
 
 \begin{document}
 
@@ -124,6 +126,10 @@
   \vspace{0.4cm}
   {\large A practitioner's guide to the arithmetic inside the library,\\
   when each algorithm runs, and why\par}
+  \vspace{0.8cm}
+  {\large \guideauthor\par}
+  \smallskip
+  {\small \href{mailto:\guideauthoremail}{\guideauthoremail}\par}
   \vspace{2cm}
   \begin{tikzpicture}[scale=0.9]
     \foreach \x/\c/\t in {0/sAqua/schoolbook,1/sBlue/Karatsuba,2/sViolet/Toom-3,3/sOrange/NTT} {

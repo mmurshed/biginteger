@@ -1,4 +1,4 @@
-\chapter{Converting to and from decimal}
+\chapter{Radices and decimal arithmetic}
 \label{ch:conv}
 
 Numbers are stored in base $2^{64}$ but read and written in base 10. Because 10 is not a power
@@ -181,6 +181,37 @@ time of the default build (up to eight threads) divided by single-thread GMP tim
 \end{practice}
 
 \newpage
+\section{Converting digit vectors between radices}
+\label{sec:convertbase}
+
+\code{ConvertBase} takes a little-endian vector of digits or an inclusive
+index range within that vector. An equal-radix conversion copies the selected
+digits as stored. When the two radices are distinct powers of two, the digits
+describe the same bit sequence in different group widths. The implementation
+treats \code{Base2\_64}, the radix sentinel with value zero, as a 64-bit width.
+
+The repacker appends each source digit to a 128-bit buffer, starting at the low
+end. It emits a target digit whenever enough bits are available, taking the
+low bits and shifting them out of the buffer. At most 63 bits are left before
+the next source digit arrives. The repacker emits any final partial digit and
+trims high zero digits. An empty or all-zero input repacks to \code{\{0\}}.
+The work is linear in the combined input and output digit counts.
+
+\begin{example}
+In base $2^{31}$, the little-endian pair \code{[0x12345678, 3]} represents
+$3\cdot 2^{31} + \texttt{0x12345678}$. In base $2^{16}$ the digits are
+\code{[0x5678, 0x9234, 1]}. The high bit of the middle target digit
+comes from the low bit of the second source digit.
+\end{example}
+
+The remaining radix changes use Horner's rule. Read source digits
+from high to low, multiplying the accumulated result by the source radix and
+adding the next digit. For a $2^{64}$ source, one step shifts each target digit
+left by 64 in a 128-bit word, adds the carry (initially the next source limb),
+and divides by the target radix. The remainder replaces the target digit and
+the quotient becomes the next carry. See \file{src/algorithms/BaseConversion.cpp}.
+Decimal strings use the parsing and formatting routines described above.
+
 \section{Fixed-point decimal arithmetic}
 \label{sec:bigdecimal}
 
@@ -203,7 +234,7 @@ toward zero, and \code{CEILING} and \code{FLOOR} round toward the
 respective infinities. \code{UNNECESSARY} requires a zero remainder.
 
 \begin{example}
-At scale 5, integer division gives $100000=3\cdot33333+1$.
+At scale 5, dividing the scaled numerator by 3 gives $100000=3\cdot33333+1$.
 \code{BigDecimal("1").Divide(BigDecimal("3"), 5, RoundingMode::HALF\_EVEN)}
 returns \code{0.33333}. With \code{UP} it returns \code{0.33334}.
 With \code{UNNECESSARY} it throws. A repeating decimal such as $1/3$

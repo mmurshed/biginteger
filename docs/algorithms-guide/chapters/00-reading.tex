@@ -30,7 +30,8 @@ The chapters build on each other, but you can jump around:
         important operation: almost every other operation spends most of its
         time multiplying.
   \item \Cref{ch:div,ch:fastdiv,ch:divdispatch} cover division.
-  \item \Cref{ch:conv} covers decimal strings and fixed-point decimal arithmetic.
+  \item \Cref{ch:conv} covers decimal strings, radix conversion (\cref{sec:convertbase}),
+        and fixed-point arithmetic.
   \item \Cref{ch:numbertheory} covers GCD, integer roots, modular powers, and prime searches.
   \item \Cref{ch:parallel} covers the thread pool.
   \item \Cref{ch:practice} is a checklist for using the library well, and
@@ -111,8 +112,10 @@ limbs unless marked as digits. Platform profiles can override the thresholds
 \toprule
 operation & size (limbs) & algorithm \\
 \midrule
+$a \pm b$ & any & serial carry or borrow chain (\cref{sec:paralleladdsub}) \\
+\midrule
 \multirow{5}{*}{$a \times b$}
-  & both $\le 16$ & stack-buffer schoolbook, no heap work (\cref{sec:smallops}) \\
+  & both $\le 16$ & stack-buffer schoolbook (\cref{sec:smallops}) \\
   & shorter $\le 24$, or total $\le 56$ & schoolbook (\cref{sec:schoolbook}) \\
   & up to $\approx 310$ each & Karatsuba; levels with $\ge 168$ limbs split three ways (Toom-3) (\cref{sec:karatsuba,sec:toom}) \\
   & shorter $\ge 64$, area $\ge 96\,000$ & NTT if the thread pool is awake, else Karatsuba (\cref{sec:poolrule}) \\
