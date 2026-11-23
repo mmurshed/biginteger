@@ -30,7 +30,8 @@ The chapters build on each other, but you can jump around:
         important operation: almost every other operation spends most of its
         time multiplying.
   \item \Cref{ch:div,ch:fastdiv,ch:divdispatch} cover division.
-  \item \Cref{ch:conv} covers converting to and from decimal strings.
+  \item \Cref{ch:conv} covers decimal strings and fixed-point decimal arithmetic.
+  \item \Cref{ch:numbertheory} covers GCD, integer roots, modular powers, and prime searches.
   \item \Cref{ch:parallel} covers the thread pool.
   \item \Cref{ch:practice} is a checklist for using the library well, and
         \cref{ch:decisions} records the ideas that were tried and rejected.
@@ -98,7 +99,9 @@ decimal digits & bits & limbs \\
 \label{sec:onepage}
 
 \Cref{tab:onepage} is the short version of this guide. For each operation it shows
-which algorithm runs at which size, in the default build. Sizes are in limbs.
+which algorithm runs at which size with the generic thresholds. Sizes are in
+limbs unless marked as digits. Platform profiles can override the thresholds
+(\cref{sec:platformprofiles}).
 
 \begin{table}[ht]
 \centering
@@ -120,7 +123,7 @@ operation & size (limbs) & algorithm \\
   & $352$--$607$ & NTT if pool awake, else Karatsuba square \\
   & $\ge 608$ & NTT (only three forward transforms) \\
 \midrule
-\multirow{6}{*}{$a \div b$}
+\multirow{5}{*}{$a \div b$}
   & divisor 1 limb & short division with a precomputed reciprocal (\cref{sec:shortdiv}) \\
   & divisor $< 96$ & schoolbook long division, Knuth's Algorithm D (\cref{sec:knuth}) \\
   & quotient $\ge$ divisor & Burnikel--Ziegler, or Newton from divisor 1536 (768 if ratio $\ge 3$) \\
@@ -134,7 +137,7 @@ format & $< 1024$ digits & 19 digits at a time by short division \\
        & larger & divide by $10^{k}$ with cached reciprocals, recurse on both halves \\
 \bottomrule
 \end{tabularx}
-\caption{Which algorithm runs when (default build, 64-bit limbs).}
+\caption{Arithmetic dispatch with generic thresholds and 64-bit limbs.}
 \label{tab:onepage}
 \end{table}
 
@@ -146,12 +149,13 @@ not useful: \emph{how} large? The answer depends on the processor, the compiler,
 how carefully each algorithm is written. A clever algorithm has extra bookkeeping. It
 only wins once the numbers are big enough for the savings to pay for that bookkeeping.
 
-So every switch point in BigMath was found by running both algorithms on a grid of
-sizes and shapes and seeing where one overtakes the other. The values live in one
-file, \file{include/biginteger/build/DispatchThresholds.h}, and each can be changed at
-build time (for example \code{-DBIGMATH\_KARATSUBA\_THRESHOLD=32}). The figures quoted
-in this guide were measured on an Apple M1 Max. On other machines the exact
-crossovers move a little, but the shape of the picture stays the same.
+BigMath measures crossovers on a grid of sizes and shapes. The generic
+thresholds come from \file{include/biginteger/build/DispatchThresholds.h}.
+A platform profile supplies overrides for its compiler and target. You
+can also override individual thresholds at build time, for example with
+\code{-DBIGMATH\_KARATSUBA\_THRESHOLD=32}. The timing examples in this
+guide are measurements from an Apple M1 Max. Crossovers depend on the
+target CPU, compiler, and worker state.
 
 \begin{keyidea}
 An algorithm with a better growth rate always wins eventually, but ``eventually'' is

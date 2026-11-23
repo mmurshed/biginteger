@@ -170,11 +170,36 @@ kernel & what it computes \\
 These kernels are used only with true 64-bit limbs. The legacy layout
 (\code{-DBIGMATH\_LIMB\_64=0}) keeps its own simpler loops.
 
+\newpage
 \section{Comparison and shifts}
 
-For numeric ordering, \code{CompareTo} first checks the signs. It compares magnitudes
-by ignoring high zero limbs, comparing lengths, and then walking down from the most
-significant limb until a mismatch decides the order.
+For numeric ordering, \code{CompareTo} checks the signs first and reverses
+the magnitude order when both values are negative. The relational operators
+\code{>}, \code{>=}, \code{<}, and \code{<=} use this same result.
+
+The raw \code{Compare} routine treats high zero limbs as padding. If the
+stored lengths differ, any nonzero limb in the longer operand's excess
+range decides the comparison. Otherwise, compare the common width. Check
+its two highest limbs individually, then scan the remaining limbs in
+blocks of 16 when the range is long enough. In each block, XOR corresponding
+limbs and OR the differences together. A zero result skips the entire block.
+In the first differing block, compare whole limbs from most to least
+significant. The same block scan can recognize shared storage, and raw
+comparison with a scalar can skip blocks of high zeros.
+
+\begin{example}
+Suppose the highest difference is $0\mathrm{x}0100$ on the left and
+$0\mathrm{x}00\mathrm{ff}$ on the right, and a lower limb is smaller on
+the left. The left value is larger because the highest differing limb
+decides. Comparing the first unequal bytes in memory would give a
+different result on a little-endian machine.
+\end{example}
+
+The worst case remains $O(n)$ time and $O(1)$ extra space.
+In the M1 Max benchmark, an ordered comparison of 4,096 limbs with a
+low-limb mismatch took about 0.45\,\textmu s, down from
+1.30\,\textmu s. Comparisons settled by different lengths took
+about $0.7$\,ns longer. See \file{BENCHMARK.md} for the cases and commands.
 
 For \code{a == b}, comparing an object with itself takes constant time. For distinct
 objects, the operator checks the signs, stored lengths and outermost limbs. If lengths
@@ -185,7 +210,14 @@ low-order changes immediately and still exits early for differences near the top
 Equal copies require an exact scan of all $n$ limbs, taking $O(n)$ time and $O(1)$
 extra space. The \code{!=} operator uses the same equality check.
 
-Shifting left by $s$ bits splits into a whole-limb part ($s / 64$ limbs, which just moves
-the array) and a bit part ($s \bmod 64$, handled by \code{Lshift}). Shifts show up
-constantly in division, where both operands are shifted so the divisor's top bit is set
+The public shift operators count whole limbs. \code{a << k} multiplies
+by $B^k$, and \code{a >> k} drops the lowest $k$ limbs while preserving
+the sign of a nonzero result. Internally, a shift by $s$ bits splits into
+$\floor{s/64}$ whole limbs and $s\bmod 64$ bits in the default radix.
+Division uses those bit shifts to normalize the divisor
 (\cref{sec:normalize}).
+
+The shared limb utilities use \code{DataT} for stored limb values and
+\code{SizeT} for the library's limb counts. Container offsets use
+\code{std::size\_t}. Division shares a leading-zero count for
+normalization and a trimmed limb count for padded operands.

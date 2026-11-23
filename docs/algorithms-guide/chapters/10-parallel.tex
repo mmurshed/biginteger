@@ -19,6 +19,9 @@ NTT product & Ordinary CRT batches operand--prime transforms. The fused matrix m
               splits the carries into ranges (\cref{sec:nttthreads}). \\
 parse / print $\ge$ 100\,000 digits & 8 independent subtrees of the divide-and-conquer tree \\
 division, conversion & indirectly: their large products are NTT products \\
+Miller--Rabin & independent randomized witnesses once base 2 passes \\
+next probable prime & base-2 screens of sieve survivors, then randomized tests in
+                      candidate order (\cref{sec:prime}) \\
 \bottomrule
 \end{tabularx}
 \end{center}

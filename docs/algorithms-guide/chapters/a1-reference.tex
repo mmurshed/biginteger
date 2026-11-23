@@ -1,11 +1,12 @@
 \chapter{Reference}
 \label{app:ref}
 
-\section{Every switch point}
+\section{Generic switch points}
 
-All values are for the default build (64-bit limbs, three-prime NTT, threads on). Each is a
-preprocessor macro that can be overridden with \code{-D} when compiling the library. Canonical
-defaults are in \file{include/biginteger/build/DispatchThresholds.h} unless noted.
+These are generic values for 64-bit limbs with CRT and threads enabled.
+Each macro can be overridden when compiling the library. The generic
+values come from \file{include/biginteger/build/DispatchThresholds.h}
+unless noted. See \cref{sec:platformprofiles} for checked-in overrides.
 
 \subsection*{Multiplication and squaring}
 
@@ -18,13 +19,14 @@ macro & default & meaning \\
 \code{BIGMATH\_INLINE\_LIMBS} & 4 & values stored inside the object (\file{BigInteger.h}) \\
 \code{BIGMATH\_CLASSIC\_MULTIPLICATION\_THRESHOLD} & 56 & schoolbook if $n_a + n_b \le$ this \\
 \code{BIGMATH\_CLASSIC\_MIN\_LIMB\_THRESHOLD} & 24 & schoolbook if $\min(n_a,n_b) \le$ this \\
-\code{BIGMATH\_KARATSUBA\_THRESHOLD} & 24 & Karatsuba leaf size (\file{KaratsubaMultiplication.h}) \\
+\code{BIGMATH\_KARATSUBA\_THRESHOLD} & 24 & Karatsuba leaf size \\
 \code{BIGMATH\_MUL\_TOOM33\_THRESHOLD} & 168 & Toom-3 split inside Karatsuba from this size \\
 \code{BIGMATH\_MUL\_TOOM44\_THRESHOLD} & $10^6$ & Toom-4 split (effectively off) \\
 \code{BIGMATH\_NTT\_MULTIPLICATION\_THRESHOLD} & 640 & NTT needs $n_a + n_b \ge$ this \\
 \code{BIGMATH\_NTT\_MIN\_LIMB\_THRESHOLD} & 64 & NTT needs $\min(n_a,n_b) \ge$ this \\
 \code{BIGMATH\_NTT\_AREA\_THRESHOLD} & 96\,000 & NTT needs $n_a n_b \ge$ this (warm pool) \\
 \code{BIGMATH\_NTT\_COLD\_AREA\_THRESHOLD} & 262\,144 & NTT regardless of pool from this area \\
+\code{BIGMATH\_NTT\_SERIAL\_BALANCED\_MIN\_LIMBS} & 0 & optional single-thread NTT floor for distinct, nearly equal lengths \\
 \code{BIGMATH\_SMALL\_SELF\_SQUARE\_MAX} & 319 & \code{x*x} goes to the square dispatcher up to this \\
 \code{BIGMATH\_KARATSUBA\_SQUARE\_THRESHOLD} & 48 & schoolbook square below this (\file{KaratsubaSquare.h}) \\
 \code{BIGMATH\_SQR\_TOOM3\_THRESHOLD} & 160 & Toom-3 split for squares \\
@@ -53,7 +55,7 @@ macro & default & meaning \\
 \code{BIGMATH\_DIV\_NEWTON\_SKEW\_RATIO} & 3 & the ratio for the line above \\
 \code{BIGMATH\_DIV\_NEWTON\_NEAR2\_MIN\_B} & 3072 & Newton for ratio in $[7/4, 2)$ from this length \\
 \code{BIGMATH\_DIV\_QSIZED\_MIN\_QUOTIENT} & 3072 & quotient-sized division from this quotient length \\
-\code{BIGMATH\_DC\_DIV\_THRESHOLD} & 64 & Burnikel--Ziegler base case (\file{BurnikelZieglerDivision.h}) \\
+\code{BIGMATH\_DC\_DIV\_THRESHOLD} & 64 & Burnikel--Ziegler base case \\
 \code{BIGMATH\_NEWTON\_SCHOOLBOOK\_HEAD} & 32 & short leading Newton blocks use Algorithm D \\
 \code{BIGMATH\_CYCLIC\_NTT\_THRESHOLD} & 1280 & smallest wrap-around (mod $B^L-1$) product inside Newton \\
 \bottomrule
@@ -78,10 +80,42 @@ macro & default & meaning \\
 \bottomrule
 \end{longtable}
 
+\section{Checked-in platform profiles}
+\label{sec:platformprofiles}
+
+These are the effective values in the current source with 64-bit limbs
+and no command-line threshold overrides. All entries are limb counts.
+The product floor counts the \emph{sum} of operand lengths. A product
+must also pass the short-operand and area tests in \cref{ch:muldispatch}.
+The square floors apply to the square dispatcher. The BZ floor controls
+when division starts considering Burnikel--Ziegler.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Profile & NTT product & NTT square & Parked square & BZ divisor \\
+\midrule
+Generic & 640 & 352 & 608 & 96 \\
+Linux x86-64 GCC & 8\,192 & 4\,096 & 4\,096 & 81 \\
+Linux x86-64 Clang & 8\,192 & 4\,096 & 4\,096 & 96 \\
+macOS Arm64 Clang & 640 & 352 & 512 & 81 \\
+macOS x86-64 Clang & 4\,096 & 768 & 4\,096 & 96 \\
+Windows x86-64 Clang & 4\,096 & 2\,048 & 4\,096 & 96 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The macOS Arm64 Clang profile also sets the single-thread floor for
+distinct, nearly equal operands to 704 limbs. Source builds normally
+select the profile for the compiler target. Packaged builds use the
+profile embedded at their tagged revision. See \file{docs/PLATFORM\_TUNING.md}.
+
 \section{Costs at a glance}
 
 \begin{center}
 \footnotesize
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lll}
 \toprule
 algorithm & cost for $n$-limb inputs & where in the code \\

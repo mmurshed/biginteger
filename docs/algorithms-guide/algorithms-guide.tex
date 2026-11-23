@@ -114,6 +114,7 @@
 
 \begin{document}
 
+\hypersetup{pageanchor=false}
 \begin{titlepage}
   \centering
   \vspace*{3cm}
@@ -132,11 +133,13 @@
     \draw[arr] (0,0.9) -- node[above,lbl]{bigger numbers} (9.0,0.9);
   \end{tikzpicture}
   \vfill
-  {\small Covers the default build: 64-bit limbs, three-prime CRT number-theoretic transform,\\
-  internal thread pool. Thresholds and measurements as of November 2026 (Apple M1 Max).\par}
+  {\small Covers the 64-bit build with the CRT number-theoretic transform and internal
+  thread pool. Includes generic thresholds, checked-in platform profiles, and
+  November 2026 measurements from an Apple M1 Max.\par}
   \vspace{0.5cm}
   {\small Source: \file{docs/algorithms-guide/}\par}
 \end{titlepage}
+\hypersetup{pageanchor=true}
 
 \tableofcontents
 
@@ -150,6 +153,7 @@
 \input{chapters/07-fast-division}
 \input{chapters/08-div-dispatch}
 \input{chapters/09-conversion}
+\input{chapters/number-theory}
 \input{chapters/10-parallel}
 \input{chapters/11-practice}
 \input{chapters/12-decisions}

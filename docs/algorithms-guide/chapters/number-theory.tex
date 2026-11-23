@@ -1,0 +1,140 @@
+\chapter{Number theory and integer roots}
+\label{ch:numbertheory}
+
+Include \file{biginteger/ops/NumberTheory.h} or \file{biginteger/ops/Operations.h}
+for these functions. All return integer results. The prime tests give exact
+answers below $2^{64}$ and probabilistic answers above that range.
+
+\section{Greatest common divisors and B\'ezout coefficients}
+\label{sec:gcd}
+
+\code{Gcd(a, b)} returns the nonnegative greatest common divisor of signed inputs.
+\code{ExtendedGcd(a, b)} also returns coefficients $x$ and $y$ satisfying
+$a x + b y = \gcd(a,b)$. Both functions accept zero. For two zero inputs, the
+divisor and both coefficients are zero.
+
+One Euclidean step replaces $(a,b)$ by $(b,a-qb)$, where $q$ is the quotient
+of $a$ divided by $b$. The common divisors stay the same. Extended GCD applies
+the same step to the coefficients of the two remainders, so they remain linear
+combinations of the original inputs.
+
+\begin{example}
+$240=5\cdot46+10$, then $46=4\cdot10+6$, $10=6+4$, and
+$6=4+2$. Substituting back gives $2=-9\cdot240+47\cdot46$.
+The coefficient pair need only satisfy the identity.
+\end{example}
+
+BigMath uses Lehmer's algorithm to batch steps when both remainders have
+the same limb count and have at least two limbs. It predicts quotients from
+a common leading prefix of at most 62 bits and bounds what the omitted
+low limbs could contribute. A batch is used only when those bounds certify
+at least two steps. A two-by-two matrix applies the batch to the full
+remainders and, for extended GCD, to the coefficient pairs. An exact
+division step handles cases where a batch cannot be certified. Plain GCD
+finishes with a scalar remainder and a single-limb GCD when the second
+operand fits in one limb.
+
+\section{Integer square root with a remainder}
+\label{sec:sqrtrem}
+
+\code{SqrtRem(n)} returns $(s,r)$ such that
+$s=\floor{\sqrt n}$, $n=s^2+r$, and $0\le r\le 2s$.
+It accepts zero and throws for negative inputs. For example, \code{SqrtRem(80)}
+gives $(8,16)$ because $80=8^2+16$ and $9^2=81$.
+
+For one or two limbs, a floating-point estimate supplies a starting root.
+The code checks it with integer arithmetic and corrects it by integer Newton
+iteration when necessary. Inputs too small for a recursive split likewise
+use Newton iteration, seeded from leading bits.
+
+For larger inputs, BigMath uses Zimmermann's divide-and-conquer square root.
+Choose a limb-aligned radix $D$ and write $n=aD^2+bD+c$. Recursively compute
+$h=\floor{\sqrt a}$ and $r_h=a-h^2$. Divide $r_h D+b$ by $2h$ to get a quotient
+$q$ and remainder $t$. Expanding the trial root $hD+q$ gives
+\[
+n-(hD+q)^2=tD+c-q^2 .
+\]
+The split keeps $h\ge D/2$, so if the trial remainder is negative, one
+decrement of the trial root suffices. To update the remainder after the
+decrement, add twice the trial root minus one.
+
+\begin{example}[ with radix 10]
+For $n=2759$, the blocks are $27$, $5$, and $9$. The high root is $5$ with
+remainder $2$. Dividing $25$ by $10$ gives $q=2$ and $t=5$, so the
+root is $52$ and the remainder is $50+9-4=55$.
+\end{example}
+
+\section{Modular powers}
+\label{sec:powmod}
+
+\code{PowMod(a, e, m)} returns $a^e\bmod m$ in $[0,m)$.
+The base may be signed, the exponent must be nonnegative, and the
+modulus must be positive. An exponent of zero returns $1\bmod m$,
+which is zero when $m=1$.
+
+Repeated squaring processes the binary digits of $e$ and reduces each
+intermediate product modulo $m$. For a dense exponent, a sliding window
+uses a table of odd powers to handle several bits at once. Sparse or short
+exponents use the binary path. For example, $7^{13}\bmod 11=2$.
+The powers for exponents $1,4,8$ have residues $7,3,9$ and their product
+has residue $2$.
+
+\begin{itemize}
+  \item A single-limb modulus uses machine-word products with a wider
+        intermediate when needed.
+  \item An odd multi-limb modulus of at most 128 limbs and an exponent of
+        at least 16 bits use Montgomery reduction. Values stay in the form
+        $xR\bmod m$, with $R=B^{n_m}$ for an $n_m$-limb modulus. Reduction
+        adds a multiple of $m$ that cancels the low limbs, then drops those
+        limbs instead of dividing by $m$.
+  \item At those size limits, an even modulus with a power-of-two factor
+        that fits in one limb can be split as $m=2^k u$ with $u$ odd.
+        Compute the residues modulo $2^k$ and $u$ and combine them by the
+        Chinese remainder theorem.
+  \item The general path multiplies and reduces through the integer
+        multiplication and division dispatchers.
+\end{itemize}
+
+The runtime depends on the operands and the exponent's bits.
+
+\newpage
+\section{Primality testing and finding the next prime}
+\label{sec:prime}
+
+\code{IsProbablePrime(n, rounds)} rejects values below 2 and screens small
+factors before running Miller--Rabin. The test writes $n-1=2^s d$ with $d$
+odd. For a witness base $a$, it computes $a^d\bmod n$ and squares the residue
+up to $s-1$ times. The first value may be $1$ or $-1$ modulo $n$. Otherwise,
+one of the later squares must reach $-1$ for the witness to pass.
+
+The deterministic word path uses three fixed bases through 32 bits and
+seven through the rest of the unsigned 64-bit range. For larger values it
+screens base 2, then samples uniformly from $[2,n-2]$ by rejection.
+With $k$ independent uniform random witnesses, the chance that any
+fixed odd composite passes all $k$ is at most $4^{-k}$. The default is
+32 random witnesses. Both prime APIs require a positive round count.
+When the candidate has at least 1,024 bits, fits in the 128-limb
+Montgomery path, and requests at least eight random witnesses, workers
+can test the witnesses in parallel with separate scratch space.
+
+\code{NextProbablePrime(n, rounds)} searches strictly above $n$ and returns
+2 for $n<2$. For example, a search starting at 29 returns 31. For
+word-size starting values it tests odd candidates directly. For larger
+starting values, it marks multiples of small odd primes in segments of
+1,024 odd candidates. Each small prime's next offset carries forward to the
+next segment. The sieve uses primes below 4,096 through 512 bits and below
+32,768 above that size.
+
+The first sieve survivor is tested on its own. In the parallel size range
+(at least 1,024 bits and at most 128 limbs), the search can then screen
+up to eight survivors at a time with base 2. It applies the randomized
+tests to the passing candidates in ascending order, so completion order
+cannot select a later result.
+
+\begin{practice}
+\file{BENCHMARK.md} records separate GMP comparisons for these operations,
+including dense and sparse exponents and ordinary and long prime gaps.
+In a Release build with GMP available, build \code{number\_theory\_vs\_gmp}.
+Pass \code{gcd}, \code{sqrtrem}, \code{powmod}, \code{prime}, or
+\code{nextprime} to isolate a benchmark.
+\end{practice}

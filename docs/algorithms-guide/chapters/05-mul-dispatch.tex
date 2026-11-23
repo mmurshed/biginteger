@@ -2,8 +2,8 @@
 \label{ch:muldispatch}
 
 \Cref{ch:mul,ch:ntt} described four methods. This chapter explains how
-\code{Multiply} picks one, and why the rules look the way they do. The code is short; it is
-in \file{src/algorithms/Multiplication.cpp}.
+\code{Multiply} picks one. The implementation is in
+\file{src/algorithms/Multiplication.cpp}.
 
 \section{The decision, step by step}
 
@@ -42,8 +42,8 @@ comes from.
   \draw[arr] (cold) -- node[above,lbl]{yes} (nttx);
   \draw[arr] (cold) -- node[above,lbl]{no} (kar2);
 \end{tikzpicture}
-\caption{The multiplication dispatcher (64-bit limbs, default thresholds). The first test
-happens in the operator layer; the rest in \code{Multiply}.}
+\caption{The multiplication dispatcher with 64-bit limbs and generic thresholds.
+The stack-buffer test happens in the operator layer.}
 \label{fig:muldispatch}
 \end{figure}
 
@@ -54,7 +54,7 @@ pair of lengths; its colour is the algorithm that runs.
 \centering
 \includegraphics[width=\textwidth]{figures/mul_dispatch_map.pdf}
 \caption{Which algorithm multiplies an $n_{\min} \times n_{\max}$ product, with the thread
-pool awake (left) and parked or disabled (right). Computed from the dispatcher's rules.
+pool awake (left) and parked or disabled (right), using the generic thresholds.
 Points A--D are the worked examples in \cref{sec:mulexamples}.}
 \label{fig:muldispmap}
 \end{figure}
@@ -102,10 +102,10 @@ balanced & 320 & 102k \\
 The crossover sits at a nearly constant \emph{area} $n_a \times n_b$, the number of limb
 products schoolbook would need. That gives a simple rule with three conditions:
 \[
-\text{NTT} \iff n_a + n_b \ge 640 \ \text{ and }\ \min(n_a, n_b) \ge 64 \ \text{ and }\ n_a n_b \ge 96\,000 .
+n_a + n_b \ge 640, \qquad \min(n_a,n_b)\ge 64, \qquad n_a n_b \ge 96\,000.
 \]
-Everything that is neither schoolbook nor NTT goes to Karatsuba (with its Toom-3 levels and
-slicing).
+These generic floors make a product eligible for the NTT. The worker-state
+rule below makes the final choice between the NTT and recursive multiplication.
 
 \begin{another}
 Think of the cost of each method as a surface over the $(n_{\min}, n_{\max})$ plane. The
@@ -144,10 +144,21 @@ nudges the pool awake without giving it work. The third multiplication of the bu
 finds it warm and takes the NTT. An isolated multiplication wakes nothing.
 
 \begin{practice}
-The dispatcher's choice depends on timing, but the \emph{result} never does: both paths
-compute the exact same product. Single-threaded builds (\code{-DBIGMATH\_USE\_THREADS=0}) always
-use the cold thresholds, which is where their serial crossover happens to be.
+Both paths compute the same exact product. With the generic profile,
+\code{-DBIGMATH\_USE\_THREADS=0} uses the cold thresholds. The macOS Arm64
+Clang profile adds a single-thread floor of 704 limbs for distinct operands
+whose lengths differ by at most one limb. It leaves the threaded
+worker-state rule in place.
 \end{practice}
+
+On the M1 Max, the one-thread recursive kernel took 40.0\,\textmu s
+at $520\times520$ limbs, versus 46.5\,\textmu s for the NTT. At
+$720\times720$, the NTT took 65.9\,\textmu s and recursion took
+69.7\,\textmu s. The Apple silicon Clang kernel also specializes
+schoolbook row widths from 12 through 24 limbs. Its NEON radix-8
+butterflies reuse groups of twiddle factors and reduction constants
+across blocks on short, repeated stages. See \file{BENCHMARK.md} for the
+paired measurements through one million decimal digits.
 
 \section{Squares}
 \label{sec:sqdispatch}
@@ -157,6 +168,8 @@ multiplication goes straight to the square dispatcher, which exploits the symmet
 \cref{sec:square}. Larger self-products go through the normal rules above. The ordinary
 and truncated CRT transforms can reuse the spectrum of the shared operand
 (\cref{sec:nttreuse}).
+
+For a direct call to the square dispatcher, the generic thresholds are:
 
 \begin{center}
 \small
@@ -173,8 +186,9 @@ $\ge 608$ & NTT self-product (see \cref{sec:nttreuse}) \\
 \end{tabular}
 \end{center}
 
-At the square thresholds, the ordinary CRT path saves three forward transforms by
-reusing one spectrum per prime.
+The profile can override the two NTT square floors
+(\cref{sec:platformprofiles}). The ordinary CRT path saves three forward
+transforms by reusing one spectrum per prime.
 
 \section{Worked dispatch examples}
 \label{sec:mulexamples}
@@ -202,7 +216,7 @@ reusing one spectrum per prime.
 
 \section{How the rules were found}
 
-The thresholds were last re-measured on 20--21 November 2026, after the limb kernels,
+The generic thresholds were re-measured on 20--21 November 2026, after the limb kernels,
 Karatsuba slicing, and NTT improvements had all moved the crossovers. The procedure:
 time every algorithm directly on a grid of shapes ($n_{\min}$ from 8 to 256 limbs,
 ratios 1 to 128), find where each pair crosses, and fit the simplest rule that matches.
