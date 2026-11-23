@@ -167,7 +167,7 @@ non-pow2 pathology stays documented as accepted.
 
 **Short-quotient band (`QuotientSizedDivision`, 2026-06-11).** For `b ≥ QSIZED_MAIN_B` (24576 — decoupled from the balanced floor on 2026-06-12 when `NEWTON_BALANCED_B` moved to 131072), `a ≥ b + 64`, ratio < 4/3: with Δ = a.size − b.size and t = Δ+4, the (Δ+1)-limb quotient is determined to ±a few units by the operand TOPS — `q_est = floor((a >> B^(nb−t)) / (b >> B^(nb−t)))` (truncating b perturbs q by ≤ ~B^(2−GUARD), sub-ulp). The tops divide (ratio ~2, size ~2Δ/Δ) goes to Newton directly at t ≥ 6144 (measured: Newton beats BZ at ratio 2 from ~6k limbs — 13 vs 22 ms at 12k, 40 vs 299 ms at 30k, 0.16 s vs 5.3 s at 65537); the exact remainder then costs one Δ×nb back-multiply plus ±few fixups (cap 8, fallback Newton). Cost scales with the **quotient**, not the divisor. Measured (nb=131073, the 2^k+1 pathology): ratios 1.05/1.10/1.25 went from 1.07 s / 2.16 s / 5.35 s (BZ) to **28 / 43 / 71 ms** (38–75×). Generic nb=120000: 37/56/116 ms → 30/39/66 ms. It also beats BZ at BZ's exact-power-of-2 best case (131072 @1.25: 65 vs 88 ms) — no regression band.
 
-`KnuthDivision` and `ReciprocalDivision` exist as alternate implementations used by correctness tests for cross-checking. They are not in the production dispatch path.
+The public `CacheDivision()` API uses `ReciprocalDivision` to reuse Newton's reciprocal across calls. The tests use a separate textbook Algorithm D implementation to cross-check `FastDivision`.
 
 ---
 
@@ -225,9 +225,11 @@ The Base2_32 fast path uses `ULong128` arithmetic for `qhat` estimation (`acc / 
 
 ### Knuth division (reference implementation)
 
-**Location:** `algorithms/division/KnuthDivision.h`.
+**Location:** `tests/support/DivisionReference.h`.
 
-A more textbook-faithful implementation of Algorithm D, kept primarily as a cross-check reference for `tests/div_correctness.cpp`. The production dispatch never invokes it. If a regression is suspected in `FastDivision`, comparing limb-for-limb against `KnuthDivision` is a fast way to bisect the bug.
+The FastDivision base-case, adversarial fuzz and regression tests compare
+their quotients and remainders against this textbook implementation of
+Algorithm D. The standalone division benchmark also uses it.
 
 ### Burnikel–Ziegler division
 
@@ -1177,7 +1179,7 @@ Same reasons as for multiplication ([MULTIPLICATION.md §Explored but rejected](
 - `include/biginteger/build/DispatchThresholds.h` — canonical dispatch threshold defaults (its `#define`s win over the `#ifndef` fallbacks in the algorithm headers).
 - `include/biginteger/algorithms/division/ClassicDivision.h` — single-limb division and `DivModTo` helper.
 - `include/biginteger/algorithms/division/FastDivision.h` — Knuth Algorithm D with Base2_32/Base2_64 fast paths.
-- `include/biginteger/algorithms/division/KnuthDivision.h` — textbook reference, cross-check only (rewritten on 128-bit arithmetic for Base2_64, 2026-06-12 audit).
+- `tests/support/DivisionReference.h` — textbook Algorithm D reference for tests and benchmarks.
 - `include/biginteger/algorithms/division/BurnikelZieglerDivision.h` — balanced 2n/n recursive, with bottom-zero-limb padding so the divisor size halves cleanly at every level (PR #116).
 - `include/biginteger/algorithms/division/NewtonDivision.h` — Newton–Raphson reciprocal, blockwise mode, `Divider` cached-reciprocal class.
 - `include/biginteger/algorithms/division/QuotientSizedDivision.h` — short-quotient tops-divide algorithm (ratio < 4/3 band).

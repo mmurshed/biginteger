@@ -16,7 +16,7 @@
 #include "biginteger/algorithms/Subtraction.h"
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/division/FastDivision.h"
-#include "biginteger/algorithms/division/KnuthDivision.h"
+#include "../support/DivisionReference.h"
 #include "biginteger/algorithms/division/QuotientSizedDivision.h"
 
 using namespace BigMath;
@@ -145,7 +145,7 @@ REGISTER_TEST(AuditDivision, FastDivisionStructuredLimbSweep)
     }
 }
 
-// ── KnuthDivision: works under the default base, agrees with FastDivision ───
+// ── Textbook division reference agrees with FastDivision ──────────────────
 // Was: d = base / (b.back()+1) divided by zero under the Base2_64 sentinel;
 // qhat*v[i] overflowed signed Long under Base2_32; untrimmed operands
 // overflowed the heap because Multiply trims trailing zeros.
@@ -161,7 +161,7 @@ REGISTER_TEST(AuditDivision, KnuthMatchesFastDefaultBase)
   };
   for (auto const &[a, b] : cases)
   {
-    auto k = KnuthDivision::DivideAndRemainder(a, b, BigInteger::Base());
+    auto k = TestSupport::DivisionReference::DivideAndRemainder(a, b, BigInteger::Base());
     auto f = FastDivision::DivideAndRemainder(a, b, BigInteger::Base());
     ASSERT_EQ(Compare(k.first, f.first), 0);
     ASSERT_EQ(Compare(k.second, f.second), 0);
@@ -171,12 +171,12 @@ REGISTER_TEST(AuditDivision, KnuthMatchesFastDefaultBase)
 REGISTER_TEST(AuditDivision, KnuthUntrimmedOperands)
 {
   // High zero limbs on both operands: previously a heap-buffer-overflow in
-  // KnuthDivision (Multiply trims trailing zeros; the loop indexed past).
+  // the textbook reference (Multiply trims trailing zeros; the loop indexed past).
   // FastDivision's contract requires trimmed inputs, so compare against a
   // trimmed-input reference call.
   std::vector<DataT> a = {7, 9, 11, 0, 0};
   std::vector<DataT> b = {kMax, 3, 0};
-  auto k = KnuthDivision::DivideAndRemainder(a, b, BigInteger::Base());
+  auto k = TestSupport::DivisionReference::DivideAndRemainder(a, b, BigInteger::Base());
   std::vector<DataT> at = {7, 9, 11};
   std::vector<DataT> bt = {kMax, 3};
   auto f = FastDivision::DivideAndRemainder(at, bt, BigInteger::Base());

@@ -1,11 +1,12 @@
 // FastDivision's 64-bit-limb basecase (raw-buffer Knuth D on the SubMul1
-// kernel) against the reference KnuthDivision and the division identity.
+// kernel) against the textbook division reference and the division identity.
 //
 // Shapes sweep the block remainders of the kernels, both normalization cases
 // (shift == 0 and shift > 0), single- and two-limb divisors, and structured
 // operands that force the qhat == B-1 special case and the add-back step.
 
 #include "unit_test_framework.h"
+#include "../support/DivisionReference.h"
 
 #include <cstdint>
 #include <random>
@@ -14,7 +15,6 @@
 #include "biginteger/algorithms/Addition.h"
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/division/FastDivision.h"
-#include "biginteger/algorithms/division/KnuthDivision.h"
 #include "biginteger/common/Comparator.h"
 
 using namespace BigMath;
@@ -28,7 +28,7 @@ namespace
     return v;
   }
 
-  // q*b + r == a and r < b, plus agreement with KnuthDivision.
+  // q*b + r == a and r < b, plus agreement with the reference.
   void CheckDivision(std::vector<DataT> const &a, std::vector<DataT> const &b)
   {
     auto qr = FastDivision::DivideAndRemainder(a, b, Base2_64, true);
@@ -38,7 +38,7 @@ namespace
     auto back = Trimmed(Add(Multiply(q, b, Base2_64), r, Base2_64));
     ASSERT_TRUE(back == Trimmed(a));
 
-    auto ref = KnuthDivision::DivideAndRemainder(a, b, Base2_64);
+    auto ref = TestSupport::DivisionReference::DivideAndRemainder(a, b, Base2_64);
     ASSERT_TRUE(q == Trimmed(ref.first));
     ASSERT_TRUE(r == Trimmed(ref.second));
 

@@ -27,7 +27,6 @@ using namespace std;
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 
-#include "biginteger/algorithms/division/KnuthDivision.h"
 #include "biginteger/algorithms/division/FastDivision.h"
 
 using namespace BigMath;

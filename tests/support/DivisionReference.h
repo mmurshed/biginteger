@@ -1,25 +1,24 @@
 /**
- * BigInteger Class
- * Version 9.0
+ * Textbook Algorithm D for division cross-checks.
  * S. M. Mahbub Murshed (murshed@gmail.com)
  */
 
-#ifndef KNUTH_DIVISION
-#define KNUTH_DIVISION
+#ifndef BIGMATH_TEST_DIVISION_REFERENCE
+#define BIGMATH_TEST_DIVISION_REFERENCE
 
 #include <cstddef>
-#include <vector>
-#include <string>
 #include <stdexcept>
-#include <algorithm>
+#include <utility>
+#include <vector>
 
-#include "../../common/Util.h"
-#include "../multiplication/ClassicMultiplication.h"
-#include "../division/ClassicDivision.h"
+#include "biginteger/algorithms/division/ClassicDivision.h"
+#include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
+#include "biginteger/common/Comparator.h"
+#include "biginteger/common/Util.h"
 
-namespace BigMath
+namespace BigMath::TestSupport
 {
-  class KnuthDivision
+  class DivisionReference
   {
   public:
     // Divide a by b.
@@ -31,8 +30,7 @@ namespace BigMath
     static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
         const std::vector<DataT> &a,
         const std::vector<DataT> &b,
-        BaseT base,
-        bool computeRemainder = true)
+        BaseT base)
     {
       // Given nonnegative integers u = (u_m+n−1 . . . u_1 u_0)b and v = (v_n−1 . . . v_1 v_0)_b,
       // where v_n−1 != 0 and n > 1, we form the radix-b quotient ⌊u/v⌋ = (q_m q_m–1 . . . q_0)_b
@@ -121,24 +119,10 @@ namespace BigMath
 
       TrimZerosToOne(q);
 
-      std::vector<DataT> r;
-
       // Unnormalize the remainder.
-      if (computeRemainder)
-      {
-        r = ClassicDivision::Divide(u, d, base);
-        TrimZerosToOne(r);
-      }
-
+      auto r = ClassicDivision::Divide(u, d, base);
+      TrimZerosToOne(r);
       return {q, r};
-    }
-
-    static std::vector<DataT> Divide(
-        const std::vector<DataT> &a,
-        const std::vector<DataT> &b,
-        BaseT base)
-    {
-      return DivideAndRemainder(a, b, base, false).first;
     }
 
   private:
