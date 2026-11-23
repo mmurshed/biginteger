@@ -64,7 +64,7 @@ Number-theoretic transform (NTT) input packing depends on the path: the default 
 
 ## Top-level dispatch
 
-`include/biginteger/algorithms/Multiplication.h` (out-of-line dispatch body in `src/algorithms/Multiplication.cpp`) exposes `Multiply(a, b, base)` returning a fresh limb vector. The dispatcher inspects operand sizes and shape, then picks Classic, Karatsuba, or NTT. A Toom-3 branch remains in the code but is unreachable since 2026-06-12: `TOOM3_MULTIPLICATION_THRESHOLD == NTT_MULTIPLICATION_THRESHOLD == 640 on 64-bit builds`, so the window is retired (CRT+NEON NTT beats Toom-3 everywhere it used to win). The NTT wrapper has a second-level dispatch between the Goldilocks and CRT/MFA kernels.
+`include/biginteger/algorithms/Multiplication.h` declares `Multiply(a, b, base)`, which returns a fresh limb vector. The implementation in `src/algorithms/Multiplication.cpp` picks schoolbook, Karatsuba, or the NTT based on operand size and shape. The limb-based Toom-3 split runs inside Karatsuba. The NTT wrapper chooses between Goldilocks and CRT/MFA.
 
 ```mermaid
 flowchart TD
@@ -107,7 +107,6 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD` | `24` under LIMB_64 | min of limbs | Classic whenever the shorter operand is at or below the Karatsuba leaf cutoff |
 | `BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD` | `0` under LIMB_64 | min of limbs | Legacy high-skew Classic guard — retired 2026-11-20 (sliced Karatsuba wins) |
 | `BIGMATH_CLASSIC_SKEW_RATIO` | `10` | ratio | Legacy high-skew Classic guard |
-| `BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD` | `640` under LIMB_64 | sum of limbs | Start of the Toom-3 window; equal to the NTT threshold, so the window is empty |
 | `BIGMATH_NTT_MULTIPLICATION_THRESHOLD` | `640` under LIMB_64 | sum of limbs | Floor on the total for NTT (5120 → 1280 on 2026-06-12, → 640 on 2026-11-20) |
 | `BIGMATH_NTT_MIN_LIMB_THRESHOLD` | `64` under LIMB_64 | min of limbs | NTT needs the shorter operand at least this long |
 | `BIGMATH_NTT_AREA_THRESHOLD` | `96000` under LIMB_64 | limbs² | NTT needs `la·lb` at least this large |
@@ -115,7 +114,7 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NTT_MFA_THRESHOLD` | `2^20` | transform coefficients | MFA vs radix-8 CRT NTT (2^24 → 2^20 in PR #109) |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `24` under LIMB_64 | per-operand limbs | Inside Karatsuba: base-case cutoff (48 → 32 on 2026-06-12, → 24 on 2026-11-20 with the limb kernels) |
 
-`Toom-Cook 3`'s dispatch window was retired on 2026-06-12 (CRT+NEON beats it everywhere it used to win); it remains implemented and correctness-tested as a cross-check alternate. `Toom-5` is implemented and correctness-tested but **not in the default dispatch** — see [Toom-5](#toom-5) for why. The canonical home for all dispatch threshold defaults is `include/biginteger/build/DispatchThresholds.h` — its `#define`s win over the `#ifndef` fallbacks in the algorithm headers.
+Tests and benchmarks can call [Toom-5](#toom-5) directly. The dispatcher takes its thresholds from `include/biginteger/build/DispatchThresholds.h`, where the definitions take precedence over the fallbacks in the algorithm headers.
 
 `Square(a, base)` lives in `algorithms/Squaring.h` and has its own parallel dispatcher:
 
@@ -223,11 +222,11 @@ These eliminate per-iteration branches that the compiler was not consistently ho
 
 ### Toom-Cook 3
 
-**Location:** `algorithms/multiplication/ToomCookMultiplication.h`.
+**Location:** `algorithms/multiplication/ToomKernels.h`, called by `KaratsubaMultiplication.h` and `KaratsubaSquare.h` for 64-bit limbs.
 
 **Complexity:** O(n^{log₃5}) ≈ O(n^1.465) multiplies. Faster asymptotic exponent than Karatsuba, but larger constant factor due to evaluation/interpolation overhead.
 
-**Status:** *implemented and validated against `mult_correctness.cpp`. Its dispatch window (total limb size `[2560, 5120)`) was retired on 2026-06-12 — CRT+NEON NTT beats it everywhere it used to win — so it is now a test-exercised cross-check alternate only.*
+**Entry points:** Use `operator*` for `BigInteger` values or `BigMath::Multiply` for limb vectors. These replace direct calls to the removed `ToomCookMultiplication` class. Use `BIGMATH_MUL_TOOM33_THRESHOLD` to tune three-way splits inside the Karatsuba recursion.
 
 **Algorithm:** split each operand into three parts, evaluate the resulting polynomials at five points {0, 1, −1, 2, ∞}, perform five sub-multiplications, and interpolate. Concretely:
 
@@ -250,13 +249,13 @@ These eliminate per-iteration branches that the compiler was not consistently ho
 
 **Why the dispatch band was narrow (historical — window retired 2026-06-12).** Toom-3's useful window was the gap between Karatsuba's recursion overhead and NTT's next-power-of-two setup cost. The 2026-05 dispatcher sweeps kept Karatsuba below total size 2560, used Toom-3 for `[2560, 5120)`, and switched to NTT at 5120+; the main production win was avoiding an NTT length-boundary regression near total size 4608. The NEON Shoup butterflies (2026-06-11) made CRT NTT ~2.5× faster in that band, so the window closed and the NTT entry dropped to 1280.
 
-Toom-3 is also kept callable directly for cross-checking in `tests/mult_correctness.cpp`. See [Bodrato 2007](https://www.bodrato.it/papers/#WAIFI2007) for the optimal interpolation sequence (the implementation here uses the textbook +2 evaluation point rather than Bodrato's −2 variant, deliberately, since 2026's correctness rewrite chose clarity over the 1-mul-cheaper interpolation).
+`tests/unit/test_toom.cpp` forces the limb-based Toom-3 split and compares the product with schoolbook. It also covers recursive products and squares around the tuned cutoffs.
 
 ### Toom-3 and Toom-4 inside the Karatsuba recursion (2026-11-21)
 
 **Location:** `algorithms/multiplication/KaratsubaMultiplication.h` (`Toom3`, `Toom4`), `KaratsubaSquare.h` (squares), shared kernels in `algorithms/multiplication/ToomKernels.h`.
 
-Unlike the vector-based `ToomCookMultiplication` above, this tier is a split choice inside the pointer-based Karatsuba recursion, so every near-balanced sub-product picks the best split for its own size — including the balanced pieces of sliced unbalanced products and the products inside Burnikel–Ziegler division. With 64-bit limbs, a level whose shorter operand has at least `BIGMATH_MUL_TOOM33_THRESHOLD = 168` limbs (squares: `BIGMATH_SQR_TOOM3_THRESHOLD = 160`) splits three ways when both operands have a nonempty top third; otherwise it halves as before.
+Each recursive call chooses its split from the lengths it receives. This includes pieces of sliced unbalanced products and products inside Burnikel–Ziegler division. With 64-bit limbs, a level whose shorter operand has at least `BIGMATH_MUL_TOOM33_THRESHOLD = 168` limbs can split three ways when both operands have a nonempty top third. The three-way square cutoff is `BIGMATH_SQR_TOOM3_THRESHOLD = 160` limbs.
 
 - **Toom-3:** points 0, 1, −1, 2, ∞; five products of about n/3 limbs. Bodrato's interpolation sequence turns out to keep every intermediate a non-negative combination of the product's coefficients (e.g. `(v2 − v−1)/3 = r1 + r2 + 3r3 + 5r4`), so it runs entirely on unsigned limbs with the flag-chain kernels; only `v(−1)` carries a sign, folded into the first two steps.
 - **Toom-4:** points 0, ±1, ±2, ½, ∞; seven products of about n/4. Solved through even/odd splits (`E = (P(x) + P(−x))/2`, `O = (P(x) − P(−x))/2`) plus the ½ point, again with every value after the first sums non-negative; divisions by 3 and 5 are exact multiplications by the inverse mod 2^64. **Off by default** (`BIGMATH_MUL_TOOM44_THRESHOLD = 1000000`): against Toom-3 it was −2.5% at 320 limbs, +5% at 384, flat at 448–512, and balanced products past 512 limbs go to the NTT on this machine. Kept for platforms whose NTT starts later.
@@ -713,7 +712,7 @@ The profile that motivated this change showed `MultiplyClassicPtr` at 39% of `To
 
 Pre-2026 the `ToomCookMultiplication` class had an early `return KaratsubaMultiplication::Multiply(...)` in its recursive entry, making the Toom-3 evaluation/interpolation code unreachable. The dispatcher cross-checked against this dead implementation in `mult_correctness.cpp` and saw apparent correctness, but Toom-3 had never actually run.
 
-The 2026-05 rewrite implements correct Toom-3 with eval points {0, 1, −1, 2, ∞}, signed interpolation, and recursion bottoming to Karatsuba below `BIGMATH_TOOM3_THRESHOLD = 256`. Validated against `mult_correctness`. A later focused dispatch scan found a narrow production band, and top-level `Multiply` used Toom-3 for total limb size `[2560, 5120)` until 2026-06-12, when the window was retired (CRT+NEON NTT beats Toom-3 everywhere it used to win).
+The 2026-05 rewrite used signed interpolation and switched to Karatsuba below 256 limbs. A later sweep found a narrow production band, and the top-level dispatcher used the vector implementation for total limb sizes in `[2560, 5120)` until 2026-06-12. The faster CRT NTT closed that band. The old class and its top-level threshold overrides have since been removed.
 
 ### 64-bit limb refactor (2026-05, PRs #18–#30)
 
@@ -941,7 +940,7 @@ Implemented exactly (two-step recursive decomposition with carry tracking) on br
 - `include/biginteger/build/DispatchThresholds.h` — centralized threshold defaults; its `#define`s win over the `#ifndef` fallbacks in the algorithm headers.
 - `include/biginteger/algorithms/multiplication/ClassicMultiplication.h` — schoolbook.
 - `include/biginteger/algorithms/multiplication/KaratsubaMultiplication.h` — Karatsuba with 64-bit hybrid leaf.
-- `include/biginteger/algorithms/multiplication/ToomCookMultiplication.h` — Toom-3 (test-exercised alternate; dispatch window retired 2026-06-12).
+- `include/biginteger/algorithms/multiplication/ToomKernels.h` — limb-based Toom-3 and Toom-4 evaluation and interpolation.
 - `include/biginteger/algorithms/multiplication/NTTMultiplication.h` — NTT wrapper / Goldilocks NTT.
 - `include/biginteger/algorithms/multiplication/NTTMultiplicationCrt.h` — 3-prime CRT NTT (NEON Shoup butterflies, MFA, self-multiply skip).
 - `include/biginteger/algorithms/Squaring.h` + `src/algorithms/Squaring.cpp` — square dispatcher.

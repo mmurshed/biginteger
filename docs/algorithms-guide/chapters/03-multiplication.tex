@@ -1,22 +1,23 @@
-\chapter{Multiplication I: schoolbook, Karatsuba, Toom-3}
+\chapter{Multiplication I: schoolbook, Karatsuba, and Toom}
 \label{ch:mul}
 
 Multiplication is the operation that matters most. Division, square roots, decimal
 conversion, and powers are all built out of multiplications, so their speed follows
-multiplication's speed. BigMath has four multiplication methods and uses each where it
-is fastest:
+multiplication's speed. The default dispatcher starts with schoolbook, then uses
+Karatsuba (which can split three ways), then switches to the NTT.
 
 \begin{center}
 \begin{tikzpicture}
   \foreach \x/\c/\t/\s in {0/sAqua/schoolbook/{$n^2$},1/sBlue/Karatsuba/{$n^{1.585}$},2/sViolet/Toom-3/{$n^{1.465}$},3/sOrange/NTT/{$n\log n$}} {
     \node[algo,fill=\c,minimum width=27mm] at (\x*3,0) {\t\\[-1pt]\footnotesize\s};
   }
-  \draw[arr] (-1.3,-0.75) -- node[below,lbl]{larger operands $\rightarrow$ better growth rate, more overhead} (10.3,-0.75);
+  \draw[arr] (-1.3,-0.75) -- node[below,lbl]{larger operands $\rightarrow$ methods with more setup and less growth} (10.3,-0.75);
 \end{tikzpicture}
 \end{center}
 
-This chapter covers the first three. \Cref{ch:ntt} covers the NTT and \cref{ch:muldispatch}
-explains how the library chooses.
+This chapter explains the direct multiplication methods, including the
+experimental five-way split. \Cref{ch:ntt,ch:fermat} cover transform methods.
+\Cref{ch:muldispatch} explains how the library chooses.
 
 \section{Schoolbook multiplication}
 \label{sec:schoolbook}
@@ -344,10 +345,151 @@ the thread pool is awake. Toom-3 matters most for cold calls and for the unbalan
 and division sub-products that stay below the NTT.
 
 \begin{practice}
-You never call Toom-3 directly. Two other Toom implementations exist in the source:
-\code{ToomCookMultiplication} (a vector-based Toom-3) and \code{Toom5Multiplication}. Both
-are kept as independent cross-checks for the tests. A Toom-4 split inside the Karatsuba
-recursion is implemented but switched off
-(\code{BIGMATH\_MUL\_TOOM44\_THRESHOLD} $= 10^6$): on the M1 it gained nothing before the NTT
-takes over. On a machine where the NTT starts later, try enabling it around 500 limbs.
+The public multiplication operator reaches the limb-based Toom-3 through
+Karatsuba. The optional four-way split has a default cutoff of $10^6$ limbs,
+effectively out of reach before the NTT takes over.
+\end{practice}
+
+\clearpage
+\section{Toom-5: nine products from five pieces}
+\label{sec:toomfive}
+
+Take five chunks from each operand, keeping them in order from low to high.
+Divide the longer length by five and round up to get the chunk width $k$
+in limbs. Missing high chunks are zero. Each chunk's place value is a
+power of $X=B^k$.
+For example, the first operand is $a_0+a_1X+\cdots+a_4X^4$. Think of
+that expression as a recipe. Replace $X$ temporarily by a small number
+$x$ and you can mix the five chunks using additions and short integer
+multiplications. Mix both inputs with the same $x$, then multiply the
+two mixed values.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1.26cm,y=0.59cm]
+  \foreach \i in {0,...,4} {
+    \node[lbl] at (\i,0.83) {$b_{\i}$};
+    \node[lbl] at (-0.9,-\i) {$a_{\i}$};
+    \foreach \j in {0,...,4} {
+      \pgfmathtruncatemacro{\degree}{\i+\j}
+      \ifnum\degree=4
+        \node[box,minimum width=11mm,fill=sViolet!25] at (\j,-\i) {$a_{\i}b_{\j}$};
+      \else
+        \node[box,minimum width=11mm,fill=paper] at (\j,-\i) {$a_{\i}b_{\j}$};
+      \fi
+    }
+  }
+  \node[box,fill=sViolet!15,text width=40mm] (middle) at (7.15,-2)
+    {\textbf{One output coefficient}\\[1pt]$c_4$ adds the five\\highlighted products};
+  \draw[arr] (4.46,0) -- (5.03,0) |- (middle.west);
+\end{tikzpicture}
+\caption{Direct multiplication makes 25 chunk products. All entries with
+$i+j=4$ contribute to the same power of the chunk base. The whole grid gives
+nine coefficients, $c_0$ through $c_8$.}
+\end{figure}
+
+Toom-5 recovers those same nine coefficients from nine products of mixed
+values. Two come straight from the ends. The low chunks give $c_0$ and
+the high chunks give $c_8$, written as the values at $0$ and $\infty$.
+The other seven are the products at $1,-1,2,-2,3,-3,4$. Each supplies one
+equation in the seven middle coefficients. Solving those equations is
+called \emph{interpolation}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=5mm]
+  \node[box,fill=sViolet!12] (input) {5 chunks\\per operand};
+  \node[box,right=of input] (mix) {mix at the same\\9 points};
+  \node[box,fill=sViolet!12,right=of mix] (mul) {9 smaller\\products};
+  \node[box,right=of mul] (solve) {recover the\\9 coefficients};
+  \node[box,fill=sViolet!12,right=of solve] (out) {shift, add,\\and carry};
+  \draw[arr] (input) -- (mix);
+  \draw[arr] (mix) -- (mul);
+  \draw[arr] (mul) -- (solve);
+  \draw[arr] (solve) -- (out);
+\end{tikzpicture}
+\caption{Each mixed product replaces work on the original chunks. Interpolation
+puts the products back into their original place values.}
+\end{figure}
+
+Ideally a five-way recursion grows like $n^{\log_5 9}\approx n^{1.365}$,
+versus $n^{\log_3 5}\approx n^{1.465}$ for Toom-3. Evaluation and
+interpolation involve many extra passes over the pieces, which matter
+at the sizes where the two methods compete.
+
+\newpage
+\subsection{Worked example with five decimal chunks}
+
+Multiply $12345$ by $12121$ using one decimal digit per chunk, so $X=10$.
+At $x=1$ each mixed value is just the sum of its digits. At $x=-1$ the
+second input gives $1-2+1-2+1=-1$. The sign travels with the product.
+The final column uses the two high digits.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+point $x$ & $0$ & $1$ & $-1$ & $2$ & $-2$ & $3$ & $-3$ & $4$ & $\infty$ \\
+\midrule
+first input & 5 & 15 & 3 & 57 & 9 & 179 & 47 & 453 & 1 \\
+second input & 1 & 7 & $-1$ & 41 & 1 & 151 & 31 & 409 & 1 \\
+product $r(x)$ & 5 & 105 & $-3$ & 2337 & 9 & 27029 & 1457 & 185277 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The endpoints give $c_0=5$ and $c_8=1$. Subtract their contributions to get
+$h(x)=r(x)-5-x^8$. At $x$ and $-x$ the even powers have the same sign and
+the odd powers have opposite signs. Half the sum isolates the even part,
+and half the difference isolates the odd part. At $x=1$ these are
+$(99-9)/2=45$ and $(99+9)/2=54$. Dividing the even part by $x^2$ and the
+odd part by $x$ leaves two short polynomials in $t=x^2$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+$t=x^2$ & 1 & 4 & 9 & 16 \\
+\midrule
+$E(t)=c_2+c_4t+c_6t^2$ & 45 & 228 & 853 & $2400$ \\
+$O(t)=c_1+c_3t+c_5t^2+c_7t^3$ & 54 & 582 & 4262 & $20334$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Here is one way to solve the equations by hand. The first two slopes of
+$E$ are $(228-45)/3=61$ and $(853-228)/5=125$. Their difference divided
+by $9-1$ is $8$. Thus
+$E(t)=45+61(t-1)+8(t-1)(t-4)=16+21t+8t^2$. This gives $E(16)=2400$.
+The extra reading at $x=4$ gives $O(16)=(119736-16\cdot2400)/4=20334$.
+Applying the same slope calculation to $O$ gives
+\[
+O(t)=54+176(t-1)+70(t-1)(t-4)+4(t-1)(t-4)(t-9)
+    =14+22t+14t^2+4t^3 .
+\]
+In the code each coefficient is recovered with its own fixed weighted sum of
+the seven $h(x)$ values, followed by an exact integer division.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+place, low to high & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
+\midrule
+raw coefficient & 5 & 14 & 16 & 22 & 21 & 14 & 8 & 4 & 1 \\
+carry in & 0 & 0 & 1 & 1 & 2 & 2 & 1 & 0 & 0 \\
+digit after carry & 5 & 4 & 7 & 3 & 3 & 6 & 9 & 4 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At place 2, $16+1=17$ writes $7$ and sends a carry of $1$. Read the final
+digits from high to low to get $149\,633\,745$.
+
+\begin{practice}
+\file{Toom5Multiplication.h} uses Karatsuba below 512 limbs in the longer
+operand when called directly (with a separate single-limb shortcut).
+At $512\times512$, the recorded sweep measured $151\,\textmu$s for Toom-5
+and $49\,\textmu$s for Karatsuba. The public dispatcher leaves Toom-5 out.
+See the benchmark history in \file{docs/MULTIPLICATION.md}.
 \end{practice}

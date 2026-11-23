@@ -25,7 +25,6 @@ using namespace std;
 #include "biginteger/ops/Operations.h"
 #include "biginteger/common/Parser.h"
 #include "biginteger/common/Comparator.h"
-#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 using namespace BigMath;
@@ -68,10 +67,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Toom-Cook,NTT\n");
+  fprintf(timeFile, "Results Digit,NTT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Toom-Cook,NTT" << endl;
+  cerr << "Data,Results Digit,NTT" << endl;
 
   while (true)
   {
@@ -83,45 +82,23 @@ int main(int argc, char *argv[])
     getline(ansFile, line);
     BigInteger ans = Parse(line.c_str());
 
-    clock_t start, end;
-    double timeTakenToomCook2 = 0., timeTakenNtt = 0.;
-    int cmp;
-
-    /*
-    start = clock();
-    vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
-        a.AsVector(),
-        b.AsVector(),
-        BigInteger::Base());
-    end = clock();
-    timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
-
-    // cout << BigInteger(rToom2) << endl;
-
-    cmp = Compare(rToom2, ans.GetInteger());
-    if (cmp != 0)
-    {
-      cerr << "Toom-Cook 2 algorithm failed." << endl;
-    }
-      */
-
-    start = clock();
+    clock_t start = clock();
     vector<DataT> nttm = NTTMultiplication::Multiply(
         a.AsVector(),
         b.AsVector(),
         BigInteger::Base());
-    end = clock();
-    timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;
+    clock_t end = clock();
+    double timeTakenNtt = (double)(end - start) / CLOCKS_PER_SEC;
 
-    cmp = Compare(nttm, ans.GetInteger());
+    int cmp = Compare(nttm, ans.GetInteger());
     if (cmp != 0)
     {
       cerr << "NTT algorithm failed." << endl;
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << ans.size() << "," << timeTakenToomCook2 << "," << timeTakenNtt << endl;
-    fprintf(timeFile, "%lu,%f,%f\n", ans.size(), timeTakenToomCook2, timeTakenNtt);
+    cerr << DATA << "," << ans.size() << "," << timeTakenNtt << endl;
+    fprintf(timeFile, "%zu,%f\n", static_cast<size_t>(ans.size()), timeTakenNtt);
     fflush(timeFile);
 
     DATA++;

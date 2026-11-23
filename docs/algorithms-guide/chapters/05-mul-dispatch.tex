@@ -1,15 +1,18 @@
 \chapter{Choosing a multiplication algorithm}
 \label{ch:muldispatch}
 
-\Cref{ch:mul,ch:ntt} described four methods. This chapter explains how
-\code{Multiply} picks one. The implementation is in
-\file{src/algorithms/Multiplication.cpp}.
+\Cref{ch:mul,ch:ntt,ch:fermat} explain the multiplication methods. This
+chapter follows the choices made by the public operator. The main selector
+lives in \file{src/algorithms/Multiplication.cpp}. The CRT path then chooses
+how to fit the product into its transform limits.
 
 \section{The decision, step by step}
 
-\Cref{fig:muldispatch} shows the tests in the order the code applies them. The first one
-matching the operands decides; the sections after the figures explain where each number
-comes from.
+\Cref{fig:muldispatch} shows the tests that choose the multiplication family.
+The first match decides which branch to take. Once the dispatcher enters the
+CRT NTT, \cref{sec:hugeproductdispatch} explains how it handles very large inputs.
+The direct-call Toom-5 kernel has its own recursion cutoff
+(\cref{sec:toomfive}).
 
 \begin{figure}[tbp]
 \centering
@@ -209,10 +212,41 @@ transforms by reusing one spectrum per prime.
   \item[D: $10 \times 5000$] Shorter operand $10 \le 24$: \textbf{schoolbook}, ten
         \code{AddMul1} rows over 5000 limbs.
   \item[E: $600 \times 600$] Area 360\,000 $\ge$ 262\,144: \textbf{NTT} regardless of the pool.
-        The product has $2 \cdot 2 \cdot 600 = 2400$ coefficients, just above $H = 2048$, so the
+        The product has up to $2\cdot 600 + 2\cdot 600 - 1 = 2399$ coefficients,
+        just above $H = 2048$, so the
         $H + L$ scheme runs with $L = 512$: transform work 2560 instead of 4096.
 \end{description}
 \end{example}
+
+\newpage
+\section{When one CRT transform is too short}
+\label{sec:hugeproductdispatch}
+
+In the default fused build, a single CRT transform holds up to
+$H=2^{26}$ coefficients. Each 64-bit limb supplies two 32-bit
+coefficients. Once a product exceeds $H$, the next decision depends on
+the shorter operand.
+
+\begin{itemize}
+  \item At up to $H/2$ coefficients in the shorter operand, the dispatcher
+        cuts the longer operand into blocks sized so that each pair fits
+        a single transform.
+  \item With both operands above $H/2$, the dispatcher first tries one
+        product using standard-prime residues, then one using wide-prime
+        residues. Both the size of the coefficient sums and the available
+        number of residue blocks must fit (\cref{ch:ntt}).
+  \item If both sets of residues are too small, a build with Fermat enabled
+        can try the outer FFT when its threshold and sizing checks pass
+        (\cref{sec:fermatdispatch}). Otherwise the dispatcher multiplies
+        blocks that fit the available CRT limits and adds each partial
+        product at its place-value offset.
+\end{itemize}
+
+For example, a balanced product of five billion decimal digits per input
+fits the wide residue path. At 500 million limbs per input (about
+9.6 billion decimal digits at full width), the shorter operand already
+supplies one billion 32-bit coefficients, above the wide path's
+836\,075\,521-term cap. The default build would use overlap-add blocks.
 
 \section{How the rules were found}
 

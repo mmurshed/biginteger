@@ -28,7 +28,6 @@
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTSquare.h"
 #include "biginteger/algorithms/multiplication/Toom5Multiplication.h"
-#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Util.h"
 #include "add_sub_tuning.h"
@@ -44,7 +43,6 @@ namespace
   {
     SizeT classicMultTotal = BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD;
     SizeT classicMinLimb = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
-    SizeT toom3Total = BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD;
     SizeT nttMultTotal = BIGMATH_NTT_MULTIPLICATION_THRESHOLD;
     SizeT nttSquare = BIGMATH_NTT_SQUARE_THRESHOLD;
     SizeT bzDivisor = BIGMATH_BZ_DIVISOR_THRESHOLD;
@@ -123,7 +121,6 @@ namespace
     {
       emit("BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD", s.classicMultTotal);
       emit("BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD", s.classicMinLimb);
-      emit("BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD", s.toom3Total);
       emit("BIGMATH_NTT_MULTIPLICATION_THRESHOLD", s.nttMultTotal);
       emit("BIGMATH_NTT_SQUARE_THRESHOLD", s.nttSquare);
 #if BIGMATH_LIMB_64
@@ -256,7 +253,7 @@ namespace
   void TuneMultiplication(bool full, ThresholdSuggestions &s)
   {
     PrintHeader("Multiplication Dispatch");
-    cout << "limbs_each,total_limbs,classic_ms,karatsuba_ms,toom3_ms,toom5_ms,ntt_burst_ms,ntt_parked_ms,winner\n";
+    cout << "limbs_each,total_limbs,classic_ms,karatsuba_ms,toom5_ms,ntt_burst_ms,ntt_parked_ms,winner\n";
 
     vector<SizeT> sizes = {
         8, 16, 24, 28, 32, 40, 48, 64, 96, 128, 192, 256, 288, 320, 352, 384, 448, 512, 576, 608, 640,
@@ -296,11 +293,6 @@ namespace
         return (SizeT)r.size();
       }, reps);
 
-      double toom3Ms = BestMs([&]() {
-        auto r = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
-        return (SizeT)r.size();
-      }, reps);
-
       double toom5Ms = BestMs([&]() {
         auto r = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
         return (SizeT)r.size();
@@ -316,8 +308,8 @@ namespace
         coldNtt.Observe(limbs, karaMs, parked);
       }
       string winner = limbs <= 256
-                          ? Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"toom3", toom3Ms}, {"toom5", toom5Ms}, {"ntt", nttMs}})
-                          : Winner({{"karatsuba", karaMs}, {"toom3", toom3Ms}, {"toom5", toom5Ms}, {"ntt", nttMs}});
+                          ? Winner({{"classic", classicMs}, {"karatsuba", karaMs}, {"toom5", toom5Ms}, {"ntt", nttMs}})
+                          : Winner({{"karatsuba", karaMs}, {"toom5", toom5Ms}, {"ntt", nttMs}});
 
       if (!foundClassicCrossover && previousTotal && limbs <= 256 && karaMs * 1.05 < classicMs)
       {
@@ -328,14 +320,13 @@ namespace
 
       cout << limbs << ',' << limbs * 2 << ','
            << fixed << setprecision(6) << classicMs << ','
-           << karaMs << ',' << toom3Ms << ',' << toom5Ms << ',' << nttMs << ',' << parked << ','
+           << karaMs << ',' << toom5Ms << ',' << nttMs << ',' << parked << ','
            << winner << '\n';
       previousTotal = limbs * 2;
     }
 
     s.classicMultTotal = suggestedClassicTotal;
     if (warmNtt.first) s.nttMultTotal = warmNtt.first;
-    if (s.toom3Total == NTT_MULTIPLICATION_THRESHOLD) s.toom3Total = s.nttMultTotal;
     if (coldNtt.first) s.coldArea = max(coldNtt.first * coldNtt.first, (SizeT)BIGMATH_NTT_AREA_THRESHOLD);
 
     cout << "suggested CLASSIC_MULTIPLICATION_THRESHOLD ~= "
