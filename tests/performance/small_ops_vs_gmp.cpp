@@ -1,7 +1,7 @@
 // Small-operand benchmark: BigInteger operators against GMP mpz on operands
 // of 1-16 limbs, where call overhead and allocation decide the cost.
 //
-// Usage: small_ops_vs_gmp [label] [--limb-handoff]
+// Usage: small_ops_vs_gmp [label] [--limb-handoff|--add-sub-handoff]
 //
 // BigMath is timed through the public operators, which return a new
 // BigInteger each call. GMP is timed writing into an output that is reused
@@ -106,6 +106,51 @@ namespace
     }
     return 0;
   }
+
+  int BenchmarkAddSubHandoffs(const std::string &label)
+  {
+    constexpr std::array shapes{
+        std::pair{4u, 4u}, std::pair{16u, 16u}, std::pair{17u, 17u},
+        std::pair{1u, 17u}, std::pair{4u, 17u}, std::pair{4u, 64u},
+        std::pair{64u, 4u}, std::pair{4u, 256u}, std::pair{64u, 64u},
+        std::pair{4096u, 4096u}};
+    std::mt19937_64 gen(0xad5abULL);
+    std::printf("version,op,a_limbs,b_limbs,calls,bigmath_ns,gmp_ns\n");
+    for (auto [na, nb] : shapes)
+    {
+      const auto aLimbs = RandomLimbs(na, gen), bLimbs = RandomLimbs(nb, gen);
+      const BigInteger a(aLimbs, false), b(bLimbs, false);
+      const auto calls = std::clamp(1'500'000u / std::max(na, nb), 2048u, 150'000u);
+      mpz_t ga, gb, expected, actual;
+      mpz_inits(ga, gb, expected, actual, nullptr);
+      ToMpz(ga, aLimbs);
+      ToMpz(gb, bLimbs);
+
+      const auto measure = [&](const char *op, auto bigmathOp, auto gmpOp) {
+        gmpOp(expected, ga, gb);
+        const auto result = bigmathOp(a, b);
+        ToMpz(actual, result.GetInteger());
+        if (result.IsNegative())
+          mpz_neg(actual, actual);
+        if (mpz_cmp(expected, actual) != 0)
+        {
+          std::fprintf(stderr, "%s mismatch at %u x %u limbs\n", op, na, nb);
+          return false;
+        }
+        const double bm = NsPerCall([&] { sink += bigmathOp(a, b)[0]; }, calls);
+        const double gmp = NsPerCall([&] { gmpOp(actual, ga, gb); sink += mpz_getlimbn(actual, 0); }, calls);
+        std::printf("%s,%s,%u,%u,%u,%.2f,%.2f\n", label.c_str(), op, na, nb, calls, bm, gmp);
+        return true;
+      };
+
+      const bool ok = measure("add", [](const auto &x, const auto &y) { return x + y; }, mpz_add) &&
+                      measure("sub", [](const auto &x, const auto &y) { return x - y; }, mpz_sub);
+      mpz_clears(ga, gb, expected, actual, nullptr);
+      if (!ok)
+        return 1;
+    }
+    return 0;
+  }
 }
 
 int main(int argc, char **argv)
@@ -113,6 +158,8 @@ int main(int argc, char **argv)
   const std::string label = argc > 1 ? argv[1] : "bigmath";
   if (argc > 2 && std::string_view(argv[2]) == "--limb-handoff")
     return BenchmarkMultiplicationHandoffs(label);
+  if (argc > 2 && std::string_view(argv[2]) == "--add-sub-handoff")
+    return BenchmarkAddSubHandoffs(label);
   std::mt19937_64 gen(0x5A11ULL);
   std::printf("version,op,limbs,bigmath_ns,gmp_ns,ratio\n");
 
