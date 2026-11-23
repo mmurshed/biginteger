@@ -10,6 +10,7 @@
 #define NTT_SQUARE
 
 #include <vector>
+#include <span>
 #include <bit>
 #include <cstdint>
 
@@ -27,6 +28,11 @@ namespace BigMath
   private:
   public:
     static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
+    {
+      return SquareLimbs(a, base);
+    }
+
+    static std::vector<DataT> SquareLimbs(std::span<const DataT> a, BaseT base)
     {
       if (IsZero(a))
         return std::vector<DataT>{0};

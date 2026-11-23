@@ -140,14 +140,18 @@ namespace BigMath
     }
 
     static std::vector<DataT> Multiply(
-        std::vector<DataT> const &a,
-        DataT b,
-        BaseT base)
+        std::vector<DataT> const &a, DataT b, BaseT base)
     {
-      if (base == Base2_64 && !a.empty())
+      return Multiply(std::span<const DataT>(a), b, base);
+    }
+
+    // Multiply a limb view by a scalar into a fresh result.
+    static std::vector<DataT> Multiply(std::span<const DataT> a, DataT b, BaseT base)
+    {
+      if (b == 0 || a.empty())
+        return {};
+      if (base == Base2_64)
       {
-        // mul_1 kernel straight into the result; the extra limb takes the
-        // carry. (Zero operands trim to an empty vector, as below.)
         const SizeT n = (SizeT)a.size();
         std::vector<DataT> w(n + 1);
         w[n] = LimbKernel::Mul1(w.data(), a.data(), n, b);
@@ -156,43 +160,6 @@ namespace BigMath
       }
 
       std::vector<DataT> w(a.size());
-      Multiply(
-          a, 0, a.size() - 1,
-          b,
-          w, 0, w.size() - 1,
-          base);
-      TrimZeros(w);
-      return w;
-    }
-
-    // Span overload: multiply a span by scalar b into a fresh vector.
-    // Mirrors the vector-input fast path (ULong accumulator).
-    // Caller responsible for ensuring b is small enough to avoid uint64 overflow
-    // in a[i] * b + carry (true for normalization scalars in FastDivision).
-    static std::vector<DataT> Multiply(
-        std::span<const DataT> a,
-        DataT b,
-        BaseT base)
-    {
-      if (b == 0 || a.empty())
-        return std::vector<DataT>();
-      std::vector<DataT> w(a.size());
-
-      if (base == Base2_64)
-      {
-        ULong carry = 0;
-        for (SizeT j = 0; j < a.size(); ++j)
-        {
-          ULong128 p = (ULong128)a[j] * b + carry;
-          w[j] = LowDigit128(p);
-          carry = NextCarry128(p);
-        }
-        if (carry)
-          w.push_back((DataT)carry);
-        TrimZeros(w);
-        return w;
-      }
-
       ULong carry = 0;
       for (SizeT j = 0; j < a.size(); ++j)
       {
@@ -286,82 +253,84 @@ namespace BigMath
       a = Multiply(a, b, base);
     }
 
-    static std::vector<DataT> Multiply(
-        std::vector<DataT> const &a,
-        std::vector<DataT> const &b,
-        BaseT base)
+    // Both inputs are nonempty. The disjoint output has a.size() + b.size()
+    // limbs and is fully overwritten.
+    static void MultiplyInto(std::span<const DataT> a, std::span<const DataT> b,
+                             DataT *out, BaseT base)
     {
-      if (IsZero(a) || IsZero(b)) // 0 times
-        return std::vector<DataT>();
+      if (base == Base2_64)
+      {
+        LimbKernel::MulBasecase(out, a.data(), (SizeT)a.size(), b.data(), (SizeT)b.size());
+        return;
+      }
 
-        // If b is a single digit, use the scalar multiplication
+      std::fill_n(out, a.size() + b.size(), 0);
+      AccumulateRows(a, b, out, base);
+    }
+
+    static std::vector<DataT> MultiplyLimbs(std::span<const DataT> a,
+                                           std::span<const DataT> b, BaseT base)
+    {
+      if (IsZero(a) || IsZero(b))
+        return {};
       if (b.size() == 1)
         return Multiply(a, b[0], base);
-      // If a is a single digit, use the scalar multiplication
       if (a.size() == 1)
         return Multiply(b, a[0], base);
 
-      SizeT size = (SizeT)(a.size() + b.size() + 1);
-      std::vector<DataT> result(size);
-
-      Multiply(a, 0, (SizeT)a.size() - 1, b, 0, (SizeT)b.size() - 1, result, 0, base);
-
+      std::vector<DataT> result(a.size() + b.size());
+      MultiplyInto(a, b, result.data(), base);
       TrimZeros(result);
       return result;
     }
 
-    // Implentation of multiplication by paper-pencil method
-    // Classical algorithm
-    // Runtime O(n^2), Space O(n)
+    static std::vector<DataT> Multiply(
+        std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base)
+    {
+      return MultiplyLimbs(a, b, base);
+    }
+
+    // Accumulating variant for callers with an existing result range.
     static SizeT Multiply(
         std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
         std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
-        std::vector<DataT> &result, SizeT rStart,
-        BaseT base)
+        std::vector<DataT> &result, SizeT rStart, BaseT base)
     {
+      if (a.empty() || b.empty())
+        return rStart;
       aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
       bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
+      if (bStart > bEnd)
+        return rStart;
+      const SizeT la = aEnd - aStart + 1, lb = bEnd - bStart + 1;
+      AccumulateRows(std::span<const DataT>(a).subspan(aStart, la),
+                     std::span<const DataT>(b).subspan(bStart, lb), result.data() + rStart, base);
+      return rStart + la + lb - 1;
+    }
 
-      SizeT k = rStart;
-      SizeT lenA = aEnd - aStart + 1;
-
+  private:
+    static void AccumulateRows(std::span<const DataT> a, std::span<const DataT> b,
+                               DataT *out, BaseT base)
+    {
+      const SizeT la = (SizeT)a.size(), lb = (SizeT)b.size();
       if (base == Base2_64)
       {
-        // 64×64→128 product plus 64-bit accumulator (existing result limb) plus
-        // 64-bit carry: max sum ≤ (2^64-1)² + (2^64-1) + (2^64-1) = 2^128 - 1.
-        // Fits ULong128.
-        // Same contract as before — each row accumulates into result and
-        // *assigns* its carry limb — on the addmul_1 kernel.
-        const DataT *ap = a.data() + aStart;
-        DataT *rp = result.data();
-        for (SizeT i = bStart; i <= bEnd; i++)
-        {
-          SizeT jStart = rStart + (i - bStart);
-          k = jStart + lenA;
-          rp[k] = LimbKernel::AddMul1(rp + jStart, ap, lenA, b[i]);
-        }
-        return k;
+        for (SizeT i = 0; i < lb; ++i)
+          out[i + la] = LimbKernel::AddMul1(out + i, a.data(), la, b[i]);
+        return;
       }
 
-      for (SizeT i = bStart; i <= bEnd; i++)
+      for (SizeT i = 0; i < lb; ++i)
       {
         ULong carry = 0;
-        SizeT jStart = rStart + (i - bStart);
-        for (SizeT j = aStart; j <= aEnd; j++)
+        for (SizeT j = 0; j < la; ++j)
         {
-          SizeT kk = jStart + (j - aStart);
-          ULong multiply = a[j];
-          multiply *= b[i];
-          multiply += result[kk];
-          multiply += carry;
-
-          result[kk] = LowDigit(multiply, base);
-          carry = NextCarry(multiply, base);
+          const ULong product = a[j] * b[i] + out[i + j] + carry;
+          out[i + j] = LowDigit(product, base);
+          carry = NextCarry(product, base);
         }
-        k = jStart + lenA;
-        result[k] = (DataT)carry;
+        out[i + la] = (DataT)carry;
       }
-      return k;
     }
   };
 }

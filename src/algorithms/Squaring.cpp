@@ -16,21 +16,26 @@ namespace BigMath
 
   std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
   {
+    return detail::SquareLimbs(a, base);
+  }
+
+  std::vector<DataT> detail::SquareLimbs(std::span<const DataT> a, BaseT base)
+  {
     if (IsZero(a))
       return std::vector<DataT>{0};
 
     if (a.size() == 1)
-      return ClassicSquare::Square(a, base);
+      return ClassicSquare::SquareLimbs(a, base);
 
     if (a.size() < NTT_SQUARE_THRESHOLD)
-      return KaratsubaSquare::Square(a, base);
+      return KaratsubaSquare::SquareLimbs(a, base);
 
     // Small NTT squares only pay off while the pool is awake — see
     // BIGMATH_NTT_SQUARE_COLD_THRESHOLD. Cold: KaratsubaSquare, and a burst
     // of squares gets the pool woken for the next one.
     if (a.size() < NTT_SQUARE_COLD_THRESHOLD && !ParallelWarmOrPrewarm())
     {
-      std::vector<DataT> square = KaratsubaSquare::Square(a, base);
+      std::vector<DataT> square = KaratsubaSquare::SquareLimbs(a, base);
       ParallelNoteColdDone();
       return square;
     }
@@ -44,7 +49,7 @@ namespace BigMath
     // -DBIGMATH_NTT_CRT=0 fallback and a test-exercised alternate.
     return NttCrt::Multiply(a, a, base);
 #else
-    return NTTSquare::Square(a, base);
+    return NTTSquare::SquareLimbs(a, base);
 #endif
   }
 }

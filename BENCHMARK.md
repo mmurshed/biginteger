@@ -989,6 +989,49 @@ Values of up to 4 limbs no longer allocate: a copy takes 0.3 ns instead of 13 ns
 
 To repeat: `cmake --build build --target small_ops_vs_gmp && ./build/small_ops_vs_gmp after`.
 
+### Classic and Karatsuba limb handoffs
+
+The public multiplication operator reads both input limb ranges directly.
+Classic uses the raw schoolbook kernel with its longer operand in the
+inner loop. Karatsuba uses stack scratch for requests of up to 2,048
+limbs, which removes a heap allocation from small recursive products.
+
+Matched 64-bit Release builds on the Apple M1 Max compared the handoff
+with `feeac3e`. Seven paired processes alternated which build ran first.
+Each checked the full product against GMP 6.3.0, then timed the public
+`operator*` on the same seeded operands. Each process reports its fastest
+of seven batches. The table reports medians in nanoseconds per call and
+the median of the paired speedup ratios.
+[All 154 observations](docs/benchmarks/2026-11-23-classic-karatsuba-limb-handoffs-m1-max.csv)
+
+| Limbs | Path | Before ns | After ns | Speedup |
+|---:|---|---:|---:|---:|
+| 16 × 16 | Small stack control | 120.89 | 122.09 | 0.995× |
+| 1 × 17 | Scalar Classic | 44.04 | 32.71 | 1.34× |
+| 4 × 18 | Classic | 101.10 | 65.64 | 1.55× |
+| 18 × 4 | Classic | 88.84 | 65.85 | 1.35× |
+| 24 × 24 | Classic | 336.99 | 253.76 | 1.33× |
+| 32 × 32 | Karatsuba | 425.30 | 402.95 | 1.05× |
+| 64 × 64 | Karatsuba | 1,336.81 | 1,314.11 | 1.02× |
+| 128 × 128 | Karatsuba | 4,156.64 | 4,148.72 | 1.00× |
+| 129 × 129 | Karatsuba heap control | 4,233.30 | 4,214.52 | 1.00× |
+| 48 × 1,024 | Sliced Karatsuba | 17,819.31 | 17,815.86 | 1.00× |
+| 512 × 512 | Threaded NTT control | 21,396.46 | 23,552.08 | 0.95× |
+
+The Classic shapes improved by 1.33–1.55×. Karatsuba picked up 2–5% at
+32 and 64 limbs and timed about the same in the other cases. The threaded
+512-limb NTT control varied substantially, with paired ratios of
+0.75–1.55×. A follow-up ran seven alternating fresh-process pairs with
+12 warm calls per process through the normal dispatcher. At 1M digits
+per operand, median warm time went from 1.645 to 1.635 ms. At 10M digits,
+it went from 14.531 to 14.550 ms. Both cases matched the GMP hashes.
+[NTT control observations](docs/benchmarks/2026-11-23-limb-dispatch-ntt-control-m1-max.csv)
+
+```sh
+cmake --build build --target small_ops_vs_gmp
+./build/small_ops_vs_gmp after --limb-handoff
+```
+
 ## Internal algorithm crossovers
 
 The November 21 run of `multperf_simple 5` used equal-length random operands. Times are the mean of five calls, and speedups are relative to classical multiplication. All products matched at all four tested sizes.

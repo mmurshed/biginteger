@@ -32,6 +32,7 @@
 #ifndef MULTIPLICATION
 #define MULTIPLICATION
 
+#include <span>
 #include <vector>
 
 #include "../algorithms/multiplication/ClassicMultiplication.h"
@@ -119,6 +120,8 @@ namespace BigMath
 
   namespace detail
   {
+    std::vector<DataT> MultiplyLimbs(std::span<const DataT> a, std::span<const DataT> b, BaseT base);
+
     inline bool ClassicProductShape(SizeT shorter, SizeT longer)
     {
       return (ULong)shorter + longer <= CLASSIC_MULTIPLICATION_THRESHOLD ||
