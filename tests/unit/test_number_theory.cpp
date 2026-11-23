@@ -148,6 +148,53 @@ REGISTER_TEST(NumberTheory, GreatestCommonDivisors)
   check(divisor * value("2147483648") + value("1"), divisor, value("1"));
 }
 
+REGISTER_TEST(NumberTheory, LargeGreatestCommonDivisors)
+{
+  constexpr DataT unit = 1;
+  const auto one = BigInteger::FromLimbs({&unit, 1}, false);
+  const auto powerOfTwo = [](std::size_t bits) {
+    const DataT top = DataT{1} << (bits % LimbBits);
+    return BigInteger::FromLimbs({&top, 1}, false) << (bits / LimbBits);
+  };
+  const auto check = [](BigInteger const &a, BigInteger const &b, BigInteger const &expected) {
+    ASSERT_TRUE(Gcd(a, b) == expected);
+    const auto [divisor, x, y] = ExtendedGcd(a, b);
+    ASSERT_TRUE(divisor == expected);
+    ASSERT_TRUE(a * x + b * y == divisor);
+  };
+
+  // Exercise the dispatch boundary with identical high prefixes.
+  for (const auto bits : {65535u, 65536u, 65537u})
+  {
+    const auto power = powerOfTwo(bits - 1);
+    check(power + one, -power, one);
+  }
+  const auto high = powerOfTwo(65536);
+  check(-high, high, high);
+  check(high, BigInteger(), high);
+
+  // Test a large initial quotient, followed by two large coprime remainders.
+  const auto b = high + powerOfTwo(32769) + one;
+  check(-b, b * high + b - one, one);
+  check(b * high, b, b);
+
+  // Consecutive Fibonacci numbers force long runs of quotient one.
+  // Multiply both by an odd factor and exercise both operand orders.
+  auto previous = one;
+  auto current = one;
+  for (unsigned i = 0; i < 100000; ++i)
+  {
+    auto next = previous + current;
+    previous = std::move(current);
+    current = std::move(next);
+  }
+  const auto factor = powerOfTwo(4097) + one;
+  auto larger = current * factor;
+  auto smaller = previous * factor;
+  check(-larger, smaller, factor);
+  check(smaller, -larger, factor);
+}
+
 REGISTER_TEST(NumberTheory, SquareRootAndRemainder)
 {
   const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };

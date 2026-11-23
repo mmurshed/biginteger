@@ -46,6 +46,14 @@ namespace
     return BigInteger::FromByteArray(bytes, negative);
   }
 
+  BigInteger Export(Mpz const &input)
+  {
+    std::vector<uint8_t> bytes((mpz_sizeinbase(input.value, 2) + 7) / 8);
+    size_t count;
+    mpz_export(bytes.data(), &count, 1, 1, 0, 0, input.value);
+    return BigInteger::FromByteArray(std::span(bytes).first(count), false);
+  }
+
   template <class BigMathCall, class GmpCall>
   std::pair<double, double> MeasureTimes(unsigned calls, BigMathCall runBigMath, GmpCall runGmp)
   {
@@ -118,7 +126,8 @@ namespace
     Measure("powmod", shape, bits, cases, calls, runBigMath, runGmp);
   }
 
-  void BenchmarkGcd(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
+  void BenchmarkGcd(unsigned bits, std::string_view shape, std::mt19937_64 &rng,
+                    unsigned cases = 24)
   {
     BigInteger a, b, divisor;
     ExtendedGcdResult extended;
@@ -127,31 +136,46 @@ namespace
     const auto runGmp = [&] { mpz_gcd(expected.value, gA.value, gB.value); };
     const auto runExtended = [&] { extended = ExtendedGcd(a, b); };
     const auto runGmpExtended = [&] { mpz_gcdext(expected.value, x.value, y.value, gA.value, gB.value); };
-    constexpr unsigned cases = 24;
+    const bool fibonacci = shape == "fibonacci";
+    const bool skewed = shape == "skewed";
+    const bool largeFactor = shape == "common_factor";
     for (unsigned i = 0; i < cases; ++i)
     {
-      const bool skewed = shape == "skewed";
-      const bool largeFactor = shape == "common_factor";
-      const bool plantFactor = largeFactor || (!skewed && i % 2 == 0);
-      const unsigned factorBits = largeFactor ? 3 * bits / 4 : bits / 4;
-      const unsigned inputBits = plantFactor ? bits - factorBits : bits;
-      a = RandomInteger(inputBits, rng, i % 4 < 2);
-      b = RandomInteger(skewed ? bits / 8 : inputBits, rng, i % 3 == 0);
-      if (plantFactor)
+      if (fibonacci)
       {
-        const auto factor = RandomInteger(factorBits, rng);
-        a = a * factor;
-        b = b * factor;
+        // Consecutive Fibonacci numbers of approximately the requested width.
+        const auto index = static_cast<unsigned long>(bits * 1.44042009) + 3;
+        mpz_fib2_ui(gA.value, gB.value, index);
+        a = Export(gA);
+        b = Export(gB);
       }
-      Import(gA, a);
-      Import(gB, b);
+      else
+      {
+        const bool plantFactor = largeFactor || (!skewed && i % 2 == 0);
+        const unsigned factorBits = largeFactor ? 3 * bits / 4 : bits / 4;
+        const unsigned inputBits = plantFactor ? bits - factorBits : bits;
+        a = RandomInteger(inputBits, rng, i % 4 < 2);
+        b = RandomInteger(skewed ? bits / 8 : inputBits, rng, i % 3 == 0);
+        if (plantFactor)
+        {
+          const auto factor = RandomInteger(factorBits, rng);
+          a = a * factor;
+          b = b * factor;
+        }
+        Import(gA, a);
+        Import(gB, b);
+      }
       runBigMath();
       runGmp();
       Import(actual, divisor);
       if (mpz_cmp(actual.value, expected.value) != 0)
         throw std::runtime_error("Gcd result differs from GMP");
       runExtended();
-      if (extended.gcd != divisor || a * extended.x + b * extended.y != divisor)
+      Import(x, extended.x);
+      Import(y, extended.y);
+      mpz_mul(actual.value, gA.value, x.value);
+      mpz_addmul(actual.value, gB.value, y.value);
+      if (extended.gcd != divisor || mpz_cmp(actual.value, expected.value) != 0)
         throw std::runtime_error("ExtendedGcd returned an invalid divisor or coefficients");
     }
     const unsigned calls = std::max(4u, 16384u / bits);
@@ -192,14 +216,6 @@ namespace
         throw std::runtime_error("SqrtRem root or remainder differs from GMP");
     }
     Measure("sqrtrem", "random", bits, cases, std::max(4u, 131072u / bits), runBigMath, runGmp);
-  }
-
-  BigInteger Export(Mpz const &input)
-  {
-    std::vector<uint8_t> bytes((mpz_sizeinbase(input.value, 2) + 7) / 8);
-    size_t count;
-    mpz_export(bytes.data(), &count, 1, 1, 0, 0, input.value);
-    return BigInteger::FromByteArray(std::span(bytes).first(count), false);
   }
 
   void BenchmarkPrimality(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
@@ -339,9 +355,10 @@ int main(int argc, char **argv)
     return 0;
   }
   if (argc > 2 || (operation != "all" && operation != "powmod" &&
-                   operation != "gcd" && operation != "sqrtrem" && operation != "prime"))
+                   operation != "gcd" && operation != "gcd-large" &&
+                   operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|sqrtrem|prime|nextprime]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|gcd-large|sqrtrem|prime|nextprime]\n", stderr);
     return 1;
   }
 
@@ -359,6 +376,10 @@ int main(int argc, char **argv)
     for (const auto shape : {"balanced", "skewed", "common_factor"})
       for (unsigned bits : {256, 512, 1024, 2048, 4096})
         BenchmarkGcd(bits, shape, rng);
+  if (operation == "gcd-large")
+    for (const auto shape : {"balanced", "skewed", "common_factor", "fibonacci"})
+      for (unsigned bits : {2048, 4096, 8192, 16384, 32768, 65536, 262144})
+        BenchmarkGcd(bits, shape, rng, std::string_view(shape) == "fibonacci" ? 1 : 8);
   rng.seed(0x5A27);
   if (operation == "all" || operation == "sqrtrem")
     for (unsigned bits : {32, 64, 65, 127, 128, 129, 192, 254, 255, 256, 257,

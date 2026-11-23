@@ -4,6 +4,7 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "biginteger/build/DispatchThresholds.h"
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/ops/Operations.h"
 
@@ -93,6 +94,218 @@ namespace BigMath
       }
       return steps >= 2;
     }
+
+    BigInteger FromMagnitudeWord(DataT value)
+    {
+      return BigInteger::FromLimbs({&value, 1}, false);
+    }
+
+    std::size_t GcdBits(BigInteger const &value)
+    {
+      return LimbDetail::BitLength(value.Limbs());
+    }
+
+    // Store the magnitudes of a determinant-one transform with positive
+    // diagonal and nonpositive off-diagonal. The inverse is nonnegative.
+    struct HalfGcdMatrix
+    {
+      BigInteger aa = FromMagnitudeWord(1);
+      BigInteger ab;
+      BigInteger ba;
+      BigInteger bb = FromMagnitudeWord(1);
+
+      bool IsIdentity() const
+      {
+        // With determinant one, zero off-diagonal entries imply unit diagonal.
+        return ab.Zero() && ba.Zero();
+      }
+
+      static BigInteger Product(BigInteger const &value, BigInteger const &factor)
+      {
+        return factor.size() == 1 ? value * factor[0] : value * factor;
+      }
+
+      void Apply(BigInteger &a, BigInteger &b) const
+      {
+        auto first = Product(a, aa) - Product(b, ab);
+        b = Product(b, bb) - Product(a, ba);
+        a = std::move(first);
+      }
+
+      void Prepend(HalfGcdMatrix step)
+      {
+        if (step.IsIdentity())
+          return;
+        if (IsIdentity())
+        {
+          *this = std::move(step);
+          return;
+        }
+        *this = {
+            Product(aa, step.aa) + Product(ba, step.ab),
+            Product(ab, step.aa) + Product(bb, step.ab),
+            Product(aa, step.ba) + Product(ba, step.bb),
+            Product(ab, step.ba) + Product(bb, step.bb)};
+      }
+
+      void SubtractMultiple(bool reduceFirst, BigInteger const &quotient)
+      {
+        if (reduceFirst)
+        {
+          aa = aa + Product(ba, quotient);
+          ab = ab + Product(bb, quotient);
+        }
+        else
+        {
+          ba = ba + Product(aa, quotient);
+          bb = bb + Product(ab, quotient);
+        }
+      }
+    };
+
+    bool TryBoundedLehmer(BigInteger &a, BigInteger &b, HalfGcdMatrix &matrix,
+                          std::size_t stop)
+    {
+      const bool reversed = a < b;
+      auto &larger = reversed ? b : a;
+      auto &smaller = reversed ? a : b;
+      LehmerMatrix batch;
+      if (!BuildLehmerMatrix(larger, smaller, batch))
+        return false;
+
+      auto second = batch.second.Apply(larger, smaller);
+      if (GcdBits(second) <= stop)
+        return false;
+      auto first = batch.first.Apply(larger, smaller);
+
+      // Undo the implicit swap from an odd number of Euclidean steps.
+      if (batch.first.left < 0)
+      {
+        std::swap(first, second);
+        std::swap(batch.first, batch.second);
+      }
+      larger = std::move(first);
+      smaller = std::move(second);
+
+      // Express the batch in the caller's original coordinate order.
+      if (reversed)
+      {
+        std::swap(batch.first, batch.second);
+        std::swap(batch.first.left, batch.first.right);
+        std::swap(batch.second.left, batch.second.right);
+      }
+      matrix.Prepend({
+          FromMagnitudeWord(static_cast<DataT>(batch.first.left)),
+          FromMagnitudeWord(static_cast<DataT>(-batch.first.right)),
+          FromMagnitudeWord(static_cast<DataT>(-batch.second.left)),
+          FromMagnitudeWord(static_cast<DataT>(batch.second.right))});
+      return true;
+    }
+
+    // Reduce the larger operand without swapping the two coordinates. Both
+    // operands must retain more than 'stop' bits so this transform is safe
+    // to apply to longer operands with the same high bits.
+    bool HalfGcdStep(BigInteger &a, BigInteger &b, HalfGcdMatrix &matrix,
+                     std::size_t stop)
+    {
+      const bool reduceFirst = a >= b;
+      auto &larger = reduceFirst ? a : b;
+      auto &smaller = reduceFirst ? b : a;
+      auto difference = larger - smaller;
+      if (GcdBits(difference) <= stop)
+        return false;
+      if (difference <= smaller)
+      {
+        larger = std::move(difference);
+        matrix.SubtractMultiple(reduceFirst, FromMagnitudeWord(1));
+        return true;
+      }
+
+      auto [quotient, remainder] = DivideAndRemainder(larger, smaller);
+      if (GcdBits(remainder) <= stop)
+      {
+        quotient = quotient - FromMagnitudeWord(1);
+        remainder = remainder + smaller;
+      }
+      larger = std::move(remainder);
+      matrix.SubtractMultiple(reduceFirst, quotient);
+      return true;
+    }
+
+    BigInteger GcdHighBits(BigInteger const &value, std::size_t drop)
+    {
+      const auto high = value.Limbs().subspan(drop / LimbBits);
+      const Int bits = drop % LimbBits;
+      if (bits == 0)
+        return BigInteger::FromLimbs(high, false);
+      return BigInteger(ShiftRightBits(high, bits, LimbBits), false);
+    }
+
+    HalfGcdMatrix HalfGcd(BigInteger &a, BigInteger &b);
+
+    HalfGcdMatrix HalfGcdFromHighBits(BigInteger &a, BigInteger &b, std::size_t drop)
+    {
+      auto highA = GcdHighBits(a, drop);
+      auto highB = GcdHighBits(b, drop);
+      auto matrix = HalfGcd(highA, highB);
+      if (!matrix.IsIdentity())
+        matrix.Apply(a, b);
+      return matrix;
+    }
+
+    // Möller's difference-based half-GCD (section 6, DOI 10.1090/S0025-5718-07-02017-0).
+    // Return T such that (a, b) = T * (original a, original b). When both
+    // inputs exceed 'stop' bits, both outputs do too and the difference
+    // has at most 'stop' bits.
+    HalfGcdMatrix HalfGcd(BigInteger &a, BigInteger &b)
+    {
+      const auto bits = std::max(GcdBits(a), GcdBits(b));
+      const auto stop = bits / 2 + 1;
+      HalfGcdMatrix matrix;
+      if (std::min(GcdBits(a), GcdBits(b)) <= stop)
+        return matrix;
+      if (bits <= BIGMATH_HALF_GCD_LEAF_THRESHOLD)
+      {
+        while (TryBoundedLehmer(a, b, matrix, stop) || HalfGcdStep(a, b, matrix, stop))
+          ;
+        return matrix;
+      }
+
+      const auto threeQuarters = bits - (bits + 3) / 4;
+      if (std::min(GcdBits(a), GcdBits(b)) > threeQuarters + 2)
+        matrix = HalfGcdFromHighBits(a, b, bits / 2);
+
+      // Repair the few bits of slack introduced by applying the transform
+      // to the low bits. The next recursion also starts on at most half
+      // of the original bits.
+      auto remainingBits = std::max(GcdBits(a), GcdBits(b));
+      while (remainingBits > threeQuarters + 1)
+      {
+        if (!HalfGcdStep(a, b, matrix, stop))
+          return matrix;
+        remainingBits = std::max(GcdBits(a), GcdBits(b));
+      }
+      // Align the second recursive stop with this level's stop after lifting.
+      if (std::min(GcdBits(a), GcdBits(b)) > stop + 2)
+        matrix.Prepend(HalfGcdFromHighBits(a, b, 2 * stop - remainingBits + 1));
+
+      while (HalfGcdStep(a, b, matrix, stop))
+        ;
+      return matrix;
+    }
+
+    bool UseHalfGcd(BigInteger const &a, BigInteger const &b, std::size_t threshold)
+    {
+      if (threshold == 0)
+        return false;
+      const auto minLimbs = std::min(a.size(), b.size());
+      if (minLimbs < (threshold + LimbBits - 1) / LimbBits)
+        return false;
+      const auto aBits = GcdBits(a);
+      const auto bBits = GcdBits(b);
+      const auto smaller = std::min(aBits, bBits);
+      return smaller >= threshold && smaller > std::max(aBits, bBits) / 2 + 1;
+    }
   }
 
   BigInteger Gcd(BigInteger const &a, BigInteger const &b)
@@ -106,6 +319,14 @@ namespace BigMath
         const DataT reduced = (left % right[0])[0];
         const DataT result = gcd(right[0], reduced);
         return BigInteger::FromLimbs({&result, 1}, false);
+      }
+      if (UseHalfGcd(left, right, BIGMATH_HALF_GCD_THRESHOLD))
+      {
+        // A single high-half reduction avoids composing a full matrix
+        // here. Plain GCD needs only the two reduced operands.
+        HalfGcdFromHighBits(left, right, std::max(GcdBits(left), GcdBits(right)) / 2);
+        if (left < right)
+          std::swap(left, right);
       }
       LehmerMatrix matrix;
       if (BuildLehmerMatrix(left, right, matrix))
@@ -135,6 +356,21 @@ namespace BigMath
     // linear combinations of the original signed inputs.
     while (!right.Zero())
     {
+      if (UseHalfGcd(left, right, BIGMATH_HALF_GCD_EXTENDED_THRESHOLD))
+      {
+        const auto matrix = HalfGcd(left, right);
+        if (!matrix.IsIdentity())
+        {
+          matrix.Apply(x, nextX);
+          matrix.Apply(y, nextY);
+        }
+        if (left < right)
+        {
+          std::swap(left, right);
+          std::swap(x, nextX);
+          std::swap(y, nextY);
+        }
+      }
       LehmerMatrix matrix;
       if (BuildLehmerMatrix(left, right, matrix))
       {
