@@ -16,7 +16,7 @@ Karatsuba (which can split three ways), then switches to the NTT.
 \end{center}
 
 This chapter explains the direct multiplication methods, including the
-experimental five-way split. \Cref{ch:ntt,ch:fermat} cover transform methods.
+experimental higher-degree Toom splits. \Cref{ch:ntt,ch:fermat} cover transform methods.
 \Cref{ch:muldispatch} explains how the library chooses.
 
 \section{Schoolbook multiplication}
@@ -391,9 +391,10 @@ nine coefficients, $c_0$ through $c_8$.}
 Toom-5 recovers those same nine coefficients from nine products of mixed
 values. Two come straight from the ends. The low chunks give $c_0$ and
 the high chunks give $c_8$, written as the values at $0$ and $\infty$.
-The other seven are the products at $1,-1,2,-2,3,-3,4$. Each supplies one
-equation in the seven middle coefficients. Solving those equations is
-called \emph{interpolation}.
+Seven other points each supply one equation in the seven middle
+coefficients. Solving those equations is called \emph{interpolation}.
+The hand example uses integer points. The limb implementation uses
+$\pm1/2,\pm1,\pm2$ and $4$, so it can scale the evaluations by powers of two.
 
 \begin{figure}[H]
 \centering
@@ -467,8 +468,9 @@ Applying the same slope calculation to $O$ gives
 O(t)=54+176(t-1)+70(t-1)(t-4)+4(t-1)(t-4)(t-9)
     =14+22t+14t^2+4t^3 .
 \]
-In the code each coefficient is recovered with its own fixed weighted sum of
-the seven $h(x)$ values, followed by an exact integer division.
+The limb implementation uses the same slope calculation. It scales its
+fractional samples by powers of two so the grid and the polynomial
+coefficients are integers. Each division in interpolation is exact.
 
 \begin{center}
 \small
@@ -487,9 +489,65 @@ At place 2, $16+1=17$ writes $7$ and sends a carry of $1$. Read the final
 digits from high to low to get $149\,633\,745$.
 
 \begin{practice}
-\file{Toom5Multiplication.h} uses Karatsuba below 512 limbs in the longer
-operand when called directly (with a separate single-limb shortcut).
-At $512\times512$, the recorded sweep measured $151\,\textmu$s for Toom-5
-and $49\,\textmu$s for Karatsuba. The public dispatcher leaves Toom-5 out.
-See the benchmark history in \file{docs/MULTIPLICATION.md}.
+\file{Toom5Multiplication.h} provides a direct call to the limb-based
+implementation. It uses Karatsuba below 512 limbs in the longer operand
+and for the legacy radix. The automatic dispatcher uses the existing
+recursive and NTT paths. See \file{BENCHMARK.md} for the higher Toom sweep.
 \end{practice}
+
+\newpage
+\section{Toom-6.5 and Toom-8.5: unequal splits}
+\label{sec:toomhalf}
+
+In the half-step variants, one operand gets an extra chunk slot. Toom-6.5
+uses seven slots for the longer operand and six for the shorter.
+Toom-8.5 uses nine and eight. Both operands use the same chunk width.
+When the extra high slot lies beyond the end of an operand, it contributes
+zero. For example, a $700\times600$-limb Toom-6.5 product uses 100 limbs
+per slot. Each input fits its row exactly.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=0.96cm,y=0.64cm]
+  \node[lbl,anchor=east] at (-0.51,0) {Toom-6.5};
+  \node[lbl,anchor=east] at (-0.51,-2.35) {Toom-8.5};
+  \foreach \i in {0,...,8} {
+    \ifnum\i<7
+      \node[box,fill=sViolet!16,minimum width=8mm] at (\i,0.45) {\footnotesize $a_{\i}$};
+    \fi
+    \ifnum\i<6
+      \node[box,fill=sAqua!16,minimum width=8mm] at (\i,-0.45) {\footnotesize $b_{\i}$};
+    \fi
+    \node[box,fill=sViolet!16,minimum width=8mm] at (\i,-1.9) {\footnotesize $a_{\i}$};
+    \ifnum\i<8
+      \node[box,fill=sAqua!16,minimum width=8mm] at (\i,-2.8) {\footnotesize $b_{\i}$};
+    \fi
+  }
+  \node[lbl,anchor=west] at (6.65,0) {12 pointwise products};
+  \node[lbl,anchor=west] at (8.65,-2.35) {16 pointwise products};
+\end{tikzpicture}
+\caption{The extra slot makes the product degree odd. Two products come
+from the ends of the input rows. The remaining products come in pairs
+evaluated at a positive point and its negative.}
+\end{figure}
+
+For seven by six slots, the two input recipes have degrees six and five,
+so their product has degree eleven. Twelve readings determine its
+coefficients. Two are the endpoints. The other ten come from
+$\pm1/4,\pm1/2,\pm1,\pm2,\pm4$. Adding paired results isolates the even
+powers and subtracting them isolates the odd powers. After removing the
+endpoints, five even and five odd coefficients are left.
+
+With nine by eight slots the degrees are eight and seven, so there are
+sixteen readings. The extra pairs are $\pm1/8$ and $\pm8$. Squaring the
+positive points gives a grid whose neighboring values differ by a factor
+of four. The code scales it to $1,4,16,\ldots$ and uses the divided
+differences from the Toom-5 example to recover the coefficients. Shifts
+handle the powers of two. Multiplication by an inverse modulo the limb
+base handles each remaining odd divisor exactly.
+
+BigMath's two half-step kernels share the buffer and interpolation code
+with limb-based Toom-5. Each forces one outer split, then uses the existing
+Karatsuba and Toom-3 recursion for its smaller products. The design uses
+the paired powers-of-two idea described in the
+\href{https://gmplib.org/manual/Higher-degree-Toom_0027n_0027half}{GNU MP manual}.

@@ -14,6 +14,8 @@ A technical reference for the multiplication subsystem of this BigInteger librar
    - [Karatsuba](#karatsuba)
    - [Toom-Cook 3](#toom-cook-3)
    - [Toom-3 and Toom-4 inside the Karatsuba recursion](#toom-3-and-toom-4-inside-the-karatsuba-recursion-2026-11-21)
+   - [Toom-5](#toom-5)
+   - [Toom-6.5 and Toom-8.5](#toom-65-and-toom-85)
    - [NTT (Goldilocks prime)](#ntt-goldilocks-prime)
    - [Squaring](#squaring)
 5. [Benchmark results vs GMP](#benchmark-results-vs-gmp)
@@ -114,7 +116,7 @@ Default thresholds (overridable via `-D...`):
 | `BIGMATH_NTT_MFA_THRESHOLD` | `2^20` | transform coefficients | MFA vs radix-8 CRT NTT (2^24 → 2^20 in PR #109) |
 | `BIGMATH_KARATSUBA_THRESHOLD` | `24` under LIMB_64 | per-operand limbs | Inside Karatsuba: base-case cutoff (48 → 32 on 2026-06-12, → 24 on 2026-11-20 with the limb kernels) |
 
-Tests and benchmarks can call [Toom-5](#toom-5) directly. The dispatcher takes its thresholds from `include/biginteger/build/DispatchThresholds.h`, where the definitions take precedence over the fallbacks in the algorithm headers.
+Tests and benchmarks can force [the higher Toom splits](#toom-5). The dispatcher takes its thresholds from `include/biginteger/build/DispatchThresholds.h`, where the definitions take precedence over the fallbacks in the algorithm headers.
 
 `Square(a, base)` lives in `algorithms/Squaring.h` and has its own parallel dispatcher:
 
@@ -273,13 +275,15 @@ Through the public API (best of 4 × 9 rounds, `main` → this tier): products 1
 
 ### Toom-5
 
-**Location:** `algorithms/multiplication/Toom5Multiplication.h`.
+**Location:** `algorithms/multiplication/ToomHigherMultiplication.h`. The existing `Toom5Multiplication::Multiply` entry calls the limb kernel for 64-bit operands when the longer input reaches 512 limbs. Smaller products and the legacy radix use Karatsuba.
 
-**Status:** implemented and validated, but **not in dispatch**.
+Toom-5 splits both operands into five chunks and evaluates at 0, ±½, ±1, ±2, 4 and ∞. The products at 0 and ∞ give the two end coefficients. Pairing the readings at +x and −x isolates the even and odd powers. There are three even and four odd unknown coefficients. The reading at 4 supplies the last odd sample after subtracting the recovered even contribution.
 
-Toom-5 splits operands into five chunks, evaluates at `{0, ±1, ±2, ±3, 4, ∞}`, performs nine pointwise products, and interpolates coefficients `c0..c8`. The implementation uses exact small-rational interpolation over the fixed seven nontrivial points after removing `c0` and `c8`.
+### Toom-6.5 and Toom-8.5
 
-Benchmarks show no useful production band. Below the Toom-5 threshold the function falls back to Karatsuba. At the first active point, 512×512 limbs, Toom-5 is already about 3× slower than Karatsuba (`0.1507 ms` vs `0.0488 ms` in the full dispatch tuner run). It remains slower through the pre-NTT band, so it is kept only as an experimental cross-check/benchmark candidate.
+The 7×6 and 9×8 splits use 12 and 16 products. For each split, the longer operand gets the extra high slot. A missing slot represents zero. Toom-6.5 uses the two endpoints and pairs at magnitudes ¼, ½, 1, 2 and 4. Toom-8.5 adds ⅛ and 8. The paired powers-of-two design follows the approach described in the [GNU MP manual](https://gmplib.org/manual/Higher-degree-Toom_0027n_0027half).
+
+All three kernels scale fractional readings to an integer grid and recover the coefficients with exact divided differences. Coefficients, point evaluations, and multiplication scratch share one packed limb allocation. The forced entry point, `ToomHigherMultiplication::Multiply`, applies one outer split and delegates the point products to the existing Karatsuba recursion. The [higher Toom benchmark](../BENCHMARK.md#higher-degree-toom-on-64-bit-limbs) compares these direct calls with the production dispatcher.
 
 ### NTT (Goldilocks prime)
 
@@ -865,7 +869,7 @@ the only window left is roughly 190–310 limbs at an average gain of about
 4%. Not worth a second sub-quadratic algorithm on the production path. The
 prototype was not merged.
 
-### Toom-5 in dispatch
+### Historical vector Toom-5 timings
 
 The 2026-05 Toom-5 prototype was benchmarked in `dispatch_tuner --full`:
 
@@ -877,7 +881,7 @@ The 2026-05 Toom-5 prototype was benchmarked in `dispatch_tuner --full`:
 | 1 024 | 0.1482 | 0.3214 | 0.1926 | Karatsuba |
 | 2 048 | 0.4640 | 0.7553 | 0.3690 | NTT |
 
-The apparent wins below 512 limbs are not real Toom-5 wins because `Toom5Multiplication` falls back to Karatsuba below `BIGMATH_TOOM5_THRESHOLD = 512`. Once Toom-5 is active, interpolation/evaluation overhead dominates. Do not add Toom-5 to dispatch without new benchmark evidence.
+Below 512 limbs the prototype called Karatsuba. The active vector path spent more time on evaluation and interpolation than it saved in recursive products. The [current benchmark](../BENCHMARK.md#higher-degree-toom-on-64-bit-limbs) measures its limb-based replacement.
 
 ### Lowering `NTT_MULTIPLICATION_THRESHOLD` below 4096
 

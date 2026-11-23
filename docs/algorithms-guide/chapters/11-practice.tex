@@ -149,8 +149,8 @@ All algorithms are cross-checked against each other:
 
 \begin{itemize}
   \item \code{mult\_correctness} compares Karatsuba, Toom-5, and the NTT
-        against schoolbook, limb for limb. Dedicated tests force the limb-based
-        Toom-3 and Toom-4 splits;
+        against schoolbook, limb for limb. Dedicated tests force individual
+        Toom splits from Toom-3 through Toom-8.5;
   \item \code{div\_correctness} runs every division algorithm, compares against reference
         implementations, and checks $q \cdot b + r = a$ and $0 \le r < b$ on every result;
   \item unit tests pin details such as the reciprocal's error bound, the zero-fallback guarantee

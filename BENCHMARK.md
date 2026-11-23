@@ -367,6 +367,40 @@ python3 tests/performance/benchsuite/run_memory.py DATASET DEFAULT_BUILD SINGLE_
   --balanced-warm-reps 9
 ```
 
+## Higher-degree Toom on 64-bit limbs
+
+**Dispatch decision:** Keep the current automatic paths. The limb Toom-5 replacement is worthwhile for direct calls. Toom-6.5 and Toom-8.5 remain explicitly callable for tuning. The measurements below are from a 32 GiB Apple M1 Max with Apple Clang 21, 64-bit limbs, and Release builds with `-O3 -march=native`. Native x86-64 performance remains unmeasured.
+
+The harness times the existing dispatcher, direct recursive multiplication, direct NTT, and one forced outer level of each higher Toom split. All six results are checked against schoolbook outside the timer. Each build used separate 60-case sweep and holdout processes covering balanced, 7:6, and 9:8 operands. Each shape used seeded random limbs and eleven rounds of shuffled method order. Four untimed calls preceded each batch. A single-thread follow-up used 29 closer-spaced balanced sizes, then 25 different lengths and a fresh seed. Decisions use the fastest measured baseline for each case. [Per-case medians and paired ratios](docs/benchmarks/2026-11-22-toom-higher-m1-max.csv)
+
+| Build and phase | Limbs | Dispatch (µs) | Recursive (µs) | NTT (µs) | Toom-5 (µs) | Toom-6.5 (µs) | Toom-8.5 (µs) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Threaded sweep | 320×320 | 21.64 | 19.20 | 21.55 | 20.50 | 25.90 | 28.79 |
+| Single-thread holdout | 559×479 | 45.68 | 42.00 | 45.69 | 45.93 | 44.28 | 51.37 |
+| Single-thread balanced band | 735×735 | 83.13 | 83.91 | 83.28 | 69.20 | 79.26 | 83.77 |
+| Single-thread holdout | 735×735 | 67.83 | 89.30 | 67.81 | 73.53 | 83.39 | 89.04 |
+| Single-thread band holdout | 740×740 | 63.60 | 70.30 | 63.56 | 71.66 | 77.93 | 84.88 |
+| Single-thread holdout | 2,092×1,793 | 179.71 | 377.19 | 181.25 | 305.22 | 289.17 | 295.39 |
+
+In the dense sweep the largest Toom-5 wins clustered at 733–735 limbs, peaking at 1.20×. At 735×735 the broad holdout favored the NTT. All 25 offset holdout sizes favored an existing path. At 559×479, Toom-6.5 beat automatic dispatch by about 3%, and ordinary recursive multiplication was faster still. At 2,092×1,793, Toom-6.5 cut recursive time from 377 to 289 µs, and automatic dispatch took 180 µs. These measurements support retaining the existing dispatch on the tested machine.
+
+The CSV’s `vector_comparison` phase adds the retired Toom-5 header from `2bc78bc` as a separately named class in a temporary copy of the same benchmark. Across the 34 shapes that reached the old vector kernel’s 512-limb cutoff, the geometric mean of old/new median times was **1.70×**. For 512×512 limbs, limb Toom-5 took 44.90 µs and vector Toom-5 took 91.58 µs. Both results matched schoolbook.
+
+Build and run the current comparison with:
+
+~~~sh
+cmake -S . -B build/toom-threaded -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/toom-single -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-DBIGMATH_USE_THREADS=0
+cmake --build build/toom-threaded --parallel --target toom_higher_bench
+cmake --build build/toom-single --parallel --target toom_higher_bench
+build/toom-threaded/toom_higher_bench > threaded-sweep.csv
+build/toom-threaded/toom_higher_bench --holdout > threaded-holdout.csv
+build/toom-single/toom_higher_bench > single-sweep.csv
+build/toom-single/toom_higher_bench --holdout > single-holdout.csv
+build/toom-single/toom_higher_bench --balanced-band > single-band.csv
+build/toom-single/toom_higher_bench --balanced-band --holdout > single-band-holdout.csv
+~~~
+
 ## Single-thread comparison
 
 The November 22, 2026 full timing run measured revision `158eb03` on the Apple M1 Max. At 200M digits per operand the single-thread build took 2.77 s and GMP took 2.89 s. At 50M and 100M digits BigMath used 0.88× and 0.89× GMP’s time. [Measured revision](https://github.com/mmurshed/biginteger/tree/158eb03)
