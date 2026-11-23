@@ -914,7 +914,7 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       // Normalize: shift so top bit of b's top limb is set.
-      const int limbBits = LimbBitsFor(base);
+      const Int limbBits = LimbBitsFor(base);
       Int shift = NormalizationShiftBits(b.back(), limbBits);
 
       std::vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift, limbBits) : a;

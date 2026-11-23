@@ -13,6 +13,7 @@
 #ifndef BIGMATH_BIT_SHIFTS
 #define BIGMATH_BIT_SHIFTS
 
+#include <bit>
 #include <span>
 #include <vector>
 
@@ -21,9 +22,19 @@
 
 namespace BigMath
 {
+  namespace LimbDetail
+  {
+    // Bit length of a nonempty trimmed magnitude. A caller with padding can pass its
+    // first TrimmedLimbCount() limbs.
+    inline std::size_t BitLength(std::span<const DataT> limbs)
+    {
+      return (limbs.size() - 1) * LimbBits + std::bit_width(limbs.back());
+    }
+  }
+
   // Limb width in bits for a power-of-two base. Callers guarantee
   // base ∈ {Base2_32, Base2_64}.
-  inline int LimbBitsFor(BaseT base)
+  inline Int LimbBitsFor(BaseT base)
   {
     return base == Base2_64 ? 64 : 32;
   }
@@ -31,16 +42,16 @@ namespace BigMath
   // Knuth-style normalization count: bits to shift left so `top` (nonzero)
   // gets its high bit set within a limbBits-wide limb. Replaces the
   // topBitMask while-loops that were copy-pasted across the dividers.
-  inline Int NormalizationShiftBits(DataT top, int limbBits)
+  inline Int NormalizationShiftBits(DataT top, Int limbBits)
   {
-    return limbBits == 64 ? (Int)__builtin_clzll((unsigned long long)top)
-                          : (Int)__builtin_clz((unsigned)top);
+    return limbBits == 64 ? __builtin_clzll(top)
+                          : __builtin_clz(static_cast<UInt>(top));
   }
 
   // v << bits at the bit level, bits ∈ [0, limbBits]. Result is trimmed to
   // the canonical (≥ 1 limb) form. 128-bit intermediates make bits == limbBits
   // well-defined for both widths.
-  inline std::vector<DataT> ShiftLeftBits(std::span<const DataT> v, Int bits, int limbBits)
+  inline std::vector<DataT> ShiftLeftBits(std::span<const DataT> v, Int bits, Int limbBits)
   {
     if (bits == 0 || IsZero(v))
       return std::vector<DataT>(v.begin(), v.end());
@@ -60,7 +71,7 @@ namespace BigMath
 
   // v >> bits at the bit level, bits ∈ [0, limbBits). Result is trimmed to
   // the canonical (≥ 1 limb) form.
-  inline std::vector<DataT> ShiftRightBits(std::span<const DataT> v, Int bits, int limbBits)
+  inline std::vector<DataT> ShiftRightBits(std::span<const DataT> v, Int bits, Int limbBits)
   {
     if (bits == 0 || IsZero(v))
       return std::vector<DataT>(v.begin(), v.end());
@@ -82,7 +93,7 @@ namespace BigMath
 
   // r >>= bits in place, bits ∈ [0, limbBits). Does not trim — remainder
   // denormalization wants the limb count preserved.
-  inline void ShiftRightBitsInPlace(std::vector<DataT> &r, Int bits, int limbBits)
+  inline void ShiftRightBitsInPlace(std::vector<DataT> &r, Int bits, Int limbBits)
   {
     if (bits == 0)
       return;

@@ -145,15 +145,6 @@ namespace BigMath
       return carry == 0;
     }
 
-    static Signed DivSmall(Signed v, ULong d, BaseT base)
-    {
-      if (!DivSmallInPlace(v.mag, d, base))
-        throw std::runtime_error("non-exact Toom-5 interpolation division");
-      if (IsZero(v.mag))
-        v.sign = 1;
-      return v;
-    }
-
     static void Split5(std::vector<DataT> const &x, SizeT k, std::array<std::vector<DataT>, 5> &parts)
     {
       SizeT s = x.size();

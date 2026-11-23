@@ -49,12 +49,8 @@ namespace BigMath
       // Work on logically trimmed lengths: callers may pass vectors with
       // high zero limbs, and the algorithm needs b's true top digit for
       // normalization and a's true length for the digit count.
-      SizeT n = (SizeT)b.size();
-      while (n > 1 && b[n - 1] == 0)
-        --n;
-      SizeT aLen = (SizeT)a.size();
-      while (aLen > 1 && a[aLen - 1] == 0)
-        --aLen;
+      const auto n = LimbDetail::TrimmedLimbCount(b);
+      const auto aLen = LimbDetail::TrimmedLimbCount(a);
       SizeT m = (SizeT)(aLen - n); // m >= 0 since |a| >= |b|
 
       // Normalization: choose d so that b[n-1] >= B/2.

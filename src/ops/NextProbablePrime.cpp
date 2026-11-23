@@ -2,11 +2,11 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstdint>
 #include <exception>
 #include <stdexcept>
 
+#include "biginteger/common/BitShifts.h"
 #include "biginteger/common/Parallel.h"
 #include "biginteger/ops/Operations.h"
 
@@ -34,11 +34,11 @@ namespace BigMath::PrimeSearch
           total += !SmallComposites[prime];
         return total;
       }();
-      std::array<uint16_t, count> primes{};
+      std::array<std::uint16_t, count> primes{};
       unsigned i = 0;
       for (unsigned prime = 3; prime < LargeSieveLimit; prime += 2)
         if (!SmallComposites[prime])
-          primes[i++] = static_cast<uint16_t>(prime);
+          primes[i++] = static_cast<std::uint16_t>(prime);
       return primes;
     }();
 
@@ -70,7 +70,7 @@ namespace BigMath::PrimeSearch
           std::rethrow_exception(failure);
 
       // Test in order even when later candidates finished screening first.
-      for (size_t i = 0; i < candidates.size(); ++i)
+      for (std::size_t i = 0; i < candidates.size(); ++i)
         if (passes[i] && TestLargeCandidate(candidates[i], rounds, WitnessMode::RandomOnly))
           return candidates[i];
       return BigInteger();
@@ -87,7 +87,7 @@ namespace BigMath::PrimeSearch
     if (start < two)
       return two;
 
-    const auto record = [stats](size_t count) {
+    const auto record = [stats](std::size_t count) {
       if (stats)
         stats->screenedCandidates += count;
     };
@@ -104,20 +104,20 @@ namespace BigMath::PrimeSearch
     }
 
     const unsigned limit = start.size() > 512 / LimbBits ? LargeSieveLimit : DefaultSieveLimit;
-    const auto primeCount = static_cast<size_t>(
+    const auto primeCount = static_cast<std::size_t>(
         std::lower_bound(SmallPrimes.begin(), SmallPrimes.end(), limit) - SmallPrimes.begin());
-    std::array<uint16_t, SmallPrimes.size()> offsets;
-    for (size_t i = 0; i < primeCount; ++i)
+    std::array<std::uint16_t, SmallPrimes.size()> offsets;
+    for (std::size_t i = 0; i < primeCount; ++i)
     {
       const DataT p = SmallPrimes[i];
       const DataT remainder = (first % p)[0];
       const DataT distance = remainder == 0 ? 0 : p - remainder;
-      offsets[i] = static_cast<uint16_t>((distance + ((distance & 1) ? p : 0)) / 2);
+      offsets[i] = static_cast<std::uint16_t>((distance + ((distance & 1) ? p : 0)) / 2);
     }
 
     // Try the first survivor on its own for short gaps. Later tests can
     // overlap when the candidates are large enough to amortize a dispatch.
-    const auto bits = (first.Limbs().size() - 1) * LimbBits + std::bit_width(first.Limbs().back());
+    const auto bits = LimbDetail::BitLength(first.Limbs());
     const bool allowParallel = bits >= 1024 && first.size() <= 128;
     bool firstSurvivor = true;
     SizeT batchSize = 1;
@@ -126,12 +126,12 @@ namespace BigMath::PrimeSearch
     for (;;)
     {
       std::array<bool, SegmentSize> composite{};
-      for (size_t i = 0; i < primeCount; ++i)
+      for (std::size_t i = 0; i < primeCount; ++i)
       {
         unsigned offset = offsets[i];
         for (; offset < SegmentSize; offset += SmallPrimes[i])
           composite[offset] = true;
-        offsets[i] = static_cast<uint16_t>(offset - SegmentSize);
+        offsets[i] = static_cast<std::uint16_t>(offset - SegmentSize);
       }
       for (unsigned i = 0; i < SegmentSize; ++i)
       {

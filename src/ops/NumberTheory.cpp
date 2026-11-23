@@ -4,18 +4,19 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "biginteger/common/BitShifts.h"
 #include "biginteger/ops/Operations.h"
 
 namespace BigMath
 {
   namespace
   {
-    constexpr int64_t LehmerCoefficientLimit = int64_t{1} << 30;
+    constexpr Long LehmerCoefficientLimit = Long{1} << 30;
 
     struct LehmerRow
     {
-      int64_t left;
-      int64_t right;
+      Long left;
+      Long right;
 
       bool Fits() const
       {
@@ -25,7 +26,7 @@ namespace BigMath
 
       BigInteger Apply(BigInteger const &a, BigInteger const &b) const
       {
-        const auto scaled = [](BigInteger const &n, int64_t coefficient) {
+        const auto scaled = [](BigInteger const &n, Long coefficient) {
           auto product = n * static_cast<DataT>(coefficient < 0 ? -coefficient : coefficient);
           product.SetSign(n.IsNegative() != (coefficient < 0));
           return product;
@@ -61,22 +62,22 @@ namespace BigMath
       const unsigned shift = width > 62 ? width - 62 : 0;
       const auto prefix = [shift](std::span<const DataT> limbs) {
         const auto high = static_cast<ULong128>(limbs.back()) << LimbBits;
-        return static_cast<int64_t>((high | limbs[limbs.size() - 2]) >> shift);
+        return static_cast<Long>((high | limbs[limbs.size() - 2]) >> shift);
       };
-      int64_t u = prefix(left);
-      int64_t v = prefix(right);
+      Long u = prefix(left);
+      Long v = prefix(right);
       unsigned steps = 0;
       while (v > 0 && u >= v)
       {
         const auto [a0, a1] = matrix.first;
         const auto [b0, b1] = matrix.second;
-        const int64_t lowerU = u + std::min<int64_t>(0, a0) + std::min<int64_t>(0, a1);
-        const int64_t upperU = u + std::max<int64_t>(0, a0) + std::max<int64_t>(0, a1);
-        const int64_t lowerV = v + std::min<int64_t>(0, b0) + std::min<int64_t>(0, b1);
-        const int64_t upperV = v + std::max<int64_t>(0, b0) + std::max<int64_t>(0, b1);
-        const int64_t q = u / v;
+        const Long lowerU = u + std::min<Long>(0, a0) + std::min<Long>(0, a1);
+        const Long upperU = u + std::max<Long>(0, a0) + std::max<Long>(0, a1);
+        const Long lowerV = v + std::min<Long>(0, b0) + std::min<Long>(0, b1);
+        const Long upperV = v + std::max<Long>(0, b0) + std::max<Long>(0, b1);
+        const Long q = u / v;
         // Accept q only if every possible quotient is in [q, q+1).
-        // The prefix and coefficient bounds keep each product in int64_t.
+        // The prefix and coefficient bounds keep each product in Long.
         if (q >= LehmerCoefficientLimit || lowerV <= 0 ||
             lowerU < q * upperV || upperU >= (q + 1) * lowerV)
           break;
@@ -85,7 +86,7 @@ namespace BigMath
           break;
         matrix.first = matrix.second;
         matrix.second = next;
-        const int64_t remainder = u - q * v;
+        const Long remainder = u - q * v;
         u = v;
         v = remainder;
         ++steps;
@@ -206,7 +207,7 @@ namespace BigMath
           return SqrtRemWord(value);
       }
 
-      const auto bits = (limbs.size() - 1) * uint64_t{LimbBits} + std::bit_width(limbs.back());
+      const auto bits = LimbDetail::BitLength(limbs);
       // Choose a limb-aligned radix B so the high part has root at least B/2.
       const auto block = static_cast<SizeT>((bits + 1) / (4 * LimbBits));
       if (block == 0)
@@ -218,7 +219,7 @@ namespace BigMath
         const auto shift = (bits - 63) / 2;
         const auto first = static_cast<SizeT>(2 * shift / LimbBits);
         ULong128 prefix = 0;
-        for (size_t i = limbs.size(); i > first; --i)
+        for (std::size_t i = limbs.size(); i > first; --i)
           prefix = (prefix << LimbBits) | limbs[i - 1];
         const auto top = static_cast<DataT>(prefix >> (2 * shift % LimbBits));
         const ULong128 seed = static_cast<ULong128>(SqrtWord(top) + 1) << (shift % LimbBits);

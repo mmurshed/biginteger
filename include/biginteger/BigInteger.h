@@ -70,7 +70,7 @@ namespace BigMath
     // at most InlineLimbs limbs, so copying a small value never allocates.
     std::vector<DataT> heap;
     DataT inl[InlineLimbs];
-    uint32_t inlSize;
+    SizeT inlSize;
     // True if the number is negative
     bool isNegative;
 
@@ -91,7 +91,7 @@ namespace BigMath
       else if (n <= InlineLimbs)
       {
         std::copy(limbs, limbs + n, inl);
-        inlSize = (uint32_t)n;
+        inlSize = n;
         if (!heap.empty())
           std::vector<DataT>().swap(heap);
       }
@@ -107,7 +107,7 @@ namespace BigMath
     {
       if (v.size() <= InlineLimbs)
       {
-        AssignLimbs(v.data(), (SizeT)v.size());
+        AssignLimbs(v.data(), static_cast<SizeT>(v.size()));
         std::vector<DataT>().swap(v);
       }
       else
@@ -129,7 +129,7 @@ namespace BigMath
       }
       TrimZerosToOne(heap);
       if (heap.size() <= InlineLimbs)
-        AssignLimbs(heap.data(), (SizeT)heap.size());
+        AssignLimbs(heap.data(), static_cast<SizeT>(heap.size()));
       return size();
     }
 
@@ -152,7 +152,7 @@ namespace BigMath
       if (n <= InlineLimbs)
       {
         std::copy(limbs, limbs + n, inl);
-        inlSize = (uint32_t)n;
+        inlSize = n;
         isNegative = negative && !(n == 1 && limbs[0] == 0);
       }
       else
@@ -166,7 +166,7 @@ namespace BigMath
     struct InlineTag {};
     struct HeapTag {};
     BigInteger(InlineTag, const DataT *limbs, SizeT n, bool negative)
-        : inlSize((uint32_t)n), isNegative(negative && !(n == 1 && limbs[0] == 0))
+        : inlSize(n), isNegative(negative && !(n == 1 && limbs[0] == 0))
     {
       std::copy(limbs, limbs + n, inl);
     }
@@ -187,14 +187,14 @@ namespace BigMath
       else if (size > 1)
       {
         std::fill(inl, inl + size, 0);
-        inlSize = (uint32_t)size;
+        inlSize = size;
       }
       ClearNegativeZero();
     }
 
     BigInteger(std::vector<DataT> const &aInt, bool negative)
     {
-      SizeT n = (SizeT)aInt.size();
+      SizeT n = static_cast<SizeT>(aInt.size());
       while (n > 1 && aInt[n - 1] == 0)
         --n;
       InitFromTrimmed(aInt.data(), n, negative);
@@ -210,7 +210,7 @@ namespace BigMath
     // buffer (the caller's temporary frees it).
     BigInteger(std::vector<DataT> &&aInt, bool negative)
     {
-      SizeT n = (SizeT)aInt.size();
+      SizeT n = static_cast<SizeT>(aInt.size());
       while (n > 1 && aInt[n - 1] == 0)
         --n;
       InitFromTrimmed(aInt.data(), n, negative);
@@ -237,7 +237,7 @@ namespace BigMath
     // than InlineLimbs limbs remain after trimming.
     static BigInteger FromLimbs(std::span<const DataT> limbs, bool negative)
     {
-      SizeT n = (SizeT)limbs.size();
+      SizeT n = static_cast<SizeT>(limbs.size());
       while (n > 1 && limbs[n - 1] == 0)
         --n;
       if (n == 0)
@@ -326,7 +326,7 @@ namespace BigMath
       LittleEndian
     };
 
-    std::vector<uint8_t> ToByteArray(ByteOrder order = ByteOrder::BigEndian) const
+    std::vector<std::uint8_t> ToByteArray(ByteOrder order = ByteOrder::BigEndian) const
     {
       if (Zero())
       {
@@ -334,7 +334,7 @@ namespace BigMath
       }
 
       constexpr SizeT limbBytes = LimbBits / 8;
-      std::vector<uint8_t> bytes;
+      std::vector<std::uint8_t> bytes;
       const auto limbs = Limbs();
       bytes.reserve(limbs.size() * limbBytes);
 
@@ -342,7 +342,7 @@ namespace BigMath
       {
         for (SizeT b = 0; b < limbBytes; ++b)
         {
-          bytes.push_back(static_cast<uint8_t>((val >> (b * 8)) & 0xFF));
+          bytes.push_back(static_cast<std::uint8_t>((val >> (b * 8)) & 0xFF));
         }
       }
 
@@ -359,7 +359,7 @@ namespace BigMath
       return bytes;
     }
 
-    static BigInteger FromByteArray(std::span<const uint8_t> bytes, bool negative, ByteOrder order = ByteOrder::BigEndian)
+    static BigInteger FromByteArray(std::span<const std::uint8_t> bytes, bool negative, ByteOrder order = ByteOrder::BigEndian)
     {
       if (bytes.empty())
       {
@@ -367,10 +367,10 @@ namespace BigMath
       }
 
       constexpr SizeT limbBytes = LimbBits / 8;
-      const size_t numLimbs = (bytes.size() + limbBytes - 1) / limbBytes;
+      const std::size_t numLimbs = (bytes.size() + limbBytes - 1) / limbBytes;
       std::vector<DataT> limbs(numLimbs, 0);
 
-      auto getByte = [&](size_t idx) -> uint8_t {
+      auto getByte = [&](std::size_t idx) -> std::uint8_t {
         if (order == ByteOrder::BigEndian)
         {
           return bytes[bytes.size() - 1 - idx];
@@ -381,12 +381,12 @@ namespace BigMath
         }
       };
 
-      for (size_t i = 0; i < numLimbs; ++i)
+      for (std::size_t i = 0; i < numLimbs; ++i)
       {
         DataT limbVal = 0;
-        for (size_t b = 0; b < limbBytes; ++b)
+        for (std::size_t b = 0; b < limbBytes; ++b)
         {
-          size_t byteIdx = i * limbBytes + b;
+          std::size_t byteIdx = i * limbBytes + b;
           if (byteIdx < bytes.size())
           {
             limbVal |= (static_cast<DataT>(getByte(byteIdx)) << (b * 8));
@@ -406,7 +406,7 @@ namespace BigMath
     // Properties
     SizeT size() const
     {
-      return heap.empty() ? (SizeT)inlSize : (SizeT)heap.size();
+      return heap.empty() ? inlSize : static_cast<SizeT>(heap.size());
     }
 
     static BaseT Base()

@@ -1,4 +1,4 @@
-// Limb-vector utilities (TrimZeros, IsZero, Compare, gcd, Copy/Resize) plus
+// Limb-vector utilities (TrimZeros, IsZero, Compare, gcd) plus
 // BigIntegerBuilder long-double conversion.
 
 #include "unit_test_framework.h"
@@ -43,14 +43,6 @@ REGISTER_TEST(Util, TrimZerosToOneNeverEmpties)
   TrimZerosToOne(v);
   ASSERT_EQ(v.size(), 1u);
   ASSERT_EQ(v[0], 0u);
-}
-
-REGISTER_TEST(Util, CanonicalZeroIsOneLimbZero)
-{
-  std::vector<DataT> z = CanonicalZero();
-  ASSERT_EQ(z.size(), 1u);
-  ASSERT_EQ(z[0], 0u);
-  ASSERT_TRUE(IsZero(z));
 }
 
 // ─── IsZero ──────────────────────────────────────────────────────────────────
@@ -104,55 +96,6 @@ REGISTER_TEST(Util, CompareHighLimbWins)
   std::vector<DataT> a{0xFFFFFFFF, 0xFFFFFFFF, 1};
   std::vector<DataT> b{0,          0,          2};
   ASSERT_LT(Compare(a, b), 0);
-}
-
-// ─── Copy / Resize ───────────────────────────────────────────────────────────
-
-REGISTER_TEST(Util, ResizeGrowsWithZeros)
-{
-  std::vector<DataT> v{7};
-  Resize(v, 4);
-  ASSERT_EQ(v.size(), 4u);
-  ASSERT_EQ(v[0], 7u);
-  ASSERT_EQ(v[1], 0u);
-  ASSERT_EQ(v[3], 0u);
-}
-
-REGISTER_TEST(Util, ResizeNeverShrinks)
-{
-  std::vector<DataT> v{1, 2, 3, 4};
-  Resize(v, 2);
-  ASSERT_EQ(v.size(), 4u);
-}
-
-REGISTER_TEST(Util, MakeSameSizePadsBoth)
-{
-  std::vector<DataT> u{1};
-  std::vector<DataT> v{1, 2, 3};
-  MakeSameSize(u, v);
-  ASSERT_EQ(u.size(), 3u);
-  ASSERT_EQ(v.size(), 3u);
-  ASSERT_EQ(u[2], 0u);
-}
-
-REGISTER_TEST(Util, CopyRangeMemcpy)
-{
-  std::vector<DataT> src{10, 20, 30, 40};
-  std::vector<DataT> dst(4, 0);
-  Copy(src, 1, 3, dst, 0, 2);
-  ASSERT_EQ(dst[0], 20u);
-  ASSERT_EQ(dst[1], 30u);
-  ASSERT_EQ(dst[2], 40u);
-  ASSERT_EQ(dst[3], 0u);
-}
-
-REGISTER_TEST(Util, CopyFullVector)
-{
-  std::vector<DataT> src{1, 2, 3, 4, 5};
-  std::vector<DataT> dst(5, 0);
-  Copy(src, dst);
-  for (SizeT i = 0; i < 5; ++i)
-    ASSERT_EQ(dst[i], src[i]);
 }
 
 // ─── Builder edge cases ──────────────────────────────────────────────────────
