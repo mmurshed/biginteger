@@ -171,6 +171,69 @@ These kernels are used only with true 64-bit limbs. The legacy layout
 (\code{-DBIGMATH\_LIMB\_64=0}) keeps its own simpler loops.
 
 \newpage
+\section{Parallel addition and subtraction}
+\label{sec:paralleladdsub}
+
+A carry or borrow can cross the entire number. BigMath splits the magnitude into
+contiguous blocks and computes each block with an incoming flag of zero. It then
+uses the provisional results to determine which blocks need correction. The sign
+handling still happens in the operator layer, so adding opposite signs can use
+the magnitude subtraction kernel.
+
+\begin{enumerate}
+  \item Each block runs the ordinary limb kernel and saves its outgoing carry
+        or borrow. For addition it finds the run of all-ones limbs at the low end
+        of its provisional result. For subtraction it finds the run of zeros.
+  \item A short serial pass visits blocks from low to high. Each block passes
+        along its own outgoing flag, or an incoming flag if the run covers the
+        entire block. This determines the incoming flag for every block.
+  \item A block receiving a carry turns its run of all-ones limbs into zeros
+        and increments the next limb, if present. A block receiving a borrow
+        turns its zeros into all-ones limbs and decrements the next limb. If at
+        least two corrections have runs of 16\,384 limbs or more, the pool
+        splits the fixup work again. Otherwise the caller applies the corrections.
+\end{enumerate}
+
+\begin{example}
+Split $9999 + 1$ into two-digit blocks. The low block computes $99+1$, writes
+$00$ and sends a carry. The high block provisionally writes $99$. Its incoming
+carry turns both digits to zero and continues beyond the high block, giving $10000$.
+\end{example}
+
+In a threaded 64-bit build, the dispatcher considers this path for equal-length
+magnitudes above the stack-buffer path, with at least 2\,048 limbs per block.
+Addition and subtraction each have a warm and a parked cutoff, measured in
+limbs per operand. The checked-in profiles inherit zero for all four cutoffs,
+so their magnitude addition and subtraction run serially. The kernel is in
+\file{include/biginteger/algorithms/ParallelAddSub.h}.
+
+\subsection*{Choosing the cutoffs}
+
+The tuner requires a speedup of at least $1.05\times$ on both random operands and
+full carry or borrow chains at two adjacent sizes and every larger sampled size.
+The workflow selects the highest cutoff supported by all three surveys. The hosted
+survey selected zero on all five release targets. A native M1 Max survey gave
+these machine-specific cutoffs, in limbs per operand.
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+Magnitude operation & Warm & Parked \\
+\midrule
+Addition    & 24\,576 & 98\,304 \\
+Subtraction & 16\,384 & 1\,048\,576 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In the native holdout on random equal-length inputs, the public operators' geometric
+mean speedups for addition and subtraction were $1.77\times$ and $2.24\times$ in
+bursts and $1.54\times$ and $1.09\times$ with parked workers. The parked borrow-chain
+group averaged $0.97\times$. See \file{BENCHMARK.md}, \file{docs/PLATFORM\_TUNING.md}
+and the build macros in \cref{app:ref}.
+
+\newpage
 \section{Comparison and shifts}
 
 For numeric ordering, \code{CompareTo} checks the signs first and reverses

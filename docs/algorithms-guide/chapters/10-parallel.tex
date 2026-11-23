@@ -14,6 +14,8 @@ anything to use it, and you can switch it off at build time
 \toprule
 operation & how the work is split \\
 \midrule
+addition / subtraction & if enabled by the profile, equal-length magnitudes use blocks
+                         with a carry or borrow fixup (\cref{sec:paralleladdsub}) \\
 NTT product & Ordinary CRT batches operand--prime transforms. The fused matrix method
               schedules transpose tiles across the pool at each stage. Finalization
               splits the carries into ranges (\cref{sec:nttthreads}). \\
@@ -74,6 +76,11 @@ This is why the multiplication dispatcher checks the pool's temperature for mid-
 products (\cref{sec:poolrule}): when cold it uses Karatsuba, which does not need the pool,
 and if cold operations arrive in a quick burst it nudges the pool awake so the rest of the
 burst can use the NTT.
+
+For parallel addition and subtraction (\cref{sec:paralleladdsub}), the warm
+cutoff checks for workers that are already awake. The parked cutoff can also
+start the pool. Parked benchmarks measure waking an existing pool. First use
+also pays the cost of creating the workers.
 
 \section{Nested and concurrent use}
 
