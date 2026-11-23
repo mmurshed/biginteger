@@ -24,6 +24,7 @@
 
 #include "../BigInteger.h"
 #include "../algorithms/Addition.h"
+#include "../algorithms/ParallelAddSub.h"
 #include "../algorithms/Subtraction.h"
 #include "../common/BitShifts.h"
 #include "../common/LimbKernels.h"
@@ -74,6 +75,9 @@ namespace BigMath
         t[la] = carry;
         return BigInteger::FromLimbs(std::span<const DataT>(t, la + 1), negative);
       }
+      const SizeT blocks = AddSubDetail::DispatchBlocks<false>(a.size(), b.size());
+      if (blocks > 1)
+        return BigInteger(AddSubDetail::ParallelResult<false>(a.Limbs(), b.Limbs(), blocks), negative);
       return BigInteger(Add(a.AsVector().get(), b.AsVector().get(), BigInteger::Base()), negative);
     }
 
@@ -91,6 +95,9 @@ namespace BigMath
           LimbKernel::SubBorrow(t + lb, x.data() + lb, la - lb, borrow);
         return BigInteger::FromLimbs(std::span<const DataT>(t, la), negative);
       }
+      const SizeT blocks = AddSubDetail::DispatchBlocks<true>(a.size(), b.size());
+      if (blocks > 1)
+        return BigInteger(AddSubDetail::ParallelResult<true>(a.Limbs(), b.Limbs(), blocks), negative);
       return BigInteger(Subtract(a.AsVector().get(), b.AsVector().get(), BigInteger::Base()), negative);
     }
 

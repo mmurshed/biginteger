@@ -49,6 +49,7 @@ namespace BigMath
     // ToString subtree fan-out) relies on this: subtree workers call
     // Newton/NTT code that itself uses ParallelDo.
     thread_local int tl_chunkDepth = 0;
+    std::atomic<bool> poolStarted{false};
 
     inline void CpuRelax()
     {
@@ -98,6 +99,7 @@ namespace BigMath
           for (SizeT i = 1; i < numThreads; ++i)
             workers.emplace_back([this] { WorkerLoop(); });
         }
+        poolStarted.store(true, std::memory_order_release);
       }
 
       ~ThreadPool()
@@ -343,6 +345,14 @@ namespace BigMath
   SizeT ParallelNumThreads()
   {
     return Pool().NumThreads();
+  }
+
+  SizeT ParallelAvailableThreads(bool allowParked)
+  {
+    if (tl_chunkDepth > 0 || (!allowParked && !poolStarted.load(std::memory_order_acquire)))
+      return 1;
+    auto &pool = Pool();
+    return allowParked || pool.Warm() ? pool.NumThreads() : 1;
   }
 
   bool ParallelWarm()

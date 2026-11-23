@@ -9,6 +9,21 @@
 // repo. Each macro is only defined when the build has not supplied its own
 // -DBIGMATH_* override.
 
+// Equal-width magnitude addition and subtraction. Cutoffs count limbs per
+// operand. Zero disables the corresponding worker state until it is tuned.
+#ifndef BIGMATH_ADD_PARALLEL_WARM_LIMBS
+#define BIGMATH_ADD_PARALLEL_WARM_LIMBS 0
+#endif
+#ifndef BIGMATH_ADD_PARALLEL_PARKED_LIMBS
+#define BIGMATH_ADD_PARALLEL_PARKED_LIMBS 0
+#endif
+#ifndef BIGMATH_SUB_PARALLEL_WARM_LIMBS
+#define BIGMATH_SUB_PARALLEL_WARM_LIMBS 0
+#endif
+#ifndef BIGMATH_SUB_PARALLEL_PARKED_LIMBS
+#define BIGMATH_SUB_PARALLEL_PARKED_LIMBS 0
+#endif
+
 // Re-swept twice on 2026-11-20. 96 -> 64: the Karatsuba leaf cutoff had moved
 // 48 -> 32 without this following it, so balanced 33-48-limb products stayed
 // on schoolbook while Karatsuba was already 4-27% faster there. 64 -> 56 with

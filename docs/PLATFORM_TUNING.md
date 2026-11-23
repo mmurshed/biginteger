@@ -28,6 +28,23 @@ worker states for multiplication and squaring. Across the current 64-bit
 division sweep it checks both quotient and remainder and requires a 5%
 challenger lead at two adjacent sizes before proposing a new floor.
 
+Addition and subtraction use separate warm and parked cutoffs for
+equal-length inputs. The survey alternates serial and parallel trials for
+both random operands and full carry or borrow chains. Each survey
+requires a lead of at least 5% for both shapes at two adjacent sizes
+and every larger sampled size. The workflow selects the largest cutoff
+supported by all three surveys. Zero keeps that operation and worker
+state serial, including when the runner cannot reliably establish that
+state for timing. The `selected-add-sub-profiles` artifact contains the
+selected macro definitions for each platform. Copy those definitions
+into the matching profile header while preserving the other overrides.
+
+Use `mode=add-sub` with either stage to run the focused survey or holdout.
+Holdout timing uses the public integer operators and different lengths
+and operands from the survey. Parked timings include waking workers in
+an already initialized pool. The first operation to start the pool also
+pays its one-time startup cost.
+
 ## Choose and validate a profile
 
 1. Compare all three sweeps. Keep changes with a repeatable crossover, and

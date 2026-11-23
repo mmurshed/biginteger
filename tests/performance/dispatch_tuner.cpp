@@ -31,6 +31,7 @@
 #include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Util.h"
+#include "add_sub_tuning.h"
 
 using namespace BigMath;
 using namespace std;
@@ -57,6 +58,7 @@ namespace
     SizeT divSkew = BIGMATH_DIV_NEWTON_SKEW_MIN_B;
     SizeT divNear2 = BIGMATH_DIV_NEWTON_NEAR2_MIN_B;
     SizeT divQuotient = BIGMATH_DIV_QSIZED_MIN_QUOTIENT;
+    AddSubTuning::Cutoffs addSub;
   };
 
   vector<DataT> RandomNumber(SizeT limbs, mt19937_64 &gen)
@@ -106,7 +108,7 @@ namespace
     cout << "\n== " << title << " ==\n";
   }
 
-  void WriteThresholdHeader(string const &path, ThresholdSuggestions const &s)
+  void WriteThresholdHeader(string const &path, ThresholdSuggestions const &s, bool addSubOnly)
   {
     ofstream out(path);
     if (!out)
@@ -117,26 +119,33 @@ namespace
     auto emit = [&](const char *name, SizeT value) {
       out << "#ifndef " << name << "\n#define " << name << ' ' << value << "\n#endif\n";
     };
-    emit("BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD", s.classicMultTotal);
-    emit("BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD", s.classicMinLimb);
-    emit("BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD", s.toom3Total);
-    emit("BIGMATH_NTT_MULTIPLICATION_THRESHOLD", s.nttMultTotal);
-    emit("BIGMATH_NTT_SQUARE_THRESHOLD", s.nttSquare);
+    if (!addSubOnly)
+    {
+      emit("BIGMATH_CLASSIC_MULTIPLICATION_THRESHOLD", s.classicMultTotal);
+      emit("BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD", s.classicMinLimb);
+      emit("BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD", s.toom3Total);
+      emit("BIGMATH_NTT_MULTIPLICATION_THRESHOLD", s.nttMultTotal);
+      emit("BIGMATH_NTT_SQUARE_THRESHOLD", s.nttSquare);
 #if BIGMATH_LIMB_64
-    emit("BIGMATH_NTT_SQUARE_COLD_THRESHOLD", s.coldSquare);
-    emit("BIGMATH_NTT_COLD_AREA_THRESHOLD", s.coldArea);
-    emit("BIGMATH_DIV_BZ_MIN_B", s.divBz);
-    emit("BIGMATH_DIV_NEWTON_MIN_B", s.divNewton);
-    emit("BIGMATH_DIV_NEWTON_SKEW_MIN_B", s.divSkew);
-    emit("BIGMATH_DIV_NEWTON_SKEW_RATIO", BIGMATH_DIV_NEWTON_SKEW_RATIO);
-    emit("BIGMATH_DIV_NEWTON_NEAR2_MIN_B", s.divNear2);
-    emit("BIGMATH_DIV_QSIZED_MIN_QUOTIENT", s.divQuotient);
+      emit("BIGMATH_NTT_SQUARE_COLD_THRESHOLD", s.coldSquare);
+      emit("BIGMATH_NTT_COLD_AREA_THRESHOLD", s.coldArea);
+      emit("BIGMATH_DIV_BZ_MIN_B", s.divBz);
+      emit("BIGMATH_DIV_NEWTON_MIN_B", s.divNewton);
+      emit("BIGMATH_DIV_NEWTON_SKEW_MIN_B", s.divSkew);
+      emit("BIGMATH_DIV_NEWTON_SKEW_RATIO", BIGMATH_DIV_NEWTON_SKEW_RATIO);
+      emit("BIGMATH_DIV_NEWTON_NEAR2_MIN_B", s.divNear2);
+      emit("BIGMATH_DIV_QSIZED_MIN_QUOTIENT", s.divQuotient);
 #else
-    emit("BIGMATH_BZ_DIVISOR_THRESHOLD", s.bzDivisor);
-    emit("BIGMATH_NEWTON_MEDIUM_B", s.newtonMedium);
-    emit("BIGMATH_NEWTON_SKEW_NUMERATOR", s.newtonSkewNumerator);
-    emit("BIGMATH_NEWTON_SKEW_DENOMINATOR", s.newtonSkewDenominator);
+      emit("BIGMATH_BZ_DIVISOR_THRESHOLD", s.bzDivisor);
+      emit("BIGMATH_NEWTON_MEDIUM_B", s.newtonMedium);
+      emit("BIGMATH_NEWTON_SKEW_NUMERATOR", s.newtonSkewNumerator);
+      emit("BIGMATH_NEWTON_SKEW_DENOMINATOR", s.newtonSkewDenominator);
 #endif
+    }
+    emit("BIGMATH_ADD_PARALLEL_WARM_LIMBS", s.addSub.addWarm);
+    emit("BIGMATH_ADD_PARALLEL_PARKED_LIMBS", s.addSub.addParked);
+    emit("BIGMATH_SUB_PARALLEL_WARM_LIMBS", s.addSub.subWarm);
+    emit("BIGMATH_SUB_PARALLEL_PARKED_LIMBS", s.addSub.subParked);
     out << "#endif\n";
     if (!out) throw runtime_error("failed to write " + path);
   }
@@ -188,7 +197,6 @@ namespace
   {
     mt19937_64 gen(0xE86452A2);
     const auto base = BigInteger::Base();
-    cout << "operation,state,a_limbs,b_limbs,median_us\n";
     for (const auto [aSize, bSize] : vector<pair<SizeT, SizeT>>{
              {27, 27}, {29, 29}, {35, 35}, {55, 55}, {312, 312}, {336, 336},
              {421, 421}, {496, 496}, {531, 531}, {700, 700}, {991, 991}, {1131, 1131},
@@ -609,19 +617,23 @@ namespace
 
 int main(int argc, char **argv)
 {
-  if (argc == 2 && string_view(argv[1]) == "--holdout")
-  {
-    Holdout();
-    return 0;
-  }
-
-  bool full = false;
+  bool holdout = false, addSubOnly = false, full = false;
   bool emitHeaderRequested = false;
   string emitHeaderPath;
 
   for (int i = 1; i < argc; ++i)
   {
     string arg = argv[i];
+    if (arg == "--holdout")
+    {
+      holdout = true;
+      continue;
+    }
+    if (arg == "--add-sub-only")
+    {
+      addSubOnly = true;
+      continue;
+    }
     if (arg == "--full")
     {
       full = true;
@@ -646,6 +658,15 @@ int main(int argc, char **argv)
     }
   }
 
+  if (holdout)
+  {
+    cout << "operation,state,a_limbs,b_limbs,median_us\n";
+    if (!addSubOnly)
+      Holdout();
+    AddSubTuning::Holdout();
+    return 0;
+  }
+
   if (emitHeaderRequested && emitHeaderPath.empty())
     emitHeaderPath = "bigmath-tuned.h";
 
@@ -655,13 +676,17 @@ int main(int argc, char **argv)
   cout << "base=" << BigInteger::Base() << '\n';
 
   ThresholdSuggestions suggestions;
-  TuneMultiplication(full, suggestions);
-  TuneSquaring(full, suggestions);
-  TuneDivision(full, suggestions);
+  if (!addSubOnly)
+  {
+    TuneMultiplication(full, suggestions);
+    TuneSquaring(full, suggestions);
+    TuneDivision(full, suggestions);
+  }
+  suggestions.addSub = AddSubTuning::Tune(full);
 
   if (!emitHeaderPath.empty())
   {
-    WriteThresholdHeader(emitHeaderPath, suggestions);
+    WriteThresholdHeader(emitHeaderPath, suggestions, addSubOnly);
     cout << "wrote dispatch threshold header: " << emitHeaderPath << '\n';
   }
 
