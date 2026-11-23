@@ -4300,8 +4300,8 @@ namespace BigMath
     // coefficients. `biased` shifts the coefficients (BiasedOperandView); the
     // shorter operand may then have up to CrtMaxBiasedTerms coefficients
     // instead of CrtMaxTerms.
-    inline std::vector<DataT> MultiplyAtCrtCeiling(const std::vector<DataT> &a,
-                                                  const std::vector<DataT> &b, BaseT base, Int H,
+    inline std::vector<DataT> MultiplyAtCrtCeiling(std::span<const DataT> a,
+                                                  std::span<const DataT> b, BaseT base, Int H,
                                                   bool biased)
     {
       const PackedOperandView va(a, base), vb(b, base);
@@ -4338,16 +4338,16 @@ namespace BigMath
 
     // Unsigned coefficients while the shorter operand allows them: their
     // finalize pass is the cheaper one.
-    inline std::vector<DataT> MultiplyAtCrtCeiling(const std::vector<DataT> &a,
-                                                  const std::vector<DataT> &b, BaseT base, Int H)
+    inline std::vector<DataT> MultiplyAtCrtCeiling(std::span<const DataT> a,
+                                                  std::span<const DataT> b, BaseT base, Int H)
     {
       const ULong shorter = (ULong)std::min(a.size(), b.size()) * CoeffsPerLimb(base);
       return MultiplyAtCrtCeiling(a, b, base, H, shorter > CrtMaxTerms);
     }
 #endif
 
-    inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
-                                       const std::vector<DataT> &b, BaseT base);
+    inline std::vector<DataT> Multiply(std::span<const DataT> a,
+                                       std::span<const DataT> b, BaseT base);
 
     // Spread the tail across all blocks so neighboring block pairs can reuse
     // the same transform plans and scratch capacities.
@@ -4357,24 +4357,15 @@ namespace BigMath
       return 1 + (limbs - 1) / count;
     }
 
-    inline const std::vector<DataT> &ProductBlock(const std::vector<DataT> &v, size_t offset,
-                                                  size_t length, std::vector<DataT> &scratch)
-    {
-      if (length == v.size()) return v;
-      const size_t end = std::min(v.size(), offset + length);
-      scratch.assign(v.begin() + offset, v.begin() + end);
-      return scratch;
-    }
-
     // Multiply by overlap-add in the limb radix. The shorter operand is cut
     // into blocks of at most shorterLimbs limbs and the longer one into
     // blocks that keep the limbs of a pair within pairLimbs (at least twice
-    // shorterLimbs); product(left, right) multiplies one pair. Each partial
-    // result is fully carry-normalized before adding it to the preallocated
-    // destination.
+    // shorterLimbs). The product callback reads views into the original
+    // operands. Each partial result is carry-normalized before adding it to
+    // the preallocated destination.
     template <typename Product>
-    inline std::vector<DataT> MultiplyBlocked(const std::vector<DataT> &a,
-                                              const std::vector<DataT> &b, BaseT base,
+    inline std::vector<DataT> MultiplyBlocked(std::span<const DataT> a,
+                                              std::span<const DataT> b, BaseT base,
                                               size_t pairLimbs, size_t shorterLimbs,
                                               const Product &product)
     {
@@ -4382,20 +4373,19 @@ namespace BigMath
       if (a.size() + b.size() > (size_t)std::numeric_limits<Int>::max())
         throw std::length_error("CRT product exceeds the supported limb index range");
       // The square below pairs equal blocks, so it cuts both sides alike.
-      const bool square = &a == &b;
+      const bool square = a.data() == b.data() && a.size() == b.size();
       const size_t shortBlock = ProductBlockLength(std::min(a.size(), b.size()), shorterLimbs);
       const size_t longBlock = square ? shortBlock
           : ProductBlockLength(std::max(a.size(), b.size()), pairLimbs - shortBlock);
       const size_t aBlock = a.size() < b.size() ? shortBlock : longBlock;
       const size_t bBlock = a.size() < b.size() ? longBlock : shortBlock;
       std::vector<DataT> result(a.size() + b.size(), 0);
-      std::vector<DataT> aStorage, bStorage;
       for (size_t i = 0; i < a.size(); i += aBlock)
       {
-        const auto &left = ProductBlock(a, i, aBlock, aStorage);
+        const auto left = a.subspan(i, std::min(aBlock, a.size() - i));
         for (size_t j = square ? i : 0; j < b.size(); j += bBlock)
         {
-          const auto &right = square && i == j ? left : ProductBlock(b, j, bBlock, bStorage);
+          const auto right = b.subspan(j, std::min(bBlock, b.size() - j));
           const std::vector<DataT> partial = product(left, right);
           if (partial.empty()) continue;
           const SizeT offset = (SizeT)(i + j), last = (SizeT)partial.size() - 1;
@@ -4409,12 +4399,12 @@ namespace BigMath
     }
 
     // Block pairs that each fit one transform of transformLimbs limbs.
-    inline std::vector<DataT> MultiplyBlocked(const std::vector<DataT> &a,
-                                              const std::vector<DataT> &b, BaseT base,
+    inline std::vector<DataT> MultiplyBlocked(std::span<const DataT> a,
+                                              std::span<const DataT> b, BaseT base,
                                               size_t transformLimbs)
     {
       return MultiplyBlocked(a, b, base, transformLimbs, transformLimbs / 2,
-                             [base](const std::vector<DataT> &left, const std::vector<DataT> &right) {
+                             [base](std::span<const DataT> left, std::span<const DataT> right) {
                                return Multiply(left, right, base);
                              });
     }
@@ -4432,8 +4422,8 @@ namespace BigMath
     // blocks whose pairs fit the available limits.
     // A shorter operand of at most H/2 coefficients is instead paired with
     // blocks that keep each product within one transform.
-    inline std::vector<DataT> MultiplyAboveTransform(const std::vector<DataT> &a,
-                                                     const std::vector<DataT> &b, BaseT base, Int H,
+    inline std::vector<DataT> MultiplyAboveTransform(std::span<const DataT> a,
+                                                     std::span<const DataT> b, BaseT base, Int H,
                                                      ULong plainTerms = CrtMaxTerms,
                                                      ULong biasedTerms = CrtMaxBiasedTerms,
                                                      ULong wideTerms = BIGMATH_NTT_WIDE_MAX_TERMS,
@@ -4495,7 +4485,7 @@ namespace BigMath
       (void)fermatMinCoeffs;
 #endif
       return MultiplyBlocked(a, b, base, (size_t)(pairCoeffs / perLimb), (size_t)(shorterCoeffs / perLimb),
-                             [&](const std::vector<DataT> &left, const std::vector<DataT> &right) {
+                             [&](std::span<const DataT> left, std::span<const DataT> right) {
                                const ULong coeffs = (ULong)(left.size() + right.size()) * perLimb - 1;
                                return coeffs > (ULong)H
                                           ? MultiplyAboveTransform(left, right, base, H, plainTerms, biasedTerms,
@@ -4678,8 +4668,8 @@ namespace BigMath
       return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
     }
 
-    inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
-                                       const std::vector<DataT> &b, BaseT base)
+    inline std::vector<DataT> Multiply(std::span<const DataT> a,
+                                       std::span<const DataT> b, BaseT base)
     {
       if (IsZero(a) || IsZero(b)) return {};
       if (a.size() == 1) return ClassicMultiplication::Multiply(b, a[0], base);

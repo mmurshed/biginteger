@@ -273,7 +273,7 @@ namespace BigMath::FermatOuter
     return plane;
   }
 
-  inline std::vector<DataT> MultiplyFermat(const std::vector<DataT> &a, const std::vector<DataT> &b,
+  inline std::vector<DataT> MultiplyFermat(std::span<const DataT> a, std::span<const DataT> b,
                                            const Parameters &p)
   {
     if (a.empty() || b.empty()) return {};
@@ -286,7 +286,7 @@ namespace BigMath::FermatOuter
     Transform transform(p);
     transform.Forward(left);
     {
-      const bool square = &a == &b;
+      const bool square = a.data() == b.data() && a.size() == b.size();
       std::vector<DataT> right;
       if (!square)
       {
