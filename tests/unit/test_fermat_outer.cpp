@@ -107,6 +107,40 @@ REGISTER_TEST(FermatOuter, RingArithmeticMatchesDivision)
   }
 }
 
+REGISTER_TEST(FermatOuter, PointProductsReuseStorageAcrossWidths)
+{
+  std::mt19937_64 rng(0x70a4f);
+  constexpr size_t width = 4096;
+  Limbs modulus(width + 1), out(width + 1);
+  modulus.front() = modulus.back() = 1;
+  PointwiseScratch scratch;
+
+  auto a = RandomValue(width, rng), b = RandomValue(width, rng);
+  auto expected = RingReference(KaratsubaMultiplication::Multiply(a, b, Base2_64), modulus);
+  a.push_back(0);
+  b.push_back(0);
+  MulMod(out, a, b, scratch);
+  ASSERT_TRUE(out == expected);
+
+  const auto capacity = scratch.product.capacity();
+  const Limbs zero(width + 1);
+  MulMod(out, a, zero, scratch);
+  ASSERT_TRUE(out == zero);
+  ASSERT_TRUE(scratch.product.empty());
+
+  // The ring slots stay wide even when the next product fits the scalar,
+  // schoolbook or recursive kernel. Include an in-place aliased square.
+  for (size_t limbs : {1, 8, 137})
+  {
+    auto x = RandomValue(limbs, rng);
+    expected = RingReference(ClassicMultiplication::Multiply(x, x, Base2_64), modulus);
+    x.resize(width + 1);
+    MulMod(x, x, x, scratch);
+    ASSERT_TRUE(x == expected);
+    ASSERT_EQ(scratch.product.capacity(), capacity);
+  }
+}
+
 REGISTER_TEST(FermatOuter, RoundTripsSingleAndParallelLayers)
 {
   std::mt19937_64 rng(0x906c);

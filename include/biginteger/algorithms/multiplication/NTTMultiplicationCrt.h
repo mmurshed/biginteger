@@ -235,6 +235,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
@@ -1642,7 +1643,7 @@ namespace BigMath
       return base == Base2_64 ? 2u : 1u;
     }
 
-    inline void PackOperand(const std::vector<DataT> &v,
+    inline void PackOperand(std::span<const DataT> v,
                             BaseT base,
                             std::vector<UInt> &dst1,
                             std::vector<UInt> &dst2,
@@ -1700,7 +1701,7 @@ namespace BigMath
     }
 
     template <typename F>
-    inline void PackPlane(const std::vector<DataT> &v, BaseT base, UInt *dst, Int n)
+    inline void PackPlane(std::span<const DataT> v, BaseT base, UInt *dst, Int n)
     {
       PackPlaneLimbs<F>(v.data(), (SizeT)v.size(), base, dst, n);
     }
@@ -1870,19 +1871,19 @@ namespace BigMath
       });
     }
 
-    inline std::vector<DataT> FinalizeProduct(const std::vector<UInt> &fa1,
-                                              const std::vector<UInt> &fa2,
-                                              const std::vector<UInt> &fa3,
-                                              ULong coeffCount,
-                                              BaseT base,
-                                              SizeT reserveLimbs)
+    inline void FinalizeProductInto(const std::vector<UInt> &fa1,
+                                    const std::vector<UInt> &fa2,
+                                    const std::vector<UInt> &fa3,
+                                    ULong coeffCount,
+                                    BaseT base,
+                                    SizeT reserveLimbs,
+                                    std::vector<DataT> &result)
     {
       if (base == Base2_64)
       {
         // Two 32-bit coefficients per 64-bit limb. The product needs
         // ceil(coeffCount / 2) limbs plus whatever carry leaves the top.
         const SizeT nLimbs = (SizeT)((coeffCount + 1) / 2);
-        std::vector<DataT> result;
         result.reserve(std::max<SizeT>(reserveLimbs, nLimbs + 1));
         result.resize(nLimbs);
         ULong carry = GarnerCarry64(fa1.data(), fa2.data(), fa3.data(), (SizeT)coeffCount,
@@ -1890,11 +1891,11 @@ namespace BigMath
         if (carry != 0)
           result.push_back((DataT)carry);
         TrimZeros(result);
-        return result;
+        return;
       }
 
       const InvTable &inv = GarnerInverses();
-      std::vector<DataT> result;
+      result.clear();
       result.reserve(reserveLimbs);
       {
         // Base2_32: 1 coefficient per output limb (already 32-bit).
@@ -1913,9 +1914,18 @@ namespace BigMath
       }
 
       TrimZeros(result);
-      return result;
     }
 
+
+    inline std::vector<DataT> FinalizeProduct(const std::vector<UInt> &fa1,
+                                              const std::vector<UInt> &fa2,
+                                              const std::vector<UInt> &fa3,
+                                              ULong coeffCount, BaseT base, SizeT reserveLimbs)
+    {
+      std::vector<DataT> result;
+      FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, reserveLimbs, result);
+      return result;
+    }
 
     // ─── Shared whole-transform batch orchestration ─────────────────────────
     // The plain (non-MFA) forward/pointwise/inverse ParallelDo blocks were
@@ -1996,9 +2006,9 @@ namespace BigMath
     // Pack + forward in one batch: each (operand, prime) unit packs its own
     // residue plane (and zero-pads it) before transforming it, so the pack and
     // the padding run on the pool instead of serially on the caller. `b` is
-    // null when squaring (three units instead of six). The buffers are sized
+    // empty when squaring (three units instead of six). The buffers are sized
     // here; every element of each plane is written by its unit.
-    inline void CrtPackForwardBatch(const std::vector<DataT> &a, const std::vector<DataT> *b,
+    inline void CrtPackForwardBatch(std::span<const DataT> a, std::span<const DataT> b,
                                     BaseT base, Int n,
                                     std::vector<UInt> &fa1, std::vector<UInt> &fa2, std::vector<UInt> &fa3,
                                     std::vector<UInt> &fb1, std::vector<UInt> &fb2, std::vector<UInt> &fb3,
@@ -2007,30 +2017,29 @@ namespace BigMath
       fa1.resize(n);
       fa2.resize(n);
       fa3.resize(n);
-      if (b != nullptr)
+      if (!b.empty())
       {
         fb1.resize(n);
         fb2.resize(n);
         fb3.resize(n);
       }
       UInt *const pa1 = fa1.data(), *const pa2 = fa2.data(), *const pa3 = fa3.data();
-      UInt *const pb1 = b ? fb1.data() : nullptr, *const pb2 = b ? fb2.data() : nullptr, *const pb3 = b ? fb3.data() : nullptr;
-      const std::vector<DataT> *const srcA = &a;
+      UInt *const pb1 = !b.empty() ? fb1.data() : nullptr, *const pb2 = !b.empty() ? fb2.data() : nullptr, *const pb3 = !b.empty() ? fb3.data() : nullptr;
       const Plan<F1> *const p1 = &plan1;
       const Plan<F2> *const p2 = &plan2;
       const Plan<F3> *const p3 = &plan3;
       auto unit = [=](Int idx) {
         switch (idx)
         {
-          case 0: PackPlane<F1>(*srcA, base, pa1, n); ForwardPtr<F1>(pa1, n, *p1); break;
-          case 1: PackPlane<F2>(*srcA, base, pa2, n); ForwardPtr<F2>(pa2, n, *p2); break;
-          case 2: PackPlane<F3>(*srcA, base, pa3, n); ForwardPtr<F3>(pa3, n, *p3); break;
-          case 3: PackPlane<F1>(*b, base, pb1, n); ForwardPtr<F1>(pb1, n, *p1); break;
-          case 4: PackPlane<F2>(*b, base, pb2, n); ForwardPtr<F2>(pb2, n, *p2); break;
-          case 5: PackPlane<F3>(*b, base, pb3, n); ForwardPtr<F3>(pb3, n, *p3); break;
+          case 0: PackPlane<F1>(a, base, pa1, n); ForwardPtr<F1>(pa1, n, *p1); break;
+          case 1: PackPlane<F2>(a, base, pa2, n); ForwardPtr<F2>(pa2, n, *p2); break;
+          case 2: PackPlane<F3>(a, base, pa3, n); ForwardPtr<F3>(pa3, n, *p3); break;
+          case 3: PackPlane<F1>(b, base, pb1, n); ForwardPtr<F1>(pb1, n, *p1); break;
+          case 4: PackPlane<F2>(b, base, pb2, n); ForwardPtr<F2>(pb2, n, *p2); break;
+          case 5: PackPlane<F3>(b, base, pb3, n); ForwardPtr<F3>(pb3, n, *p3); break;
         }
       };
-      const Int units = b != nullptr ? 6 : 3;
+      const Int units = !b.empty() ? 6 : 3;
 #if BIGMATH_USE_THREADS
       if (n >= (Int)BIGMATH_NTT_PARALLEL_MIN)
       {
@@ -2318,7 +2327,7 @@ namespace BigMath
     // Pack one operand for one prime into [ lower | cyc ]:
     //   lower[j] = (a_j − a_{j+H}) · ψ^j,   cyc[i] = Σ_k a_{i+kL}   (mod P).
     template <typename F, typename Weights>
-    inline void TruncPackWeightFold(const std::vector<DataT> &v, BaseT base, UInt *plane,
+    inline void TruncPackWeightFold(std::span<const DataT> v, BaseT base, UInt *plane,
                                     Int H, Int L, const Weights &plan2H)
     {
       UInt *lower = plane;
@@ -2401,9 +2410,9 @@ namespace BigMath
     }
 
     // Pack + weight + fold + both forward transforms, one unit per
-    // (operand, prime). `b` is null when squaring. plan1..3 are the plans for
+    // (operand, prime). `b` is empty when squaring. plan1..3 are the plans for
     // length 2H.
-    inline void CrtTruncForwardBatch(const std::vector<DataT> &a, const std::vector<DataT> *b,
+    inline void CrtTruncForwardBatch(std::span<const DataT> a, std::span<const DataT> b,
                                      BaseT base, Int H, Int L,
                                      std::vector<UInt> &fa1, std::vector<UInt> &fa2, std::vector<UInt> &fa3,
                                      std::vector<UInt> &fb1, std::vector<UInt> &fb2, std::vector<UInt> &fb3,
@@ -2413,20 +2422,19 @@ namespace BigMath
       fa1.resize(len);
       fa2.resize(len);
       fa3.resize(len);
-      if (b != nullptr)
+      if (!b.empty())
       {
         fb1.resize(len);
         fb2.resize(len);
         fb3.resize(len);
       }
       UInt *const pa1 = fa1.data(), *const pa2 = fa2.data(), *const pa3 = fa3.data();
-      UInt *const pb1 = b ? fb1.data() : nullptr, *const pb2 = b ? fb2.data() : nullptr, *const pb3 = b ? fb3.data() : nullptr;
-      const std::vector<DataT> *const srcA = &a;
+      UInt *const pb1 = !b.empty() ? fb1.data() : nullptr, *const pb2 = !b.empty() ? fb2.data() : nullptr, *const pb3 = !b.empty() ? fb3.data() : nullptr;
       const Plan<F1> *const w1 = &plan1, *const h1 = &GetPlan<F1, G1>(H), *const l1 = &GetPlan<F1, G1>(L);
       const Plan<F2> *const w2 = &plan2, *const h2 = &GetPlan<F2, G2>(H), *const l2 = &GetPlan<F2, G2>(L);
       const Plan<F3> *const w3 = &plan3, *const h3 = &GetPlan<F3, G3>(H), *const l3 = &GetPlan<F3, G3>(L);
       auto unit = [=](Int idx) {
-        const std::vector<DataT> &src = idx < 3 ? *srcA : *b;
+        const auto src = idx < 3 ? a : b;
         switch (idx)
         {
           case 0: case 3:
@@ -2455,7 +2463,7 @@ namespace BigMath
           }
         }
       };
-      const Int units = b != nullptr ? 6 : 3;
+      const Int units = !b.empty() ? 6 : 3;
 #if BIGMATH_USE_THREADS
       if (H >= (Int)BIGMATH_NTT_PARALLEL_MIN)
       {
@@ -3032,7 +3040,7 @@ namespace BigMath
       ULong coeffCount = 0; // limbs * coeffsPerLimb
       bool base64 = false;
 
-      PackedOperandView(const std::vector<DataT> &op, BaseT base)
+      PackedOperandView(std::span<const DataT> op, BaseT base)
           : v(op.data()),
             limbs((SizeT)op.size()),
             coeffCount((ULong)op.size() * CoeffsPerLimb(base)),
@@ -4017,11 +4025,11 @@ namespace BigMath
     //     transform.
     //
     // Everything runs on the calling thread; see BIGMATH_NTT_TRUNC_SERIAL_MAX
-    // for why the threaded build does not use it. `b` is null when squaring.
+    // for why the threaded build does not use it. `b` is empty when squaring.
     // pa receives [ C_lo : H | C_hi : L ] for this prime; pb needs H + L
     // entries, scratch H. plan2H supplies the weights ψ^±j.
     template <typename F, UInt G>
-    inline void TruncSerialPrime(const std::vector<DataT> &a, const std::vector<DataT> *b,
+    inline void TruncSerialPrime(std::span<const DataT> a, std::span<const DataT> b,
                                  BaseT base, Int H, Int L, Int mfaMin,
                                  UInt *pa, UInt *pb, UInt *scratch, const NegacyclicWeights<F> &plan2H)
     {
@@ -4039,9 +4047,9 @@ namespace BigMath
       if (mfaL) ForwardMFA<F>(pa + H, L, scratch, /*parallel=*/ false, tree);
       else ForwardPtr<F>(pa + H, L, *planL);
 
-      if (b != nullptr)
+      if (!b.empty())
       {
-        TruncPackWeightFold<F>(*b, base, pb, H, L, plan2H);
+        TruncPackWeightFold<F>(b, base, pb, H, L, plan2H);
         if (mfaH)
           ForwardMFAMul<F>(pb, H, scratch, /*parallel=*/ false, tree, pa);
         else
@@ -4072,7 +4080,7 @@ namespace BigMath
 
     // The three primes in turn. f1..f3 receive the residue planes for the
     // Garner/carry pass; fb and scratch are workspace.
-    inline void CrtTruncSerial(const std::vector<DataT> &a, const std::vector<DataT> *b,
+    inline void CrtTruncSerial(std::span<const DataT> a, std::span<const DataT> b,
                                BaseT base, Int H, Int L, Int mfaMin,
                                std::vector<UInt> &f1, std::vector<UInt> &f2, std::vector<UInt> &f3,
                                std::vector<UInt> &fb, std::vector<UInt> &scratch)
@@ -4081,7 +4089,7 @@ namespace BigMath
       f1.resize(len);
       f2.resize(len);
       f3.resize(len);
-      if (b != nullptr) fb.resize(len);
+      if (!b.empty()) fb.resize(len);
       scratch.resize((SizeT)H);
       TruncSerialPrime<F1, G1>(a, b, base, H, L, mfaMin, f1.data(), fb.data(), scratch.data(), GetNegacyclicWeights<F1, G1>(H));
       TruncSerialPrime<F2, G2>(a, b, base, H, L, mfaMin, f2.data(), fb.data(), scratch.data(), GetNegacyclicWeights<F2, G2>(H));
@@ -4105,7 +4113,7 @@ namespace BigMath
           H > (1 << 25) || coeffCount <= (ULong)H || coeffCount > (ULong)H + (ULong)L)
         throw std::invalid_argument("NttCrt::MultiplyTruncSerial: lengths do not fit the product");
       static thread_local std::vector<UInt> f1, f2, f3, fb, scratch;
-      CrtTruncSerial(a, &a == &b ? nullptr : &b, base, H, L, mfaMin, f1, f2, f3, fb, scratch);
+      CrtTruncSerial(a, &a == &b ? std::span<const DataT>{} : b, base, H, L, mfaMin, f1, f2, f3, fb, scratch);
       return FinalizeProduct(f1, f2, f3, coeffCount, base, a.size() + b.size() + 2);
     }
 #endif // BIGMATH_NTT_MFA
@@ -4496,35 +4504,12 @@ namespace BigMath
                              });
     }
 
-    // ─── Public Multiply ─────────────────────────────────────────────────────
-
-    inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
-                                       const std::vector<DataT> &b,
-                                       BaseT base)
+    // Inputs are nonzero, have at least two limbs, and fit one transform.
+    // The result buffer is disjoint from the inputs and retains its capacity.
+    inline void MultiplyWithinTransform(std::span<const DataT> a, std::span<const DataT> b,
+                                        BaseT base, ULong coeffCount, std::vector<DataT> &result)
     {
-      if (IsZero(a) || IsZero(b)) return std::vector<DataT>();
-      if (a.size() == 1) return ClassicMultiplication::Multiply(b, a[0], base);
-      if (b.size() == 1) return ClassicMultiplication::Multiply(a, b[0], base);
-
-      // Squaring: when both operands are the same vector, the b-side pack and
-      // forward transforms are byte-identical to the a-side — skip them and
-      // square fa pointwise. (The fused MFA window below packs straight from
-      // the limb arrays and fuses the pointwise into its stages, so it keeps
-      // the two-operand flow.)
-      const bool sameOperand = (&a == &b);
-
-      // Split into 32-bit coefficients. Works for Base2_32 (1 coeff per limb)
-      // and Base2_64 (2 coeffs per limb). Pre-CRT bounds: each coefficient is
-      // < 2^32, convolution sum at length N is < N · 2^64.
-      SizeT coeffsPerLimb = CoeffsPerLimb(base);
-
-      ULong aCoeffSize = (ULong)a.size() * coeffsPerLimb;
-      ULong bCoeffSize = (ULong)b.size() * coeffsPerLimb;
-      ULong coeffCount = aCoeffSize + bCoeffSize - 1;
-      // Every transform must fit the roots supported by all three primes.
-      constexpr ULong MaxTransform = (ULong)1 << 26;
-      if (coeffCount > MaxTransform)
-        return MultiplyAboveTransform(a, b, base, (Int)MaxTransform);
+      const bool sameOperand = a.data() == b.data() && a.size() == b.size();
       const Int n = (Int)std::bit_ceil(coeffCount);
 
       auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
@@ -4551,11 +4536,11 @@ namespace BigMath
         const auto &plan2 = GetPlan<F2, G2>(n);
         const auto &plan3 = GetPlan<F3, G3>(n);
         const Int H = n >> 1;
-        CrtTruncForwardBatch(a, sameOperand ? nullptr : &b, base, H, truncL,
+        CrtTruncForwardBatch(a, sameOperand ? std::span<const DataT>{} : b, base, H, truncL,
                              fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
         multiplySpectra(H + truncL);
         CrtTruncInverseBatch(fa1, fa2, fa3, H, truncL, plan1, plan2, plan3);
-        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+        return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
       }
 
 #if BIGMATH_NTT_MFA
@@ -4563,9 +4548,9 @@ namespace BigMath
       // see CrtTruncSerial. fb1 is the one b-side plane, fb2 the MFA scratch.
       if (const Int serialL = TruncSerialCyclicLength(coeffCount, n >> 1); serialL != 0)
       {
-        CrtTruncSerial(a, sameOperand ? nullptr : &b, base, n >> 1, serialL,
+        CrtTruncSerial(a, sameOperand ? std::span<const DataT>{} : b, base, n >> 1, serialL,
                        (Int)BIGMATH_NTT_MFA_THRESHOLD, fa1, fa2, fa3, fb1, fb2);
-        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+        return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
       }
 
       if (UseMfaForShape(a.size(), b.size(), n))
@@ -4680,17 +4665,33 @@ namespace BigMath
           };
           ParallelDo(3, invBody);
         }
-        return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+        return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
       }
 #endif
       const auto &plan1 = GetPlan<F1, G1>(n);
       const auto &plan2 = GetPlan<F2, G2>(n);
       const auto &plan3 = GetPlan<F3, G3>(n);
-      CrtPackForwardBatch(a, sameOperand ? nullptr : &b, base, n,
+      CrtPackForwardBatch(a, sameOperand ? std::span<const DataT>{} : b, base, n,
                           fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
       multiplySpectra(n);
       CrtInverseBatch(fa1, fa2, fa3, plan1, plan2, plan3);
-      return FinalizeProduct(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2);
+      return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
+    }
+
+    inline std::vector<DataT> Multiply(const std::vector<DataT> &a,
+                                       const std::vector<DataT> &b, BaseT base)
+    {
+      if (IsZero(a) || IsZero(b)) return {};
+      if (a.size() == 1) return ClassicMultiplication::Multiply(b, a[0], base);
+      if (b.size() == 1) return ClassicMultiplication::Multiply(a, b[0], base);
+
+      const ULong coeffCount = (ULong)(a.size() + b.size()) * CoeffsPerLimb(base) - 1;
+      constexpr ULong MaxTransform = (ULong)1 << 26;
+      if (coeffCount > MaxTransform)
+        return MultiplyAboveTransform(a, b, base, (Int)MaxTransform);
+      std::vector<DataT> result;
+      MultiplyWithinTransform(a, b, base, coeffCount, result);
+      return result;
     }
 
     // ─── Cyclic (wrap-around) product: (a · b) mod (B^L − 1) ────────────────
@@ -4761,7 +4762,7 @@ namespace BigMath
         const auto &plan1 = GetPlan<F1, G1>(n);
         const auto &plan2 = GetPlan<F2, G2>(n);
         const auto &plan3 = GetPlan<F3, G3>(n);
-        CrtPackForwardBatch(a, &b, base, n, fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
+        CrtPackForwardBatch(a, b, base, n, fa1, fa2, fa3, fb1, fb2, fb3, plan1, plan2, plan3);
 
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
                             fb1.data(), fb2.data(), fb3.data(), n);
