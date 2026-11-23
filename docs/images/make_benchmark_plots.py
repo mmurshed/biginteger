@@ -99,7 +99,7 @@ def ratio_plot(path, results, figure_title, threads, library, legend_location="u
     fig.suptitle(figure_title, fontsize=17, fontweight="bold", y=0.98)
     fig.text(0.5, 0.918, "Time relative to GMP  ·  Below 1× means BigMath is faster", ha="center", fontsize=11)
     fig.supxlabel("Decimal digits in the first operand", fontsize=11, y=0.066)
-    fig.text(0.5, 0.021, f"November 23, 2026  ·  {threads}  ·  "
+    fig.text(0.5, 0.021, f"November 23, 2026 · ed9a01c  ·  {threads}  ·  "
              "Seeded products above 200M measured November 21", ha="center", fontsize=9, color="#384655")
     fig.subplots_adjust(left=0.075, right=0.978, top=0.845, bottom=0.15, hspace=0.3, wspace=0.13)
     fig.savefig(path)
@@ -216,11 +216,11 @@ if __name__ == "__main__":
     parser.add_argument("--ratio-only", action="store_true", help="Generate both GMP comparison figures and skip the history figure")
     args = parser.parse_args()
     ratio_plot(HERE / "bigmath_vs_gmp_single_thread.png",
-               BENCHMARKS / "2026-11-23-full-24d1a13-m1-max-single-thread.csv",
+               BENCHMARKS / "2026-11-23-full-ed9a01c-m1-max-single-thread.csv",
                "Single-thread BigMath vs GMP 6.3.0 on Apple M1 Max", "1 thread per library",
                "bigmath_single", legend_location="best")
     ratio_plot(HERE / "bigmath_vs_gmp.png",
-               BENCHMARKS / "2026-11-23-full-24d1a13-m1-max.csv",
+               BENCHMARKS / "2026-11-23-full-ed9a01c-m1-max.csv",
                "BigMath vs GMP 6.3.0 on Apple M1 Max", "Up to 8 BigMath threads, 1 GMP thread",
                "bigmath_default")
     small = BENCHMARKS / "2026-11-21-small-operands.csv"

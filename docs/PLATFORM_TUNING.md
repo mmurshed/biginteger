@@ -57,7 +57,7 @@ pays its one-time startup cost.
 3. Run `stage=validate` on the branch. This builds both the proposed profile
    and the profile from the default branch at dispatch time, using the proposed
    branch's source code and the same runner for both. The candidate must pass
-   all four correctness suites. The benchmark also checks results against
+   all five correctness suites. The benchmark also checks results against
    schoolbook multiplication and FastDivision on the held-out inputs.
 
    ```sh

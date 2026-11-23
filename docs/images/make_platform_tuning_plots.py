@@ -1,4 +1,4 @@
-"""Plot the release-profile comparison from GitHub Actions run 44998103595."""
+"""Plot the release-profile comparison from GitHub Actions run 45151452463."""
 import csv
 from collections import defaultdict
 from pathlib import Path
@@ -13,7 +13,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import NullLocator
 
 HERE = Path(__file__).resolve().parent
-RESULTS = HERE.parent / "benchmarks" / "2026-11-22-platform-tuning-44998103595.csv"
+RESULTS = HERE.parent / "benchmarks" / "2026-11-23-platform-tuning-45151452463.csv"
 PLATFORMS = {
     "linux-x86_64-gcc": "Linux x86-64 · GCC",
     "linux-x86_64-clang": "Linux x86-64 · Clang",
@@ -62,7 +62,7 @@ def plot_summary(ratios):
     fig, axes = plt.subplots(1, 2, figsize=(10.2, 3.65), sharey=True)
     for ax, operation, title in zip(axes, ("mul-balanced", "square"),
                                     ("Balanced multiplication", "Squaring")):
-        format_axes(ax, (1, 1.1, 1.2, 1.3, 1.4), (0.97, 1.49))
+        format_axes(ax, (0.9, 1, 1.1, 1.2, 1.3, 1.4), (0.86, 1.51))
         ax.set_title(title, loc="left", weight="bold")
         for state, color, marker, offset in (
             ("burst", BLUE, "o", -0.16), ("parked", ORANGE, "s", 0.16),
@@ -81,12 +81,17 @@ def plot_summary(ratios):
 
 
 def plot_cases(ratios):
-    fig, axes = plt.subplots(1, 3, figsize=(10.7, 3.9), sharey=True)
+    fig, axes = plt.subplots(1, 4, figsize=(13.2, 3.9), sharey=True)
     jitter = Random(44998103595)
-    for ax, family, title in zip(axes, ("mul-", "square", "div-"),
-                                 ("Multiplication", "Squaring", "Quotient and remainder")):
+    families = (
+        (("mul-",), "Multiplication"),
+        (("square",), "Squaring"),
+        (("div-",), "Quotient and remainder"),
+        (("add-", "sub-"), "Addition and subtraction"),
+    )
+    for ax, (family, title) in zip(axes, families):
         ax.set_xscale("log", base=2)
-        format_axes(ax, (0.25, 0.5, 1, 2, 4), (0.24, 4.15))
+        format_axes(ax, (0.5, 1, 2, 3), (0.45, 3.85))
         ax.set_title(title, loc="left", weight="bold")
         for index, platform in enumerate(PLATFORMS):
             values = [ratio for (key, operation, _), sample in ratios.items()
