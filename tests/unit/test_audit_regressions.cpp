@@ -304,6 +304,36 @@ REGISTER_TEST(AuditConversion, ConvertBaseSameBaseRange)
     ASSERT_EQ(out[i], want[i]);
 }
 
+REGISTER_TEST(AuditConversion, ConvertBaseBinaryLimbs)
+{
+  const std::vector<DataT> wide{0xFEDCBA9876543210ULL, 1};
+  const std::vector<DataT> narrow{0x76543210, 0xFEDCBA98, 1};
+  ASSERT_TRUE(ConvertBase(wide, Base2_64, Base2_32) == narrow);
+  ASSERT_TRUE(ConvertBase(narrow, Base2_32, Base2_64) == wide);
+
+  const std::vector<DataT> zero{0};
+  ASSERT_TRUE(ConvertBase({0, 0}, Base2_64, Base2_8) == zero);
+  ASSERT_TRUE(ConvertBase({}, Base2_32, Base2_64) == zero);
+  ASSERT_TRUE(ConvertBase({}, Base2_64, Base2_64).empty());
+}
+
+REGISTER_TEST(AuditConversion, ConvertBaseBinaryRangeAcrossDigitBoundaries)
+{
+  const std::vector<DataT> source{123, 0x7FFFFFFE, 0x76543210, 0x7FFFFFFF, 0, 456};
+  const std::vector<DataT> expected{0xFFFE, 0x7FFF, 0x1908, 0xFB2A, 0xFFFF, 0x1FFF};
+  ASSERT_TRUE(ConvertBase(source, 1, 4, Base2_31, Base2_16) == expected);
+  ASSERT_TRUE(ConvertBase(expected, Base2_16, Base2_31) ==
+              std::vector<DataT>(source.begin() + 1, source.begin() + 4));
+}
+
+REGISTER_TEST(AuditConversion, ConvertBase64BitLimbsToDecimal)
+{
+  constexpr DataT maxLimb = ~DataT{0};
+  constexpr BaseT base10To18 = 1000000000000000000LL;
+  const std::vector<DataT> expected{374607431768211455ULL, 282366920938463463ULL, 340};
+  ASSERT_TRUE(ConvertBase({maxLimb, maxLimb}, Base2_64, base10To18) == expected);
+}
+
 // ── Compare(vector, scalar): untrimmed vectors compare by value ──────────────
 // Was: {0, 0} (untrimmed zero) compared greater than any scalar because the
 // raw size() > 1 check ran before trimming.
