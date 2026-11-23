@@ -22,7 +22,7 @@ This chapter collects the practical consequences of everything above.
 \end{itemize}
 
 Warm operation times in milliseconds from the November 23, 2026 full benchmark
-on the Apple M1 Max, revision \code{24d1a13}.
+on the Apple M1 Max, revision \code{ed9a01c}.
 
 \begin{center}
 \small
@@ -32,15 +32,15 @@ on the Apple M1 Max, revision \code{24d1a13}.
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
 Operation (decimal digits) & BigMath & GMP & BigMath & GMP \\
 \midrule
-multiply $10^4 \times 10^4$ & 0.03992 & 0.03675 & 0.05763 & 0.05146 \\
-multiply $10^6 \times 10^6$ & 9.085 & 9.026 & 2.339 & 8.909 \\
-multiply $10^7 \times 10^7$ & 106.8 & 212.1 & 18.09 & 206.5 \\
-multiply $50\,\mathrm{M} \times 50\,\mathrm{M}$ & 597.6 & 684.2 & 167.2 & 667 \\
-multiply $100\,\mathrm{M} \times 100\,\mathrm{M}$ & 1\,341 & 1\,430 & 338.9 & 1\,404 \\
-multiply $200\,\mathrm{M} \times 200\,\mathrm{M}$ & 3\,131 & 2\,990 & 691.9 & 2\,916 \\
-divide $10^7 \div (2\cdot 10^6)$ (quotient) & 148.3 & 142 & 41.89 & 145.3 \\
-parse $2\cdot 10^7$ digits & 858.3 & 814.1 & 172.2 & 804 \\
-print $2\cdot 10^7$ digits & 2\,320 & 2\,208 & 509 & 2\,370 \\
+multiply $10^4 \times 10^4$ & 0.05825 & 0.02975 & 0.02867 & 0.03704 \\
+multiply $10^6 \times 10^6$ & 8.676 & 8.827 & 1.652 & 8.867 \\
+multiply $10^7 \times 10^7$ & 104.3 & 206.3 & 17.3 & 203.2 \\
+multiply $50\,\mathrm{M} \times 50\,\mathrm{M}$ & 602.3 & 665.4 & 162.5 & 654.6 \\
+multiply $100\,\mathrm{M} \times 100\,\mathrm{M}$ & 1\,319 & 1\,409 & 327.1 & 1\,386 \\
+multiply $200\,\mathrm{M} \times 200\,\mathrm{M}$ & 2\,750 & 2\,902 & 694.5 & 2\,907 \\
+divide $10^7 \div (2\cdot 10^6)$ (quotient) & 148.4 & 141.4 & 39.58 & 138.8 \\
+parse $2\cdot 10^7$ digits & 837.4 & 805.5 & 157.6 & 791.2 \\
+print $2\cdot 10^7$ digits & 2\,352 & 2\,151 & 481.1 & 2\,133 \\
 \bottomrule
 \end{tabularx}
 
