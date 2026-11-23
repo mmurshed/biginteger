@@ -345,7 +345,7 @@ namespace Wide
     }
   };
 
-  inline std::vector<DataT> MultiplyWide(const std::vector<DataT> &a, const std::vector<DataT> &b,
+  inline std::vector<DataT> MultiplyWide(std::span<const DataT> a, std::span<const DataT> b,
                                          BaseT base, Int H = WideResidueLength)
   {
     const PackedOperandView va(a, base), vb(b, base);
@@ -360,7 +360,7 @@ namespace Wide
     // dimensions and keeps the same node limit (W2 has 27 nodes at 2^26).
     const Int longH = H == WideResidueLength && count > 2 * (ULong)H && MfaFusedWindow(2 * H)
                           ? 2 * H : H;
-    const bool square = &a == &b;
+    const bool square = a.data() == b.data() && a.size() == b.size();
     auto &workspace = GetProductWorkspace();
     for (auto *plane : {&workspace.fa1, &workspace.fa2, &workspace.fa3})
     {

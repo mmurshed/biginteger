@@ -920,6 +920,32 @@ Median peak RSS fell by 1.4–5.1 MiB. Median warm times changed by about
 These forced-path measurements cover operand sizes below the production
 Fermat dispatch range.
 
+## CRT overlap-add block slicing
+
+Overlap-add passes the original operand ranges to the CRT packers. The
+block sizes, residue dispatch and carry addition follow the same rules as
+the copied-block implementation at `471fd04`.
+
+Matched threaded Release builds on the 32 GiB Apple M1 Max ran three
+alternating fresh-process pairs per size on the same seeded binary
+operands. Each `bench_run_bigmath --memory-case <fixtures> 0 --wide-blocks 3`
+process timed one first call and two warm calls. The table reports the
+median of the best warm time per process and the median warm peak RSS.
+Every result matched GMP 6.3.0. Forcing three blocks exercises overlap-add
+at smaller sizes than the production crossover. The 500M-digit case
+uses wide-prime residues for the block pairs.
+[Individual timings, RSS and hashes](docs/benchmarks/2026-11-23-ntt-block-views-m1-max.csv)
+
+| Digits per operand | Before warm ms | After warm ms | Before peak MiB | After peak MiB |
+|---:|---:|---:|---:|---:|
+| 10M | 88.7 | 85.8 | 115.7 | 110.3 |
+| 100M | 671.4 | 696.1 | 647.7 | 620.9 |
+| 500M | 4,648.4 | 4,760.8 | 2,539.3 | 2,408.2 |
+
+Median peak RSS fell by 5.3–131.1 MiB. The median warm time fell by
+3.2% at 10M digits and rose by 3.7% at 100M and 2.4% at 500M.
+The 500M paired changes ranged from 7.2% faster to 3.7% slower.
+
 ## Small operands
 
 `tests/performance/small_ops_vs_gmp.cpp` times the BigInteger operators against GMP on operands of 1–16 limbs (up to about 300 decimal digits), where per-call overhead and allocation decide the cost. It ran single-threaded on the same machine against two builds: **before** is `main` at 3dafa62, where every value lives in a heap-allocated vector; **after** is the inline-storage revision ([43aa64f](https://github.com/mmurshed/biginteger/tree/43aa64f), #156), which stores values of up to 4 limbs inside the object and computes operands of up to 16 limbs in a stack buffer. Each figure is the fastest of seven rounds of 400,000 calls. BigMath operators return a new value each call; the GMP loop writes into an output it reuses, which is GMP's usual pattern. Division and remainder use a 2n-limb dividend and an n-limb divisor. [CSV](docs/benchmarks/2026-11-21-small-operands.csv)

@@ -337,3 +337,31 @@ REGISTER_TEST(NttCrtLayers, BlockedProductsMatchSchoolbook)
     }
   }
 }
+
+REGISTER_TEST(NttCrtLayers, BlockedSquareBorrowsSourceAndUsesItsDiagonal)
+{
+  // Start inside a larger backing buffer to test the block's relative offset.
+  const std::vector<DataT> storage(42, ~DataT{0});
+  const auto input = std::span<const DataT>(storage).subspan(2, 38);
+  size_t pairs = 0, diagonals = 0, tailPairs = 0;
+  const auto product = [&](std::span<const DataT> left, std::span<const DataT> right) {
+    const auto borrowsInput = [&](std::span<const DataT> block) {
+      for (size_t offset : {0, 13, 26})
+        if (block.data() == input.data() + offset)
+          return block.size() == std::min<size_t>(13, input.size() - offset);
+      return false;
+    };
+    ASSERT_TRUE(borrowsInput(left));
+    ASSERT_TRUE(borrowsInput(right));
+    ++pairs;
+    if (left.data() == right.data()) ++diagonals;
+    if (right.size() == 12) ++tailPairs;
+    return Multiply(left, right, Base2_64);
+  };
+  const std::vector<DataT> reference(input.begin(), input.end());
+  ASSERT_TRUE(MultiplyBlocked(input, input, Base2_64, 32, 16, product) ==
+              ClassicMultiplication::Multiply(reference, reference, Base2_64));
+  ASSERT_EQ(pairs, 6u);
+  ASSERT_EQ(diagonals, 3u);
+  ASSERT_EQ(tailPairs, 3u);
+}
