@@ -179,8 +179,10 @@ The automatic selector starts at $k=6$ (64 slots) and takes the first fit
 through $k=14$ with $n\le2^{28}$ bits. The forward and inverse FFTs share
 the same shuffled slot order, saving a reordering pass. Large butterfly
 layers use the pool. The caller does the pointwise products one at a time
-so each inner multiplication can use that same pool. For a square, one
-forward transform serves both inputs. After the inverse FFT, add each
+so each inner multiplication can use that same pool. Each product reads the
+significant limbs of its two residues in place. The caller can reuse the product
+buffer at the next point after folding the result modulo $2^n+1$. For a square,
+one forward transform serves both inputs. After the inverse FFT, add each
 coefficient at its starting limb offset $im$, where $i$ is its position.
 The coefficients can span several pieces, so the shifted additions
 carry across their overlaps.

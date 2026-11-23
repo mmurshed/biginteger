@@ -170,6 +170,11 @@ kernel & what it computes \\
 These kernels are used only with true 64-bit limbs. The legacy layout
 (\code{-DBIGMATH\_LIMB\_64=0}) keeps its own simpler loops.
 
+The serial addition and subtraction paths beyond the small stack path read both
+magnitudes through limb views and write to a result vector. In a mixed 4-by-64-limb
+case, passing the inline operand directly cut the number of allocations from two
+to one. The paired timings and allocation count are in \file{BENCHMARK.md}.
+
 \newpage
 \section{Parallel addition and subtraction}
 \label{sec:paralleladdsub}
