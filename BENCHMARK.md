@@ -69,6 +69,45 @@ On the Apple M1 Max, both variants used the same Release flags and the same GMP 
 
 Balanced inputs improved at every measured size from 256 to 4,096 bits. On skewed inputs with a one-limb smaller operand, the measured ratios ranged from 0.99× to 1.03×.
 
+#### Recursive half-GCD
+
+Möller's difference-based half-GCD recursively reduces the leading bits of
+the two operands and applies the resulting determinant-one matrix to the
+full operands. The plain GCD loop uses one high-half reduction at a time.
+Extended GCD accumulates a larger matrix per reduction and applies it to the
+Bézout coefficients. The shorter remainder must have at least 65,536 bits
+for plain GCD or 16,384 bits for extended GCD. Its bit length must also
+exceed `floor(longer_bits / 2) + 1`. Recursive leaves use bounded
+Lehmer batches at up to 2,048 bits. [Möller's paper, section 6](https://www.lysator.liu.se/~nisse/archive/S0025-5718-07-02017-0.pdf)
+
+`number_theory_vs_gmp gcd-large` measures balanced pairs, 8:1 bit lengths,
+pairs with a shared factor generated at three quarters of the requested bit
+length, and consecutive Fibonacci numbers. Each row checks the divisor
+against GMP and verifies the Bézout identity using GMP arithmetic, then
+times the final fixture. The `BIGMATH_HALF_GCD_THRESHOLD` and
+`BIGMATH_HALF_GCD_EXTENDED_THRESHOLD` compiler definitions can each be set
+to zero to force Lehmer for that operation.
+
+Three paired trials on the Apple M1 Max used 64-bit limbs, a single thread,
+Apple Clang 21, and GMP 6.3.0. The two builds used the same Release flags
+and inputs. The Lehmer build used the number-theory source from `d3d2908`.
+Times are medians in milliseconds. Speedups are medians of the paired timing
+ratios. The raw CSV also includes a paired run with threading enabled.
+[Paired timing data](docs/benchmarks/2026-11-23-half-gcd-m1-max.csv)
+
+| Shape | Operand bits | GCD Lehmer | GCD half-GCD | Speedup | Extended Lehmer | Extended half-GCD | Speedup |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Balanced | 16,384 | 0.453 | 0.458 | 0.99× | 1.185 | 1.054 | 1.12× |
+| Balanced | 65,536 | 4.773 | 3.976 | 1.20× | 13.672 | 7.593 | 1.80× |
+| Balanced | 262,144 | 66.668 | 22.739 | 2.93× | 198.650 | 43.429 | 4.58× |
+| 8:1 bit lengths | 262,144 | 1.957 | 1.947 | 1.00× | 18.949 | 11.218 | 1.69× |
+| Shared factor | 262,144 | 28.950 | 6.651 | 4.32× | 38.034 | 6.702 | 5.67× |
+| Consecutive Fibonacci numbers | 262,144 | 63.772 | 24.629 | 2.59× | 188.529 | 44.195 | 4.27× |
+
+The bit count in the skewed row refers to the larger operand. At 262,144
+bits, its 32,768-bit counterpart can enter the extended half-GCD path
+after the initial exact division.
+
 ### Integer square root and remainder
 
 Each size checks 24 random integers, perfect squares and values one below or above a perfect square. The timing fixture is a random integer with the stated bit length. BigMath uses integer Newton iteration, with a scalar path when the input fits in one limb. [CSV with all eight timing rows](docs/benchmarks/2026-11-22-sqrtrem-m1-max.csv)

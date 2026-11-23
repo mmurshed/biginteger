@@ -1107,11 +1107,14 @@ is real there), or (b) the pool gains intra-transform parallelism making per-tra
 the unit of progress, or (c) energy/throughput-under-contention becomes a goal rather than
 single-call latency.
 
-### Subquadratic GCD (Schönhage HGCD / Lehmer recursive)
+### Earlier deferral of subquadratic GCD
 
-[Schönhage's half-GCD algorithm](https://en.wikipedia.org/wiki/Half-GCD_algorithm) and [Lehmer's recursive GCD](https://en.wikipedia.org/wiki/Lehmer%27s_GCD_algorithm) compute `gcd(a, b)` in `O(M(n) · log n)`, asymptotically better than the Euclidean algorithm's `O(n²)`.
-
-Rejected because **no big-integer GCD exists in this codebase**. Only single-limb `gcd(DataT, DataT)` in `include/biginteger/common/Util.h`. No callers (no modular inverse, no `Rational` class, no RSA, no continued fractions). HGCD is ~600–1000 lines of dead code if implemented today. If big-integer GCD is ever needed, start with naïve Euclidean (~50 lines) and escalate only when measured as a bottleneck.
+The library initially deferred half-GCD because only single-limb GCD was
+available. The public `Gcd` and `ExtendedGcd` now use Möller's difference-based
+half-GCD for sufficiently large, similarly sized remainders. The implementation
+uses the existing multiplication dispatcher to apply and combine the reduction
+matrices. Lehmer batches and exact division handle the remaining cases.
+[Number-theory benchmarks](../BENCHMARK.md#recursive-half-gcd)
 
 ### Möller–Granlund 3/2 reciprocal for qhat (round 1)
 
@@ -1161,11 +1164,9 @@ Same reasons as for multiplication ([MULTIPLICATION.md §Explored but rejected](
 - [Mulders, T. — "On Short Multiplications and Divisions" (AAECC 11, 2000)](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=10.1.1.20.1948) — high-half multiplication and its use in Newton iteration.
 - [Brent, R. P. and Zimmermann, P. — *Modern Computer Arithmetic* (Cambridge, 2010)](https://members.loria.fr/PZimmermann/mca/pub226.html) — Chapter 1 covers integer division and the relationship between Newton, BZ, and short multiplication. The canonical modern textbook on big-number algorithms.
 
-### Subquadratic GCD (not implemented)
+### Subquadratic GCD
 
-- [Half-GCD algorithm — Wikipedia](https://en.wikipedia.org/wiki/Half-GCD_algorithm)
-- [Lehmer's GCD algorithm — Wikipedia](https://en.wikipedia.org/wiki/Lehmer%27s_GCD_algorithm)
-- [Stehlé, D. and Zimmermann, P. — "A Binary Recursive Gcd Algorithm" (ANTS-VI, 2004)](https://link.springer.com/chapter/10.1007/978-3-540-24847-7_31) — modern asymptotically-fast GCD.
+- [Möller, N. *On Schönhage's algorithm and subquadratic integer GCD computation* (Math. Comp., 2008), section 6](https://www.lysator.liu.se/~nisse/archive/S0025-5718-07-02017-0.pdf)
 
 ### Reference implementations
 

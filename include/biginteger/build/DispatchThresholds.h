@@ -9,6 +9,19 @@
 // repo. Each macro is only defined when the build has not supplied its own
 // -DBIGMATH_* override.
 
+// Half-GCD cutoffs count bits. Extended GCD benefits earlier because matrix
+// batches also reduce work on the growing Bézout coefficients. Set either
+// entry cutoff to zero to use Lehmer throughout for that operation.
+#ifndef BIGMATH_HALF_GCD_THRESHOLD
+#define BIGMATH_HALF_GCD_THRESHOLD 65536
+#endif
+#ifndef BIGMATH_HALF_GCD_EXTENDED_THRESHOLD
+#define BIGMATH_HALF_GCD_EXTENDED_THRESHOLD 16384
+#endif
+#ifndef BIGMATH_HALF_GCD_LEAF_THRESHOLD
+#define BIGMATH_HALF_GCD_LEAF_THRESHOLD 2048
+#endif
+
 // Equal-width magnitude addition and subtraction. Cutoffs count limbs per
 // operand. Zero disables the corresponding worker state until it is tuned.
 #ifndef BIGMATH_ADD_PARALLEL_WARM_LIMBS
