@@ -8,6 +8,7 @@
 #include <string>
 
 #include "biginteger/BigInteger.h"
+#include "biginteger/algorithms/ParallelAddSub.h"
 #include "biginteger/common/Builder.h"
 #include "biginteger/common/Parser.h"
 #include "biginteger/ops/Addition.h"
@@ -15,6 +16,35 @@
 #include "biginteger/ops/Comparison.h"
 
 using namespace BigMath;
+
+REGISTER_TEST(AddSub, ParallelBlockBoundaries)
+{
+  if constexpr (LimbBits != 64)
+    return;
+
+  constexpr SizeT size = 65'539;
+  std::vector<DataT> plus(size, LimbMask), minus(size), rhs(size), result(size);
+  rhs.front() = rhs.back() = 1;
+  plus.back() = 2;
+  minus.back() = 2;
+  for (SizeT blocks = 2; blocks <= ParallelNumThreads(); ++blocks)
+  {
+    const auto carry = AddSubDetail::ParallelMagnitude<false>(result.data(), plus, rhs, blocks);
+    ASSERT_EQ(carry, DataT{0});
+    ASSERT_EQ(result.back(), DataT{4});
+    ASSERT_TRUE(std::all_of(result.begin(), result.end() - 1, [](DataT word) { return word == 0; }));
+
+    const auto borrow = AddSubDetail::ParallelMagnitude<true>(result.data(), minus, rhs, blocks);
+    ASSERT_EQ(borrow, DataT{0});
+    ASSERT_EQ(result.back(), DataT{0});
+    ASSERT_TRUE(std::all_of(result.begin(), result.end() - 1, [](DataT word) { return word == LimbMask; }));
+  }
+
+  const BigInteger a(plus, true), b(rhs, true), c(minus, false);
+  ASSERT_EQ(a + b, BigInteger(Add(plus, rhs, Base2_64), true));
+  ASSERT_EQ(c + b, BigInteger(Subtract(minus, rhs, Base2_64), false));
+  ASSERT_EQ(a - a, BigInteger());
+}
 
 static std::string RandomDigits(int digits, std::mt19937 &gen)
 {

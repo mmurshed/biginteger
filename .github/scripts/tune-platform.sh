@@ -40,14 +40,18 @@ record_profile() {
 
 record_profile "$profile" candidate
 configure_platform "$candidate" "$profile"
+add_sub_flags=()
+if [[ "$TUNING_MODE" == add-sub ]]; then
+    add_sub_flags=(--add-sub-only)
+fi
 if [[ "$TUNING_STAGE" == survey ]]; then
-    full_flag=
-    if [[ "$TUNING_MODE" == full ]]; then
-        full_flag=--full
+    survey_flags=("${add_sub_flags[@]}")
+    if [[ "$TUNING_MODE" != quick ]]; then
+        survey_flags+=(--full)
     fi
     cmake --build "$candidate" --parallel 3 --target dispatch_tuner
     for sample in 1 2 3; do
-        "$candidate/$tuner" ${full_flag:+"$full_flag"} \
+        "$candidate/$tuner" "${survey_flags[@]}" \
             --emit-header "$out/survey-$sample.h" | tee "$out/survey-$sample.log"
     done
     exit
@@ -70,6 +74,6 @@ for sample in 1 2 3; do
         variants=(candidate baseline)
     fi
     for variant in "${variants[@]}"; do
-        "$PWD/build/tune-$variant/$tuner" --holdout | tee "$out/$variant-$sample.csv"
+        "$PWD/build/tune-$variant/$tuner" --holdout "${add_sub_flags[@]}" | tee "$out/$variant-$sample.csv"
     done
 done

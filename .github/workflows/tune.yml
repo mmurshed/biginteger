@@ -11,10 +11,10 @@ on:
         default: survey
         options: [survey, validate]
       mode:
-        description: Crossover sweep size (survey only)
+        description: General crossover sweep or focused addition and subtraction
         type: choice
         default: full
-        options: [full, quick]
+        options: [full, quick, add-sub]
 
 permissions:
   contents: read
@@ -92,6 +92,27 @@ jobs:
           name: ${{ inputs.stage }}-${{ matrix.key }}
           path: build/tuning-results/
           if-no-files-found: warn
+
+  survey-summary:
+    if: inputs.stage == 'survey'
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: survey-*
+          path: results
+      - name: Select repeatable addition and subtraction cutoffs
+        run: |
+          python3 .github/scripts/select-add-sub.py --output selected results/survey-* | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selected-add-sub-profiles
+          path: selected/
+          if-no-files-found: error
 
   summary:
     if: inputs.stage == 'validate'

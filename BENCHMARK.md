@@ -294,6 +294,33 @@ cmake --build build --target comparison_bench
 ./build/comparison_bench
 ```
 
+## Parallel addition and subtraction prototype
+
+The prototype runs each limb block with zero carry or borrow in. Each worker records its outgoing flag and the length of the prefix that would propagate an incoming flag. A serial pass resolves flags across blocks, then patches the affected prefixes. If several prefixes are long, the fixup uses a second dispatch. The `parallel_add_sub_bench` executable forces each kernel. Production dispatch uses separate thresholds for addition and subtraction, only for equal-length 64-bit operands. The timings below are from the prototype sweep, before tuning the production dispatch. [Platform tuning](docs/PLATFORM_TUNING.md)
+
+The benchmark uses native Apple Clang 21 Release builds with 64-bit limbs on a 32 GiB Apple M1 Max. It compares the existing serial operation against two, four, or eight blocks on BigMath's existing pool. Each of five processes measures 31 pairs per case and alternates the order within each pair. The kernel rows reuse preallocated output buffers. The magnitude rows include allocating and trimming the result. The timer includes dispatch, carry or borrow correction, and waking any parked workers. Input construction, verification, and preparing the already-created pool are outside the timer.
+
+For randomly filled, equal-length operands, the allocating operations first won in all five process runs at **4,096 limbs with warm workers** (two blocks) and **32,768 limbs with parked workers** (eight blocks). Both crossover points had a small margin. At **6,144 warm limbs** (about 118,000 decimal digits) and **49,152 parked limbs** (about 947,000 digits), both operations were at least 1.24× as fast in every run with the block counts shown below. The preallocated kernels first won for both operations in all five runs at 6,144 warm limbs and 49,152 parked limbs.
+
+| Pool | Limbs per operand | Blocks | Add serial → parallel | Add speedup | Subtract serial → parallel | Subtract speedup |
+|---|---:|---:|---:|---:|---:|---:|
+| Warm | 4,096 | 2 | 3.42 → 3.13 µs | 1.08× | 3.42 → 3.25 µs | 1.07× |
+| Warm | 6,144 | 4 | 5.13 → 3.75 µs | 1.38× | 5.04 → 3.67 µs | 1.39× |
+| Parked | 32,768 | 8 | 27.25 → 26.42 µs | 1.06× | 27.04 → 25.71 µs | 1.07× |
+| Parked | 49,152 | 8 | 40.13 → 30.58 µs | 1.32× | 40.00 → 31.63 µs | 1.30× |
+| Warm | 524,288 | 8 | 359.63 → 110.50 µs | 3.25× | 365.75 → 85.83 µs | 4.26× |
+| Parked | 524,288 | 8 | 405.50 → 129.21 µs | 3.15× | 403.04 → 130.29 µs | 3.14× |
+
+Times are medians across processes. Speedups are medians of the paired ratios. With parked workers and a longer operand of 65,536 limbs, the eight-block 4:1 and full carry or borrow chain fixtures still gave 0.93–1.02×. At 524,288 limbs those fixtures gave 1.82–2.02×. Operand shape and propagation length matter when choosing a cutoff. [All 2,760 measurements](docs/benchmarks/2026-11-22-parallel-add-sub-m1-max.csv)
+
+Run the correctness checks and the sweep from a configured Release build.
+
+```sh
+cmake --build build --target parallel_add_sub_bench
+./build/parallel_add_sub_bench --check
+./build/parallel_add_sub_bench > parallel-add-sub.csv
+```
+
 ## Balanced multiplication through one million digits
 
 This sweep compares the public `BigInteger` multiplication operator against GMP 6.3.0 on a 32 GiB Apple M1 Max running macOS 27.2.1. Both revisions used Apple Clang 21, 64-bit limbs and Release builds with `-O3 -march=native`. The baseline was `d733086`. The single-thread build used `-DBIGMATH_USE_THREADS=0`, and the default build could use eight threads. GMP used one thread throughout. [Per-pass first and warm timings, including the 2M and 5M controls](docs/benchmarks/2026-11-22-submillion-products-m1-max.csv)

@@ -30,6 +30,10 @@ namespace BigMath
   // NumThreads() in total (workers do chunks 1..N-1, caller does chunk 0).
   SizeT ParallelNumThreads();
 
+  // Returns one inside a chunk. Warm-only callers can check the existing pool
+  // without creating it. Passing allowParked permits lazy initialization.
+  SizeT ParallelAvailableThreads(bool allowParked);
+
   // Pool temperature. A parked worker takes 20-30 us to wake, which is as long
   // as a whole small NTT multiply, so the cost of a pool-backed operation
   // depends on whether the workers are awake when it starts.
@@ -109,6 +113,7 @@ namespace BigMath
 
   // Stubs for the single-threaded build. Always returns 1 / runs serially.
   inline SizeT ParallelNumThreads() { return 1; }
+  inline SizeT ParallelAvailableThreads(bool) { return 1; }
   inline bool ParallelWarm() { return false; }
   inline void ParallelPrewarm() {}
   inline bool ParallelWarmOrPrewarm() { return false; }
