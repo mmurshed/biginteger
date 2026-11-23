@@ -9,6 +9,7 @@
 // locally for deeper runs.
 
 #include "unit_test_framework.h"
+#include "../support/DivisionReference.h"
 
 #include <random>
 #include <vector>
@@ -21,7 +22,6 @@
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/Squaring.h"
 #include "biginteger/algorithms/Division.h"
-#include "biginteger/algorithms/division/KnuthDivision.h"
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
 
 using namespace BigMath;
@@ -56,7 +56,7 @@ namespace
   }
 }
 
-// ── division: dispatch vs KnuthDivision reference + q*b + r == a ───────────
+// ── division: dispatch vs textbook reference + q*b + r == a ────────────────
 // Sizes span the FastDivision band and the small ends of the BZ/Newton
 // bands; the Knuth O(n^2) reference keeps the runtime bounded.
 
@@ -71,7 +71,7 @@ REGISTER_TEST(AdversarialFuzz, DivisionDispatchVsKnuth)
     auto b = AdversarialLimbs(nb, rng);
 
     auto [q, r] = DivideAndRemainder(a, b, BigInteger::Base(), true);
-    auto k = KnuthDivision::DivideAndRemainder(a, b, BigInteger::Base());
+    auto k = TestSupport::DivisionReference::DivideAndRemainder(a, b, BigInteger::Base());
     ASSERT_EQ(Compare(q, k.first), 0);
     ASSERT_EQ(Compare(r, k.second), 0);
 

@@ -21,7 +21,7 @@ using namespace std;
 #include "biginteger/common/Comparator.h"
 #include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
 #include "biginteger/algorithms/division/FastDivision.h"
-#include "biginteger/algorithms/division/KnuthDivision.h"
+#include "../support/DivisionReference.h"
 
 using namespace BigMath;
 
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     double timeTakenBZ = 0.;
 
     start = clock();
-    tie(q, r) = KnuthDivision::DivideAndRemainder(
+    tie(q, r) = TestSupport::DivisionReference::DivideAndRemainder(
         a.AsVector(),
         b.AsVector(),
         BigInteger::Base());

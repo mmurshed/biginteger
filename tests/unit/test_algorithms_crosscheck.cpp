@@ -15,7 +15,6 @@
 #include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
 #include "biginteger/algorithms/division/ClassicDivision.h"
 #include "biginteger/algorithms/division/FastDivision.h"
-#include "biginteger/algorithms/division/KnuthDivision.h"
 #include "biginteger/algorithms/division/NewtonDivision.h"
 #include "biginteger/algorithms/division/ReciprocalDivision.h"
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
