@@ -41,15 +41,12 @@ namespace BigMath::AddSubTuning
     return false;
   }
 
-  inline void PreparePool(bool warm)
+  inline bool PreparePool(bool warm)
   {
-    if (!warm)
-    {
-      do { std::this_thread::sleep_for(std::chrono::milliseconds(1)); } while (ParallelWarm());
-      return;
-    }
-    if (!WarmPool())
-      throw std::runtime_error("could not warm pool for add/sub tuning");
+    if (warm)
+      return WarmPool();
+    do { std::this_thread::sleep_for(std::chrono::milliseconds(1)); } while (ParallelWarm());
+    return true;
   }
 
   // Only recommend a cutoff if both shapes continue to win at every larger
@@ -123,11 +120,13 @@ namespace BigMath::AddSubTuning
     const auto expected = Reference<Subtract>(a, b);
     std::vector<DataT> serial, parallel;
     const auto timeSerial = [&] {
-      PreparePool(warm);
+      if (!PreparePool(warm))
+        return 0.0;
       return TimeUs([&] { serial = Reference<Subtract>(a, b); });
     };
     const auto timeParallel = [&] {
-      PreparePool(warm);
+      if (!PreparePool(warm))
+        return 0.0;
       return TimeUs([&] { parallel = AddSubDetail::ParallelResult<Subtract>(a, b, blocks); });
     };
     std::array<double, 11> serialTimes, parallelTimes, ratios;
@@ -142,6 +141,13 @@ namespace BigMath::AddSubTuning
       {
         parallelTimes[i] = timeParallel();
         serialTimes[i] = timeSerial();
+      }
+      if (serialTimes[i] <= 0.0 || parallelTimes[i] <= 0.0)
+      {
+        std::cerr << "Unavailable pool timing for " << (Subtract ? "sub" : "add")
+                  << " at " << size << " limbs in " << (warm ? "warm" : "parked")
+                  << " state. Keeping this state serial in the proposal.\n";
+        return 0.0;
       }
       ratios[i] = serialTimes[i] / parallelTimes[i];
       if (serial != expected || parallel != expected)
@@ -167,7 +173,11 @@ namespace BigMath::AddSubTuning
       if (blocks <= 1)
         continue;
       const double balanced = Measure<Subtract>(size, blocks, warm, false, random);
+      if (balanced == 0.0)
+        return 0;
       const double chain = Measure<Subtract>(size, blocks, warm, true, random);
+      if (chain == 0.0)
+        return 0;
       crossover.Observe(size, std::min(balanced, chain));
     }
     return crossover.Cutoff();
@@ -205,18 +215,21 @@ namespace BigMath::AddSubTuning
     const BigInteger expected(Reference<Subtract>(a, b), false);
     BigInteger result;
     std::array<double, 11> samples;
+    if (warm)
+      WarmPool();
     for (double &sample : samples)
     {
-      PreparePool(warm);
+      if (!warm)
+        PreparePool(false);
       sample = TimeUs([&] {
         if constexpr (Subtract)
           result = left - right;
         else
           result = left + right;
       });
-      if (result != expected)
-        throw std::runtime_error("add/sub holdout result mismatch");
     }
+    if (result != expected)
+      throw std::runtime_error("add/sub holdout result mismatch");
     std::cout << (Subtract ? "sub" : "add") << (chain ? "-chain" : "-balanced") << ','
               << (warm ? "burst" : "parked") << ',' << size << ',' << size << ','
               << std::fixed << std::setprecision(6) << Median(samples) << '\n';
@@ -226,17 +239,13 @@ namespace BigMath::AddSubTuning
   {
     if (LimbBits != 64 || ParallelNumThreads() <= 1)
       return;
-    const bool haveWarm = WarmPool();
     std::mt19937_64 random(0xD15CA7C4);
     for (SizeT size : {3073u, 5279u, 9461u, 20483u, 36857u, 57347u, 81937u, 155581u,
                        349519u, 786433u, 1572869u, 3145739u})
       for (bool chain : {false, true})
       {
-        if (haveWarm)
-        {
-          HoldoutCase<false>(size, chain, true, random);
-          HoldoutCase<true>(size, chain, true, random);
-        }
+        HoldoutCase<false>(size, chain, true, random);
+        HoldoutCase<true>(size, chain, true, random);
         HoldoutCase<false>(size, chain, false, random);
         HoldoutCase<true>(size, chain, false, random);
       }

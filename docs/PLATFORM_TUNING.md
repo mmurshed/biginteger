@@ -34,7 +34,8 @@ both random operands and full carry or borrow chains. Each survey
 requires a lead of at least 5% for both shapes at two adjacent sizes
 and every larger sampled size. The workflow selects the largest cutoff
 supported by all three surveys. Zero keeps that operation and worker
-state serial. The `selected-add-sub-profiles` artifact contains the
+state serial, including when the runner cannot reliably establish that
+state for timing. The `selected-add-sub-profiles` artifact contains the
 selected macro definitions for each platform. Copy those definitions
 into the matching profile header while preserving the other overrides.
 
