@@ -8,6 +8,8 @@
 #include <random>
 #include <stdexcept>
 
+#include "biginteger/algorithms/Squaring.h"
+#include "biginteger/build/DispatchThresholds.h"
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/common/LimbKernels.h"
 #include "biginteger/common/Parallel.h"
@@ -209,6 +211,234 @@ namespace BigMath
       }
     };
 
+    class FastMontgomery
+    {
+      BigInteger const &modulus;
+      std::vector<DataT> negativeInverse;
+#if BIGMATH_NTT_CRT
+      SizeT wrapWidth;
+#endif
+
+      static std::span<const DataT> Low(std::span<const DataT> value, std::size_t count)
+      {
+        return value.first(std::min(value.size(), count));
+      }
+
+      static std::span<const DataT> High(std::span<const DataT> value, std::size_t count)
+      {
+        return value.subspan(std::min(value.size(), count));
+      }
+
+      static void AddLow(std::span<DataT> destination, std::span<const DataT> source)
+      {
+        if constexpr (LimbBits == 64)
+          LimbKernel::AddInPlace(destination.data(), destination.size(), source.data(), source.size());
+        else
+        {
+          DataT carry = 0;
+          for (std::size_t i = 0; i < destination.size(); ++i)
+          {
+            const DataT sum = destination[i] + carry + (i < source.size() ? source[i] : 0);
+            destination[i] = sum & LimbMask;
+            carry = sum >> 32;
+          }
+        }
+      }
+
+      static std::vector<DataT> MultiplyLow(std::span<const DataT> a, std::span<const DataT> b,
+                                            std::size_t count)
+      {
+        a = Low(a, count);
+        b = Low(b, count);
+        // Wide products can already use the transform dispatcher. Keep
+        // the recursion to the range where cross products are cheaper.
+        if (a.size() + b.size() <= count || count >= 1024)
+        {
+          auto product = detail::MultiplyLimbs(a, b, BigInteger::Base());
+          if (product.size() > count)
+            product.resize(count);
+          return product;
+        }
+
+        if (count <= 32)
+        {
+          std::vector<DataT> product(count);
+          for (std::size_t i = 0; i < a.size(); ++i)
+          {
+            const auto length = std::min(b.size(), count - i);
+            DataT carry = 0;
+            if constexpr (LimbBits == 64)
+              carry = LimbKernel::AddMul1(product.data() + i, b.data(), length, a[i]);
+            else
+            {
+              for (std::size_t j = 0; j < length; ++j)
+              {
+                const DataT sum = product[i + j] + a[i] * b[j] + carry;
+                product[i + j] = sum & LimbMask;
+                carry = sum >> 32;
+              }
+            }
+            for (auto j = i + length; carry != 0 && j < count; ++j)
+            {
+              const auto sum = static_cast<ULong128>(product[j]) + carry;
+              product[j] = static_cast<DataT>(sum) & LimbMask;
+              carry = static_cast<DataT>(sum >> LimbBits);
+            }
+          }
+          return product;
+        }
+
+        // With split = ceil(count/2), the two high halves never contribute
+        // to the requested limbs. Both cross products can be truncated.
+        const auto split = (count + 1) / 2;
+        auto product = detail::MultiplyLimbs(Low(a, split), Low(b, split), BigInteger::Base());
+        product.resize(count);
+        auto tail = std::span<DataT>(product).subspan(split);
+        AddLow(tail, MultiplyLow(High(a, split), b, tail.size()));
+        AddLow(tail, MultiplyLow(a, High(b, split), tail.size()));
+        return product;
+      }
+
+      static void Negate(std::span<DataT> value)
+      {
+        DataT borrow = 0;
+        for (auto &limb : value)
+        {
+          const DataT negated = (DataT{0} - limb - borrow) & LimbMask;
+          borrow |= limb != 0;
+          limb = negated;
+        }
+      }
+
+      static std::vector<DataT> NegativeInverse(std::span<const DataT> mod)
+      {
+        std::vector<DataT> inverse{InvertOddLimb(mod.front()) & LimbMask};
+        inverse.reserve(mod.size());
+        while (inverse.size() < mod.size())
+        {
+          const auto known = inverse.size();
+          const auto extra = std::min(known, mod.size() - known);
+          // m*inverse = 1 + B^known*error. The next limbs of the
+          // inverse are -inverse*error, truncated to 'extra' limbs.
+          const auto product = detail::MultiplyLimbs(mod.first(known + extra), inverse, BigInteger::Base());
+          auto correction = MultiplyLow(inverse, High(product, known), extra);
+          correction.resize(extra);
+          Negate(correction);
+          inverse.insert(inverse.end(), correction.begin(), correction.end());
+        }
+        Negate(inverse);
+        return inverse;
+      }
+
+#if BIGMATH_NTT_CRT
+      static SizeT WrapWidth(SizeT size)
+      {
+        const SizeT maxWidth = (SizeT{1} << 26) / NttCrt::CoeffsPerLimb(BigInteger::Base());
+        return size >= 512 && size <= maxWidth ? std::bit_ceil(size) : 0;
+      }
+
+      std::vector<DataT> WrappedCorrectionHigh(std::span<const DataT> multiple,
+                                              std::span<const DataT> productLow) const
+      {
+        const auto size = modulus.size();
+        const auto base = BigInteger::Base();
+        auto high = NttCrt::MultiplyMod2km1(multiple, modulus.Limbs(), wrapWidth, base);
+        std::vector<DataT> correctionLow(productLow.begin(), productLow.end());
+        correctionLow.resize(size);
+        Negate(correctionLow);
+        // Recover the high half of q*m from its cyclic residue and its
+        // known low half, -T mod R. The high half is less than m, so it
+        // fits uniquely modulo B^wrapWidth - 1.
+        if (Compare(high, correctionLow) >= 0)
+          high = detail::SubtractLimbs(high, correctionLow, base);
+        else
+        {
+          auto difference = detail::SubtractLimbs(correctionLow, high, base);
+          const std::vector<DataT> wrapModulus(wrapWidth, LimbMask);
+          high = detail::SubtractLimbs(wrapModulus, difference, base);
+        }
+        high.resize(wrapWidth);
+        // Division by R in the cyclic ring is a limb rotation.
+        std::rotate(high.begin(), high.begin() + size, high.end());
+        TrimZerosToOne(high);
+        return high;
+      }
+#endif
+
+      std::vector<DataT> Reduce(std::span<const DataT> product) const
+      {
+        const auto size = modulus.size();
+        const auto low = Low(product, size);
+        if (IsZero(low))
+        {
+          const auto high = High(product, size);
+          std::vector<DataT> reduced(high.begin(), high.end());
+          reduced.resize(size);
+          return reduced;
+        }
+
+        auto multiple = MultiplyLow(low, negativeInverse, size);
+        TrimZerosToOne(multiple);
+        std::vector<DataT> reduced;
+#if BIGMATH_NTT_CRT
+        if (wrapWidth != 0)
+          reduced = detail::AddLimbs(High(product, size), WrappedCorrectionHigh(multiple, low), BigInteger::Base());
+        else
+#endif
+        {
+          const auto correction = detail::MultiplyLimbs(multiple, modulus.Limbs(), BigInteger::Base());
+          reduced = detail::AddLimbs(High(product, size), High(correction, size), BigInteger::Base());
+        }
+        // T + q*m is a multiple of R. Its low limbs carry into the
+        // high half because the low half of T is nonzero.
+        AddTo(reduced, 1, BigInteger::Base());
+        if (Compare(std::span<const DataT>(reduced), modulus.Limbs()) >= 0)
+          reduced = detail::SubtractLimbs(reduced, modulus.Limbs(), BigInteger::Base());
+        reduced.resize(size);
+        return reduced;
+      }
+
+    public:
+      explicit FastMontgomery(BigInteger const &mod)
+          : modulus(mod), negativeInverse(NegativeInverse(mod.Limbs()))
+#if BIGMATH_NTT_CRT
+          , wrapWidth(WrapWidth(mod.size()))
+#endif
+      {
+      }
+
+      void Multiply(std::vector<DataT> &a, std::vector<DataT> const &b) const
+      {
+        const auto left = Low(a, LimbDetail::TrimmedLimbCount(a));
+        auto product = &a == &b ? detail::SquareLimbs(left, BigInteger::Base())
+                                : detail::MultiplyLimbs(left, Low(b, LimbDetail::TrimmedLimbCount(b)),
+                                                        BigInteger::Base());
+        a = Reduce(product);
+      }
+
+      std::vector<DataT> PowerEncoded(std::vector<DataT> factor,
+                                      std::span<const DataT> bits, std::size_t length) const
+      {
+        return SlidingWindowPower(std::move(factor), bits, length, [this](auto &a, auto &b) {
+          Multiply(a, b);
+        });
+      }
+
+      BigInteger Power(BigInteger const &factor, std::span<const DataT> bits, std::size_t length) const
+      {
+        auto encoded = ((factor << modulus.size()) % modulus).ReleaseInteger();
+        encoded.resize(modulus.size());
+        const auto result = PowerEncoded(std::move(encoded), bits, length);
+        return BigInteger(Reduce(result), false);
+      }
+    };
+
+    bool UseFastMontgomery(SizeT limbs, std::size_t exponentBits)
+    {
+      constexpr SizeT threshold = BIGMATH_FAST_REDC_THRESHOLD;
+      return threshold != 0 && limbs >= threshold && exponentBits >= 64;
+    }
+
     BigInteger PowerReduced(BigInteger const &factor, BigInteger const &mod,
                             std::span<const DataT> bits, std::size_t length)
     {
@@ -229,10 +459,13 @@ namespace BigMath
         return BigInteger::FromLimbs({&result, 1}, false);
       }
 
-      // At large sizes retain the library's asymptotically faster multiplication
-      // and division dispatch. At short exponents avoid the Montgomery setup.
-      if ((mod[0] & 1) && mod.size() <= 128 && length >= 16)
-        return Montgomery(mod).Power(factor, mod, bits, length);
+      if (mod[0] & 1)
+      {
+        if (UseFastMontgomery(mod.size(), length))
+          return FastMontgomery(mod).Power(factor, bits, length);
+        if (mod.size() <= 128 && length >= 16)
+          return Montgomery(mod).Power(factor, mod, bits, length);
+      }
 
       const unsigned zeros = std::countr_zero(mod[0]);
       if (zeros > 0 && zeros < LimbBits && mod.size() <= 128 && length >= 16)
@@ -460,14 +693,13 @@ namespace BigMath
     const auto exponent = ShiftRightBits(oddLimbs, trailing, LimbBits);
     const auto length = LimbDetail::BitLength(exponent);
 
-    if (mod.size() <= 128)
-    {
+    const auto testMontgomery = [&](auto makeContext) {
       const auto montOne = (one << mod.size()) % mod;
       auto encodedOne = montOne.GetInteger();
       auto encodedMinusOne = (mod - montOne).GetInteger();
       encodedOne.resize(mod.size());
       encodedMinusOne.resize(mod.size());
-      const auto testEncoded = [&](Montgomery &context, std::vector<DataT> encoded) {
+      const auto testEncoded = [&](auto &context, std::vector<DataT> encoded) {
         auto power = context.PowerEncoded(std::move(encoded), exponent, length);
         return PassesMillerRabin(std::move(power), encodedOne, encodedMinusOne, twos, [&](auto &value) {
           context.Multiply(value, value);
@@ -481,7 +713,7 @@ namespace BigMath
           montTwo = montTwo - mod;
         auto encodedTwo = montTwo.ReleaseInteger();
         encodedTwo.resize(mod.size());
-        Montgomery context(mod);
+        auto context = makeContext();
         const bool passes = testEncoded(context, std::move(encodedTwo));
         if (!passes || mode == WitnessMode::BaseTwo)
           return passes;
@@ -490,15 +722,25 @@ namespace BigMath
       auto radixSquared = ((montOne << mod.size()) % mod).GetInteger();
       radixSquared.resize(mod.size());
       const auto makeTest = [&] {
-        return [&, context = Montgomery(mod)](BigInteger const &witness) mutable {
+        return [&, context = makeContext()](BigInteger const &witness) mutable {
           auto encoded = witness.GetInteger();
           encoded.resize(mod.size());
           context.Multiply(encoded, radixSquared);
           return testEncoded(context, std::move(encoded));
         };
       };
-      return CheckRandomWitnesses(mod, two, rounds, makeTest, LimbDetail::BitLength(mod.Limbs()) >= 1024);
+      // At larger widths the products can use the pool themselves.
+      const bool parallelWitnesses = mod.size() <= 128 && LimbDetail::BitLength(mod.Limbs()) >= 1024;
+      return CheckRandomWitnesses(mod, two, rounds, makeTest, parallelWitnesses);
+    };
+
+    if (UseFastMontgomery(mod.size(), length))
+    {
+      const FastMontgomery prepared(mod);
+      return testMontgomery([&] { return prepared; });
     }
+    if (mod.size() <= 128)
+      return testMontgomery([&] { return Montgomery(mod); });
 
     const auto test = [&](BigInteger const &witness) {
       auto power = PowerReduced(witness, mod, exponent, length);
