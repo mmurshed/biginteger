@@ -179,3 +179,38 @@ time of the default build (up to eight threads) divided by single-thread GMP tim
         program), use its limbs directly (\code{x.Limbs()}): that needs no conversion at all.
 \end{itemize}
 \end{practice}
+
+\newpage
+\section{Fixed-point decimal arithmetic}
+\label{sec:bigdecimal}
+
+A \code{BigDecimal} represents $u\cdot 10^{-s}$, where $u$ is a signed
+\code{BigInteger} and $s$ is an integer scale. For example,
+\code{12.340} has $u=12340$ and $s=3$. A negative scale represents
+trailing integer zeros. Addition and subtraction align scales, and
+multiplication multiplies the unscaled integers and adds their scales.
+These operations are exact.
+
+\code{a.Divide(b, scale, mode)} returns a value at the requested scale.
+If the operands have scales $s_a,s_b$ and the requested scale is $t$,
+scale the integer numerator or denominator so the unscaled quotient
+represents $(u_a/u_b)\,10^{t+s_b-s_a}$. The integer division produces a
+quotient magnitude $q$ and a remainder $r$. For rounding to nearest,
+compare $2r$ with the positive divisor. On a tie, \code{HALF\_UP} increases
+the magnitude, \code{HALF\_DOWN} leaves it, and \code{HALF\_EVEN} selects
+the even result. \code{UP} moves away from zero, \code{DOWN} truncates
+toward zero, and \code{CEILING} and \code{FLOOR} round toward the
+respective infinities. \code{UNNECESSARY} requires a zero remainder.
+
+\begin{example}
+At scale 5, integer division gives $100000=3\cdot33333+1$.
+\code{BigDecimal("1").Divide(BigDecimal("3"), 5, RoundingMode::HALF\_EVEN)}
+returns \code{0.33333}. With \code{UP} it returns \code{0.33334}.
+With \code{UNNECESSARY} it throws. A repeating decimal such as $1/3$
+is rounded to a finite value at every requested scale.
+\end{example}
+
+\code{SetScale} uses the same rounding rules when reducing the scale.
+\code{CompareTo} compares numeric values. \code{Equals} also requires
+the scales to match, so \code{1.20} and \code{1.2} compare as the same
+value while preserving their distinct scales.

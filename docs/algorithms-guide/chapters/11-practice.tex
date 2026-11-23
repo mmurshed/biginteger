@@ -83,6 +83,10 @@ quotient only & \code{a / b}; much faster than \code{DivideAndRemainder} when th
 quotient and remainder & \code{DivideAndRemainder(a, b)}, one division for both. \\
 many divisions by one divisor & \code{CacheDivision(b)} (\cref{sec:cached}). \\
 division by a small constant & the \code{uint64\_t} overloads: \code{a / 10}, \code{a \% 10}. \\
+greatest common divisor & \code{Gcd(a, b)} or \code{ExtendedGcd(a, b)} for coefficients. \\
+integer root and remainder & \code{SqrtRem(n)} computes both from one root calculation. \\
+modular power & \code{PowMod(a, e, m)} reduces intermediate products. \\
+prime tests and searches & \code{IsProbablePrime(n)} or \code{NextProbablePrime(n)}. \\
 text in / out & \code{BigIntegerBuilder::From(str)}, \code{ToString(x)}; the second call of a similar size is much faster than the first. \\
 \bottomrule
 \end{tabularx}
@@ -116,19 +120,22 @@ Threshold overrides must be in effect when the \emph{library} is compiled (pass 
 
 \section{Tuning for your machine}
 
-The shipped thresholds were measured on an Apple M1 Max. On a different processor the crossovers
-move, usually by tens of percent, not by factors. To measure your own:
+The generic thresholds and checked-in profiles serve different targets
+(\cref{sec:platformprofiles}). Measure and validate on your deployment
+hardware before adopting a new profile:
 
 \begin{lstlisting}[language=bash]
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target dispatch_tuner -j
-./build/dispatch_tuner --full --emit-header \
-    include/biginteger/build/platform/<os>-<arch>-<compiler>.h
+./build/dispatch_tuner --full --emit-header /tmp/bigmath-candidate.h
 \end{lstlisting}
 
-The generated header is picked up automatically for that OS, architecture and compiler
-(\file{docs/PLATFORM\_TUNING.md}). Precedence: command-line \code{-D} first, then the platform
-profile, then the defaults in \file{DispatchThresholds.h}.
+Configure a separate build with
+\code{-DBIGMATH\_PLATFORM\_PROFILE=/tmp/bigmath-candidate.h} to test the
+proposal. Use \code{-DBIGMATH\_PLATFORM\_PROFILE=none} for the generic
+reference. See \file{docs/PLATFORM\_TUNING.md} for repeat sweeps and
+holdout validation. Individual command-line threshold macros take
+precedence over the profile, which in turn overrides generic defaults.
 
 \section{Checking correctness after a change}
 

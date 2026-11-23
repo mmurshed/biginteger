@@ -3,8 +3,11 @@
 
 Division has two size parameters: how long the divisor is ($n_b$ limbs) and how long the
 quotient is ($\delta + 1$ limbs, where $\delta = n_a - n_b$). The best method depends on both.
-The rules are in \file{src/algorithms/Division.cpp}; the numbers in
-\file{include/biginteger/build/DispatchThresholds.h}.
+The rules are in \file{src/algorithms/Division.cpp}. The diagrams use the
+generic thresholds from \file{include/biginteger/build/DispatchThresholds.h}.
+For example, the checked-in Linux x86-64 GCC and macOS Arm64 Clang
+profiles start considering Burnikel--Ziegler at 81 divisor limbs, versus
+96 in the generic build (\cref{sec:platformprofiles}).
 
 \section{The decision, step by step}
 
@@ -29,7 +32,7 @@ matching test decides; \cref{fig:divmap} draws the result as a map.
   \node[algo,fill=sOrange] (newt1) at (-6.4,-11.6) {Newton};
   \node[algo,fill=sBlue] (bz1) at (-3.4,-11.6) {Burnikel--Ziegler};
   % ratio < 2 branch, downward
-  \node[dec] (q1) at (0,-9.5) {$\delta \ge 3072$?};
+  \node[dec] (q1) at (0,-9.5) {$\delta \ge 3072$ and\\$\delta + 8 < n_b$?};
   \node[algo,fill=sViolet] (qs) at (5.6,-9.5) {quotient-sized};
   \node[dec] (q2) at (0,-11.3) {$n_b \ge 3072$ and\\ratio $\ge 7/4$?};
   \node[algo,fill=sOrange] (newt2) at (5.6,-11.3) {Newton};
