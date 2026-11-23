@@ -326,6 +326,11 @@ The implementation calls this `DivideChunk`.
     Final remainder = r                                           
 ```
 
+Newton reads already-normalized inputs and the first chunk directly from
+their limb ranges. It reuses one buffer to join each later block with the
+running remainder and copies each quotient block into its final position.
+The reciprocal steps also read their high-limb slices directly.
+
 Each chunk costs O(M(n)) and there are O(na / n) chunks, so total cost is O((na / n) · M(n)). For balanced division this is comparable to BZ; for skewed division where `na ≫ n`, the chunk loop is the bulk of the work and Newton wins decisively because:
 
 1. The reciprocal `R` is computed once and reused across all chunks.

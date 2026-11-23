@@ -4703,8 +4703,8 @@ namespace BigMath
     // inverse returns natural order, so the fused MFA pipeline is valid
     // here and engages at n ≥ BIGMATH_NTT_MFA_THRESHOLD (2026-06-12).
     // Returns the canonical residue in [0, B^L − 1), trimmed.
-    inline std::vector<DataT> MultiplyMod2km1(const std::vector<DataT> &a,
-                                              const std::vector<DataT> &b,
+    inline std::vector<DataT> MultiplyMod2km1(std::span<const DataT> a,
+                                              std::span<const DataT> b,
                                               SizeT L,
                                               BaseT base)
     {

@@ -16,6 +16,12 @@
 
 namespace BigMath
 {
+  namespace detail
+  {
+    std::vector<DataT> SubtractLimbs(std::span<const DataT> a,
+                                    std::span<const DataT> b, BaseT base);
+  }
+
   void SubtractFrom(std::vector<DataT> &a, SizeT aStart, SizeT aEnd,
                     ULong b, BaseT base);
 

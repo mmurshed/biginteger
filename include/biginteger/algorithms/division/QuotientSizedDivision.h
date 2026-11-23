@@ -1,6 +1,7 @@
 #ifndef QUOTIENT_SIZED_DIVISION
 #define QUOTIENT_SIZED_DIVISION
 
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -13,15 +14,12 @@
 
 namespace BigMath
 {
-  // Top-level dispatcher (defined in src/algorithms/Division.cpp). The tops
-  // sub-division below routes through it so the recursion picks the right
-  // strategy for its own size; its ratio is ~2, so it can never re-enter the
-  // quotient-sized band (ratio < 4/3).
-  std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
-      std::vector<DataT> const &a,
-      std::vector<DataT> const &b,
-      BaseT base,
-      bool computeRemainder);
+  namespace detail
+  {
+    // The division of the top limbs uses the normal size dispatch.
+    std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainderLimbs(
+        std::span<const DataT> a, std::span<const DataT> b, BaseT base, bool computeRemainder);
+  }
 
   // Short-quotient division. When Δ = a.size() − b.size() is small relative
   // to the divisor, the quotient has only Δ+1 limbs and is determined to ±a
@@ -46,30 +44,36 @@ namespace BigMath
         BaseT base,
         bool computeRemainder = true)
     {
+      return DivideAndRemainderLimbs(a, b, base, computeRemainder);
+    }
+
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainderLimbs(
+        std::span<const DataT> a, std::span<const DataT> b, BaseT base, bool computeRemainder)
+    {
       SizeT na = (SizeT)a.size();
       SizeT nb = (SizeT)b.size();
       // Caller contract (dispatch): a > b, and delta + GUARD < nb. The band
       // macros are tunable (-DBIGMATH_*), so enforce it instead of letting
       // `s` underflow below; fall back to Newton which handles any shape.
       if (na <= nb || (na - nb) + GUARD >= nb)
-        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+        return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
       SizeT delta = na - nb;
       SizeT t = delta + GUARD;
       SizeT s = nb - t;
 
-      std::vector<DataT> a_top(a.begin() + s, a.end());
-      std::vector<DataT> b_top(b.begin() + s, b.end());
+      const auto a_top = a.subspan(s);
+      const auto b_top = b.subspan(s);
 
       // Tops divide is ratio ~2. Post-#85-87 Newton beats BZ there from
       // ~6k limbs (measured: 12k limbs 13 vs 22 ms, 30k 40 vs 299 ms,
       // 65537 161 ms vs 5.3 s); below that the dispatcher's BZ/Fast pick
       // is near-tied.
       std::vector<DataT> q = (t >= 6144)
-                            ? NewtonDivision::DivideAndRemainder(a_top, b_top, base, false).first
-                            : BigMath::DivideAndRemainder(a_top, b_top, base, false).first;
+                            ? NewtonDivision::DivideAndRemainderLimbs(a_top, b_top, base, false).first
+                            : detail::DivideAndRemainderLimbs(a_top, b_top, base, false).first;
 
       // Reconstruct: r = a − q·b, fixing q's ±few-unit estimate error.
-      std::vector<DataT> qb = Multiply(q, b, base);
+      std::vector<DataT> qb = detail::MultiplyLimbs(q, b, base);
 
       static const std::vector<DataT> one{1};
       const int FIXUP_LIMIT = 8;
@@ -78,18 +82,18 @@ namespace BigMath
       while (Compare(qb, a) > 0)
       {
         if (++iters > FIXUP_LIMIT)
-          return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+          return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
         q = Subtract(q, one, base);
-        qb = Subtract(qb, b, base);
+        qb = detail::SubtractLimbs(qb, b, base);
       }
-      std::vector<DataT> r = Subtract(a, qb, base);
+      std::vector<DataT> r = detail::SubtractLimbs(a, qb, base);
 
       iters = 0;
       while (Compare(r, b) >= 0)
       {
         if (++iters > FIXUP_LIMIT)
-          return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
-        r = Subtract(r, b, base);
+          return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
+        r = detail::SubtractLimbs(r, b, base);
         q = Add(q, one, base);
       }
 

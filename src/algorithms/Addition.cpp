@@ -88,10 +88,9 @@ namespace BigMath
 
   // Paper-pencil add: result[rStart..rStart+size-1] = a[aStart..aEnd] + b[bStart..bEnd].
   // O(n) time, O(1) extra space.
-  void Add(std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
-           std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
-           std::vector<DataT> &result, SizeT rStart,
-           BaseT base)
+  static void AddRanges(std::span<const DataT> a, SizeT aStart, SizeT aEnd,
+                        std::span<const DataT> b, SizeT bStart, SizeT bEnd,
+                        std::vector<DataT> &result, SizeT rStart, BaseT base)
   {
     aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
@@ -191,6 +190,19 @@ namespace BigMath
                          std::vector<DataT> const &b,
                          BaseT base)
   {
+    return detail::AddLimbs(a, b, base);
+  }
+
+  void Add(std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+           std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+           std::vector<DataT> &result, SizeT rStart, BaseT base)
+  {
+    AddRanges(a, aStart, aEnd, b, bStart, bEnd, result, rStart, base);
+  }
+
+  std::vector<DataT> detail::AddLimbs(std::span<const DataT> a,
+                                    std::span<const DataT> b, BaseT base)
+  {
     SizeT size = (SizeT)std::max(a.size(), b.size()) + 1;
     std::vector<DataT> result(size);
     if (base == Base2_64 && !a.empty() && !b.empty())
@@ -200,10 +212,9 @@ namespace BigMath
       return result;
     }
 
-    Add(a, 0, (SizeT)a.size() - 1,
-        b, 0, (SizeT)b.size() - 1,
-        result, 0,
-        base);
+    AddRanges(a, 0, (SizeT)a.size() - 1,
+              b, 0, (SizeT)b.size() - 1,
+              result, 0, base);
 
     TrimZeros(result);
     return result;

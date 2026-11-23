@@ -1032,6 +1032,50 @@ cmake --build build --target small_ops_vs_gmp
 ./build/small_ops_vs_gmp after --limb-handoff
 ```
 
+## Division limb handoffs and Newton workspace
+
+Three successive 64-bit Release builds on the 32 GiB Apple M1 Max isolated
+the Burnikel–Ziegler correction multiply, short-quotient operand slicing,
+and Newton workspace changes. The first baseline was `d1c0ab9`. Each later
+comparison used the preceding stage as its baseline. The larger
+Burnikel–Ziegler cases called that algorithm directly to exercise its
+correction-product handoff. The other cases used the public dispatcher.
+
+Each row in the data represents a fresh process with one first call and
+five or nine warm calls. Five before/after pairs alternated which build
+ran first. Operands were generated with a fixed seed. The exact fixtures
+used `floor(a/b) * b` as the dividend. The benchmark timed quotient-only
+and quotient-and-remainder calls separately and checked the last result
+of every process against GMP 6.3.0. RSS is the process high-water mark
+after the warm calls. The table shows selected cases and medians of
+per-process best warm times and peak RSS.
+[Burnikel–Ziegler observations](docs/benchmarks/2026-11-23-division-bz-limb-handoff-m1-max.csv) ·
+[Short-quotient observations](docs/benchmarks/2026-11-23-division-short-quotient-m1-max.csv) ·
+[Newton observations](docs/benchmarks/2026-11-23-division-newton-workspace-m1-max.csv)
+
+| Stage | Operand limbs | Divisor shift | Output | Fixture | Before ms | After ms | Before peak MiB | After peak MiB |
+|---|---:|---:|---|---|---:|---:|---:|---:|
+| Burnikel–Ziegler | 3,070 ÷ 1,535 | 5 | Quotient and remainder | Random | 0.369 | 0.358 | 3.66 | 3.59 |
+| Burnikel–Ziegler, forced | 32,768 ÷ 16,384 | 5 | Quotient | Exact | 6.145 | 5.886 | 9.84 | 9.62 |
+| Short quotient | 20,480 ÷ 16,384 | 0 | Quotient | Exact | 1.410 | 1.302 | 12.88 | 12.66 |
+| Short quotient | 73,728 ÷ 65,536 | 5 | Quotient | Exact | 3.275 | 3.249 | 34.64 | 34.00 |
+| Newton | 524,288 ÷ 131,072 | 0 | Quotient | Exact | 53.635 | 52.439 | 174.95 | 156.89 |
+| Newton | 524,288 ÷ 131,072 | 0 | Quotient and remainder | Random | 53.672 | 53.952 | 174.30 | 158.03 |
+| Newton | 524,288 ÷ 131,072 | 5 | Quotient and remainder | Random | 55.851 | 53.713 | 172.02 | 166.91 |
+
+Burnikel–Ziegler reduced peak memory by about 0.1–0.2 MiB in the largest
+forced case, with mixed timings. The largest short-quotient case used up
+to 0.75 MiB less peak RSS. One exact-multiple quotient-only case had a
+paired median speedup of 1.08×. Most short-quotient timings changed by
+only a few percent. The largest Newton cases cut peak RSS by 16–18 MiB
+when the divisor was already normalized and by 4–6 MiB when it needed a
+shift. Their paired median warm speedups were 0.99–1.02×.
+
+```sh
+cmake --build build --target division_handoff_bench
+./build/division_handoff_bench 524288 131072 dispatch q exact 0 5
+```
+
 ## Internal algorithm crossovers
 
 The November 21 run of `multperf_simple 5` used equal-length random operands. Times are the mean of five calls, and speedups are relative to classical multiplication. All products matched at all four tested sizes.

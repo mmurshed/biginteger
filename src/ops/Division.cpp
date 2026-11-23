@@ -17,7 +17,7 @@ namespace BigMath
       SmallOps::DivRem(a, b, &qr.first, &qr.second);
       return qr;
     }
-    auto [qv, rv] = DivideAndRemainder(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
+    auto [qv, rv] = detail::DivideAndRemainderLimbs(a.Limbs(), b.Limbs(), BigInteger::Base(), true);
     BigInteger q(std::move(qv), a.IsNegative() != b.IsNegative());
     // Truncated division: remainder takes the dividend's sign.
     BigInteger r(std::move(rv), a.IsNegative());
@@ -32,7 +32,7 @@ namespace BigMath
       SmallOps::DivRem(a, b, &q, nullptr);
       return q;
     }
-    auto qv = Divide(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
+    auto qv = detail::DivideAndRemainderLimbs(a.Limbs(), b.Limbs(), BigInteger::Base(), false).first;
     return BigInteger(std::move(qv), a.IsNegative() != b.IsNegative());
   }
 

@@ -50,6 +50,12 @@ namespace BigMath
       BaseT base,
       bool computeRemainder)
   {
+    return detail::DivideAndRemainderLimbs(a, b, base, computeRemainder);
+  }
+
+  std::pair<std::vector<DataT>, std::vector<DataT>> detail::DivideAndRemainderLimbs(
+      std::span<const DataT> a, std::span<const DataT> b, BaseT base, bool computeRemainder)
+  {
     if (IsZero(b))
       throw std::invalid_argument("Division by zero");
 
@@ -63,7 +69,8 @@ namespace BigMath
     if (cmp == 0)
       return {std::vector<DataT>{1}, std::vector<DataT>{0}};
     if (cmp < 0)
-      return {std::vector<DataT>{0}, computeRemainder ? a : std::vector<DataT>()};
+      return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end())
+                                                    : std::vector<DataT>()};
 
     if (base == Base2_64)
     {
@@ -89,25 +96,15 @@ namespace BigMath
       if (!computeRemainder && delta + QGuard < nb && a.back() != 0 && b.back() != 0)
       {
         const size_t s = (size_t)(nb - (delta + QGuard));
-        std::pair<std::vector<DataT>, std::vector<DataT>> top;
-        if (delta + QGuard < DIV_BZ_MIN_B)
-        {
-          // Schoolbook range: divide the tops in place, no operand copies.
-          top = FastDivision::DivideAndRemainder(
-              std::span<const DataT>(a).subspan(s), std::span<const DataT>(b).subspan(s), base, true);
-        }
-        else
-        {
-          std::vector<DataT> aTop(a.begin() + s, a.end());
-          std::vector<DataT> bTop(b.begin() + s, b.end());
-          top = DivideAndRemainder(aTop, bTop, base, true);
-        }
+        auto top = delta + QGuard < DIV_BZ_MIN_B
+            ? FastDivision::DivideAndRemainder(a.subspan(s), b.subspan(s), base, true)
+            : DivideAndRemainderLimbs(a.subspan(s), b.subspan(s), base, true);
         std::vector<DataT> &q = top.first;
         TrimZerosToOne(q);
         TrimZerosToOne(top.second);
         if (top.second.size() < delta + 3) // r' < B^(delta+2)
         {
-          std::vector<DataT> product = Multiply(q, b, base);
+          std::vector<DataT> product = MultiplyLimbs(q, b, base);
           TrimZerosToOne(product);
           if (Compare(product, a) > 0)
           {
@@ -128,7 +125,7 @@ namespace BigMath
         // earlier when there are several quotient blocks to amortize it over.
         if (nb >= DIV_NEWTON_MIN_B ||
             (nb >= DIV_NEWTON_SKEW_MIN_B && na >= (ULong)DIV_NEWTON_SKEW_RATIO * nb))
-          return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+          return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
         return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
       }
 
@@ -136,9 +133,9 @@ namespace BigMath
       // tops with Newton and back-multiply once. (QuotientSizedDivision needs
       // delta + GUARD < nb; the margin here keeps well inside that.)
       if (delta >= DIV_QSIZED_MIN_QUOTIENT && delta + 2 * QuotientSizedDivision::GUARD < nb)
-        return QuotientSizedDivision::DivideAndRemainder(a, b, base, computeRemainder);
+        return QuotientSizedDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
       if (nb >= DIV_NEWTON_NEAR2_MIN_B && 4 * delta >= 3 * nb)
-        return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+        return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
       return BurnikelZieglerDivision::DivideAndRemainder(a, b, base, computeRemainder);
     }
 
@@ -176,7 +173,7 @@ namespace BigMath
         NEWTON_RATIO2_DENOMINATOR * a.size() >= NEWTON_RATIO2_NUMERATOR * b.size();
     bool newton_eligible = newton_medium_skew || newton_ratio35 || newton_mid_skew || newton_balanced || newton_high_skew || newton_ratio20 || newton_ratio2;
     if (newton_eligible)
-      return NewtonDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      return NewtonDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
 
     // Short-quotient band: large divisors below the Newton balanced band
     // (ratio < 4/3) with a quotient big enough that FastDivision's O(n*delta)
@@ -196,7 +193,7 @@ namespace BigMath
     bool qsized_eligible =
         (base == Base2_32 || base == Base2_64) && (qsized_main || qsized_thin);
     if (qsized_eligible)
-      return QuotientSizedDivision::DivideAndRemainder(a, b, base, computeRemainder);
+      return QuotientSizedDivision::DivideAndRemainderLimbs(a, b, base, computeRemainder);
 
     // BZ for large near-balanced divisors and for big-and-skewed cases.
     // The +32-limb quotient-bulk guard in the near-balanced clause excludes
