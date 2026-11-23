@@ -63,6 +63,7 @@ A small thread pool is linked in when `BIGMATH_USE_THREADS=1` (the default). Its
 - the **non-MFA CRT NTT path** dispatches 6 forward transforms + 3 inverse transforms as batched work units;
 - the **fused MFA pipeline** (post-PR-#107, transform length ≥ 2^20) instead dispatches row-chunked `ParallelDo(6)` phases per fused stage, keeping 6–12 work units in flight;
 - the **parse and ToString D&C fan-outs** (PRs #118/#119) dispatch one flat `ParallelDo` over 2³ subtree work items above ~100k digits.
+- **Equal-length BigInteger addition and subtraction** can run limb blocks in parallel at the configured platform cutoffs. Calls already inside a pool chunk use the serial magnitude kernels.
 
 `ParallelDo` is reentrant-safe: a thread-local nesting guard (`tl_chunkDepth` in `src/common/Parallel.cpp`) forces any `ParallelDo` issued from inside a chunk body to run inline serially, so subtree workers that reach Newton/NTT internals (which themselves call `ParallelDo`) cannot corrupt the pool's single work slot.
 

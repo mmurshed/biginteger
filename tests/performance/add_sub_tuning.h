@@ -23,13 +23,20 @@ namespace BigMath::AddSubTuning
 
   inline bool WarmPool()
   {
-    const auto deadline = Clock::now() + std::chrono::milliseconds(25);
+    if (ParallelWarm())
+      return true;
+    const auto workers = static_cast<Int>(ParallelNumThreads());
+    const auto deadline = Clock::now() + std::chrono::milliseconds(250);
     do
     {
-      ParallelPrewarm();
+      // On oversubscribed runners a wake-up alone may leave too little time
+      // for enough workers to spin simultaneously. Give them an untimed job.
+      ParallelDo(workers, [](Int, Int) {
+        const auto until = Clock::now() + std::chrono::microseconds(150);
+        while (Clock::now() < until) {}
+      });
       if (ParallelWarm())
         return true;
-      std::this_thread::yield();
     } while (Clock::now() < deadline);
     return false;
   }
