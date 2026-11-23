@@ -207,10 +207,10 @@ vs the linear parser's `O(L²)`. For L = 100 000, the speedup is ~`L / log² L �
 
 The D&C parser needs `Pow10(d)` for `d = L/2, L/4, L/8, ...` down to the leaf threshold. Naïvely computing each from scratch is wasteful — `Pow10(L/2)` is `Pow10(L/4)²`, so the chain can be constructed bottom-up with a sequence of squarings.
 
-`Pow10(d)` (in `src/common/Parser.cpp`) uses recursive doubling with memoization:
+The internal `CachedPow10(d)` (in `src/common/Parser.cpp`) uses recursive doubling with memoization:
 
 ```cpp
-vector<DataT> Pow10(SizeT digits) {
+const vector<DataT>& CachedPow10(SizeT digits) {
     static thread_local unordered_map<SizeT, vector<DataT>> cache;
 
     auto it = cache.find(digits);
@@ -223,18 +223,19 @@ vector<DataT> Pow10(SizeT digits) {
     else if (digits <= Base10_18_Zeroes)
         value = Convert(/* 10^digits computed in a ULong */);
     else if (digits % 2 == 0) {
-        vector<DataT> p = Pow10(digits / 2);
-        value = Square(p, CurrentBase);          // even d ⇒ Pow10(d) = Pow10(d/2)²
+        value = Square(CachedPow10(digits / 2), CurrentBase);
     } else {
         SizeT lo = digits / 2;
         SizeT hi = digits - lo;
-        value = Multiply(Pow10(hi), Pow10(lo), CurrentBase);
+        value = Multiply(CachedPow10(hi), CachedPow10(lo), CurrentBase);
     }
-    return cache.emplace(digits, value).first->second;
+    return cache.emplace(digits, std::move(value)).first->second;
 }
 ```
 
 The cache is `thread_local`, so each thread maintains its own. Because the implementation lives in one translation unit (`src/common/Parser.cpp`), every consumer shares the same per-thread cache — a real benefit of the `.cpp` split over the prior header-only design. The lifetime is the thread (or program for the main thread), which means repeated `Parse` and `ToString` calls amortize the `Pow10` build cost essentially to zero after the first invocation.
+
+Parse joins borrow the cached scale and add the low half into the product buffer. Heap-sized results adopt the parser's final limb buffer. The public `Pow10` returns an independent vector.
 
 Even-`d` cases use [`Square`](MULTIPLICATION.md#squaring) rather than `Multiply(p, p)`. `Square` is structurally 1.4–1.6× faster than `Multiply(a, a)` (single FFT in the NTT case; half the partial products in the schoolbook case). The win is small in steady state (the cache absorbs it) but matters in cold-start scenarios.
 
@@ -369,6 +370,8 @@ For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 
 
 `ToString(BigInteger)` and `Parse(char const*)` (declared in `include/biginteger/common/Parser.h`, implemented in `src/common/Parser.cpp`) are the entry points. Both inspect the input size and route to either the linear or the D&C implementation.
 
+The parser builds values of up to 18 significant decimal digits directly into inline limbs. The formatter emits one-limb values directly and borrows the input limbs through the first D&C split. The linear leaf uses writable limbs for its repeated divmod calls.
+
 Since PRs #118/#119 (2026-06-12), both directions also have a parallel fan-out above ~100 000 digits (`BIGMATH_TOSTR_PARALLEL_THRESHOLD` / `BIGMATH_PARSE_PARALLEL_THRESHOLD`, both 100 000; 3 splits each): the D&C tree descends serially for the first 3 levels, dispatches the 2³ subtrees via one `ParallelDo`, and runs the combines (parse) or string assembly (ToString) on the caller. See `CollectToStringSubtrees`, `CollectParseRanges`, and `CombineParsed` in `src/common/Parser.cpp`. Nested `ParallelDo` calls inside subtree workers (Newton/NTT internals) run inline via the pool's reentrancy guard — see [Explored but rejected §Parallel D&C recursion](#parallel-dc-recursion-deadlock-on-current-pool--overturned-2026-06-12).
 
 ```mermaid
@@ -384,7 +387,7 @@ flowchart TD
     T2 -- yes --> TL[ToStringLinearAppend]
     T2 -- no --> TC[thread-local DecimalDcChain<br/>Pow10 + Newton Divider]
     TC --> TD[ToStringDivConquer]
-    TD --> NV[NewtonDivision::Divider<br/>DivideAndRemainderInto]
+    TD --> NV[NewtonDivision::Divider<br/>DivideAndRemainderLimbs]
     TD -. leaves to .-> TL
 ```
 
@@ -736,10 +739,6 @@ Not pursued because the constant-factor difference between the current implement
 ### Pre-allocated thread-local scratch buffers for D&C
 
 Each `ToStringDivConquer` recursion level constructs fresh `vector<DataT>` for `q` and `r`, but the measured in-place-lite attempt above showed that moving/swapping those vectors is not the bottleneck. A plain thread-local arena at the formatter layer is unlikely to matter. Any real buffer-reuse win has to move down into Newton division's temporary vectors, as noted in [Future opportunities](#future-opportunities).
-
-### Customized small-int parsing (≤ 18 digits)
-
-For inputs that fit in a single 10¹⁸ chunk (≤ 18 digits), the parser could skip the BigInteger machinery entirely and return a single-limb result directly. The current `ParseUnsignedLinear` already handles this case efficiently (one `AddTo` call after the initial `push_back(0)`), so there's no real overhead to skip. Not worth specialization.
 
 ---
 

@@ -8,6 +8,7 @@
 
 #include "biginteger/common/Parser.h"
 #include "biginteger/BigInteger.h"
+#include "biginteger/common/Builder.h"
 #include "biginteger/algorithms/Addition.h"
 #include "biginteger/algorithms/Division.h"
 #include "biginteger/algorithms/Multiplication.h"
@@ -17,12 +18,15 @@
 #include "biginteger/algorithms/division/NewtonDivision.h"
 
 #include "biginteger/common/DecimalConversionScope.h"
+#include "biginteger/common/LimbKernels.h"
 #include "biginteger/common/Parallel.h"
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <bit>
 #include <cmath>
+#include <span>
 #include <unordered_map>
 #include <utility>
 
@@ -116,8 +120,9 @@ namespace BigMath
   // Memoized recursive doubling. thread_local cache lives in this TU only — every
   // consumer that includes Parser.h shares the same cache per-thread (a real
   // benefit of the .cpp split over the prior header-only design).
-  std::vector<DataT> Pow10(SizeT digits)
+  static std::vector<DataT> const &CachedPow10(SizeT digits)
   {
+    // Recursive insertions can rehash the map without invalidating references to its values.
     static thread_local std::unordered_map<SizeT, std::vector<DataT>> cache;
 
     auto it = cache.find(digits);
@@ -140,17 +145,21 @@ namespace BigMath
     {
       // Pow10(d) = Pow10(d/2)². One Square (single FFT in NTT) instead of
       // Multiply(p, p) (two FFTs).
-      std::vector<DataT> p = Pow10(digits / 2);
-      value = Square(p, CurrentBase);
+      value = Square(CachedPow10(digits / 2), CurrentBase);
     }
     else
     {
       SizeT lo = digits / 2;
       SizeT hi = digits - lo;
-      value = Multiply(Pow10(hi), Pow10(lo), CurrentBase);
+      value = Multiply(CachedPow10(hi), CachedPow10(lo), CurrentBase);
     }
 
-    return cache.emplace(digits, value).first->second;
+    return cache.emplace(digits, std::move(value)).first->second;
+  }
+
+  std::vector<DataT> Pow10(SizeT digits)
+  {
+    return CachedPow10(digits);
   }
 
   static std::vector<DataT> CombineDecimalHalves(std::vector<DataT> const &high,
@@ -158,10 +167,21 @@ namespace BigMath
                                                  SizeT lowDigits)
   {
     detail::DecimalConversionScope conversion;
-    std::vector<DataT> scale = Pow10(lowDigits);
-    std::vector<DataT> scaledHigh = Multiply(high, scale, CurrentBase);
-    std::vector<DataT> result = Add(scaledHigh, low, CurrentBase);
-    TrimZerosToOne(result);
+    std::vector<DataT> result = Multiply(high, CachedPow10(lowDigits), CurrentBase);
+    if constexpr (CurrentBase == Base2_64)
+    {
+      if (result.size() < low.size())
+        result.resize(low.size(), 0);
+      const DataT carry = LimbKernel::AddInPlace(result.data(), (SizeT)result.size(),
+                                                low.data(), (SizeT)low.size());
+      if (carry)
+        result.push_back(carry);
+      TrimZerosToOne(result);
+    }
+    else
+    {
+      AddTo(result, low, CurrentBase);
+    }
     return result;
   }
 
@@ -272,8 +292,15 @@ namespace BigMath
     if (start > end)
       return BigInteger();
 
-    std::vector<DataT> bigInt = ParseUnsigned(num, start, end);
-    return BigInteger(bigInt, isNegative);
+    const SizeT digits = static_cast<SizeT>(end - start) + 1;
+    if (digits <= Base10_18_Zeroes)
+    {
+      BigInteger result = BigIntegerBuilder::From(ParseChunk(num, start, digits));
+      result.SetSign(isNegative);
+      return result;
+    }
+
+    return BigInteger(ParseUnsigned(num, start, end), isNegative);
   }
 
   BigInteger Parse(char const *num, Int *char_processed)
@@ -418,7 +445,7 @@ namespace BigMath
   {
     constexpr int ToStringParallelSplits = BIGMATH_TOSTR_PARALLEL_SPLITS;
     constexpr SizeT ToStringParallelThreshold = BIGMATH_TOSTR_PARALLEL_THRESHOLD;
-    SizeT EstimateDecimalDigits(std::vector<DataT> const &r)
+    SizeT EstimateDecimalDigits(std::span<const DataT> r)
     {
 #if BIGMATH_LIMB_64
       constexpr SizeT limbBits = 64;
@@ -456,17 +483,12 @@ namespace BigMath
 
     // q, r = n divmod chain[level].value: through the cached reciprocal when
     // the level has one and is at least newtonMinDigits, else the dispatcher.
-    void SplitAtLevel(std::vector<DataT> const &n, DecimalDcEntry const &e, SizeT newtonMinDigits,
-                      std::vector<DataT> &q, std::vector<DataT> &r)
+    std::pair<std::vector<DataT>, std::vector<DataT>> SplitAtLevel(
+        std::span<const DataT> n, DecimalDcEntry const &e, SizeT newtonMinDigits)
     {
       if (e.divider && e.digits >= newtonMinDigits)
-      {
-        e.divider->DivideAndRemainderInto(n, q, r);
-        return;
-      }
-      auto qr = DivideAndRemainder(n, e.value, CurrentBase);
-      q = std::move(qr.first);
-      r = std::move(qr.second);
+        return e.divider->DivideAndRemainderLimbs(n);
+      return detail::DivideAndRemainderLimbs(n, e.value, CurrentBase, true);
     }
 
     std::vector<DecimalDcEntry> BuildDecimalDcChain(SizeT topDigits)
@@ -502,8 +524,21 @@ namespace BigMath
       return inserted.first->second;
     }
 
+    // The root borrows the caller's input. Quotients and remainders already
+    // own their buffers, which can move into the writable linear leaves.
+    std::vector<DataT> WritableLimbs(std::span<const DataT> n)
+    {
+      return std::vector<DataT>(n.begin(), n.end());
+    }
+
+    std::vector<DataT> WritableLimbs(std::vector<DataT> &&n)
+    {
+      return std::move(n);
+    }
+
+    template <typename Limbs>
     void ToStringDivConquer(
-        std::vector<DataT> n,
+        Limbs n,
         std::vector<DecimalDcEntry> const &chain,
         SizeT level,
         SizeT padTo,
@@ -521,7 +556,7 @@ namespace BigMath
 
       if (level >= chain.size())
       {
-        ToStringLinearAppend(std::move(n), padTo, out);
+        ToStringLinearAppend(WritableLimbs(std::move(n)), padTo, out);
         return;
       }
 
@@ -532,9 +567,7 @@ namespace BigMath
         return;
       }
 
-      std::vector<DataT> q;
-      std::vector<DataT> r;
-      SplitAtLevel(n, chain[level], newtonMinDigits, q, r);
+      auto [q, r] = SplitAtLevel(n, chain[level], newtonMinDigits);
       SizeT half = chain[level].digits;
       SizeT topPad = (padTo > half) ? padTo - half : 0;
       ToStringDivConquer(std::move(q), chain, level + 1, topPad, newtonMinDigits, out);
@@ -557,8 +590,9 @@ namespace BigMath
       SizeT padTo;
     };
 
+    template <typename Limbs>
     void CollectToStringSubtrees(
-        std::vector<DataT> n,
+        Limbs n,
         std::vector<DecimalDcEntry> const &chain,
         SizeT level,
         SizeT padTo,
@@ -567,7 +601,7 @@ namespace BigMath
     {
       if (splits == 0 || level >= chain.size() || IsZero(n))
       {
-        items.push_back({std::move(n), level, padTo});
+        items.push_back({WritableLimbs(std::move(n)), level, padTo});
         return;
       }
       // n smaller than this level's divisor → top half empty; descend without
@@ -577,9 +611,7 @@ namespace BigMath
         CollectToStringSubtrees(std::move(n), chain, level + 1, padTo, splits, items);
         return;
       }
-      std::vector<DataT> q;
-      std::vector<DataT> r;
-      SplitAtLevel(n, chain[level], ToStringNewtonMinDigits(chain[0].digits), q, r);
+      auto [q, r] = SplitAtLevel(n, chain[level], ToStringNewtonMinDigits(chain[0].digits));
       SizeT half = chain[level].digits;
       SizeT topPad = (padTo > half) ? padTo - half : 0;
       CollectToStringSubtrees(std::move(q), chain, level + 1, topPad, splits - 1, items);
@@ -587,13 +619,13 @@ namespace BigMath
     }
 
     void ToStringDivConquerParallel(
-        std::vector<DataT> n,
+        std::span<const DataT> n,
         std::vector<DecimalDcEntry> const &chain,
         std::string &out)
     {
       std::vector<ToStringSubtree> items;
       items.reserve((SizeT)1 << ToStringParallelSplits);
-      CollectToStringSubtrees(std::move(n), chain, 0, 0, ToStringParallelSplits, items);
+      CollectToStringSubtrees(n, chain, 0, 0, ToStringParallelSplits, items);
 
       // Head subtree carries padTo = 0 (variable width — no leading zeros) so
       // its length is unknown until converted; do it serially. Everything
@@ -634,14 +666,11 @@ namespace BigMath
 #endif
   } // namespace
 
-  std::string ToString(std::vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg)
+  static std::string ToStringLimbs(std::span<const DataT> r, bool isNeg)
   {
-    if (IsZero(bigInt, start, end))
+    r = r.first(LimbDetail::TrimmedLimbCount(r));
+    if (r.empty() || (r.size() == 1 && r.front() == 0))
       return std::string("0");
-
-    std::vector<DataT> r(bigInt.begin() + start, bigInt.begin() + end + 1);
-    while (r.size() > 1 && r.back() == 0)
-      r.pop_back();
 
     SizeT approxDigits = EstimateDecimalDigits(r);
 
@@ -650,9 +679,15 @@ namespace BigMath
     if (isNeg)
       s.push_back('-');
 
+    if (r.size() == 1)
+    {
+      AppendUnsignedDecimal(r.front(), s);
+      return s;
+    }
+
     if (approxDigits < ToStringDcThreshold)
     {
-      ToStringLinearAppend(std::move(r), 0, s);
+      ToStringLinearAppend(WritableLimbs(r), 0, s);
       return s;
     }
 
@@ -672,21 +707,29 @@ namespace BigMath
     if (approxDigits >= ToStringParallelThreshold && ParallelNumThreads() > 1 &&
         chain.size() >= (SizeT)ToStringParallelSplits)
     {
-      ToStringDivConquerParallel(std::move(r), chain, s);
+      ToStringDivConquerParallel(r, chain, s);
       return s;
     }
 #endif
-    ToStringDivConquer(std::move(r), chain, 0, 0, ToStringNewtonMinDigits(chain[0].digits), s);
+    ToStringDivConquer(r, chain, 0, 0, ToStringNewtonMinDigits(chain[0].digits), s);
     return s;
+  }
+
+  std::string ToString(std::vector<DataT> const &bigInt, SizeT start, SizeT end, bool isNeg)
+  {
+    if (start > end || start >= bigInt.size())
+      return std::string("0");
+    const auto last = std::min<std::size_t>(end, bigInt.size() - 1);
+    return ToStringLimbs(std::span<const DataT>(bigInt).subspan(start, last - start + 1), isNeg);
   }
 
   std::string ToString(std::vector<DataT> const &bigInt, bool isNeg)
   {
-    return ToString(bigInt, 0, bigInt.size() - 1, isNeg);
+    return ToStringLimbs(bigInt, isNeg);
   }
 
   std::string ToString(BigInteger const &bigInt)
   {
-    return ToString(bigInt.AsVector().get(), bigInt.IsNegative());
+    return ToStringLimbs(bigInt.Limbs(), bigInt.IsNegative());
   }
 }

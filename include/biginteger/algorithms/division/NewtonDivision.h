@@ -810,12 +810,20 @@ namespace BigMath
           std::vector<DataT> const &a,
           bool computeRemainder = true) const
       {
+        return DivideAndRemainderLimbs(a, computeRemainder);
+      }
+
+      std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainderLimbs(
+          std::span<const DataT> a,
+          bool computeRemainder = true) const
+      {
         if (IsZero(a))
           return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
         Int cmp = Compare(a, divisor);
         if (cmp < 0)
-          return {std::vector<DataT>{0}, computeRemainder ? a : std::vector<DataT>()};
+          return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end())
+                                                        : std::vector<DataT>()};
         if (cmp == 0)
           return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
@@ -823,7 +831,7 @@ namespace BigMath
           return FastDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
 
         std::vector<DataT> shifted;
-        const auto a_norm = Normalize(std::span<const DataT>(a).first(LimbDetail::TrimmedLimbCount(a)),
+        const auto a_norm = Normalize(a.first(LimbDetail::TrimmedLimbCount(a)),
                                       shift, LimbBitsFor(base), shifted);
         const std::span<const DataT> normalizedDivisor = shift == 0 ? divisor : b_norm;
 
