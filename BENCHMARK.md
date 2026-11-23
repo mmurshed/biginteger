@@ -321,6 +321,12 @@ cmake --build build --target parallel_add_sub_bench
 ./build/parallel_add_sub_bench > parallel-add-sub.csv
 ```
 
+### Production dispatch tuning
+
+The focused [GitHub survey](https://github.com/mmurshed/biginteger/actions/runs/45121607633) completed three sweeps on all five release targets. It selected zero for every add and subtract cutoff. The hosted runners did not show a repeatable 5% lead on both balanced random inputs and full carry or borrow chains at two adjacent sizes and all larger sampled sizes. The checked-in release profiles therefore keep these operations serial.
+
+A separate native M1 Max survey selected 24,576 warm and 98,304 parked limbs for addition, and 16,384 warm and 1,048,576 parked limbs for subtraction. In the local public-operator holdout, geometric mean speedups on balanced inputs were 1.77× and 2.24× for add and subtract bursts, and 1.54× and 1.09× with parked workers. The parked borrow-chain group averaged 0.97×. These are machine-specific results. [Tuning a deployment profile](docs/PLATFORM_TUNING.md)
+
 ## Balanced multiplication through one million digits
 
 This sweep compares the public `BigInteger` multiplication operator against GMP 6.3.0 on a 32 GiB Apple M1 Max running macOS 27.2.1. Both revisions used Apple Clang 21, 64-bit limbs and Release builds with `-O3 -march=native`. The baseline was `d733086`. The single-thread build used `-DBIGMATH_USE_THREADS=0`, and the default build could use eight threads. GMP used one thread throughout. [Per-pass first and warm timings, including the 2M and 5M controls](docs/benchmarks/2026-11-22-submillion-products-m1-max.csv)
