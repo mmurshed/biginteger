@@ -1032,6 +1032,38 @@ cmake --build build --target small_ops_vs_gmp
 ./build/small_ops_vs_gmp after --limb-handoff
 ```
 
+### Addition and subtraction limb handoffs
+
+Serial `BigInteger` addition and subtraction now pass both operand limb
+views directly to the magnitude kernels. An allocation probe counted
+calls to `operator new` around each operation after constructing its
+inputs. Mixed inline and heap cases at 1 × 17, 4 × 64, and 64 × 4 limbs
+went from two allocations to one.
+
+Matched 64-bit Release builds on the Apple M1 Max used `0ebde9e` as the
+baseline. Seven fresh-process pairs alternated which build ran first.
+The harness checked each signed result against GMP 6.3.0, then timed
+the public operators on the same seeded operands. Each process reports
+its fastest of seven batches. The table gives median nanoseconds per
+call and the median of the paired speedup ratios.
+[All 280 observations](docs/benchmarks/2026-11-23-add-sub-limb-handoff-m1-max.csv)
+
+| Operand limbs | Add before ns | Add after ns | Add speedup | Subtract before ns | Subtract after ns | Subtract speedup |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 × 16 | 29.40 | 29.34 | 1.01× | 29.49 | 29.39 | 1.00× |
+| 1 × 17 | 47.53 | 30.15 | 1.57× | 48.79 | 31.34 | 1.56× |
+| 4 × 17 | 47.79 | 30.43 | 1.57× | 49.11 | 31.14 | 1.58× |
+| 4 × 64 | 71.74 | 51.20 | 1.40× | 73.33 | 52.70 | 1.39× |
+| 64 × 4 | 68.49 | 47.76 | 1.43× | 70.20 | 49.12 | 1.43× |
+| 4 × 256 | 100.39 | 79.81 | 1.26× | 101.86 | 80.77 | 1.26× |
+| 64 × 64 | 65.99 | 65.01 | 1.02× | 66.43 | 65.47 | 1.01× |
+| 4,096 × 4,096 | 2,667.30 | 2,652.22 | 0.99× | 2,666.02 | 2,674.76 | 1.01× |
+
+```sh
+cmake --build build --target small_ops_vs_gmp
+./build/small_ops_vs_gmp after --add-sub-handoff
+```
+
 ## Division limb handoffs and Newton workspace
 
 Three successive 64-bit Release builds on the 32 GiB Apple M1 Max isolated

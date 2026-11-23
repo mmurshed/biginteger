@@ -78,7 +78,7 @@ namespace BigMath
       const SizeT blocks = AddSubDetail::DispatchBlocks<false>(a.size(), b.size());
       if (blocks > 1)
         return BigInteger(AddSubDetail::ParallelResult<false>(a.Limbs(), b.Limbs(), blocks), negative);
-      return BigInteger(Add(a.AsVector().get(), b.AsVector().get(), BigInteger::Base()), negative);
+      return BigInteger(detail::AddLimbs(a.Limbs(), b.Limbs(), BigInteger::Base()), negative);
     }
 
     // |a| - |b| for |a| >= |b|, signed `negative`.
@@ -98,7 +98,7 @@ namespace BigMath
       const SizeT blocks = AddSubDetail::DispatchBlocks<true>(a.size(), b.size());
       if (blocks > 1)
         return BigInteger(AddSubDetail::ParallelResult<true>(a.Limbs(), b.Limbs(), blocks), negative);
-      return BigInteger(Subtract(a.AsVector().get(), b.AsVector().get(), BigInteger::Base()), negative);
+      return BigInteger(detail::SubtractLimbs(a.Limbs(), b.Limbs(), BigInteger::Base()), negative);
     }
 
     // |a| * |b| into the stack; caller checks Fits(a, b).
