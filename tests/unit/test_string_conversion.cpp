@@ -173,6 +173,17 @@ REGISTER_TEST(ToString, NegativeFormatted)
   ASSERT_EQ(ToString(x), "-99");
 }
 
+REGISTER_TEST(ToString, ScalarAndPaddedLimbRange)
+{
+  const BigInteger scalar = Parse("-18446744073709551615");
+  ASSERT_EQ(ToString(scalar), "-18446744073709551615");
+
+  const std::vector<DataT> limbs{91, 42, 0, 0, 93};
+  ASSERT_EQ(ToString(limbs, 1, 3, true), "-42");
+  ASSERT_EQ(ToString(limbs, 2, 3, true), "0");
+  ASSERT_EQ(ToString(std::vector<DataT>{}, true), "0");
+}
+
 // ─── round-trip across thresholds ────────────────────────────────────────────
 
 static void RoundTripDigits(int digits, uint32_t seed)
