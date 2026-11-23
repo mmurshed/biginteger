@@ -123,6 +123,9 @@ if(BIGMATH_BUILD_TESTS)
     add_executable(dispatch_tuner tests/performance/dispatch_tuner.cpp)
     target_link_libraries(dispatch_tuner PRIVATE bigmath::bigmath)
 
+    add_executable(toom_higher_bench tests/performance/toom_higher_bench.cpp)
+    target_link_libraries(toom_higher_bench PRIVATE bigmath::bigmath)
+
     add_executable(mul_xl_bench tests/performance/mul_xl_bench.cpp)
     target_link_libraries(mul_xl_bench PRIVATE bigmath::bigmath)
 

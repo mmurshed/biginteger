@@ -134,7 +134,9 @@ algorithm & cost for $n$-limb inputs & where in the code \\
 schoolbook multiply & $n^2$ & \file{ClassicMultiplication.h}, \file{LimbKernels.h} \\
 Karatsuba & $n^{1.585}$ & \file{KaratsubaMultiplication.h} \\
 Toom-3 & $n^{1.465}$ & \file{ToomKernels.h} \\
-Toom-5 & $n^{1.365}$ & \file{Toom5Multiplication.h} \\
+Toom-5 & 9 inner products & \file{ToomHigherMultiplication.h} \\
+Toom-6.5 & 12 inner products & \file{ToomHigherMultiplication.h} \\
+Toom-8.5 & 16 inner products & \file{ToomHigherMultiplication.h} \\
 NTT (three primes) & $n \log n$ & \file{NTTMultiplicationCrt.h} \\
 Fermat outer FFT & see \cref{sec:fermatparams} & \file{FermatOuterMultiplication.h} \\
 short division & $n$ & \file{ClassicDivision.h} \\

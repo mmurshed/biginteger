@@ -38,10 +38,12 @@ records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
         Once a separate band between Karatsuba and NTT (total 2560--5120 limbs). The vectorized NTT
         overtook it everywhere, so the band was retired. Toom-3 now lives inside the Karatsuba
         recursion instead (\cref{sec:toom}).
-  \item[Toom-4 and Toom-5]
-        Toom-4 is implemented but off: no gain on the M1 before the NTT starts. Toom-5 was
-        3 times slower than Karatsuba at its first active size (512 limbs): its evaluation and
-        interpolation cost more than the multiplications they save (\cref{sec:toomfive}).
+  \item[Wider Toom splits as automatic tiers]
+        Toom-4 had mixed results before the M1 Max NTT crossover. Limb-based
+        Toom-5 sped up direct calls, and Toom-6.5 and Toom-8.5 could beat the
+        recursive multiplier at larger sizes. Those larger products favored
+        the NTT, and the single-threaded Toom-5 crossover wins were too narrow
+        for a useful dispatch band (\cref{sec:toomfive,sec:toomhalf}).
   \item[Two-row unrolled schoolbook]
         Measured flat (\cref{sec:flagchain}): it kept the limb-sized carry chain.
   \item[Barrett reduction for the NTT primes]
