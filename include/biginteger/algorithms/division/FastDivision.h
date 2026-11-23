@@ -28,17 +28,16 @@ namespace BigMath
   class FastDivision
   {
   private:
+    // Helpers for the generic path after the full-width dispatch.
     static DataT Digit(ULong128 value, BaseT base)
     {
       if (base == Base2_32) return (DataT)(value & 0xFFFFFFFFULL);
-      if (base == Base2_64) return (DataT)(value & 0xFFFFFFFFFFFFFFFFULL);
       return (DataT)(value % base);
     }
 
     static ULong Carry(ULong128 value, BaseT base)
     {
       if (base == Base2_32) return (ULong)(value >> 32);
-      if (base == Base2_64) return (ULong)(value >> 64);
       return (ULong)(value / base);
     }
 
@@ -46,39 +45,6 @@ namespace BigMath
     {
       ULong borrow = 0;
       SizeT n = (SizeT)v.size();
-
-      if (base == Base2_64)
-      {
-        // Base2_64: the (ULong)base = 0 sentinel makes the historical
-        // `u[j+i] + base - low` underflow-correction unusable. Unsigned
-        // modular subtraction wraps correctly without it: when u[j+i] < low,
-        // `(ULong)u[j+i] - low` = u[j+i] + 2^64 - low (mod 2^64), which is
-        // exactly what the +base correction does for power-of-two B.
-        for (SizeT i = 0; i < n; ++i)
-        {
-          ULong128 product = (ULong128)v[i] * qhat + borrow;
-          DataT low = (DataT)(product & 0xFFFFFFFFFFFFFFFFULL);
-          borrow = (ULong)(product >> 64);
-
-          if (u[j + i] < low)
-          {
-            u[j + i] = (DataT)((ULong)u[j + i] - low); // wraps mod 2^64
-            ++borrow;
-          }
-          else
-          {
-            u[j + i] = (DataT)(u[j + i] - low);
-          }
-        }
-
-        if (u[j + n] < borrow)
-        {
-          u[j + n] = (DataT)((ULong)u[j + n] - borrow); // wraps mod 2^64
-          return true;
-        }
-        u[j + n] = (DataT)(u[j + n] - borrow);
-        return false;
-      }
 
       for (SizeT i = 0; i < n; ++i)
       {
@@ -110,20 +76,6 @@ namespace BigMath
     static void AddBack(std::vector<DataT> &u, std::vector<DataT> const &v, SizeT j, BaseT base)
     {
       SizeT n = (SizeT)v.size();
-
-      if (base == Base2_64)
-      {
-        // ULong128 sum to capture the carry on full 64-bit limbs.
-        ULong128 carry = 0;
-        for (SizeT i = 0; i < n; ++i)
-        {
-          ULong128 sum = (ULong128)u[j + i] + v[i] + carry;
-          u[j + i] = (DataT)(sum & 0xFFFFFFFFFFFFFFFFULL);
-          carry = sum >> 64;
-        }
-        u[j + n] = (DataT)(((ULong128)u[j + n] + carry) & 0xFFFFFFFFFFFFFFFFULL);
-        return;
-      }
 
       ULong carry = 0;
       for (SizeT i = 0; i < n; ++i)
@@ -263,17 +215,6 @@ namespace BigMath
         }
         out[a.size()] = (DataT)carry;
       }
-      else if (base == Base2_64)
-      {
-        ULong carry = 0;
-        for (SizeT i = 0; i < a.size(); ++i)
-        {
-          ULong128 product = (ULong128)a[i] * d + carry;
-          out[i] = (DataT)(product & 0xFFFFFFFFFFFFFFFFULL);
-          carry = (ULong)(product >> 64);
-        }
-        out[a.size()] = (DataT)carry;
-      }
       else
       {
         ULong carry = 0;
@@ -303,18 +244,6 @@ namespace BigMath
         for (Int i = (Int)a.size() - 1; i >= 0; --i)
         {
           ULong128 cur = ((ULong128)rem << 32) | a[i];
-          q[i] = (DataT)(cur / d);
-          rem = (ULong)(cur % d);
-        }
-        if (remainder)
-          *remainder = (DataT)rem;
-      }
-      else if (base == Base2_64)
-      {
-        ULong rem = 0;
-        for (Int i = (Int)a.size() - 1; i >= 0; --i)
-        {
-          ULong128 cur = ((ULong128)rem << 64) | a[i];
           q[i] = (DataT)(cur / d);
           rem = (ULong)(cur % d);
         }
@@ -395,10 +324,8 @@ namespace BigMath
         std::span<const DataT> b,
         bool computeRemainder)
     {
-      SizeT na = (SizeT)a.size();
-      while (na > 1 && a[na - 1] == 0) --na;
-      SizeT n = (SizeT)b.size();
-      while (n > 1 && b[n - 1] == 0) --n;
+      const auto na = LimbDetail::TrimmedLimbCount(a);
+      const auto n = LimbDetail::TrimmedLimbCount(b);
 
       if (n == 1)
       {
@@ -418,7 +345,7 @@ namespace BigMath
       constexpr SizeT StackLimbs = 192;
       DataT stackBuf[StackLimbs];
       std::unique_ptr<DataT[]> heapBuf;
-      const size_t need = (size_t)na + 1 + n;
+      const std::size_t need = (std::size_t)na + 1 + n;
       DataT *work = stackBuf;
       if (need > StackLimbs)
       {
@@ -428,7 +355,7 @@ namespace BigMath
       DataT *u = work;
       DataT *v = work + na + 1;
 
-      const unsigned shift = (unsigned)__builtin_clzll((unsigned long long)b[n - 1]);
+      const auto shift = static_cast<UInt>(NormalizationShiftBits(b[n - 1], 64));
       if (shift != 0)
       {
         u[na] = LimbKernel::Lshift(u, a.data(), na, shift);
@@ -436,12 +363,12 @@ namespace BigMath
       }
       else
       {
-        std::memcpy(u, a.data(), (size_t)na * sizeof(DataT));
+        std::memcpy(u, a.data(), (std::size_t)na * sizeof(DataT));
         u[na] = 0;
-        std::memcpy(v, b.data(), (size_t)n * sizeof(DataT));
+        std::memcpy(v, b.data(), (std::size_t)n * sizeof(DataT));
       }
 
-      std::vector<DataT> q((size_t)na - n + 1);
+      std::vector<DataT> q((std::size_t)na - n + 1);
       DivideNormalized64(q.data(), u, na, v, n, Reciprocal3by2_Base64((ULong)v[n - 1], (ULong)v[n - 2]));
       TrimZerosToOne(q);
 
@@ -452,7 +379,7 @@ namespace BigMath
         if (shift != 0)
           LimbKernel::Rshift(r.data(), u, n, shift);
         else
-          std::memcpy(r.data(), u, (size_t)n * sizeof(DataT));
+          std::memcpy(r.data(), u, (std::size_t)n * sizeof(DataT));
         TrimZerosToOne(r);
       }
       return {std::move(q), std::move(r)};
@@ -488,16 +415,14 @@ namespace BigMath
         return {q, computeRemainder ? std::vector<DataT>{rem} : std::vector<DataT>()};
       }
 
-      bool pow2base = (base == Base2_32 || base == Base2_64);
-      int limbBits = (base == Base2_64) ? 64 : 32;
-      int shift = 0;
+      const bool pow2base = base == Base2_32;
+      constexpr Int limbBits = 32;
+      Int shift = 0;
       DataT d = 1;
       std::vector<DataT> u, v;
       if (pow2base)
       {
-        DataT btop = b[b.size() - 1];
-        shift = (limbBits == 64) ? __builtin_clzll((unsigned long long)btop)
-                                 : __builtin_clz((unsigned)btop);
+        shift = NormalizationShiftBits(b.back(), limbBits);
         u = ShiftLeftBits(a, shift, limbBits);
         v = ShiftLeftBits(b, shift, limbBits);
       }
@@ -519,22 +444,12 @@ namespace BigMath
       std::vector<DataT> q(m + 1, 0);
 
       bool useMG32 = false;
-      bool useMG64 = false;
       DataT mg_v32 = 0;
-      ULong mg_v64 = 0;
 #if BIGMATH_FASTDIV_USE_MG_QHAT
-      if (n >= 2)
+      if (n >= 2 && pow2base)
       {
-        if (base == Base2_32)
-        {
-          useMG32 = true;
-          mg_v32 = Reciprocal3by2_Base32((DataT)v[n - 1], (DataT)v[n - 2]);
-        }
-        else if (base == Base2_64)
-        {
-          useMG64 = true;
-          mg_v64 = Reciprocal3by2_Base64((ULong)v[n - 1], (ULong)v[n - 2]);
-        }
+        useMG32 = true;
+        mg_v32 = Reciprocal3by2_Base32(v[n - 1], v[n - 2]);
       }
 #endif
 
@@ -548,51 +463,17 @@ namespace BigMath
         // (B-1)*d <= window < B*d. GMP's sbpi1_div_qr special-cases this
         // identically. (For n == 2 equality cannot occur: remainder < d.)
         bool mgTopEqual =
-            (useMG32 || useMG64) &&
+            useMG32 &&
             u[j + n] == v[n - 1] && u[j + n - 1] == v[n - 2];
         if (mgTopEqual)
         {
-          qhat = (base == Base2_64) ? ~(ULong)0 : (ULong)0xFFFFFFFFULL;
+          qhat = 0xFFFFFFFFULL;
         }
         else if (useMG32)
         {
           qhat = (ULong)MGQhat_Base32(
               (DataT)u[j + n], (DataT)u[j + n - 1], (DataT)u[j + n - 2],
               (DataT)v[n - 1], (DataT)v[n - 2], mg_v32);
-        }
-        else if (useMG64)
-        {
-          qhat = MGQhat_Base64(
-              (ULong)u[j + n], (ULong)u[j + n - 1], (ULong)u[j + n - 2],
-              (ULong)v[n - 1], (ULong)v[n - 2], mg_v64);
-        }
-        else if (base == Base2_64)
-        {
-          // Knuth qhat for 64-bit limbs. The (u_hi:u_lo) / v_top divide is a
-          // 128/64 division; rhat overflow is detected via __builtin_add_overflow
-          // since B = 2^64 doesn't fit in ULong.
-          ULong128 numerator = ((ULong128)u[j + n] << 64) | u[j + n - 1];
-          ULong128 qhat128 = numerator / v[n - 1];
-
-          // Cap qhat at B-1 = 2^64-1: when u[j+n] == v[n-1] (legal under
-          // Algorithm D's invariant) the raw estimate is >= B and a narrowing
-          // cast would silently wrap to a tiny digit. Clamp and recompute rhat
-          // against the clamped digit; the correction loop and the SubtractMul
-          // fixup handle the rest. This is the `qhat == base` check of the
-          // generic path, done in 128 bits.
-          if (qhat128 >= ((ULong128)1 << 64))
-            qhat128 = (((ULong128)1 << 64) - 1);
-          ULong128 rhat128 = numerator - qhat128 * v[n - 1];
-          qhat = (ULong)qhat128;
-
-          // Once rhat >= B the mul test is unconditionally false, which also
-          // covers the old __builtin_add_overflow early-exit.
-          while (n > 1 && rhat128 < ((ULong128)1 << 64) &&
-                 (ULong128)qhat * v[n - 2] > ((rhat128 << 64) | u[j + n - 2]))
-          {
-            --qhat;
-            rhat128 += v[n - 1];
-          }
         }
         else
         {

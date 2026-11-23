@@ -53,11 +53,6 @@ namespace BigMath
       return NormalizeZero(std::vector<DataT>(v.begin() + start, v.begin() + end));
     }
 
-    static std::vector<DataT> FromSpan(std::span<const DataT> v)
-    {
-      return NormalizeZero(std::vector<DataT>(v.begin(), v.end()));
-    }
-
     static std::vector<DataT> MaxBlock(SizeT limbs, BaseT base)
     {
       if (limbs == 0)
@@ -102,7 +97,7 @@ namespace BigMath
         const DataT *lowData, SizeT lowSize,
         BaseT base)
     {
-      SizeT outSize = std::max(high.size() + shift, (size_t)lowSize) + 1;
+      SizeT outSize = std::max(high.size() + shift, (std::size_t)lowSize) + 1;
       std::vector<DataT> out(outSize, 0);
 
       std::memcpy(out.data(), lowData, lowSize * sizeof(DataT));
@@ -336,7 +331,7 @@ namespace BigMath
       if ((ULong)la + lb < std::min(NTT_MULTIPLICATION_THRESHOLD, TOOM3_MULTIPLICATION_THRESHOLD))
       {
         static thread_local std::vector<DataT> scratch;
-        const size_t count = KaratsubaMultiplication::ScratchLimbs(la, lb);
+        const std::size_t count = KaratsubaMultiplication::ScratchLimbs(la, lb);
         if (scratch.size() < count) scratch.resize(count);
         KaratsubaMultiplication::MultiplyInto(a, la, b, lb, tp, scratch.data(), Base2_64);
         return;
@@ -347,9 +342,9 @@ namespace BigMath
       std::vector<DataT> product = Multiply(av, bv, Base2_64);
       const SizeT total = la + lb;
       const SizeT have = std::min((SizeT)product.size(), total);
-      std::memcpy(tp, product.data(), (size_t)have * sizeof(DataT));
+      std::memcpy(tp, product.data(), (std::size_t)have * sizeof(DataT));
       if (have < total)
-        std::memset(tp + have, 0, (size_t)(total - have) * sizeof(DataT));
+        std::memset(tp + have, 0, (std::size_t)(total - have) * sizeof(DataT));
     }
 
     // Schoolbook 2k-by-k division: np[0..2k) / dp[0..k), k >= 2, dp normalized.
@@ -449,20 +444,18 @@ namespace BigMath
         std::span<const DataT> b,
         bool computeRemainder)
     {
-      SizeT na = (SizeT)a.size();
-      while (na > 1 && a[na - 1] == 0) --na;
-      SizeT dn = (SizeT)b.size();
-      while (dn > 1 && b[dn - 1] == 0) --dn;
+      const auto na = LimbDetail::TrimmedLimbCount(a);
+      const auto dn = LimbDetail::TrimmedLimbCount(b);
 
       // Workspace: shifted dividend with one extra top limb, shifted divisor,
       // and dn limbs of product scratch.
-      const size_t need = (size_t)na + 1 + 2 * (size_t)dn;
+      const std::size_t need = (std::size_t)na + 1 + 2 * (std::size_t)dn;
       std::unique_ptr<DataT[]> work(new DataT[need]);
       DataT *np = work.get();
       DataT *dp = np + na + 1;
       DataT *tp = dp + dn;
 
-      const unsigned shift = (unsigned)__builtin_clzll((unsigned long long)b[dn - 1]);
+      const auto shift = static_cast<UInt>(NormalizationShiftBits(b[dn - 1], 64));
       if (shift != 0)
       {
         np[na] = LimbKernel::Lshift(np, a.data(), na, shift);
@@ -470,9 +463,9 @@ namespace BigMath
       }
       else
       {
-        std::memcpy(np, a.data(), (size_t)na * sizeof(DataT));
+        std::memcpy(np, a.data(), (std::size_t)na * sizeof(DataT));
         np[na] = 0;
-        std::memcpy(dp, b.data(), (size_t)dn * sizeof(DataT));
+        std::memcpy(dp, b.data(), (std::size_t)dn * sizeof(DataT));
       }
       const ULong vinv = FastDivision::Reciprocal3by2((ULong)dp[dn - 1], (ULong)dp[dn - 2]);
 
@@ -503,7 +496,7 @@ namespace BigMath
         if (shift != 0)
           LimbKernel::Rshift(r.data(), np, dn, shift);
         else
-          std::memcpy(r.data(), np, (size_t)dn * sizeof(DataT));
+          std::memcpy(r.data(), np, (std::size_t)dn * sizeof(DataT));
         TrimZerosToOne(r);
       }
       return {std::move(q), std::move(r)};
@@ -530,8 +523,7 @@ namespace BigMath
 
       if (base == Base2_64)
       {
-        SizeT dn = (SizeT)b.size();
-        while (dn > 1 && b[dn - 1] == 0) --dn;
+        const auto dn = LimbDetail::TrimmedLimbCount(b);
         if (dn < 2)
           return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
         return DivideAndRemainder64(a, b, computeRemainder);
@@ -544,7 +536,7 @@ namespace BigMath
       // 3n/2n correction-loop bound of 2 iterations; without it the loop runs O(B)
       // times when the recursive q-estimate is wildly off (PR #30 LIMB_64 sparse-input
       // hang was here — divisor.back() = 1 forced ~2^64 correction iters).
-      const int limbBits = LimbBitsFor(base);
+      const Int limbBits = LimbBitsFor(base);
       Int shift = NormalizationShiftBits(b[b.size() - 1], limbBits);
 
       std::vector<DataT> aNorm = ShiftLeftBits(a, shift, limbBits);

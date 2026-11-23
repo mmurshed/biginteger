@@ -17,17 +17,10 @@ namespace BigMath
 {
   namespace
   {
-    size_t BitLength(std::span<const DataT> bits)
-    {
-      while (bits.size() > 1 && bits.back() == 0)
-        bits = bits.first(bits.size() - 1);
-      return (bits.size() - 1) * LimbBits + std::bit_width(bits.back());
-    }
-
     template <class Value, class Product>
-    Value SlidingWindowPower(Value factor, std::span<const DataT> bits, size_t length, Product multiply)
+    Value SlidingWindowPower(Value factor, std::span<const DataT> bits, std::size_t length, Product multiply)
     {
-      const auto bit = [bits](size_t i) {
+      const auto bit = [bits](std::size_t i) {
         return (bits[i / LimbBits] >> (i % LimbBits)) & 1;
       };
       unsigned width = 1;
@@ -50,7 +43,7 @@ namespace BigMath
       if (width == 1)
       {
         auto result = factor;
-        for (size_t i = length - 1; i > 0; --i)
+        for (std::size_t i = length - 1; i > 0; --i)
         {
           multiply(result, result);
           if (bit(i - 1))
@@ -64,14 +57,14 @@ namespace BigMath
       powers[0] = std::move(factor);
       auto square = powers[0];
       multiply(square, square);
-      for (size_t i = 1; i < (size_t{1} << (width - 1)); ++i)
+      for (std::size_t i = 1; i < (std::size_t{1} << (width - 1)); ++i)
       {
         powers[i] = powers[i - 1];
         multiply(powers[i], square);
       }
 
-      const auto window = [bit, width](size_t &remaining) {
-        size_t low = remaining > width ? remaining - width : 0;
+      const auto window = [bit, width](std::size_t &remaining) {
+        std::size_t low = remaining > width ? remaining - width : 0;
         while (!bit(low))
           ++low;
         unsigned value = 0;
@@ -79,7 +72,7 @@ namespace BigMath
           value = (value << 1) | bit(--remaining);
         return value >> 1;
       };
-      size_t remaining = length;
+      std::size_t remaining = length;
       auto result = powers[window(remaining)];
       while (remaining > 0)
       {
@@ -89,9 +82,9 @@ namespace BigMath
           --remaining;
           continue;
         }
-        const size_t start = remaining;
+        const std::size_t start = remaining;
         const auto index = window(remaining);
-        for (size_t i = remaining; i < start; ++i)
+        for (std::size_t i = remaining; i < start; ++i)
           multiply(result, result);
         multiply(result, powers[index]);
       }
@@ -133,7 +126,7 @@ namespace BigMath
               carry = sum >> 32;
             }
           }
-          for (size_t j = i + size; carry != 0; ++j)
+          for (std::size_t j = i + size; carry != 0; ++j)
           {
             const auto sum = static_cast<ULong128>(scratch[j]) + carry;
             scratch[j] = static_cast<DataT>(sum) & LimbMask;
@@ -163,7 +156,7 @@ namespace BigMath
     public:
       explicit Montgomery(BigInteger const &mod)
           : modulus(mod.Limbs()), size(mod.size()), inverse(0 - InvertOddLimb(modulus.front())),
-            scratch(2 * static_cast<size_t>(size) + 1)
+            scratch(2 * static_cast<std::size_t>(size) + 1)
       {
       }
 
@@ -196,7 +189,7 @@ namespace BigMath
       }
 
       std::vector<DataT> PowerEncoded(std::vector<DataT> factor,
-                                      std::span<const DataT> bits, size_t length)
+                                      std::span<const DataT> bits, std::size_t length)
       {
         return SlidingWindowPower(std::move(factor), bits, length, [this](auto &a, auto &b) {
           Multiply(a, b);
@@ -204,7 +197,7 @@ namespace BigMath
       }
 
       BigInteger Power(BigInteger const &factor, BigInteger const &mod,
-                       std::span<const DataT> bits, size_t length)
+                       std::span<const DataT> bits, std::size_t length)
       {
         auto encoded = ((factor << size) % mod).GetInteger();
         encoded.resize(size);
@@ -217,7 +210,7 @@ namespace BigMath
     };
 
     BigInteger PowerReduced(BigInteger const &factor, BigInteger const &mod,
-                            std::span<const DataT> bits, size_t length)
+                            std::span<const DataT> bits, std::size_t length)
     {
       if (length == 1 || (factor.size() == 1 && factor[0] <= 1))
         return factor;
@@ -264,11 +257,11 @@ namespace BigMath
 
     template <class Value, class Square>
     bool PassesMillerRabin(Value value, Value const &one, Value const &minusOne,
-                          size_t twos, Square square)
+                          std::size_t twos, Square square)
     {
       if (value == one || value == minusOne)
         return true;
-      for (size_t i = 1; i < twos; ++i)
+      for (std::size_t i = 1; i < twos; ++i)
       {
         square(value);
         if (value == minusOne)
@@ -422,7 +415,7 @@ namespace BigMath
     if (factor.IsNegative())
       factor = factor + mod;
     const auto bits = exponent.Limbs();
-    return PowerReduced(factor, mod, bits, BitLength(bits));
+    return PowerReduced(factor, mod, bits, LimbDetail::BitLength(bits));
   }
 
   bool IsProbablePrime(BigInteger const &n, int rounds)
@@ -431,7 +424,7 @@ namespace BigMath
       throw std::invalid_argument("IsProbablePrime requires a positive round count");
     if (n.IsNegative() || n.Zero())
       return false;
-    const auto bits = BitLength(n.Limbs());
+    const auto bits = LimbDetail::BitLength(n.Limbs());
     if (bits <= 64)
     {
       DataT value = n[0];
@@ -463,9 +456,9 @@ namespace BigMath
     while (oddLimbs.front() == 0)
       oddLimbs = oddLimbs.subspan(1);
     const unsigned trailing = std::countr_zero(oddLimbs.front());
-    const size_t twos = (minusOne.size() - oddLimbs.size()) * LimbBits + trailing;
+    const std::size_t twos = (minusOne.size() - oddLimbs.size()) * LimbBits + trailing;
     const auto exponent = ShiftRightBits(oddLimbs, trailing, LimbBits);
-    const auto length = BitLength(exponent);
+    const auto length = LimbDetail::BitLength(exponent);
 
     if (mod.size() <= 128)
     {
@@ -504,7 +497,7 @@ namespace BigMath
           return testEncoded(context, std::move(encoded));
         };
       };
-      return CheckRandomWitnesses(mod, two, rounds, makeTest, BitLength(mod.Limbs()) >= 1024);
+      return CheckRandomWitnesses(mod, two, rounds, makeTest, LimbDetail::BitLength(mod.Limbs()) >= 1024);
     }
 
     const auto test = [&](BigInteger const &witness) {

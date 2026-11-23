@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <algorithm>
 
+#include "../../common/BitShifts.h"
 #include "../../common/Comparator.h"
 #include "../../common/Util.h"
 #include "../Addition.h"
@@ -29,13 +30,12 @@ namespace BigMath
         // Reference: Möller, Granlund 2010, "Improved Division by Invariant Integers", Algorithm 4.
         struct GranlundMollerDivider
         {
-            ULong d;     // original divisor
             ULong dn;    // d << shift (normalized, top bit set)
             ULong v;     // floor((2^128 - 1) / dn) - 2^64
-            int shift;   // clz(d)
+            Int shift;   // clz(d)
 
             explicit GranlundMollerDivider(ULong divisor)
-                : d(divisor), shift(__builtin_clzll(divisor))
+                : shift(NormalizationShiftBits(divisor, 64))
             {
                 dn = divisor << shift;
                 ULong128 num = ~(ULong128)0; // 2^128 - 1
@@ -78,7 +78,7 @@ namespace BigMath
         template <bool WriteQuotient>
         static DataT DivRem1Impl(DataT *q, const DataT *a, SizeT n, DataT d)
         {
-            const int s = __builtin_clzll((unsigned long long)d);
+            const Int s = NormalizationShiftBits(d, 64);
             const ULong dn = (ULong)d << s;
             const ULong v = (ULong)((~(ULong128)0) / dn); // floor((2^128 - 1) / dn) - 2^64
 

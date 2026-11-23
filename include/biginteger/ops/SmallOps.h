@@ -25,6 +25,7 @@
 #include "../BigInteger.h"
 #include "../algorithms/Addition.h"
 #include "../algorithms/Subtraction.h"
+#include "../common/BitShifts.h"
 #include "../common/LimbKernels.h"
 #include "../algorithms/division/ClassicDivision.h"
 #include "../algorithms/division/FastDivision.h"
@@ -151,7 +152,7 @@ namespace BigMath
 
       // Knuth D on normalized copies: shift so the divisor's top bit is set,
       // with the bits shifted out of the dividend in one extra top limb.
-      const unsigned s = (unsigned)__builtin_clzll((unsigned long long)y[nb - 1]);
+      const auto s = static_cast<UInt>(NormalizationShiftBits(y[nb - 1], 64));
       DataT vn[MaxLimbs];
       DataT un[MaxLimbs + 1];
       if (s > 0)

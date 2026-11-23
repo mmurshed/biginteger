@@ -11,7 +11,7 @@
 #ifndef BIGINTEGER_UTIL
 #define BIGINTEGER_UTIL
 
-#include <cstring>
+#include <cstddef>
 #include <span>
 #include <vector>
 #include <algorithm>
@@ -20,6 +20,18 @@
 
 namespace BigMath
 {
+  namespace LimbDetail
+  {
+    // Count with high zero padding ignored, keeping one limb for a nonempty zero.
+    inline SizeT TrimmedLimbCount(std::span<const DataT> limbs)
+    {
+      auto size = static_cast<SizeT>(limbs.size());
+      while (size > 1 && limbs[size - 1] == 0)
+        --size;
+      return size;
+    }
+  }
+
   // GCD on single limbs (Euclidean).
   inline DataT gcd(DataT a, DataT b)
   {
@@ -56,11 +68,6 @@ namespace BigMath
     return removed;
   }
 
-  inline std::vector<DataT> CanonicalZero()
-  {
-    return std::vector<DataT>{0};
-  }
-
   inline Int FindNonZeroByte(std::vector<DataT> const &a, Int start = 0, Int end = -1)
   {
     Int i = (end == -1 ? (Int)a.size() : end + 1);
@@ -93,32 +100,6 @@ namespace BigMath
     rEnd = std::min(rEnd, (SizeT)(r.size() - 1));
     for (SizeT i = rStart; i <= rEnd; i++)
       r[i] = bit;
-  }
-
-  inline void Copy(std::vector<DataT> const &p, SizeT pStart, SizeT pEnd,
-                   std::vector<DataT> &q, SizeT qStart, SizeT qEnd)
-  {
-    if (p.size() == 0)
-      return;
-    SizeT count = std::min(pEnd - pStart + 1, qEnd - qStart + 1);
-    std::memcpy(q.data() + qStart, p.data() + pStart, count * sizeof(DataT));
-  }
-
-  inline void Copy(std::vector<DataT> const &p, std::vector<DataT> &q)
-  {
-    Copy(p, 0, p.size() - 1, q, 0, q.size() - 1);
-  }
-
-  inline void Resize(std::vector<DataT> &u, SizeT n)
-  {
-    while (u.size() < n)
-      u.push_back(0);
-  }
-
-  inline void MakeSameSize(std::vector<DataT> &u, std::vector<DataT> &v)
-  {
-    Resize(v, u.size());
-    Resize(u, v.size());
   }
 
   inline Int Len(SizeT start, SizeT end)

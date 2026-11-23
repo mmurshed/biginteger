@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -22,11 +23,6 @@ namespace BigMath
 {
   namespace
   {
-    inline BigInteger Negated(BigInteger const &x)
-    {
-      return -x;
-    }
-
     inline BigInteger AbsCopy(BigInteger const &x)
     {
       BigInteger r(x);
@@ -113,7 +109,8 @@ namespace BigMath
   //   [+-]? ( digits ('.' digits?)? | '.' digits ) ([eE] [+-]? digits)?
   BigDecimal BigDecimal::FromString(std::string const &s)
   {
-    size_t i = 0, n = s.size();
+    std::size_t i = 0;
+    const std::size_t n = s.size();
     if (n == 0)
       throw std::invalid_argument("BigDecimal: empty string");
 
@@ -165,7 +162,7 @@ namespace BigMath
       throw std::invalid_argument("BigDecimal: trailing junk in '" + s + "'");
 
     // Strip leading zeros from digits, but keep at least one.
-    size_t firstNon = digits.find_first_not_of('0');
+    const std::size_t firstNon = digits.find_first_not_of('0');
     if (firstNon == std::string::npos)
       digits = "0";
     else if (firstNon > 0)
@@ -258,7 +255,7 @@ namespace BigMath
 
   BigDecimal BigDecimal::Negate() const
   {
-    return BigDecimal(Negated(unscaled_), scale_);
+    return BigDecimal(-unscaled_, scale_);
   }
 
   BigDecimal BigDecimal::Abs() const
@@ -390,27 +387,27 @@ namespace BigMath
     {
       // value = unscaled · 10^(-scale); append (-scale) zeros
       std::string out;
-      out.reserve(s.size() + (size_t)(-scale_));
+      out.reserve(s.size() + static_cast<std::size_t>(-scale_));
       out += s;
-      out.append((size_t)(-scale_), '0');
+      out.append(static_cast<std::size_t>(-scale_), '0');
       return out;
     }
 
     // scale_ > 0: insert decimal point or pad with leading zeros
     int dlen = (int)digits.size();
     std::string out;
-    out.reserve(digits.size() + (size_t)scale_ + 4);
+    out.reserve(digits.size() + static_cast<std::size_t>(scale_) + 4);
     if (neg) out.push_back('-');
     if (dlen > scale_)
     {
-      out.append(digits, 0, (size_t)(dlen - scale_));
+      out.append(digits, 0, static_cast<std::size_t>(dlen - scale_));
       out.push_back('.');
-      out.append(digits, (size_t)(dlen - scale_), (size_t)scale_);
+      out.append(digits, static_cast<std::size_t>(dlen - scale_), static_cast<std::size_t>(scale_));
     }
     else
     {
       out += "0.";
-      out.append((size_t)(scale_ - dlen), '0');
+      out.append(static_cast<std::size_t>(scale_ - dlen), '0');
       out += digits;
     }
     return out;
