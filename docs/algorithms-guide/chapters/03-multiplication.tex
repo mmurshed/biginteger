@@ -57,11 +57,10 @@ operands that is $n^2$ limb multiplications.}
 \end{figure}
 
 Schoolbook needs $n_a \times n_b$ limb products. For two 1000-limb numbers that is a
-million. That is too many for large numbers, but for short ones schoolbook is
-unbeatable: it has no setup, no temporary storage, and its inner loop is the fast
-\code{AddMul1} kernel. In BigMath \code{MulBasecase} computes the first row with
-\code{Mul1} (so the output does not need to be zeroed first) and the rest with
-\code{AddMul1}, always looping over the longer operand.
+million. The 64-bit Classic path calls \code{MulBasecase} on the original limb ranges.
+It writes the first row to the product buffer with \code{Mul1} and accumulates the
+rest with \code{AddMul1}. The inner loop scans the longer operand. A one-limb
+operand uses the scalar path.
 
 \section{Squaring: half the work}
 \label{sec:square}
@@ -212,11 +211,11 @@ workspace buffer. Slicing fixed both the speed and the memory bound (about $4 n_
 \end{pitfall}
 
 \begin{perfnote}
-The recursion works on raw pointers into one workspace allocated up front, never on
-temporary \code{std::vector}s. An earlier vector-based version of Karatsuba squaring was
-\emph{slower} than plain multiplication at 128 limbs, purely from allocation and zero-fill
-costs. The output buffer and the middle-term buffer are not pre-zeroed either: the
-recursive calls write every position.
+The recursive multiplier reads operand ranges through pointers and partitions a
+workspace sized before recursion starts. Requests of up to 2\,048 scratch limbs
+use a stack buffer. Larger requests use heap storage. Inner calls write the
+output and middle term directly. An earlier vector-based Karatsuba square lost
+to plain multiplication at 128 limbs because of allocation and zero-fill costs.
 \end{perfnote}
 
 \section{Toom-3: split in three}
@@ -298,13 +297,11 @@ $123 \times 456 = 56088$. Five small products replaced nine.
 \end{example}
 
 \begin{another}[: Karatsuba is Toom-2]
-Karatsuba is the same recipe with two pieces. The product $(a_1x + a_0)(b_1x + b_0)$ has
-degree 2, so three points suffice: $0$, $1$ and $\infty$. The values there are $a_0b_0$,
-$(a_0 + a_1)(b_0 + b_1)$ and $a_1b_1$, exactly Karatsuba's three products, and
-``subtract $z_0$ and $z_2$'' is the interpolation. Every Toom-$k$ method is
-``evaluate at $2k-1$ points, multiply, interpolate''. More pieces give a better exponent
-but more expensive evaluation and interpolation. \Cref{ch:ntt} pushes this idea to its
-limit.
+The product $(a_1x + a_0)(b_1x + b_0)$ has degree 2. At $0$, $1$ and $\infty$ it
+gives Karatsuba's three products $a_0b_0$, $(a_0 + a_1)(b_0 + b_1)$ and $a_1b_1$.
+Subtracting $z_0$ and $z_2$ gives the middle coefficient. Toom-$k$ uses $2k-1$
+points. More pieces lower the exponent and raise evaluation and interpolation
+costs. \Cref{ch:ntt} takes the same idea further.
 \end{another}
 
 \subsection{Why the sequence runs on unsigned numbers}

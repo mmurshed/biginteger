@@ -87,12 +87,14 @@ multiplications per level. The recursion bottoms out in Algorithm D at 64 limbs.
 \paragraph{Cost.} $T(n) = 2\,T(n/2) + 2\,\M(n/2)$, which works out to about $\M(n) \log n$: a
 logarithmic factor more than one multiplication, but far less than long division's $n^2$.
 
-\paragraph{BigMath's version.} The implementation follows the in-place shape of GMP's
-\code{mpn\_dcpi1\_div\_qr}. It works directly inside the shifted dividend buffer; the halves of
-the divisor are just pointer offsets, not copies. An odd length splits into unequal halves,
-so no zero padding is needed. A dividend longer than $2n$ is processed block by block from the
-top. Recursion stops at 64 limbs (\code{BIGMATH\_DC\_DIV\_THRESHOLD}) and finishes with
-Algorithm D.
+\paragraph{BigMath's version.} The default 64-bit implementation follows the in-place
+shape of GMP's \code{mpn\_dcpi1\_div\_qr}. It initializes the normalized dividend and
+divisor directly from the input views into one workspace. Recursion updates the
+dividend buffer in place, uses pointer offsets to read the divisor's halves, and
+passes the relevant limb ranges directly to correction products. Odd lengths split
+into unequal halves. Dividends longer than $2n$ are processed block by block from the top.
+The generic recursion cutoff is 64 limbs (\code{BIGMATH\_DC\_DIV\_THRESHOLD}), where
+Algorithm D finishes the division.
 
 \begin{pitfall}
 The previous version copied operands into fresh vectors at every level and padded the divisor
@@ -210,6 +212,13 @@ each remainder into the next block, and reusing the same $R$ throughout. The cos
 reciprocal (a few $\M(n)$) plus about two $\M(n)$ per block. The more blocks there are, the
 more the reciprocal is amortized: this is why Newton wins for lopsided divisions.
 
+When the divisor's high bit is set, normalization can read both original input
+views directly. A nonzero shift requires shifted storage. The first chunk borrows
+the top of the normalized dividend. Each later chunk joins the next dividend
+block and the running remainder in one reusable buffer. The quotient blocks go
+directly to their final offsets, and reciprocal refinement also reads its
+high-limb slices through views.
+
 \subsection{The wrap-around remainder}
 \label{sec:wrap}
 
@@ -246,14 +255,13 @@ tests assert it stays at zero.
 \section{Short quotients: only the top limbs matter}
 \label{sec:toplimbs}
 
-Suppose $a$ has 10\,010 limbs and $b$ has 10\,000. The quotient has only 11 limbs. Does
+Suppose $a$ has 10\,010 limbs and $b$ has 10\,000. The quotient has at most 11 limbs. Does
 computing it really need all 20\,010 input limbs? No. A short quotient is decided by the
 leading limbs of the operands; the rest can only move it by a tiny fraction.
 
 \begin{example}[: estimating a quotient from the leading digits]
 $a = 98\,765\,432\,198$ and $b = 123\,456\,789$. The quotient has about $11 - 9 + 1 = 3$ digits.
-Keep the quotient length plus two guard digits of $b$, that is 4 digits, and the matching
-digits of $a$:
+For this example, keep four leading digits of $b$ and the matching six digits of $a$:
 \[
 a' = 987\,654, \qquad b' = 1234, \qquad a' \div b' = 800 \text{ remainder } 454 .
 \]
@@ -270,7 +278,8 @@ shows the true quotient is either $q'$ or $q' - 1$, and it is $q'$ whenever the 
 $r'$ is at least $B^{\delta + 2}$, which for random inputs fails with probability about
 $2^{-128}$. Only in that rare case (or when $a$ is an exact multiple of $b$, which always lands
 there) is one $\delta \times n_b$ product computed to decide. The work drops from
-$\delta \times n_b$ to a $(2\delta + 4)$-by-$(\delta + 4)$ division.
+$\delta \times n_b$ to a $(2\delta + 4)$-by-$(\delta + 4)$ division. The dispatcher reads the
+leading ranges as views, so preparing the truncated operands takes constant time.
 
 \begin{center}
 \small
@@ -288,9 +297,9 @@ divisor limbs & quotient limbs & before (\textmu s) & now (\textmu s) & GMP \cod
 
 \paragraph{Quotient-sized division (with remainder).} When the remainder is also wanted and the
 quotient is long (at least 3072 limbs) but still shorter than the divisor,
-\code{QuotientSizedDivision} divides the operand tops (with Newton for large sizes), then
-computes the remainder with one $\delta \times n_b$ multiplication and a few corrections. Its
-cost scales with the \emph{quotient}, not the divisor.
+\code{QuotientSizedDivision} divides views of the operand tops, using Newton for large
+sizes. The division step scales with the quotient length. Computing the remainder
+takes a full-width $\delta \times n_b$ correction product and a few adjustments.
 
 \section{Reusing a divisor}
 \label{sec:cached}

@@ -238,8 +238,11 @@ the shorter operand.
   \item If both sets of residues are too small, a build with Fermat enabled
         can try the outer FFT when its threshold and sizing checks pass
         (\cref{sec:fermatdispatch}). Otherwise the dispatcher multiplies
-        blocks that fit the available CRT limits and adds each partial
-        product at its place-value offset.
+        blocks that fit the available CRT limits. The transform packer
+        reads each block directly from its operand. Once a partial
+        product has been carried, the dispatcher adds it at the sum
+        of the two block offsets. A square adds each off-diagonal
+        block product twice.
 \end{itemize}
 
 For example, a balanced product of five billion decimal digits per input

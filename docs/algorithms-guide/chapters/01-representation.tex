@@ -171,9 +171,8 @@ gets the best algorithm for its own size.}
 \label{fig:layers}
 \end{figure}
 
-The upward arrow in \cref{fig:layers} is a central design choice. Large algorithms
-are built from smaller multiplications, and they ask the dispatcher for them rather
-than hard-coding a method. When a faster multiplication lands, division, decimal
-conversion, and everything else speed up without being touched. (This happened in
-November 2026: a multiplication-only change made parsing and printing 1.8 times
-faster.)
+Arithmetic operators borrow read-only limb ranges through \code{BigInteger::Limbs()}.
+A view holds an address and a length. It can cover inline limbs, heap-backed limbs,
+or a slice of either while the original storage stays valid. Kernels keep their
+writable output and workspace separate. The upward arrow in \cref{fig:layers} lets
+the dispatcher choose the method for each sub-product.

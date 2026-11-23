@@ -21,48 +21,53 @@ This chapter collects the practical consequences of everything above.
         (\cref{sec:trunc}).
 \end{itemize}
 
-Warm operation times on the Apple M1 Max, in milliseconds, on revision \code{158eb03}.
+Warm operation times in milliseconds from the November 23, 2026 full benchmark
+on the Apple M1 Max, revision \code{24d1a13}.
 
 \begin{center}
 \small
-\begin{tabular}{lrrr}
+\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}
 \toprule
-operation (decimal digits) & BigMath 1 thread & BigMath default & GMP 1 thread \\
+& \multicolumn{2}{c}{Single-thread pair} & \multicolumn{2}{c}{Default-build pair} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Operation (decimal digits) & BigMath & GMP & BigMath & GMP \\
 \midrule
-multiply $10^4 \times 10^4$ & 0.04238\,ms & 0.03242\,ms & 0.02987\,ms \\
-multiply $10^6 \times 10^6$ & 8.696\,ms & 1.723\,ms & 9.635\,ms \\
-multiply $10^7 \times 10^7$ & 105.3\,ms & 16.4\,ms & 206\,ms \\
-multiply $50\,{\rm M} \times 50\,{\rm M}$ & 596.3\,ms & 173.3\,ms & 678.5\,ms \\
-multiply $100\,{\rm M} \times 100\,{\rm M}$ & 1\,299\,ms & 344.8\,ms & 1\,461\,ms \\
-multiply $200\,{\rm M} \times 200\,{\rm M}$ & 2\,769\,ms & 728.1\,ms & 2\,894\,ms \\
-divide $10^7 \div (2\cdot 10^6)$ (quotient) & 152.1\,ms & 39.87\,ms & 150.4\,ms \\
-parse $2\cdot10^7$ digits & 817.7\,ms & 141.2\,ms & 807\,ms \\
-print $2\cdot10^7$ digits & 2\,300\,ms & 441.7\,ms & 2\,147\,ms \\
+multiply $10^4 \times 10^4$ & 0.03992 & 0.03675 & 0.05763 & 0.05146 \\
+multiply $10^6 \times 10^6$ & 9.085 & 9.026 & 2.339 & 8.909 \\
+multiply $10^7 \times 10^7$ & 106.8 & 212.1 & 18.09 & 206.5 \\
+multiply $50\,\mathrm{M} \times 50\,\mathrm{M}$ & 597.6 & 684.2 & 167.2 & 667 \\
+multiply $100\,\mathrm{M} \times 100\,\mathrm{M}$ & 1\,341 & 1\,430 & 338.9 & 1\,404 \\
+multiply $200\,\mathrm{M} \times 200\,\mathrm{M}$ & 3\,131 & 2\,990 & 691.9 & 2\,916 \\
+divide $10^7 \div (2\cdot 10^6)$ (quotient) & 148.3 & 142 & 41.89 & 145.3 \\
+parse $2\cdot 10^7$ digits & 858.3 & 814.1 & 172.2 & 804 \\
+print $2\cdot 10^7$ digits & 2\,320 & 2\,208 & 509 & 2\,370 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 
 \smallskip
-{\footnotesize The two BigMath builds used the same operands and GMP reference.
-The default build uses up to eight threads. The full benchmark records one warm
-observation for most large inputs. Data and repetition counts are in \file{BENCHMARK.md}.}
+{\footnotesize Both pairs used identical inputs. GMP 6.3.0 ran on one thread, with
+fresh timings for each pair. The default BigMath build can use up to eight threads.
+The full benchmark records one warm observation for most large inputs.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#methodology}{Data and methodology}}
 \end{center}
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_single_thread.png}
 \caption{Single-threaded BigMath time divided by single-threaded GMP time (below 1 means BigMath
-was faster). The November 22 full run reaches 200 million digits per operand. The
-triangles above that size come from separate November 21 measurements.}
+was faster). The November 23 full run reaches 200 million digits per operand. The
+triangles show fresh-process products, measured on November 23 at 200 million digits
+and on November 21 at larger sizes.}
 \end{figure}
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_large_products.png}
 \caption{Fresh-process measurements through five billion decimal digits per operand.
-The dotted line marks the largest single CRT transform; above it the product is
-recombined from several residues of that length. The dashed line marks about 1.79
-billion digits, the longest shorter operand one set of signed residues resolves;
-beyond it residue products are combined in blocks. Each point reports one warm
+The dotted line marks the single-transform CRT limit. The dashed line near 1.79
+billion digits marks the crossover from standard-prime to wide-prime residues.
+The full-profile points from 10 to 200 million digits use the November 23 run.
+The other points use the November 21 seeded sweeps. Each point reports one warm
 product and the process peak RSS through that call.}
 \end{figure}
 
@@ -151,8 +156,10 @@ All algorithms are cross-checked against each other:
   \item \code{mult\_correctness} compares Karatsuba, Toom-5, and the NTT
         against schoolbook, limb for limb. Dedicated tests force individual
         Toom splits from Toom-3 through Toom-8.5;
-  \item \code{div\_correctness} runs every division algorithm, compares against reference
-        implementations, and checks $q \cdot b + r = a$ and $0 \le r < b$ on every result;
+  \item \code{div\_correctness} checks division identities and cross-checks the dispatcher,
+        Burnikel--Ziegler, Newton, and the cached divisor path. The base-case and regression
+        tests compare \code{FastDivision} with textbook Algorithm D in
+        \file{tests/support/DivisionReference.h};
   \item unit tests pin details such as the reciprocal's error bound, the zero-fallback guarantee
         of Newton division, and NTT layers against a plain radix-2 transform. Fermat tests
         check the modular operations, round trips, full products, and opt-in dispatch.
