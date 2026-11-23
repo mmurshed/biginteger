@@ -22,6 +22,7 @@ macro & default & meaning \\
 \code{BIGMATH\_KARATSUBA\_THRESHOLD} & 24 & Karatsuba leaf size \\
 \code{BIGMATH\_MUL\_TOOM33\_THRESHOLD} & 168 & Toom-3 split inside Karatsuba from this size \\
 \code{BIGMATH\_MUL\_TOOM44\_THRESHOLD} & $10^6$ & Toom-4 split (effectively off) \\
+\code{BIGMATH\_TOOM5\_THRESHOLD} & 512 & direct-call recursion cutoff on longer operand (\file{Toom5Multiplication.h}) \\
 \code{BIGMATH\_NTT\_MULTIPLICATION\_THRESHOLD} & 640 & NTT needs $n_a + n_b \ge$ this \\
 \code{BIGMATH\_NTT\_MIN\_LIMB\_THRESHOLD} & 64 & NTT needs $\min(n_a,n_b) \ge$ this \\
 \code{BIGMATH\_NTT\_AREA\_THRESHOLD} & 96\,000 & NTT needs $n_a n_b \ge$ this (warm pool) \\
@@ -39,6 +40,7 @@ macro & default & meaning \\
 \code{BIGMATH\_NTT\_TRUNC\_SERIAL\_MAX} & $2^{25}$ & $H + L$ upper limit with one thread \\
 \code{BIGMATH\_NTT\_PARALLEL\_MIN} & 2048 & smaller transforms run on the calling thread \\
 \code{BIGMATH\_NTT\_FINALIZE\_PARALLEL\_MIN} & 4096 & carry pass split across threads from this many limbs \\
+\code{BIGMATH\_NTT\_FERMAT\_MIN\_COEFFS} & off & opt-in threshold in product coefficients (\cref{sec:fermatdispatch}) \\
 \bottomrule
 \end{longtable}
 
@@ -132,7 +134,9 @@ algorithm & cost for $n$-limb inputs & where in the code \\
 schoolbook multiply & $n^2$ & \file{ClassicMultiplication.h}, \file{LimbKernels.h} \\
 Karatsuba & $n^{1.585}$ & \file{KaratsubaMultiplication.h} \\
 Toom-3 & $n^{1.465}$ & \file{ToomKernels.h} \\
+Toom-5 & $n^{1.365}$ & \file{Toom5Multiplication.h} \\
 NTT (three primes) & $n \log n$ & \file{NTTMultiplicationCrt.h} \\
+Fermat outer FFT & see \cref{sec:fermatparams} & \file{FermatOuterMultiplication.h} \\
 short division & $n$ & \file{ClassicDivision.h} \\
 Algorithm D & $(n_a - n_b) \cdot n_b$ & \file{FastDivision.h} \\
 Burnikel--Ziegler & $\M(n)\log n$ & \file{BurnikelZieglerDivision.h} \\
@@ -147,8 +151,9 @@ parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp
 \begin{itemize}
   \item D.~E. Knuth, \emph{The Art of Computer Programming}, Vol.~2, §4.3: classical multiple-precision
         arithmetic and Algorithm D.
-  \item R.~P. Brent and P.~Zimmermann, \emph{Modern Computer Arithmetic}, Cambridge University Press,
-        2010: Karatsuba, Toom-Cook, FFT multiplication, Newton division, base conversion.
+  \item R.~P. Brent and P.~Zimmermann,
+        \href{https://members.loria.fr/PZimmermann/mca/pub226.html}{\emph{Modern Computer Arithmetic}},
+        Cambridge University Press, 2010. Chapter 1 covers Toom-Cook and FFT multiplication.
   \item C.~Burnikel and J.~Ziegler, ``Fast Recursive Division'', MPI-I-98-1-022, 1998.
   \item N.~Möller and T.~Granlund, ``Improved Division by Invariant Integers'', \emph{IEEE Transactions on
         Computers} 60(2), 2011.

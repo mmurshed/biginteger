@@ -107,6 +107,8 @@ option & effect \\
                                    bursts. \\
 \code{-DBIGMATH\_NTT\_CRT=0} & single-prime (Goldilocks) NTT instead of three primes. Slower;
                               for comparison or unusual targets. \\
+\code{-DBIGMATH\_NTT\_WIDE=0} & use standard CRT residue limits for very large products
+                               (\cref{sec:hugeproductdispatch}). \\
 \code{-DBIGMATH\_NEON=0} & disable the ARM vector butterflies. \\
 \code{-DBIGMATH\_LIMB\_64=0} & the legacy 32-bit-values-in-64-bit-slots layout; roughly 2$\times$
                               slower; for comparison. \\
@@ -117,7 +119,11 @@ any \code{-DBIGMATH\_*\_THRESHOLD=}$n$ & move a switch point (\cref{app:ref}). \
 
 Threshold overrides must be in effect when the \emph{library} is compiled (pass them through
 \code{CMAKE\_CXX\_FLAGS}), because the dispatchers are compiled into \file{libbigmath.a}.
+The experimental \code{BIGMATH\_NTT\_FERMAT\_MIN\_COEFFS} cutoff counts
+32-bit product coefficients and applies after the standard and wide CRT checks
+(\cref{sec:fermatdispatch}).
 
+\newpage
 \section{Tuning for your machine}
 
 The generic thresholds and checked-in profiles serve different targets
@@ -142,12 +148,14 @@ precedence over the profile, which in turn overrides generic defaults.
 All algorithms are cross-checked against each other:
 
 \begin{itemize}
-  \item \code{mult\_correctness} multiplies with every method and compares limb for limb against
-        schoolbook;
+  \item \code{mult\_correctness} compares Karatsuba, Toom-5, and the NTT
+        against schoolbook, limb for limb. Dedicated tests force the limb-based
+        Toom-3 and Toom-4 splits;
   \item \code{div\_correctness} runs every division algorithm, compares against reference
         implementations, and checks $q \cdot b + r = a$ and $0 \le r < b$ on every result;
   \item unit tests pin details such as the reciprocal's error bound, the zero-fallback guarantee
-        of Newton division, and NTT layers against a plain radix-2 transform.
+        of Newton division, and NTT layers against a plain radix-2 transform. Fermat tests
+        check the modular operations, round trips, full products, and opt-in dispatch.
 \end{itemize}
 
 Run \code{ctest --output-on-failure} in the build directory after changing a threshold or an

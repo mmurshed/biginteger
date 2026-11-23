@@ -314,8 +314,8 @@ namespace BigMath
     static const SizeT DC_THRESHOLD = BIGMATH_DC_DIV_THRESHOLD;
 
     // tp[0 .. la+lb) = a[0..la) · b[0..lb). Small products go straight to the
-    // schoolbook kernel. Karatsuba writes directly into tp below the Toom/NTT
-    // window. Larger shapes use the normal multiplication dispatcher.
+    // schoolbook kernel. Karatsuba writes directly into tp below the NTT
+    // floor. Larger shapes use the normal multiplication dispatcher.
     static void MulInto(DataT *tp, const DataT *a, SizeT la, const DataT *b, SizeT lb)
     {
       if (la == 0 || lb == 0)
@@ -326,9 +326,7 @@ namespace BigMath
         LimbKernel::MulBasecase(tp, a, la, b, lb);
         return;
       }
-      // Below either transform/Toom entry no pool-dependent decision is needed.
-      // Respect overridden classic and skew thresholds on tuned builds.
-      if ((ULong)la + lb < std::min(NTT_MULTIPLICATION_THRESHOLD, TOOM3_MULTIPLICATION_THRESHOLD))
+      if ((ULong)la + lb < NTT_MULTIPLICATION_THRESHOLD)
       {
         static thread_local std::vector<DataT> scratch;
         const std::size_t count = KaratsubaMultiplication::ScratchLimbs(la, lb);

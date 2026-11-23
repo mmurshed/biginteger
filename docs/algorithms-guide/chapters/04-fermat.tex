@@ -1,0 +1,222 @@
+\chapter{Multiplication III: Fermat FFT}
+\label{ch:fermat}
+
+A huge product can exceed the limits of a single wide CRT residue product.
+One option is to cut each input into blocks, multiply every pair, and add the
+overlapping results. BigMath also has an experimental path that transforms
+the blocks first. It does fewer large inner products as the number of blocks
+grows, at the cost of moving and mixing arrays of large values. The transform
+is called \emph{outer} because the values it multiplies are themselves large
+integers. BigMath uses its ordinary multiplier inside that step.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=5mm]
+  \node[box,fill=sOrange!15] (in) {split into pieces\\and pad with zeros};
+  \node[box,right=of in] (forward) {forward FFT\\of each input};
+  \node[box,fill=sViolet!16,right=of forward] (multiply) {multiply pairs\\using BigMath};
+  \node[box,right=of multiply] (inverse) {inverse FFT\\recovers sums};
+  \node[box,fill=sOrange!15,right=of inverse] (out) {shift and add\\into result};
+  \draw[arr] (in) -- (forward);
+  \draw[arr] (forward) -- (multiply);
+  \draw[arr] (multiply) -- (inverse);
+  \draw[arr] (inverse) -- (out);
+\end{tikzpicture}
+\caption{The outer FFT rearranges the chunk products. Each inner product
+is reduced modulo $2^n+1$ before the inverse transform.}
+\end{figure}
+
+\section{Why this modulus makes shifts cheap}
+
+All the arithmetic inside the outer FFT uses remainders modulo $M=2^n+1$.
+In this arithmetic, $2^n$ is one less than $M$, so it acts like $-1$.
+If you shift a value and some bits spill over position $n$, split at
+that position and subtract the high part from the low part:
+\[
+\text{low}+2^n\cdot\text{high}
+   \equiv \text{low}-\text{high}\pmod{2^n+1}.
+\]
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=5mm]
+  \node[box] (start) {$25\ll 3$\\$200$};
+  \node[box,fill=sOrange!15,right=of start,minimum width=27mm] (high)
+    {high part\\$3$};
+  \node[box,fill=sAqua!13,right=1mm of high,minimum width=27mm] (low)
+    {low 6 bits\\$8$};
+  \node[box,right=8mm of low] (fold) {subtract high\\$8-3=5$};
+  \draw[arr] (start) -- (high);
+  \draw[arr] (low) -- (fold);
+  \node[lbl,below=1mm of $(high.south)!0.5!(low.south)$] {$200=3\cdot64+8$};
+\end{tikzpicture}
+\caption{A shift by three bits followed by a fold, here modulo $65=2^6+1$.
+If the subtraction is negative, add the modulus to get a nonnegative remainder.}
+\end{figure}
+
+Twiddle factors are the fixed multipliers in the butterfly steps
+(\cref{ch:ntt}). The FFT chooses them to be powers of two, so applying one
+is a shift and fold. A general pointwise product still requires the
+ordinary multiplier. The implementation takes that full product and
+folds its high half using the same subtraction. This style of exact FFT
+uses integer remainders throughout. For the broader technique, see the
+\href{https://gmplib.org/manual/FFT-Multiplication}{GNU MP manual on Fermat-style FFTs}.
+
+\newpage
+\section{A four-point product you can check by hand}
+
+Multiply $13$ by $15$ in base 4, with one base-4 digit per piece. The inputs
+are $(1,3)$ and $(3,3)$, low piece first. Choose four slots and fill the
+unused input slots with zeros. The three sums that contribute to the
+product occupy positions 0, 1, and 2, with room for all of them before
+the transform's index would wrap back to 0.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1.28cm,y=0.59cm]
+  \foreach \i/\a/\b in {0/1/3,1/3/3,2/0/0,3/0/0} {
+    \node[lbl] at (\i,1.55) {slot \i};
+    \ifnum\i<2
+      \node[box,minimum width=11mm,fill=sOrange!16] at (\i,0.75) {\a};
+      \node[box,minimum width=11mm,fill=sAqua!16] at (\i,-0.25) {\b};
+    \else
+      \node[box,minimum width=11mm,fill=paper] at (\i,0.75) {\a};
+      \node[box,minimum width=11mm,fill=paper] at (\i,-0.25) {\b};
+    \fi
+  }
+  \node[lbl,anchor=east] at (-0.57,0.75) {$13$};
+  \node[lbl,anchor=east] at (-0.57,-0.25) {$15$};
+  \node[lbl,anchor=west] at (3.6,0.25) {zero padding leaves room for the product};
+\end{tikzpicture}
+\caption{The example uses four FFT slots. Their indices hold the powers of the piece
+base after the inverse FFT recovers the coefficients.}
+\end{figure}
+
+Work modulo $65$. The four transform points are the powers of $8$:
+$1,8,-1,-8$. They repeat after four steps because $8^2=64\equiv-1$ and
+$8^4\equiv1$. Evaluate the two input recipes $1+3x$ and $3+3x$ at each point
+and multiply the remainders.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+point & $1$ & $8$ & $-1$ & $-8$ \\
+\midrule
+$1+3x$ modulo $65$ & 4 & 25 & 63 & 42 \\
+$3+3x$ modulo $65$ & 6 & 27 & 0 & 44 \\
+pointwise product modulo $65$ & 24 & 25 & 0 & 28 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At point 8, $25\cdot27=675=10\cdot64+35$. Folding gives $35-10=25$.
+To undo the transform, weight each product by the inverse power of its
+point, then divide the sum by four in the same modular arithmetic.
+Here $4\cdot49\equiv1$, so division by four means multiplication by 49.
+For example, the weights for coefficient 1 are $1,-8,-1,8$, giving
+$24-8\cdot25+8\cdot28=48$ before scaling. These weights make four copies
+of the coefficient we want. Contributions from the other coefficients
+cancel, just as $1+8-1-8=0$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+coefficient index & 0 & 1 & 2 & 3 \\
+\midrule
+weighted sum modulo $65$ & 12 & 48 & 36 & 0 \\
+after multiplying by 49 modulo $65$ & 3 & 12 & 9 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These are the integer coefficients. Each sums at most two products of
+digits at most 3, so all are at most $18<65$. Now carry in base 4.
+The $12$ at position 1 writes $0$ and sends $3$ to the $9$ at position 2.
+That $12$ again writes $0$ and sends $3$ to position 3.
+The resulting digits $(3,0,0,3)$ give $3+3\cdot4^3=195$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1.43cm,y=0.76cm]
+  \foreach \i/\raw/\digit in {0/3/3,1/12/0,2/9/0,3/0/3} {
+    \node[box,fill=sOrange!15,minimum width=11mm] (raw\i) at (\i,0) {\raw};
+    \node[box,fill=sAqua!15,minimum width=11mm] (digit\i) at (\i,-1) {\digit};
+    \draw[arr] (raw\i) -- (digit\i);
+  }
+  \node[lbl,anchor=east] at (-0.54,0) {coefficient};
+  \node[lbl,anchor=east] at (-0.54,-1) {base-4 digit};
+  \draw[arr,sOrange] (raw1.north) to[bend left=38] node[lbl,above] {$+3$} (raw2.north);
+  \draw[arr,sOrange] (raw2.north) to[bend left=38] node[lbl,above] {$+3$} (raw3.north);
+\end{tikzpicture}
+\caption{Carry moves from low to high. A coefficient plus its incoming
+carry supplies the digit below it and any carry to the next position.}
+\end{figure}
+
+\newpage
+\section{How BigMath sets up a real product}
+\label{sec:fermatparams}
+
+Pieces in the library are whole runs of 64-bit limbs. Two choices make
+the result exact.
+
+\begin{enumerate}
+  \item \textbf{Leave room for every position.} Choose a power-of-two number
+        of slots $K=2^k$. With $a$ and $b$ limbs in the two operands, each
+        piece holds $m=\ceil{(a+b)/(K-1)}$ limbs. The total number of output
+        coefficients is one less than the sum of the input piece counts,
+        and fits in $K$ slots.
+  \item \textbf{Leave room for the value in each position.} A product of two
+        $m$-limb pieces fits in $128m$ bits. Adding up to $K$ terms needs at
+        most $k$ more bits. BigMath starts with $128m+k+1$ bits and rounds up
+        to a multiple of $\max(64,K/2)$ for the modulus exponent $n$.
+        That aligns residues to limb boundaries and makes $2^{2n/K}$ an
+        available root for the FFT.
+\end{enumerate}
+
+The automatic selector starts at $k=6$ (64 slots) and takes the first fit
+through $k=14$ with $n\le2^{28}$ bits. The forward and inverse FFTs share
+the same shuffled slot order, saving a reordering pass. Large butterfly
+layers use the pool. The caller does the pointwise products one at a time
+so each inner multiplication can use that same pool. For a square, one
+forward transform serves both inputs. After the inverse FFT, add each
+coefficient at its starting limb offset $im$, where $i$ is its position.
+The coefficients can span several pieces, so the shifted additions
+carry across their overlaps.
+
+\section{When the dispatcher can use it}
+\label{sec:fermatdispatch}
+
+The build must use 64-bit limbs and the fused wide-CRT path. After both
+CRT residue sets fail their size checks, the dispatcher
+can try Fermat before splitting into overlap-add blocks
+(\cref{sec:hugeproductdispatch}). It also checks the threshold
+\code{BIGMATH\_NTT\_FERMAT\_MIN\_COEFFS}, counted in 32-bit product
+coefficients, and checks whether the parameter selector found a fit.
+The default threshold disables the path. See \file{FermatOuterMultiplication.h}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Digits per input & \multicolumn{2}{c}{Warm time (s)} & \multicolumn{2}{c}{Peak RSS (GiB)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+& Forced blocks & Fermat & Forced blocks & Fermat \\
+\midrule
+250 million & 3.39 & 2.88 & 1.49 & 1.71 \\
+2.5 billion & 27.66 & 29.12 & 10.26 & 14.34 \\
+5 billion & 55.65 & 77.79 & 19.30 & 20.12 \\
+\bottomrule
+\end{tabular}
+\caption{Local comparisons on a 32\,GiB Apple M1 Max with up to eight
+threads. Both modes were forced at these sizes. The forced-block control used
+three blocks per input. Warm products matched GMP hashes. The 5-billion-digit
+Fermat run incurred system swap.}
+\end{table}
+
+The crossover beyond the wide-CRT limits still needs measurements at
+those sizes. The default build handles the balanced 2.5- and 5-billion-digit
+cases in the table with single wide residue products. Full measurements and
+reproduction commands are in \file{BENCHMARK.md}.

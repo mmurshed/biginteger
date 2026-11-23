@@ -24,7 +24,6 @@ using namespace std;
 #include "biginteger/ops/IO.h"
 #include "biginteger/ops/Operations.h"
 #include "biginteger/common/Parser.h"
-#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 
 #include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 
@@ -37,11 +36,6 @@ int main(int argc, char *argv[])
   BigInteger a = Parse("123458");
   BigInteger b = Parse("234112");
 
-  vector<DataT> mult = ToomCookMultiplication::Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
-  string str = ToString(mult);
-  bool cmp = (str == "28902999296");
-  cout << "Toom-Cook result: " << str << " Cmp: " << cmp << endl;
-
   vector<DataT> kara = KaratsubaMultiplication::Multiply(a.AsVector(), b.AsVector(), BigInteger::Base());
   string str_kara = ToString(kara);
   bool cmp_kara = (str_kara == "28902999296");
@@ -52,7 +46,7 @@ int main(int argc, char *argv[])
   bool cmp_ntt = (str_ntt == "28902999296");
   cout << "NTT result: " << str_ntt << " Cmp: " << cmp_ntt << endl;
 
-  if (str != "28902999296" || str_kara != "28902999296" || str_ntt != "28902999296") {
+  if (!cmp_kara || !cmp_ntt) {
     cerr << "Verification FAILED!" << endl;
     return 1;
   }

@@ -25,7 +25,7 @@ using namespace std;
 #include "biginteger/ops/Operations.h"
 #include "biginteger/common/Parser.h"
 #include "biginteger/common/Comparator.h"
-#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
+#include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 
 using namespace BigMath;
@@ -68,10 +68,10 @@ int main(int argc, char *argv[])
 
   char op;
 
-  fprintf(timeFile, "Results Digit,Classical,Karatsuba,Toom-Cook,NTT\n");
+  fprintf(timeFile, "Results Digit,Classical,Karatsuba,NTT\n");
   fflush(timeFile);
 
-  cerr << "Data,Results Digit,Classical,Karatsuba,Toom-Cook,NTT" << endl;
+  cerr << "Data,Results Digit,Classical,Karatsuba,NTT" << endl;
 
   while (true)
   {
@@ -114,20 +114,6 @@ int main(int argc, char *argv[])
     }
 
     start = clock();
-    vector<DataT> rToom2 = ToomCookMultiplication::Multiply(
-        a.AsVector(),
-        b.AsVector(),
-        BigInteger::Base());
-    end = clock();
-    double timeTakenToomCook2 = (double)(end - start) / CLOCKS_PER_SEC;
-
-    cmp = Compare(rToom2, ans.GetInteger());
-    if (cmp != 0)
-    {
-      cerr << "Toom-Cook algorithm failed." << endl;
-    }
-
-    start = clock();
     vector<DataT> nttm = NTTMultiplication::Multiply(
         a.AsVector(),
         b.AsVector(),
@@ -142,8 +128,8 @@ int main(int argc, char *argv[])
     }
 
     cerr.setf(ios::showpoint);
-    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenToomCook2 << "," << timeTakenNtt << endl;
-    fprintf(timeFile, "%lu,%f,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenToomCook2, timeTakenNtt);
+    cerr << DATA << "," << rKarat.size() << "," << timeTakenClassical << "," << timeTakenKarat << "," << timeTakenNtt << endl;
+    fprintf(timeFile, "%zu,%f,%f,%f\n", rKarat.size(), timeTakenClassical, timeTakenKarat, timeTakenNtt);
     fflush(timeFile);
 
     DATA++;

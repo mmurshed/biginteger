@@ -8,7 +8,6 @@
 #include "biginteger/ops/Comparison.h"
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
 #include "biginteger/algorithms/multiplication/KaratsubaMultiplication.h"
-#include "biginteger/algorithms/multiplication/ToomCookMultiplication.h"
 #include "biginteger/algorithms/multiplication/Toom5Multiplication.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplication.h"
 #include "biginteger/algorithms/multiplication/ClassicSquare.h"
@@ -41,7 +40,6 @@ static bool CheckSize(int digits)
 
   vector<DataT> classic = ClassicMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(av, bv, BigInteger::Base());
-  vector<DataT> toom = ToomCookMultiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(av, bv, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(av, bv, BigInteger::Base());
   bool okPrepared = true;
@@ -52,7 +50,6 @@ static bool CheckSize(int digits)
     okPrepared = Compare(classic, preparedProduct) == 0;
   }
   bool okKara = Compare(classic, kara) == 0;
-  bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
   bool okNtt = Compare(classic, ntt) == 0;
 
@@ -69,7 +66,6 @@ static bool CheckSize(int digits)
 
   cout << digits
        << " digits: kara=" << okKara
-       << " toom=" << okToom
        << " toom5=" << okToom5
        << " ntt=" << okNtt
        << " pntt=" << okPrepared
@@ -80,14 +76,13 @@ static bool CheckSize(int digits)
        << " limbs=" << av.size()
        << endl;
 
-  return okKara && okToom && okToom5 && okNtt && okPrepared && okCsq && okKsq && okNsq && okDsq;
+  return okKara && okToom5 && okNtt && okPrepared && okCsq && okKsq && okNsq && okDsq;
 }
 
 static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const char *label)
 {
   vector<DataT> classic = ClassicMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> kara = KaratsubaMultiplication::Multiply(a, b, BigInteger::Base());
-  vector<DataT> toom = ToomCookMultiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> toom5 = Toom5Multiplication::Multiply(a, b, BigInteger::Base());
   vector<DataT> ntt = NTTMultiplication::Multiply(a, b, BigInteger::Base());
   bool okPrepared = true;
@@ -98,20 +93,18 @@ static bool CheckVectors(vector<DataT> const &a, vector<DataT> const &b, const c
     okPrepared = Compare(classic, preparedProduct) == 0;
   }
   bool okKara = Compare(classic, kara) == 0;
-  bool okToom = Compare(classic, toom) == 0;
   bool okToom5 = Compare(classic, toom5) == 0;
   bool okNtt = Compare(classic, ntt) == 0;
 
   cout << label
        << ": kara=" << okKara
-       << " toom=" << okToom
        << " toom5=" << okToom5
        << " ntt=" << okNtt
        << " pntt=" << okPrepared
        << " limbs=" << a.size() << "x" << b.size()
        << endl;
 
-  return okKara && okToom && okToom5 && okNtt && okPrepared;
+  return okKara && okToom5 && okNtt && okPrepared;
 }
 
 int main()

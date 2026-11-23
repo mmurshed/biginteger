@@ -20,12 +20,9 @@
  * max · K(min)/min: a short operand keeps Karatsuba ahead far beyond the
  * balanced crossover (48 × 6144 limbs still favors it).
  *
- * The Toom-3 window is [TOOM3_MULTIPLICATION_THRESHOLD, NTT_…) on the sum and
- * is retired by keeping the two equal; ToomCookMultiplication stays as a
- * test-exercised alternate. Toom-5 has no productive band. The legacy
- * "min ≤ 64 and max ≥ 10·min → classic" skew guard is retired the same way
- * (CLASSIC_SKEW_MIN_LIMB_THRESHOLD = 0) since Karatsuba's slicing path
- * handles skew.
+ * Karatsuba selects the limb-based Toom splits inside its recursion.
+ * The 64-bit defaults disable the legacy schoolbook skew guard
+ * (CLASSIC_SKEW_MIN_LIMB_THRESHOLD = 0) because Karatsuba slices skewed inputs.
  *
  * Thresholds are tunable at compile time via -DBIGMATH_*=N.
  *
@@ -39,7 +36,6 @@
 
 #include "../algorithms/multiplication/ClassicMultiplication.h"
 #include "../algorithms/multiplication/KaratsubaMultiplication.h"
-#include "../algorithms/multiplication/ToomCookMultiplication.h"
 #include "../algorithms/multiplication/NTTMultiplication.h"
 
 namespace BigMath
@@ -57,15 +53,6 @@ namespace BigMath
 // The #ifndef fallbacks below must stay value-identical to
 // build/DispatchThresholds.h (the canonical home, included via Constants.h);
 // they only apply when that header is bypassed.
-#ifndef BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD
-// Equal to the NTT threshold, which retires the Toom-3 dispatch window.
-#if BIGMATH_LIMB_64
-#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 640
-#else
-#define BIGMATH_TOOM3_MULTIPLICATION_THRESHOLD 1280
-#endif
-#endif
-
 #ifndef BIGMATH_NTT_MULTIPLICATION_THRESHOLD
 // Floor on a.size() + b.size() for NTT. 5120 -> 1280 on 2026-06-12, -> 640 on
 // 2026-11-20 (together with the min-limb and area conditions below).
@@ -101,12 +88,6 @@ namespace BigMath
 #endif
 #endif
 
-#ifndef BIGMATH_TOOM3_SKEW_RATIO
-// Toom-3 is a balanced-product win. For 2:1+ skew inside the Toom window,
-// Karatsuba is consistently faster on the measured AppleClang/native build.
-#define BIGMATH_TOOM3_SKEW_RATIO 2
-#endif
-
 #ifndef BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD
 #if BIGMATH_LIMB_64
 #define BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD 24
@@ -128,12 +109,10 @@ namespace BigMath
 #endif
 
   extern const SizeT CLASSIC_MULTIPLICATION_THRESHOLD;
-  extern const SizeT TOOM3_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MULTIPLICATION_THRESHOLD;
   extern const SizeT NTT_MIN_LIMB_THRESHOLD;
   extern const ULong NTT_AREA_THRESHOLD;
   extern const ULong NTT_COLD_AREA_THRESHOLD;
-  extern const SizeT TOOM3_SKEW_RATIO;
   extern const SizeT CLASSIC_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
   extern const SizeT CLASSIC_SKEW_RATIO;

@@ -29,14 +29,11 @@ records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
 \section{Rejected or retired}
 
 \begin{description}[leftmargin=0pt,style=nextline,itemsep=6pt]
-  \item[Schönhage--Strassen multiplication]
-        A parameter sweep found no winning size band for the single-level implementation
-        considered here. Each three-prime NTT block accepts up to $2^{26}$ coefficients,
-        about 323 million digits per balanced operand. Further convolution residues of that
-        length extend one product to about 1.79 billion digits per operand before block
-        accumulation. Factoring the cross-twiddles and
-        distributing matrix tiles across the pool reduced its cost within that range
-        (\cref{sec:mfa,sec:nttthreads}). Measured times appear in \cref{ch:practice}.
+  \item[Fermat FFT as a default path]
+        The Schönhage--Strassen-style experiment now exists as an opt-in outer transform.
+        Its inner multiplications use BigMath's ordinary dispatcher. Local trials forced
+        both Fermat and overlap-add below the wide CRT limits. Measuring the actual
+        crossover above those limits remains open (\cref{ch:fermat}).
   \item[Toom-3 as a top-level band]
         Once a separate band between Karatsuba and NTT (total 2560--5120 limbs). The vectorized NTT
         overtook it everywhere, so the band was retired. Toom-3 now lives inside the Karatsuba
@@ -44,7 +41,7 @@ records are in \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md} and
   \item[Toom-4 and Toom-5]
         Toom-4 is implemented but off: no gain on the M1 before the NTT starts. Toom-5 was
         3 times slower than Karatsuba at its first active size (512 limbs): its evaluation and
-        interpolation cost more than the multiplications they save.
+        interpolation cost more than the multiplications they save (\cref{sec:toomfive}).
   \item[Two-row unrolled schoolbook]
         Measured flat (\cref{sec:flagchain}): it kept the limb-sized carry chain.
   \item[Barrett reduction for the NTT primes]
