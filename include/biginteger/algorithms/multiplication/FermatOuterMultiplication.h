@@ -19,12 +19,13 @@
 
 #include "../../common/LimbKernels.h"
 #include "../../common/Parallel.h"
+#include "../../common/Util.h"
 
-namespace BigMath
+namespace BigMath::detail
 {
-  // Same dispatcher as algorithms/Multiplication.h, which includes CRT NTT.
-  std::vector<DataT> Multiply(const std::vector<DataT> &a,
-                              const std::vector<DataT> &b, BaseT base);
+  // Bounded 64-bit product for Fermat residues. Inputs can be the same view.
+  void MultiplyFermatPoint(std::span<const DataT> a, std::span<const DataT> b,
+                           std::vector<DataT> &product, std::vector<DataT> &scratch);
 }
 
 namespace BigMath::FermatOuter
@@ -108,11 +109,9 @@ namespace BigMath::FermatOuter
     out.back() = borrow ? LimbKernel::AddCarry(out.data(), out.data(), (SizeT)limbs, 1) : 0;
   }
 
-  // Reuse the two input vectors across pointwise products. The callers
-  // pass the same span for a square, preserving the inner square path.
   struct PointwiseScratch
   {
-    std::vector<DataT> left, right;
+    std::vector<DataT> product, recursive;
   };
 
   inline void MulMod(std::span<DataT> out, std::span<const DataT> a,
@@ -123,15 +122,11 @@ namespace BigMath::FermatOuter
       NegateMod(out, a.back() ? b : a);
       return;
     }
-    scratch.left.assign(a.begin(), a.end() - 1);
-    TrimZeros(scratch.left);
-    const bool square = a.data() == b.data();
-    if (!square)
-    {
-      scratch.right.assign(b.begin(), b.end() - 1);
-      TrimZeros(scratch.right);
-    }
-    const auto product = BigMath::Multiply(scratch.left, square ? scratch.left : scratch.right, Base2_64);
+    a = a.first(LimbDetail::TrimmedLimbCount(a.first(a.size() - 1)));
+    b = a.data() == b.data() ? a : b.first(LimbDetail::TrimmedLimbCount(b.first(b.size() - 1)));
+    // Finish reading both inputs before folding into the possibly aliased output.
+    auto &product = scratch.product;
+    detail::MultiplyFermatPoint(a, b, product, scratch.recursive);
     const SizeT n = (SizeT)(out.size() - 1);
     const size_t low = std::min<size_t>(n, product.size());
     std::copy_n(product.data(), low, out.data());

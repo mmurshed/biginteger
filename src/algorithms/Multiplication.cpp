@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include "biginteger/algorithms/Squaring.h"
+#include "biginteger/algorithms/multiplication/FermatOuterMultiplication.h"
 #include "biginteger/common/Parallel.h"
 
 namespace BigMath
@@ -20,6 +21,37 @@ namespace BigMath
   const SizeT CLASSIC_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_MIN_LIMB_THRESHOLD = BIGMATH_CLASSIC_SKEW_MIN_LIMB_THRESHOLD;
   const SizeT CLASSIC_SKEW_RATIO = BIGMATH_CLASSIC_SKEW_RATIO;
+
+  namespace
+  {
+    enum class ProductPath { Recursive, ColdRecursive, Transform };
+
+    ProductPath ChooseProductPath(SizeT shorter, SizeT longer, [[maybe_unused]] bool serialHoldback)
+    {
+      // Sliced Karatsuba stays competitive on skewed inputs with a small
+      // shorter operand. The area test accounts for both operand lengths.
+      const ULong area = (ULong)shorter * longer;
+      if (shorter + longer < NTT_MULTIPLICATION_THRESHOLD ||
+          shorter < NTT_MIN_LIMB_THRESHOLD || area < NTT_AREA_THRESHOLD)
+        return ProductPath::Recursive;
+#if !BIGMATH_USE_THREADS && BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS > 0
+      if (serialHoldback && longer < BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS && longer - shorter <= 1)
+        return ProductPath::Recursive;
+#endif
+      // A parked pool may make a small NTT slower than recursion. Prewarm
+      // for the next product if these operations are arriving in a burst.
+      return area >= NTT_COLD_AREA_THRESHOLD || ParallelWarmOrPrewarm()
+          ? ProductPath::Transform : ProductPath::ColdRecursive;
+    }
+
+    ProductPath ChooseSquarePath(SizeT size)
+    {
+      if (size < NTT_SQUARE_THRESHOLD)
+        return ProductPath::Recursive;
+      return size >= NTT_SQUARE_COLD_THRESHOLD || ParallelWarmOrPrewarm()
+          ? ProductPath::Transform : ProductPath::ColdRecursive;
+    }
+  }
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,
                               std::vector<DataT> const &b,
@@ -38,33 +70,17 @@ namespace BigMath
     if (&a == &b && base == Base2_64 && a.size() <= BIGMATH_SMALL_SELF_SQUARE_MAX)
       return Square(a, base);
 
-    SizeT size = a.size() + b.size();
     SizeT minSize = std::min(a.size(), b.size());
     SizeT maxSize = std::max(a.size(), b.size());
 
     if (detail::ClassicProductShape(minSize, maxSize))
       return ClassicMultiplication::Multiply(a, b, base);
 
-    // NTT needs a long enough product AND a long enough shorter operand: for
-    // a skewed product the alternative is sliced Karatsuba, whose cost grows
-    // with max * K(min)/min, so a short operand keeps Karatsuba ahead well
-    // past the balanced crossover. The area test la*lb captures that.
-    const ULong area = (ULong)a.size() * (ULong)b.size();
-    if (size >= NTT_MULTIPLICATION_THRESHOLD &&
-        minSize >= NTT_MIN_LIMB_THRESHOLD &&
-        area >= NTT_AREA_THRESHOLD)
+    const auto path = ChooseProductPath(minSize, maxSize, base == Base2_64 && &a != &b);
+    if (path == ProductPath::Transform)
+      return NTTMultiplication::Multiply(a, b, base);
+    if (path == ProductPath::ColdRecursive)
     {
-#if !BIGMATH_USE_THREADS && BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS > 0
-      if (base == Base2_64 && &a != &b && maxSize < BIGMATH_NTT_SERIAL_BALANCED_MIN_LIMBS &&
-          maxSize - minSize <= 1)
-        return KaratsubaMultiplication::Multiply(a, b, base);
-#endif
-      // Small NTT products only pay off while the pool is awake: a parked
-      // pool makes them cost about the serial time, which loses to Karatsuba
-      // below NTT_COLD_AREA. When cold, run Karatsuba; if these multiplies
-      // are arriving in a burst the pool gets woken for the next one.
-      if (area >= NTT_COLD_AREA_THRESHOLD || ParallelWarmOrPrewarm())
-        return NTTMultiplication::Multiply(a, b, base);
       std::vector<DataT> product = (&a == &b && base == Base2_64)
           ? KaratsubaSquare::Square(a, base)
           : KaratsubaMultiplication::Multiply(a, b, base);
@@ -73,6 +89,74 @@ namespace BigMath
     }
 
     return KaratsubaMultiplication::Multiply(a, b, base);
+  }
+
+  void detail::MultiplyFermatPoint(std::span<const DataT> a, std::span<const DataT> b,
+                                  std::vector<DataT> &product, std::vector<DataT> &scratch)
+  {
+    if (IsZero(a) || IsZero(b))
+    {
+      product.clear();
+      return;
+    }
+    if (a.size() < b.size())
+      std::swap(a, b);
+
+    const SizeT la = (SizeT)a.size(), lb = (SizeT)b.size();
+    const bool sameOperand = a.data() == b.data() && la == lb;
+    const bool smallSquare = sameOperand && la <= BIGMATH_SMALL_SELF_SQUARE_MAX;
+    if (lb == 1)
+    {
+      product.resize(la + 1);
+      product[la] = LimbKernel::Mul1(product.data(), a.data(), la, b[0]);
+      TrimZeros(product);
+      return;
+    }
+    if (!smallSquare && ClassicProductShape(lb, la))
+    {
+      product.resize(la + lb);
+      LimbKernel::MulBasecase(product.data(), a.data(), la, b.data(), lb);
+      TrimZeros(product);
+      return;
+    }
+
+    const auto path = smallSquare ? ChooseSquarePath(la) : ChooseProductPath(lb, la, !sameOperand);
+    if (path == ProductPath::Transform)
+    {
+#if BIGMATH_NTT_CRT
+      if (smallSquare || la + lb >= BIGMATH_NTT_CRT_THRESHOLD)
+      {
+        // The Fermat ring limit guarantees that a point product fits one
+        // standard CRT transform, even at the maximum allowed residue width.
+        NttCrt::MultiplyWithinTransform(a, b, Base2_64, (ULong)(la + lb) * 2 - 1, product);
+        return;
+      }
+#endif
+      // Keep the optional Goldilocks configurations on their existing path.
+      const std::vector<DataT> left(a.begin(), a.end());
+      if (sameOperand)
+        product = smallSquare ? NTTSquare::Square(left, Base2_64)
+                              : NTTMultiplication::Multiply(left, left, Base2_64);
+      else
+        product = NTTMultiplication::Multiply(left, {b.begin(), b.end()}, Base2_64);
+      return;
+    }
+
+    product.resize(la + lb);
+    if (smallSquare || (sameOperand && path == ProductPath::ColdRecursive))
+    {
+      scratch.resize(KaratsubaSquare::ScratchLimbs(la));
+      KaratsubaSquare::SquareInto(a.data(), la, product.data(), scratch.data(), Base2_64);
+    }
+    else
+    {
+      scratch.resize(KaratsubaMultiplication::ScratchLimbs(la, lb));
+      KaratsubaMultiplication::MultiplyInto(a.data(), la, b.data(), lb,
+                                           product.data(), scratch.data(), Base2_64);
+    }
+    TrimZeros(product);
+    if (path == ProductPath::ColdRecursive)
+      ParallelNoteColdDone();
   }
 
   std::vector<DataT> Multiply(std::vector<DataT> const &a,

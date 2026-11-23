@@ -190,6 +190,17 @@ namespace BigMath
     }
 
   public:
+    static size_t ScratchLimbs(SizeT n)
+    {
+      return n <= THRESHOLD ? 0 : 8 * size_t{n};
+    }
+
+    // Output has room for 2n limbs. Scratch needs ScratchLimbs(n) limbs.
+    static void SquareInto(const DataT *a, SizeT n, DataT *out, DataT *scratch, BaseT base)
+    {
+      SquareRec(a, n, out, scratch, base);
+    }
+
     static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
     {
       if (IsZero(a))
@@ -203,9 +214,9 @@ namespace BigMath
 
       // Workspace bound: per level uses 3m+3 ≈ 1.5n; recursion sum ≈ 3n. Use 8n for safety
       // (matches KaratsubaMultiplication).
-      std::unique_ptr<DataT[]> w(new DataT[8 * n]);
+      std::unique_ptr<DataT[]> w(new DataT[ScratchLimbs(n)]);
 
-      SquareRec(a.data(), n, c.data(), w.get(), base);
+      SquareInto(a.data(), n, c.data(), w.get(), base);
       TrimZeros(c);
       return c;
     }
