@@ -27,9 +27,15 @@ namespace BigMath::AddSubDetail
     constexpr SizeT parked = Subtract ? BIGMATH_SUB_PARALLEL_PARKED_LIMBS : BIGMATH_ADD_PARALLEL_PARKED_LIMBS;
     if constexpr (BIGMATH_LIMB_64 && BIGMATH_USE_THREADS && (warm != 0 || parked != 0))
     {
+      const bool allowWarm = warm != 0 && a >= warm;
       const bool allowParked = parked != 0 && a >= parked;
-      if (a == b && (allowParked || (warm != 0 && a >= warm)))
-        return BlockCount(a, ParallelAvailableThreads(allowParked));
+      if (a != b || (!allowWarm && !allowParked))
+        return 1;
+      const SizeT warmWorkers = ParallelAvailableThreads(false);
+      if (warmWorkers > 1)
+        return allowWarm ? BlockCount(a, warmWorkers) : 1;
+      if (allowParked)
+        return BlockCount(a, ParallelAvailableThreads(true));
     }
     return 1;
   }

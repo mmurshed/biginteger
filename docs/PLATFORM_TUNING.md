@@ -40,7 +40,9 @@ into the matching profile header while preserving the other overrides.
 
 Use `mode=add-sub` with either stage to run the focused survey or holdout.
 Holdout timing uses the public integer operators and different lengths
-and operands from the survey.
+and operands from the survey. Parked timings include waking workers in
+an already initialized pool. The first operation to start the pool also
+pays its one-time startup cost.
 
 ## Choose and validate a profile
 
