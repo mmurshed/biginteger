@@ -1,7 +1,7 @@
 // Small-operand benchmark: BigInteger operators against GMP mpz on operands
 // of 1-16 limbs, where call overhead and allocation decide the cost.
 //
-// Usage: small_ops_vs_gmp [label]   (label goes in the first CSV column)
+// Usage: small_ops_vs_gmp [label] [--limb-handoff]
 //
 // BigMath is timed through the public operators, which return a new
 // BigInteger each call. GMP is timed writing into an output that is reused
@@ -13,10 +13,13 @@
 // indexing are used, so the file builds against older trees too.
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <random>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gmp.h>
@@ -68,11 +71,48 @@ namespace
     mpz_import(z, v.size(), -1, sizeof(DataT), 0, 32, v.data());
 #endif
   }
+
+  int BenchmarkMultiplicationHandoffs(const std::string &label)
+  {
+    constexpr std::array shapes{
+        std::pair{16u, 16u}, std::pair{1u, 17u}, std::pair{4u, 18u},
+        std::pair{18u, 4u}, std::pair{24u, 24u}, std::pair{32u, 32u},
+        std::pair{64u, 64u}, std::pair{128u, 128u}, std::pair{129u, 129u},
+        std::pair{48u, 1024u}, std::pair{512u, 512u}};
+    std::mt19937_64 gen(0x5a11ULL);
+    std::printf("version,a_limbs,b_limbs,calls,bigmath_ns,gmp_ns\n");
+    for (auto [na, nb] : shapes)
+    {
+      const auto aLimbs = RandomLimbs(na, gen), bLimbs = RandomLimbs(nb, gen);
+      const BigInteger a(aLimbs, false), b(bLimbs, false);
+      mpz_t ga, gb, expected, actual;
+      mpz_inits(ga, gb, expected, actual, nullptr);
+      ToMpz(ga, aLimbs);
+      ToMpz(gb, bLimbs);
+      mpz_mul(expected, ga, gb);
+      ToMpz(actual, (a * b).GetInteger());
+      if (mpz_cmp(expected, actual) != 0)
+      {
+        std::fprintf(stderr, "multiply mismatch at %u x %u limbs\n", na, nb);
+        mpz_clears(ga, gb, expected, actual, nullptr);
+        return 1;
+      }
+
+      const auto calls = std::clamp(25'000'000u / (na * nb), 200u, 200'000u);
+      const double bm = NsPerCall([&] { const BigInteger c = a * b; sink += c[0]; }, calls);
+      const double gmp = NsPerCall([&] { mpz_mul(actual, ga, gb); sink += mpz_getlimbn(actual, 0); }, calls);
+      std::printf("%s,%u,%u,%u,%.2f,%.2f\n", label.c_str(), na, nb, calls, bm, gmp);
+      mpz_clears(ga, gb, expected, actual, nullptr);
+    }
+    return 0;
+  }
 }
 
 int main(int argc, char **argv)
 {
   const std::string label = argc > 1 ? argv[1] : "bigmath";
+  if (argc > 2 && std::string_view(argv[2]) == "--limb-handoff")
+    return BenchmarkMultiplicationHandoffs(label);
   std::mt19937_64 gen(0x5A11ULL);
   std::printf("version,op,limbs,bigmath_ns,gmp_ns,ratio\n");
 

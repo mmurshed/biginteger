@@ -14,6 +14,7 @@
 #ifndef SQUARING
 #define SQUARING
 
+#include <span>
 #include <vector>
 
 #include "../algorithms/multiplication/ClassicSquare.h"
@@ -46,6 +47,11 @@ namespace BigMath
 
   extern const SizeT NTT_SQUARE_THRESHOLD;
   extern const SizeT NTT_SQUARE_COLD_THRESHOLD;
+
+  namespace detail
+  {
+    std::vector<DataT> SquareLimbs(std::span<const DataT> a, BaseT base);
+  }
 
   std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base);
 }

@@ -111,3 +111,20 @@ REGISTER_TEST(Base64Mult, ScalarZeroIsZero)
   // Implementation sets the range to a single zero limb when b == 0.
   ASSERT_EQ((ULong)0, (ULong)a[0]);
 }
+
+REGISTER_TEST(Base64Mult, SchoolbookWritesIntoDirtyOutput)
+{
+  for (BaseT base : {Base2_32, Base2_64})
+  {
+    const DataT mask = base == Base2_64 ? ~DataT{0} : 0xffffffffu;
+    const std::vector<DataT> left{91, mask, mask, mask, 49};
+    const std::vector<DataT> right{63, mask, mask, 28};
+    const auto a = std::span<const DataT>(left).subspan(1, 3);
+    const auto b = std::span<const DataT>(right).subspan(1, 2);
+    std::vector<DataT> result(7, mask);
+    ClassicMultiplication::MultiplyInto(a, b, result.data() + 1, base);
+    // (B^3 - 1)(B^2 - 1) = B^5 - B^3 - B^2 + 1.
+    const std::vector<DataT> expected{mask, 1, 0, mask, mask - 1, mask, mask};
+    ASSERT_TRUE(result == expected);
+  }
+}

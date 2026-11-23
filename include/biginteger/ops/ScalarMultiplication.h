@@ -21,7 +21,7 @@ namespace BigMath
       return BigInteger();
     if (SmallOps::Fits(a))
       return SmallOps::MulScalar(a, b, a.IsNegative());
-    std::vector<DataT> m = ClassicMultiplication::Multiply(a.AsVector().get(), b, BigInteger::Base());
+    std::vector<DataT> m = ClassicMultiplication::Multiply(a.Limbs(), b, BigInteger::Base());
     // DataT is unsigned; the b<0 branch was structurally dead. Sign comes solely from a.
     return BigInteger(std::move(m), a.IsNegative());
   }

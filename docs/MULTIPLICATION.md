@@ -68,6 +68,10 @@ Number-theoretic transform (NTT) input packing depends on the path: the default 
 
 `include/biginteger/algorithms/Multiplication.h` declares `Multiply(a, b, base)`, which returns a fresh limb vector. The implementation in `src/algorithms/Multiplication.cpp` picks schoolbook, Karatsuba, or the NTT based on operand size and shape. The limb-based Toom-3 split runs inside Karatsuba. The NTT wrapper chooses between Goldilocks and CRT/MFA.
 
+The `BigInteger` operator and the vector overload both pass views of the
+original limbs to the dispatcher. A mixed inline and heap product can read
+the inline limbs directly from the smaller object.
+
 ```mermaid
 flowchart TD
     A[Multiply&#40;a, b, base&#41;] --> B{IsZero?}
@@ -196,7 +200,12 @@ Stack buffers cover up to 64 packed limbs (i.e. 128 32-bit limbs of input) witho
 
 The "T3 trick" replaces the four multiplications of the naive split with **three** sub-multiplications. Recursively applied, the multiplication count drops from n² to n^{log₂3}.
 
-The implementation uses pointer-based recursion with a shared workspace (`unique_ptr<DataT[]>` of size ~8n) to avoid per-recursion `vector` allocations. Output `c` and workspace region `t3` are NOT pre-zeroed — recursive sub-calls (which eventually leaf to `MultiplyClassicPtr`, which does zero its own output region) cover every position written.
+The recursion passes limb pointers and reuses one workspace. Balanced
+products reserve up to 16 times the longer operand's limb count. For
+sliced products the bound depends on the shorter operand. Scratch requests
+of up to 2,048 limbs use a 16 KiB stack buffer, and larger requests use
+one heap allocation. Recursive calls write their assigned output ranges
+in place.
 
 **Diagram of one recursion level:**
 

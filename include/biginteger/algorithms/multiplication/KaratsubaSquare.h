@@ -10,6 +10,7 @@
 #define KARATSUBA_SQUARE
 
 #include <vector>
+#include <span>
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -203,12 +204,17 @@ namespace BigMath
 
     static std::vector<DataT> Square(std::vector<DataT> const &a, BaseT base)
     {
+      return SquareLimbs(a, base);
+    }
+
+    static std::vector<DataT> SquareLimbs(std::span<const DataT> a, BaseT base)
+    {
       if (IsZero(a))
         return std::vector<DataT>{0};
 
       SizeT n = (SizeT)a.size();
       if (n <= THRESHOLD)
-        return ClassicSquare::Square(a, base);
+        return ClassicSquare::SquareLimbs(a, base);
 
       std::vector<DataT> c(2 * n, 0);
 

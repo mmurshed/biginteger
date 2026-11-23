@@ -14,7 +14,7 @@ namespace BigMath
   {
     if (a.Zero() || b.Zero())
       return BigInteger();
-    auto result = ClassicMultiplication::Multiply(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
+    auto result = ClassicMultiplication::MultiplyLimbs(a.Limbs(), b.Limbs(), BigInteger::Base());
     return BigInteger(std::move(result), a.IsNegative() != b.IsNegative());
   }
 }

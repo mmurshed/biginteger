@@ -15,7 +15,7 @@ namespace BigMath
   {
     if (SmallOps::Fits(a, b))
       return SmallOps::MulMagnitudes(a, b, a.IsNegative() != b.IsNegative());
-    auto result = Multiply(a.AsVector().get(), b.AsVector().get(), BigInteger::Base());
+    auto result = detail::MultiplyLimbs(a.Limbs(), b.Limbs(), BigInteger::Base());
     return BigInteger(std::move(result), a.IsNegative() != b.IsNegative());
   }
 

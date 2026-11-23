@@ -2,6 +2,7 @@
 #define NTT_MULTIPLICATION
 
 #include <vector>
+#include <span>
 #include <algorithm>
 #include <bit>
 #include <cstdint>
@@ -53,6 +54,11 @@ namespace BigMath
 
         // Multiply two vectors of digits using NTT-based convolution.
         static std::vector<DataT> Multiply(const std::vector<DataT> &a, const std::vector<DataT> &b, BaseT base)
+        {
+          return MultiplyLimbs(a, b, base);
+        }
+
+        static std::vector<DataT> MultiplyLimbs(std::span<const DataT> a, std::span<const DataT> b, BaseT base)
         {
             if (IsZero(a) || IsZero(b)) // 0 times
                 return std::vector<DataT>();

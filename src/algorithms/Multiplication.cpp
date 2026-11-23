@@ -57,6 +57,12 @@ namespace BigMath
                               std::vector<DataT> const &b,
                               BaseT base)
   {
+    return detail::MultiplyLimbs(a, b, base);
+  }
+
+  std::vector<DataT> detail::MultiplyLimbs(std::span<const DataT> a,
+                                         std::span<const DataT> b, BaseT base)
+  {
     if (IsZero(a) || IsZero(b))
       return std::vector<DataT>{0};
 
@@ -67,28 +73,29 @@ namespace BigMath
 
     // Below the measured small-square ceiling we can exploit symmetry before
     // general multiplication dispatch. CRT already recognizes aliases at scale.
-    if (&a == &b && base == Base2_64 && a.size() <= BIGMATH_SMALL_SELF_SQUARE_MAX)
-      return Square(a, base);
+    const bool sameOperand = a.data() == b.data() && a.size() == b.size();
+    if (sameOperand && base == Base2_64 && a.size() <= BIGMATH_SMALL_SELF_SQUARE_MAX)
+      return SquareLimbs(a, base);
 
     SizeT minSize = std::min(a.size(), b.size());
     SizeT maxSize = std::max(a.size(), b.size());
 
-    if (detail::ClassicProductShape(minSize, maxSize))
-      return ClassicMultiplication::Multiply(a, b, base);
+    if (ClassicProductShape(minSize, maxSize))
+      return ClassicMultiplication::MultiplyLimbs(a, b, base);
 
-    const auto path = ChooseProductPath(minSize, maxSize, base == Base2_64 && &a != &b);
+    const auto path = ChooseProductPath(minSize, maxSize, base == Base2_64 && !sameOperand);
     if (path == ProductPath::Transform)
-      return NTTMultiplication::Multiply(a, b, base);
+      return NTTMultiplication::MultiplyLimbs(a, b, base);
     if (path == ProductPath::ColdRecursive)
     {
-      std::vector<DataT> product = (&a == &b && base == Base2_64)
-          ? KaratsubaSquare::Square(a, base)
-          : KaratsubaMultiplication::Multiply(a, b, base);
+      std::vector<DataT> product = (sameOperand && base == Base2_64)
+          ? KaratsubaSquare::SquareLimbs(a, base)
+          : KaratsubaMultiplication::MultiplyLimbs(a, b, base);
       ParallelNoteColdDone();
       return product;
     }
 
-    return KaratsubaMultiplication::Multiply(a, b, base);
+    return KaratsubaMultiplication::MultiplyLimbs(a, b, base);
   }
 
   void detail::MultiplyFermatPoint(std::span<const DataT> a, std::span<const DataT> b,
@@ -105,17 +112,10 @@ namespace BigMath
     const SizeT la = (SizeT)a.size(), lb = (SizeT)b.size();
     const bool sameOperand = a.data() == b.data() && la == lb;
     const bool smallSquare = sameOperand && la <= BIGMATH_SMALL_SELF_SQUARE_MAX;
-    if (lb == 1)
-    {
-      product.resize(la + 1);
-      product[la] = LimbKernel::Mul1(product.data(), a.data(), la, b[0]);
-      TrimZeros(product);
-      return;
-    }
-    if (!smallSquare && ClassicProductShape(lb, la))
+    if (lb == 1 || (!smallSquare && ClassicProductShape(lb, la)))
     {
       product.resize(la + lb);
-      LimbKernel::MulBasecase(product.data(), a.data(), la, b.data(), lb);
+      ClassicMultiplication::MultiplyInto(a, b, product.data(), Base2_64);
       TrimZeros(product);
       return;
     }
@@ -132,13 +132,8 @@ namespace BigMath
         return;
       }
 #endif
-      // Keep the optional Goldilocks configurations on their existing path.
-      const std::vector<DataT> left(a.begin(), a.end());
-      if (sameOperand)
-        product = smallSquare ? NTTSquare::Square(left, Base2_64)
-                              : NTTMultiplication::Multiply(left, left, Base2_64);
-      else
-        product = NTTMultiplication::Multiply(left, {b.begin(), b.end()}, Base2_64);
+      product = smallSquare ? NTTSquare::SquareLimbs(a, Base2_64)
+                            : NTTMultiplication::MultiplyLimbs(a, b, Base2_64);
       return;
     }
 

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <span>
 
 #include "../../common/LimbKernels.h"
 #include "../../common/Util.h"
@@ -551,14 +552,11 @@ namespace BigMath
             return c;
         }
 
-        static std::vector<DataT> Multiply(
-            std::vector<DataT> const &a,
-            std::vector<DataT> const &b,
-            BaseT base)
+        static std::vector<DataT> MultiplyLimbs(
+            std::span<const DataT> a, std::span<const DataT> b, BaseT base)
         {
             if (IsZero(a) || IsZero(b))
-                return std::vector<DataT>();
-
+                return {};
             if (b.size() == 1)
                 return ClassicMultiplication::Multiply(a, b[0], base);
             if (a.size() == 1)
@@ -566,10 +564,23 @@ namespace BigMath
 
             std::vector<DataT> c(a.size() + b.size());
             const size_t count = ScratchLimbs(a.size(), b.size());
-            std::unique_ptr<DataT[]> scratch(count ? new DataT[count] : nullptr);
-            MultiplyInto(a.data(), a.size(), b.data(), b.size(), c.data(), scratch.get(), base);
+            // A fixed stack buffer covers small recursive or sliced products.
+            // Larger calls allocate exactly the required workspace.
+            constexpr size_t StackScratchLimbs = 2048;
+            DataT stack[StackScratchLimbs];
+            std::unique_ptr<DataT[]> heap;
+            if (count > StackScratchLimbs)
+                heap.reset(new DataT[count]);
+            MultiplyInto(a.data(), a.size(), b.data(), b.size(), c.data(),
+                         heap ? heap.get() : stack, base);
             TrimZeros(c);
             return c;
+        }
+
+        static std::vector<DataT> Multiply(
+            std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base)
+        {
+            return MultiplyLimbs(a, b, base);
         }
     };
 }
