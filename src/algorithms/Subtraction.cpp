@@ -65,10 +65,10 @@ namespace BigMath
   }
 
   // Paper-pencil subtract; assumes a >= b. O(n) time, O(1) extra space.
-  void Subtract(std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
-                std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
-                std::vector<DataT> &result, SizeT rStart,
-                BaseT base)
+  static void SubtractRanges(std::span<const DataT> a, SizeT aStart, SizeT aEnd,
+                             std::span<const DataT> b, SizeT bStart, SizeT bEnd,
+                             std::vector<DataT> &result, SizeT rStart,
+                             BaseT base)
   {
     aEnd = std::min(aEnd, (SizeT)(a.size() - 1));
     bEnd = std::min(bEnd, (SizeT)(b.size() - 1));
@@ -138,6 +138,13 @@ namespace BigMath
     }
   }
 
+  void Subtract(std::vector<DataT> const &a, SizeT aStart, SizeT aEnd,
+                std::vector<DataT> const &b, SizeT bStart, SizeT bEnd,
+                std::vector<DataT> &result, SizeT rStart, BaseT base)
+  {
+    SubtractRanges(a, aStart, aEnd, b, bStart, bEnd, result, rStart, base);
+  }
+
   void SubtractFrom(std::vector<DataT> &a, std::vector<DataT> const &b, BaseT base)
   {
     Subtract(a, 0, a.size() - 1,
@@ -160,6 +167,12 @@ namespace BigMath
                               std::vector<DataT> const &b,
                               BaseT base)
   {
+    return detail::SubtractLimbs(a, b, base);
+  }
+
+  std::vector<DataT> detail::SubtractLimbs(std::span<const DataT> a,
+                                         std::span<const DataT> b, BaseT base)
+  {
     SizeT size = (SizeT)std::max(a.size(), b.size()) + 1;
     std::vector<DataT> result(size);
     if (base == Base2_64 && !b.empty() && a.size() >= b.size())
@@ -171,9 +184,9 @@ namespace BigMath
       return result;
     }
 
-    Subtract(a, 0, (SizeT)a.size() - 1,
-             b, 0, (SizeT)b.size() - 1,
-             result, 0, base);
+    SubtractRanges(a, 0, (SizeT)a.size() - 1,
+                   b, 0, (SizeT)b.size() - 1,
+                   result, 0, base);
 
     TrimZeros(result);
     return result;

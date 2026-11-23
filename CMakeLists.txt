@@ -234,6 +234,10 @@ if(BIGMATH_BUILD_TESTS)
         target_link_libraries(small_ops_vs_gmp PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(small_ops_vs_gmp PRIVATE ${GMP_INCLUDE_DIR})
 
+        add_executable(division_handoff_bench tests/performance/division_handoff_bench.cpp)
+        target_link_libraries(division_handoff_bench PRIVATE bigmath::bigmath ${GMP_LIBRARY})
+        target_include_directories(division_handoff_bench PRIVATE ${GMP_INCLUDE_DIR})
+
         add_executable(mfa_vs_gmp_check tests/performance/mfa_vs_gmp_check.cpp)
         target_link_libraries(mfa_vs_gmp_check PRIVATE bigmath::bigmath ${GMP_LIBRARY})
         target_include_directories(mfa_vs_gmp_check PRIVATE ${GMP_INCLUDE_DIR})

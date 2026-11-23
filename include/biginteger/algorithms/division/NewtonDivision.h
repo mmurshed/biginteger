@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstring>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -74,7 +75,7 @@ namespace BigMath
 
   private:
     static std::pair<std::vector<DataT>, std::vector<DataT>> Fallback(
-        std::vector<DataT> const &a, std::vector<DataT> const &b, BaseT base, bool computeRemainder)
+        std::span<const DataT> a, std::span<const DataT> b, BaseT base, bool computeRemainder)
     {
       ++FallbackCount();
       return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
@@ -88,13 +89,23 @@ namespace BigMath
       std::vector<DataT> v3;
       std::vector<DataT> v4;
       std::vector<DataT> v5;
-      std::vector<std::vector<DataT>> qPieces;
     };
 
     static ScratchBuffers &Scratch()
     {
       static thread_local ScratchBuffers scratch;
       return scratch;
+    }
+
+    // Keep already-normalized inputs as views. Shifted inputs own their
+    // storage for the duration of the divide or reciprocal setup.
+    static std::span<const DataT> Normalize(std::span<const DataT> input, Int shift,
+                                            Int limbBits, std::vector<DataT> &storage)
+    {
+      if (shift == 0)
+        return input;
+      storage = ShiftLeftBits(input, shift, limbBits);
+      return storage;
     }
 
   public:
@@ -113,10 +124,15 @@ namespace BigMath
     // doubles exactly and drifts); 64-bit callers no longer pass it.
     static std::vector<DataT> ApproxReciprocal(std::vector<DataT> const &D, bool high_precision = false)
     {
+      return ApproxReciprocalLimbs(D, high_precision);
+    }
+
+  private:
+    static std::vector<DataT> ApproxReciprocalLimbs(std::span<const DataT> D, bool high_precision)
+    {
       SizeT n = (SizeT)D.size();
       auto &scratch = Scratch();
       std::vector<DataT> &R_pad = scratch.v0;
-      std::vector<DataT> &D_new = scratch.v1;
       std::vector<DataT> &T = scratch.v2;
       std::vector<DataT> &two_S = scratch.v3;
       std::vector<DataT> &diff = scratch.v4;
@@ -181,8 +197,8 @@ namespace BigMath
       {
         std::vector<DataT> num(2 * cur_n + 1, 0);
         num[2 * cur_n] = 1;
-        std::vector<DataT> dTop(D.end() - cur_n, D.end());
-        R = FastDivision::DivideAndRemainder(num, dTop, CurrentBase, false).first;
+        R = FastDivision::DivideAndRemainder(std::span<const DataT>(num), D.last(cur_n),
+                                             CurrentBase, false).first;
       }
 #else
       // Bootstrap from top 2 limbs: R_seed ≈ B^4 / D_top.
@@ -239,7 +255,7 @@ namespace BigMath
           const SizeT m = new_n;
           const SizeT cur = cur_n;
           const SizeT e = m - cur;
-          D_new.assign(D.begin() + (n - m), D.end());
+          const auto dTop = D.last(m);
           TrimZerosToOne(R);
 
           // (1) E' with its sign. Either the plain product, or — when a
@@ -263,7 +279,7 @@ namespace BigMath
             if ((SizeT)m + (SizeT)R.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
                 cycCoeffs < linCost && cycCoeffs <= (1u << 26) && R.size() <= L)
             {
-              std::vector<DataT> W = NTTMultiplication::MultiplyMod2km1(D_new, R, L, CurrentBase);
+              std::vector<DataT> W = NttCrt::MultiplyMod2km1(dTop, R, L, CurrentBase);
               const std::vector<DataT> M(L, ~(DataT)0); // B^L − 1
               const SizeT rexp = (SizeT)(((ULong)m + cur) % L);
               std::vector<DataT> Br(rexp + 1, 0);
@@ -279,7 +295,7 @@ namespace BigMath
           }
           if (!haveE)
           {
-            T = Multiply(D_new, R, CurrentBase);
+            T = detail::MultiplyLimbs(dTop, R, CurrentBase);
             two_S.assign((size_t)m + cur + 1, 0);
             two_S[(size_t)m + cur] = 1; // B^(m+cur)
             eNeg = Compare(two_S, T) < 0;
@@ -297,9 +313,9 @@ namespace BigMath
             const SizeT sR = cur >= e + 3 ? cur - e - 3 : 0;
             if (E.size() > sE && R.size() > sR)
             {
-              std::vector<DataT> Et(E.begin() + sE, E.end());
-              std::vector<DataT> Xt(R.begin() + sR, R.end());
-              std::vector<DataT> P = Multiply(Xt, Et, CurrentBase);
+              const auto et = std::span<const DataT>(E).subspan(sE);
+              const auto rt = std::span<const DataT>(R).subspan(sR);
+              std::vector<DataT> P = detail::MultiplyLimbs(rt, et, CurrentBase);
               const SizeT back = 2 * cur - sE - sR;
               if (P.size() > back)
                 C.assign(P.begin() + back, P.end());
@@ -331,7 +347,7 @@ namespace BigMath
         std::memcpy(R_pad.data() + extend, R.data(), R.size() * sizeof(DataT));
 
         // D_new = top new_n limbs of D.
-        D_new.assign(D.begin() + (n - new_n), D.end());
+        const auto dTop = D.last(new_n);
 
         // Wrapped iteration (invertappr style). Algebra: with
         // E = B^(2m) − D_new·R_pad, the exact step
@@ -357,15 +373,15 @@ namespace BigMath
           SizeT c = (CurrentBase == Base2_64) ? 2 : 1;
           SizeT Lmin = 2 * m - cur_n + 16;
           ULong nCyc = std::bit_ceil((ULong)(Lmin + 1) * c);
-          ULong nLin = std::bit_ceil(((ULong)D_new.size() + R_pad.size()) * c);
+          ULong nLin = std::bit_ceil(((ULong)dTop.size() + R_pad.size()) * c);
           SizeT L = (SizeT)(nCyc / c);
-          if (D_new.size() + R_pad.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
+          if (dTop.size() + R_pad.size() >= BIGMATH_CYCLIC_NTT_THRESHOLD &&
               nCyc < nLin && nCyc <= (1u << 26) &&
-              D_new.size() <= L && R_pad.size() <= L)
+              dTop.size() <= L && R_pad.size() <= L)
           {
             wrappedIter = true;
 
-            std::vector<DataT> W = NTTMultiplication::MultiplyMod2km1(D_new, R_pad, L, CurrentBase);
+            std::vector<DataT> W = NttCrt::MultiplyMod2km1(dTop, R_pad, L, CurrentBase);
 
             const DataT maxLimb = (CurrentBase == Base2_64) ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
             const std::vector<DataT> M(L, maxLimb); // B^L − 1
@@ -400,9 +416,9 @@ namespace BigMath
               std::vector<DataT> C{0};
               if (!IsZero(E) && TrimmedSize(E) > el)
               {
-                std::vector<DataT> Xt(R_pad.begin() + xl, R_pad.end());
-                std::vector<DataT> Et(E.begin() + el, E.end());
-                std::vector<DataT> P = Multiply(Xt, Et, CurrentBase);
+                const auto rt = std::span<const DataT>(R_pad).subspan(xl);
+                const auto et = std::span<const DataT>(E).subspan(el);
+                std::vector<DataT> P = detail::MultiplyLimbs(rt, et, CurrentBase);
                 SizeT back = 2 * m - xl - el;
                 if (P.size() > back)
                   C.assign(P.begin() + back, P.end());
@@ -430,7 +446,7 @@ namespace BigMath
         if (!wrappedIter)
         {
           // T = D_new * R_pad
-          T = Multiply(D_new, R_pad, CurrentBase);
+          T = detail::MultiplyLimbs(dTop, R_pad, CurrentBase);
 
           // diff = 2*B^(2*new_n) - T  (should be ≥ 0 for valid seeds).
           two_S.assign(2 * new_n + 1, 0);
@@ -467,13 +483,6 @@ namespace BigMath
 
   private:
     // Sentinel for "fixup loop blew the cap" — caller should fall back to FastDivision.
-    struct DivideResult
-    {
-      std::vector<DataT> q;
-      std::vector<DataT> rem; // unshifted (still in normalized space)
-      bool ok;
-    };
-
     static SizeT TrimmedSize(std::vector<DataT> const &v)
     {
       SizeT s = (SizeT)v.size();
@@ -497,8 +506,8 @@ namespace BigMath
     // exactly like the plain path. `fixupLimit` must stay ≪ B so the
     // magnitude window (|t| < (fixupLimit+1)·b_norm < B^(n+1)) holds.
     static bool WrappedRemainder(
-        std::vector<DataT> const &chunk,
-        std::vector<DataT> const &b_norm,
+        std::span<const DataT> chunk,
+        std::span<const DataT> b_norm,
         SizeT L,
         std::vector<DataT> &Q,
         std::vector<DataT> &rem,
@@ -508,14 +517,13 @@ namespace BigMath
       const DataT maxLimb = (CurrentBase == Base2_64) ? (DataT)~0ULL : (DataT)0xFFFFFFFFULL;
       const std::vector<DataT> M(L, maxLimb); // B^L − 1
 
-      std::vector<DataT> W = NTTMultiplication::MultiplyMod2km1(Q, b_norm, L, CurrentBase);
+      std::vector<DataT> W = NttCrt::MultiplyMod2km1(Q, b_norm, L, CurrentBase);
 
       // chunk mod M: fold the limbs above L back onto the low L (B^L ≡ 1).
       std::vector<DataT> cm(chunk.begin(), chunk.begin() + std::min((SizeT)chunk.size(), L));
       if (chunk.size() > L)
       {
-        std::vector<DataT> hi(chunk.begin() + L, chunk.end());
-        cm = Add(cm, hi, CurrentBase);
+        cm = detail::AddLimbs(cm, chunk.subspan(L), CurrentBase);
         while (Compare(cm, M) >= 0)
           cm = Subtract(cm, M, CurrentBase);
       }
@@ -534,7 +542,7 @@ namespace BigMath
         if (++iters > fixupLimit)
           return false;
         Q = Subtract(Q, one, CurrentBase);
-        rem_m = Add(rem_m, b_norm, CurrentBase);
+        rem_m = detail::AddLimbs(rem_m, b_norm, CurrentBase);
         while (Compare(rem_m, M) >= 0)
           rem_m = Subtract(rem_m, M, CurrentBase);
       }
@@ -545,7 +553,7 @@ namespace BigMath
       {
         if (++iters > fixupLimit)
           return false;
-        rem_m = Subtract(rem_m, b_norm, CurrentBase);
+        rem_m = detail::SubtractLimbs(rem_m, b_norm, CurrentBase);
         Q = Add(Q, one, CurrentBase);
       }
 
@@ -560,8 +568,8 @@ namespace BigMath
     // transform is strictly shorter; plain full product otherwise. Returns
     // false when the fixup budget blows.
     static bool RemainderAndFixups(
-        std::vector<DataT> const &chunk,
-        std::vector<DataT> const &b_norm,
+        std::span<const DataT> chunk,
+        std::span<const DataT> b_norm,
         std::vector<DataT> &Q,
         std::vector<DataT> &rem,
         int fixupLimit)
@@ -583,7 +591,7 @@ namespace BigMath
 #endif
 
       std::vector<DataT> &QB = Scratch().v2;
-      QB = Multiply(Q, b_norm, CurrentBase);
+      QB = detail::MultiplyLimbs(Q, b_norm, CurrentBase);
 
       static const std::vector<DataT> one{1};
 
@@ -593,33 +601,29 @@ namespace BigMath
         if (++iters > fixupLimit)
           return false;
         Q = Subtract(Q, one, CurrentBase);
-        QB = Subtract(QB, b_norm, CurrentBase);
+        QB = detail::SubtractLimbs(QB, b_norm, CurrentBase);
       }
-      rem = Subtract(chunk, QB, CurrentBase);
+      rem = detail::SubtractLimbs(chunk, QB, CurrentBase);
 
       iters = 0;
       while (Compare(rem, b_norm) >= 0)
       {
         if (++iters > fixupLimit)
           return false;
-        rem = Subtract(rem, b_norm, CurrentBase);
+        rem = detail::SubtractLimbs(rem, b_norm, CurrentBase);
         Q = Add(Q, one, CurrentBase);
       }
 
       return true;
     }
 
-    // Reciprocal-based divide of a single chunk by b_norm. Used by both single-block and
-    // blockwise paths. Returns {q, rem, true} on success, {{}, {}, false} on fixup overflow.
-    static DivideResult DivideChunk(
-        std::vector<DataT> const &chunk,
-        std::vector<DataT> const &b_norm,
-        std::vector<DataT> const &R)
+    // The quotient and normalized remainder are valid on success.
+    static bool DivideChunk(
+        std::span<const DataT> chunk, std::span<const DataT> b_norm,
+        std::span<const DataT> R, std::vector<DataT> &Q, std::vector<DataT> &rem)
     {
       SizeT n = (SizeT)b_norm.size();
-      auto &scratch = Scratch();
-      std::vector<DataT> &CR = scratch.v0;
-      std::vector<DataT> &Q = scratch.v1;
+      std::vector<DataT> &CR = Scratch().v0;
 
       // Approximate quotient estimate from the TOP n+1 limbs of the chunk
       // (GMP mu_divappr style). b_norm is normalized (top bit set, so
@@ -649,14 +653,13 @@ namespace BigMath
         if (attempt == 0)
         {
           SizeT sh = (SizeT)chunk.size() - (n + 1);
-          std::vector<DataT> c_top(chunk.begin() + sh, chunk.end());
-          CR = Multiply(c_top, R, CurrentBase);
+          CR = detail::MultiplyLimbs(chunk.subspan(sh), R, CurrentBase);
           drop = 2 * n - sh;
         }
         else
         {
           // Q ≈ (chunk * R) >> (2n limbs)
-          CR = Multiply(chunk, R, CurrentBase);
+          CR = detail::MultiplyLimbs(chunk, R, CurrentBase);
         }
 
         if (CR.size() > drop)
@@ -665,27 +668,26 @@ namespace BigMath
           Q.assign(1, 0);
         TrimZerosToOne(Q);
 
-        std::vector<DataT> rem;
         if (RemainderAndFixups(chunk, b_norm, Q, rem, attempt == 0 ? 12 : 8))
         {
           TrimZerosToOne(Q);
           TrimZerosToOne(rem);
-          return {Q, rem, true};
+          return true;
         }
         // Approx attempt blew its budget — retry once with the exact product.
       }
 
-      return {{}, {}, false};
+      return false;
     }
 
     static std::pair<std::vector<DataT>, std::vector<DataT>> DivideNormalizedWithReciprocal(
-        std::vector<DataT> const &a,
-        std::vector<DataT> const &b,
+        std::span<const DataT> a,
+        std::span<const DataT> b,
         BaseT base,
         Int shift,
-        std::vector<DataT> const &a_norm,
-        std::vector<DataT> const &b_norm,
-        std::vector<DataT> const &R,
+        std::span<const DataT> a_norm,
+        std::span<const DataT> b_norm,
+        std::span<const DataT> R,
         bool computeRemainder = true)
     {
       SizeT n = (SizeT)b_norm.size();
@@ -699,23 +701,20 @@ namespace BigMath
       // (error ∝ chunk/B^2n, which reaches B once chunk exceeds 2n limbs),
       // overflowing the fixup cap and falling back to quadratic FastDivision.
       // The +1 limb routinely appears from the Knuth normalize shift on a≈2n.
-      bool blockwise = (na > 2 * n);
-      auto &scratch = Scratch();
-      std::vector<std::vector<DataT>> &q_pieces = scratch.qPieces;
+      const bool blockwise = na > 2 * n;
+      std::vector<DataT> rem;
 
       if (!blockwise)
       {
-        DivideResult res = DivideChunk(a_norm, b_norm, R);
-        if (!res.ok)
+        std::vector<DataT> quotient;
+        if (!DivideChunk(a_norm, b_norm, R, quotient, rem))
           return Fallback(a, b, base, computeRemainder);
 
-        std::vector<DataT> rem_final;
-        if (computeRemainder)
-        {
-          rem_final = (shift > 0) ? ShiftRightBits(res.rem, shift, LimbBitsFor(base)) : res.rem;
-          TrimZerosToOne(rem_final);
-        }
-        return {res.q, rem_final};
+        if (!computeRemainder)
+          return {std::move(quotient), std::vector<DataT>{}};
+        ShiftRightBitsInPlace(rem, shift, LimbBitsFor(base));
+        TrimZerosToOne(rem);
+        return {std::move(quotient), std::move(rem)};
       }
 
       // ----- Blockwise path -----
@@ -723,12 +722,10 @@ namespace BigMath
       // Formula: ((na - 1) mod n) + 1 + n.  Verified for na in {2n+2, 3n, 3n+1, 4n, …}.
       SizeT first_chunk_size = (SizeT)(((na - 1) % n) + 1 + n);
       SizeT pos_low = na - first_chunk_size;
-      std::vector<DataT> chunk(a_norm.begin() + pos_low, a_norm.end());
-
-      // Collect Q pieces top-down; reverse-concat at end.
-      q_pieces.clear();
-      q_pieces.reserve((na + n - 1) / n);
-      std::vector<DataT> rem;
+      auto chunk = a_norm.subspan(pos_low);
+      std::vector<DataT> chunkStorage;
+      std::vector<DataT> quotient(na - n + 1);
+      auto &qBlock = Scratch().v1;
       bool is_first = true;
 
       // Short leading block: schoolbook (see BIGMATH_NEWTON_SCHOOLBOOK_HEAD).
@@ -738,72 +735,43 @@ namespace BigMath
 
       while (true)
       {
-        DivideResult res;
         if (is_first && schoolbookHead)
         {
-          auto head = FastDivision::DivideAndRemainder(
-              std::span<const DataT>(chunk), std::span<const DataT>(b_norm), base, true);
+          auto head = FastDivision::DivideAndRemainder(chunk, b_norm, base, true);
           TrimZerosToOne(head.first);
           TrimZerosToOne(head.second);
-          res = DivideResult{std::move(head.first), std::move(head.second), true};
+          qBlock = std::move(head.first);
+          rem = std::move(head.second);
         }
-        else
-        {
-          res = DivideChunk(chunk, b_norm, R);
-        }
-        if (!res.ok)
+        else if (!DivideChunk(chunk, b_norm, R, qBlock, rem))
           return Fallback(a, b, base, computeRemainder);
 
-        std::vector<DataT> Q_block = std::move(res.q);
-        rem = std::move(res.rem);
-
-        // Non-first blocks must contribute exactly n limbs to Q (the n limbs of A consumed).
-        // The rem-strict invariant (rem < b_norm) guarantees Q_block.size() ≤ n there.
-        if (!is_first)
-        {
-          while (Q_block.size() < n)
-            Q_block.push_back(0);
-          if (Q_block.size() > n)
-          {
-            // Should be unreachable given the invariant — bail defensively.
-            return Fallback(a, b, base, computeRemainder);
-          }
-        }
-        q_pieces.push_back(std::move(Q_block));
+        // Every later block consumes exactly n dividend limbs. The
+        // zero-filled output already supplies padding for short blocks.
+        const SizeT width = is_first ? first_chunk_size - n + 1 : n;
+        if (qBlock.size() > width)
+          return Fallback(a, b, base, computeRemainder);
+        std::copy(qBlock.begin(), qBlock.end(), quotient.begin() + pos_low);
         is_first = false;
 
         if (pos_low == 0)
           break;
 
-        // Build next chunk: high = rem (≤ n limbs), low = a_norm[pos_low - n .. pos_low - 1].
-        SizeT block_n = n; // by construction, remaining is a multiple of n.
-        SizeT next_chunk_size = block_n + (SizeT)rem.size();
-        std::vector<DataT> &next_chunk = scratch.v3;
-        next_chunk.assign(next_chunk_size, 0);
-        std::memcpy(next_chunk.data(), a_norm.data() + pos_low - block_n, block_n * sizeof(DataT));
-        std::memcpy(next_chunk.data() + block_n, rem.data(), rem.size() * sizeof(DataT));
-        chunk = std::move(next_chunk);
-        pos_low -= block_n;
+        // Join the next n dividend limbs and the current remainder in the
+        // same working buffer on every iteration.
+        pos_low -= n;
+        chunkStorage.resize(n + rem.size());
+        std::copy_n(a_norm.data() + pos_low, n, chunkStorage.data());
+        std::copy(rem.begin(), rem.end(), chunkStorage.begin() + n);
+        chunk = chunkStorage;
       }
 
-      // Concat q_pieces — first piece (top) goes to high end of final Q.
-      SizeT total_q = 0;
-      for (auto &p : q_pieces)
-        total_q += (SizeT)p.size();
-      std::vector<DataT> Q;
-      Q.reserve(total_q);
-      for (auto it = q_pieces.rbegin(); it != q_pieces.rend(); ++it)
-        Q.insert(Q.end(), it->begin(), it->end());
-      TrimZerosToOne(Q);
-
-      std::vector<DataT> rem_final;
-      if (computeRemainder)
-      {
-        rem_final = (shift > 0) ? ShiftRightBits(rem, shift, LimbBitsFor(base)) : rem;
-        TrimZerosToOne(rem_final);
-      }
-
-      return {Q, rem_final};
+      TrimZerosToOne(quotient);
+      if (!computeRemainder)
+        return {std::move(quotient), std::vector<DataT>{}};
+      ShiftRightBitsInPlace(rem, shift, LimbBitsFor(base));
+      TrimZerosToOne(rem);
+      return {std::move(quotient), std::move(rem)};
     }
 
   public:
@@ -829,13 +797,12 @@ namespace BigMath
 
         shift = NormalizationShiftBits(divisor.back(), LimbBitsFor(base));
 
-        b_norm = (shift > 0) ? ShiftLeftBits(divisor, shift, LimbBitsFor(base)) : divisor;
-        TrimZeros(b_norm);
+        const auto normalized = Normalize(divisor, shift, LimbBitsFor(base), b_norm);
 
         // Precompute the reciprocal once. It is valid for both single-block and blockwise
         // division and avoids recomputing the Newton setup for repeated divisions by the
         // same divisor. (No extra refinement iteration: see ApproxReciprocal's schedule.)
-        reciprocal = ApproxReciprocal(b_norm, /*high_precision=*/ !BIGMATH_LIMB_64);
+        reciprocal = ApproxReciprocalLimbs(normalized, /*high_precision=*/ !BIGMATH_LIMB_64);
         can_use_newton = true;
       }
 
@@ -855,8 +822,10 @@ namespace BigMath
         if (!can_use_newton)
           return FastDivision::DivideAndRemainder(a, divisor, base, computeRemainder);
 
-        std::vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift, LimbBitsFor(base)) : a;
-        TrimZeros(a_norm);
+        std::vector<DataT> shifted;
+        const auto a_norm = Normalize(std::span<const DataT>(a).first(LimbDetail::TrimmedLimbCount(a)),
+                                      shift, LimbBitsFor(base), shifted);
+        const std::span<const DataT> normalizedDivisor = shift == 0 ? divisor : b_norm;
 
         return DivideNormalizedWithReciprocal(
             a,
@@ -864,7 +833,7 @@ namespace BigMath
             base,
             shift,
             a_norm,
-            b_norm,
+            normalizedDivisor,
             reciprocal,
             computeRemainder);
       }
@@ -897,6 +866,12 @@ namespace BigMath
         BaseT base,
         bool computeRemainder = true)
     {
+      return DivideAndRemainderLimbs(a, b, base, computeRemainder);
+    }
+
+    static std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainderLimbs(
+        std::span<const DataT> a, std::span<const DataT> b, BaseT base, bool computeRemainder)
+    {
       if (IsZero(b))
         throw std::invalid_argument("Division by zero");
       if (IsZero(a))
@@ -904,7 +879,8 @@ namespace BigMath
 
       Int cmp = Compare(a, b);
       if (cmp < 0)
-        return {std::vector<DataT>{0}, computeRemainder ? a : std::vector<DataT>()};
+        return {std::vector<DataT>{0}, computeRemainder ? std::vector<DataT>(a.begin(), a.end())
+                                                      : std::vector<DataT>()};
       if (cmp == 0)
         return {std::vector<DataT>{1}, computeRemainder ? std::vector<DataT>{0} : std::vector<DataT>()};
 
@@ -914,13 +890,14 @@ namespace BigMath
         return FastDivision::DivideAndRemainder(a, b, base, computeRemainder);
 
       // Normalize: shift so top bit of b's top limb is set.
+      a = a.first(LimbDetail::TrimmedLimbCount(a));
+      b = b.first(LimbDetail::TrimmedLimbCount(b));
       const Int limbBits = LimbBitsFor(base);
       Int shift = NormalizationShiftBits(b.back(), limbBits);
 
-      std::vector<DataT> a_norm = (shift > 0) ? ShiftLeftBits(a, shift, limbBits) : a;
-      std::vector<DataT> b_norm = (shift > 0) ? ShiftLeftBits(b, shift, limbBits) : b;
-      TrimZeros(a_norm);
-      TrimZeros(b_norm);
+      std::vector<DataT> shiftedA, shiftedB;
+      const auto a_norm = Normalize(a, shift, limbBits, shiftedA);
+      const auto b_norm = Normalize(b, shift, limbBits, shiftedB);
 
       SizeT n = (SizeT)b_norm.size();
       SizeT na = (SizeT)a_norm.size();
@@ -937,7 +914,7 @@ namespace BigMath
       bool need_high_precision = (na >= 2 * n);
 #endif
 
-      std::vector<DataT> R = ApproxReciprocal(b_norm, need_high_precision);
+      std::vector<DataT> R = ApproxReciprocalLimbs(b_norm, need_high_precision);
       return DivideNormalizedWithReciprocal(a, b, base, shift, a_norm, b_norm, R, computeRemainder);
     }
 

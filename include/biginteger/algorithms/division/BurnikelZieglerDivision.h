@@ -334,10 +334,7 @@ namespace BigMath
         KaratsubaMultiplication::MultiplyInto(a, la, b, lb, tp, scratch.data(), Base2_64);
         return;
       }
-      static thread_local std::vector<DataT> av, bv;
-      av.assign(a, a + la);
-      bv.assign(b, b + lb);
-      std::vector<DataT> product = Multiply(av, bv, Base2_64);
+      const auto product = detail::MultiplyLimbs(std::span(a, la), std::span(b, lb), Base2_64);
       const SizeT total = la + lb;
       const SizeT have = std::min((SizeT)product.size(), total);
       std::memcpy(tp, product.data(), (std::size_t)have * sizeof(DataT));

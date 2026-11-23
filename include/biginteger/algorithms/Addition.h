@@ -16,6 +16,12 @@
 
 namespace BigMath
 {
+  namespace detail
+  {
+    std::vector<DataT> AddLimbs(std::span<const DataT> a,
+                               std::span<const DataT> b, BaseT base);
+  }
+
   // Add scalar b into a[aStart..aEnd], extending a if the carry exceeds the range.
   void AddTo(std::vector<DataT> &a, SizeT aStart, SizeT aEnd,
              ULong b, BaseT base);
