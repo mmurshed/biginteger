@@ -23,7 +23,7 @@ For each size the benchmark checks 24 cases per modulus parity, with positive an
 
 #### Faster modular exponentiation
 
-The optimized implementation uses native modular products for single-limb moduli and a sliding window for dense exponents. It uses Montgomery reduction for eligible odd moduli and combines the residues modulo the odd part and the power of two for even moduli with a sub-limb power-of-two factor. The existing division dispatcher handles larger moduli and cases outside those paths. Runtime depends on the operands.
+This optimization introduced native modular products for single-limb moduli, a sliding window for dense exponents, and Montgomery reduction for eligible odd moduli. For even moduli with a sub-limb power-of-two factor it combined the residues modulo the odd part and the power of two. The division dispatcher handled larger moduli in this measurement. Runtime depends on the operands.
 
 Seven paired trials on the Apple M1 Max alternated the existing binary implementation from `be665c1` and the optimized build, using the same Release flags and benchmark source. Each size and modulus parity checks 24 signed-base cases against GMP. The dense rows time a random exponent as wide as the modulus. The sparse rows time exponent 65,537. Times are medians in microseconds, with speedups computed from paired ratios. [All 224 paired observations](docs/benchmarks/2026-11-22-powmod-optimized-m1-max.csv)
 
@@ -39,6 +39,44 @@ Seven paired trials on the Apple M1 Max alternated the existing binary implement
 | 256 | Odd | 65,537 | 1.886 | 1.062 | 0.756 | 1.78× |
 | 4,096 | Odd | 65,537 | 73.86 | 72.69 | 56.94 | 1.01× |
 | 4,096 | Even | 65,537 | 73.73 | 67.64 | 56.37 | 1.09× |
+
+#### Subquadratic Montgomery reduction
+
+FastREDC uses a full-width Montgomery inverse computed once per odd modulus
+by doubling its known low limbs. Each modular product uses the existing
+multiplication or squaring dispatcher and computes the reduction multiplier
+with a low product. At widths of at least 512 limbs, CRT builds can recover
+the correction's high limbs from a cyclic product and the known low limbs.
+Miller–Rabin reuses the inverse across witnesses. [Brent and Zimmermann, §2.4](https://maths-people.anu.edu.au/~brent/pd/mca-0.5.pdf)
+
+The default entry cutoff is 64 modulus limbs with an exponent at least
+64 bits wide. Set `BIGMATH_FAST_REDC_THRESHOLD=0` to disable FastREDC.
+
+`number_theory_vs_gmp powmod-large` checks four signed-base fixtures per
+row against GMP. It times the last fixture, including Montgomery setup.
+The dense exponent is as wide as the modulus through 16,384 bits. At larger
+widths it has 257 bits. Sparse control rows use exponent 65,537.
+
+Three paired trials on the Apple M1 Max used 64-bit limbs, a single thread,
+Apple Clang 21, and GMP 6.3.0. Both versions used the same Release flags and
+fixtures. The baseline is `47285ce`. Times are medians in milliseconds,
+and speedups are medians of the paired ratios.
+[Paired timing data](docs/benchmarks/2026-11-23-fast-redc-m1-max.csv)
+
+| Odd modulus bits | Exponent | Baseline | FastREDC build | GMP | Speedup |
+|---:|---|---:|---:|---:|---:|
+| 4,096 | Dense | 19.065 | 18.045 | 13.124 | 1.06× |
+| 8,192 | Dense | 138.883 | 112.950 | 77.504 | 1.23× |
+| 8,193 | Dense | 122.561 | 115.656 | 79.353 | 1.06× |
+| 16,384 | Dense | 728.003 | 711.260 | 460.812 | 1.02× |
+| 32,768 | 257 bits | 35.385 | 28.679 | 21.623 | 1.23× |
+| 32,769 | 257 bits | 34.712 | 35.644 | 20.500 | 0.97× |
+| 49,152 | 257 bits | 62.285 | 52.108 | 36.121 | 1.19× |
+| 65,536 | 257 bits | 95.646 | 61.143 | 58.432 | 1.57× |
+| 8,192 | 65,537 | 0.266 | 0.274 | 0.179 | 0.97× |
+
+One paired run with the default threaded build measured a 2.30× speedup
+at 65,536 modulus bits with a 257-bit exponent.
 
 ### Greatest common divisors
 
@@ -169,7 +207,7 @@ cmake --build build --target number_theory_vs_gmp
 
 #### Parallel Miller–Rabin rounds
 
-When the candidate has at least 1,024 bits, fits the Montgomery path and requests at least eight random witnesses, the default build can test the witnesses in parallel. The small-factor tests and the base-2 screen run before the dispatch. Each worker uses its own scratch space, with batches of up to 32 witnesses. The single-thread build runs the same tests serially.
+When the candidate has at least 1,024 bits and at most 128 limbs, the default build can test eight or more random witnesses in parallel. The small-factor tests and the base-2 screen run before the dispatch. Each worker uses its own scratch space, with batches of up to 32 witnesses. The single-thread build runs the same tests serially.
 
 The Apple M1 Max reran the same fixtures sequentially with the original serial implementation from `13e9706`, the updated default build with up to eight threads, and the updated build with `BIGMATH_USE_THREADS=0`. Each run matched GMP on 286 cases. The table gives medians from seven batches and shows the GMP timing measured alongside the default build. All times are milliseconds. [Raw timings for all three builds](docs/benchmarks/2026-11-22-primality-parallel-m1-max.csv)
 

@@ -22,6 +22,11 @@
 #define BIGMATH_HALF_GCD_LEAF_THRESHOLD 2048
 #endif
 
+// Minimum modulus width in limbs for FastREDC. Zero disables the path.
+#ifndef BIGMATH_FAST_REDC_THRESHOLD
+#define BIGMATH_FAST_REDC_THRESHOLD 64
+#endif
+
 // Equal-width magnitude addition and subtraction. Cutoffs count limbs per
 // operand. Zero disables the corresponding worker state until it is tuned.
 #ifndef BIGMATH_ADD_PARALLEL_WARM_LIMBS

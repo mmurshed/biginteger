@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -92,13 +93,14 @@ namespace
                 operation, shape, bits, cases, calls, bigmath, gmp);
   }
 
-  void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng)
+  void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng,
+                       unsigned cases = 24, unsigned exponentBits = 0)
   {
     BigInteger base, exponent, modulus, result;
     Mpz gBase, gExponent, gModulus, expected, actual;
     const auto runBigMath = [&] { result = PowMod(base, exponent, modulus); };
     const auto runGmp = [&] { mpz_powm(expected.value, gBase.value, gExponent.value, gModulus.value); };
-    constexpr unsigned cases = 24;
+    const auto denseBits = exponentBits == 0 ? bits : exponentBits;
     for (unsigned i = 0; i < cases; ++i)
     {
       base = RandomInteger(bits + (i % 3) * 9, rng, i % 2 == 0);
@@ -108,7 +110,7 @@ namespace
         exponent = BigInteger::FromLimbs({&value, 1}, false);
       }
       else
-        exponent = RandomInteger(i == cases - 1 ? bits : 1 + (i * 131) % bits, rng);
+        exponent = RandomInteger(i == cases - 1 ? denseBits : 1 + (i * 131) % denseBits, rng);
       auto bytes = RandomInteger(bits, rng).ToByteArray();
       bytes.back() = (bytes.back() & 0xfe) | static_cast<unsigned>(odd);
       modulus = BigInteger::FromByteArray(bytes, false);
@@ -121,9 +123,14 @@ namespace
       if (mpz_cmp(actual.value, expected.value) != 0)
         throw std::runtime_error("PowMod result differs from GMP");
     }
-    const char *shape = sparse ? (odd ? "odd_65537" : "even_65537") : (odd ? "odd" : "even");
-    const unsigned calls = sparse ? std::max(16u, 131072u / bits) : std::max(4u, 16384u / bits);
-    Measure("powmod", shape, bits, cases, calls, runBigMath, runGmp);
+    std::string shape = odd ? "odd" : "even";
+    if (sparse)
+      shape += "_65537";
+    else if (exponentBits != 0)
+      shape += "_" + std::to_string(exponentBits);
+    const unsigned calls = sparse ? std::max(16u, 131072u / bits)
+                                  : std::max(bits <= 4096 ? 4u : 1u, 16384u / bits);
+    Measure("powmod", shape.c_str(), bits, cases, calls, runBigMath, runGmp);
   }
 
   void BenchmarkGcd(unsigned bits, std::string_view shape, std::mt19937_64 &rng,
@@ -355,10 +362,10 @@ int main(int argc, char **argv)
     return 0;
   }
   if (argc > 2 || (operation != "all" && operation != "powmod" &&
-                   operation != "gcd" && operation != "gcd-large" &&
+                   operation != "powmod-large" && operation != "gcd" && operation != "gcd-large" &&
                    operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|gcd|gcd-large|sqrtrem|prime|nextprime]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|prime|nextprime]\n", stderr);
     return 1;
   }
 
@@ -370,6 +377,15 @@ int main(int argc, char **argv)
       for (unsigned bits : {32, 64, 128, 256, 512, 1024, 2048, 4096})
         for (bool odd : {true, false})
           BenchmarkPowMod(bits, odd, sparse, rng);
+  }
+  if (operation == "powmod-large")
+  {
+    for (unsigned bits : {3072, 4096, 4097, 6144, 8192, 8193, 12288, 16384})
+      BenchmarkPowMod(bits, true, false, rng, 4);
+    for (unsigned bits : {24576, 32768, 32769, 49152, 65536, 65537})
+      BenchmarkPowMod(bits, true, false, rng, 4, 257);
+    for (unsigned bits : {4097, 8192, 8193, 16384, 32768, 65536})
+      BenchmarkPowMod(bits, true, true, rng, 4);
   }
   rng.seed(0x6CD);
   if (operation == "all" || operation == "gcd")

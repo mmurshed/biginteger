@@ -40,6 +40,36 @@ REGISTER_TEST(NumberTheory, PowMod)
   }
 }
 
+REGISTER_TEST(NumberTheory, LargePowMod)
+{
+  const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
+  const auto one = value("1");
+  const auto exponent = value("36893488147419103231"); // 65 set bits.
+  const auto sparse = value("65537");
+  for (const SizeT limbs : {63, 64, 128, 129, 255, 511, 512, 513})
+  {
+    const auto radix = one << limbs;
+    const auto modulus = radix - value("59");
+    const auto residue = (one << (limbs - 1)) + value("123456789");
+    const auto base = -(modulus + residue);
+    auto factor = modulus - residue;
+    auto expected = one;
+    for (unsigned bit = 0; bit < 65; ++bit)
+    {
+      expected = (expected * factor) % modulus;
+      if (bit < 64)
+        factor = (factor * factor) % modulus;
+    }
+    ASSERT_TRUE(PowMod(base, exponent, modulus) == expected);
+    ASSERT_TRUE(PowMod(modulus - one, sparse, modulus) == modulus - one);
+
+    // For modulus B^limbs - 1, powers of B wrap at the limb boundary.
+    // Some encoded products have exactly zero low limbs.
+    const SizeT offset = (limbs - (exponent % limbs)[0]) % limbs;
+    ASSERT_TRUE(PowMod(one << (limbs - 1), exponent, radix - one) == (one << offset));
+  }
+}
+
 REGISTER_TEST(NumberTheory, Primality)
 {
   const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };
@@ -77,6 +107,17 @@ REGISTER_TEST(NumberTheory, MultiBatchAndConcurrentPrimality)
   workerA.join();
   workerB.join();
   ASSERT_TRUE(first && second);
+}
+
+REGISTER_TEST(NumberTheory, LargeMontgomeryPrimality)
+{
+  // The Mersenne prime 2^9689 - 1 exceeds the single-limb-inverse
+  // Montgomery range in both limb layouts.
+  const auto one = BigIntegerBuilder::From("1");
+  constexpr DataT high = DataT{1} << (9689 % LimbBits);
+  const auto prime = (BigInteger::FromLimbs({&high, 1}, false) << (9689 / LimbBits)) - one;
+  ASSERT_TRUE(IsProbablePrime(prime, 1));
+  ASSERT_TRUE(!IsProbablePrime(prime * prime, 1));
 }
 
 REGISTER_TEST(NumberTheory, NextProbablePrime)
