@@ -1439,6 +1439,33 @@ The final argument gives the divisor's trailing zero bits. Use
 `-DBIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT=0` in a separate build to time
 schoolbook at the same operand widths.
 
+### Blockwise Hensel exact division
+
+On the Apple M1 Max, seven paired trials compared the default build with
+a build that set `BIGMATH_DIVEXACT_BLOCK_MIN_DIVISOR=0`. Each process
+checked its quotient against GMP, timed one first call and nine warm
+calls, and contributed its fastest warm call. Entries below give the
+median warm time in microseconds for 64-bit limbs. The even fixture
+has 69 trailing zero bits in the divisor.
+
+| Dividend ÷ divisor limbs | Divisor | Blocks off | Default | BigMath `/` | GMP exact |
+|---:|---|---:|---:|---:|---:|
+| 1,151 ÷ 128 | Odd | 70.79 | 65.21 | 69.83 | 48.96 |
+| 1,727 ÷ 192 | Odd | 155.58 | 129.38 | 128.63 | 93.58 |
+| 4,334 ÷ 255 | Odd | 563.63 | 399.67 | 407.13 | 317.67 |
+| 4,351 ÷ 256 | Even | 553.00 | 416.83 | 404.58 | 337.50 |
+| 4,351 ÷ 256 | Odd | 370.88 | 362.75 | 409.33 | 326.42 |
+| 8,703 ÷ 512 | Odd | 687.75 | 682.42 | 1,246.08 | 997.71 |
+
+Full-width lifting handled the last two rows in both builds. In the
+32-bit-limb build, the 1,631 ÷ 96-limb case fell from 251.88 to
+96.50 µs. [Blockwise algorithm and cutoffs](docs/DIVISION.md#exact-division)
+
+```sh
+cmake --build build --target division_handoff_bench
+./build/division_handoff_bench 4351 256 exact q exact 5 9 69
+```
+
 ## Internal algorithm crossovers
 
 The November 21 run of `multperf_simple 5` used equal-length random operands. Times are the mean of five calls, and speedups are relative to classical multiplication. All products matched at all four tested sizes.

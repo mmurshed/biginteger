@@ -395,8 +395,23 @@ The lifting and low-product kernels are shared with FastREDC.
 With 64-bit limbs, lifting starts at a 1,024-limb quotient bound and a
 512-limb odd divisor. From a 2,048-limb quotient bound, the divisor
 minimum drops to 256 limbs. With 32-bit limbs, the cutoffs are 256 and
-128 limbs. Compile with `-DBIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT=0` to
-measure the schoolbook path at all widths. [Exact division timings](../BENCHMARK.md#exact-division)
+128 limbs.
+
+When full-width lifting is outside those cutoffs, blockwise Hensel
+division uses one inverse modulo `B^w`, where `w` is the odd divisor's
+limb count. Each low product recovers up to `w` quotient limbs. The
+correction product has low limbs equal to the ones being cancelled,
+so subtracting its high limbs updates the remaining dividend window.
+The quotient digits take the cancelled block's place, and borrows
+above the quotient bound can be discarded. The last block needs
+only the low product.
+
+The block path starts at 128 odd-divisor limbs and an 8:1 quotient
+bound to divisor ratio on 64-bit limbs. On 32-bit limbs, these
+cutoffs are 64 limbs and 4:1. Set
+`BIGMATH_DIVEXACT_BLOCK_MIN_DIVISOR=0` to disable blocks, or
+`BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT=0` to measure the schoolbook
+path at all widths. [Exact division timings](../BENCHMARK.md#exact-division)
 
 ## Benchmark results vs GMP
 

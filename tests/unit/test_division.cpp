@@ -228,6 +228,26 @@ REGISTER_TEST(DivExact, QuotientWidthsAndEvenDivisors)
   ASSERT_EQ(DivideExact(expected * powerOfTwo, powerOfTwo), expected);
 }
 
+REGISTER_TEST(DivExact, SkewedQuotientWithZeroBlocks)
+{
+  for (const SizeT width : {64u, 128u, 192u, 255u, 256u, 513u})
+  {
+    std::vector<DataT> limbs(width, LimbMask);
+    limbs = ShiftLeftBits(limbs, LimbBits - 3, LimbBits);
+    limbs.insert(limbs.begin(), 1, 0);
+    const BigInteger divisor(std::move(limbs), false);
+
+    std::vector<DataT> expectedLimbs(16 * width + 3);
+    std::fill_n(expectedLimbs.begin() + width, 2 * width, LimbMask);
+    std::fill_n(expectedLimbs.begin() + 10 * width, 3 * width, LimbMask);
+    expectedLimbs.back() = 1;
+    const BigInteger expected(std::move(expectedLimbs), false);
+    const auto dividend = divisor * expected;
+    ASSERT_EQ(DivideExact(-dividend, divisor), -expected);
+    ASSERT_EQ(DivideExact(dividend, divisor), dividend / divisor);
+  }
+}
+
 // ─── magnitude-level dispatch bands ──────────────────────────────────────────
 
 REGISTER_TEST(DivDispatch, FastBand_Small)        { CheckRawIdentity(32,   8,   0x10); }
