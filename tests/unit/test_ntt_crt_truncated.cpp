@@ -335,6 +335,58 @@ REGISTER_TEST(NttCrtTruncatedSerial, DispatchSizes)
 
 #endif
 
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE && BIGMATH_USE_THREADS
+REGISTER_TEST(NttCrtTruncatedThreaded, PackedProducts)
+{
+  const Int H = 1 << 16;
+  if (!NttCrt::MfaFusedWindow(H))
+    return;
+  std::mt19937_64 gen(0x7A1EAD);
+  NttCrt::ProductWorkspace work;
+  for (BaseT base : {Base2_64, Base2_32})
+  {
+    const SizeT cpl = NttCrt::CoeffsPerLimb(base);
+    for (Int L : {64, 512, 1024, H / 4})
+    {
+      const SizeT total = (H + L) / cpl;
+      auto a = Limbs(total / 2, L == 512 ? 1 : 0, gen);
+      auto b = Limbs(total - a.size(), L == H / 4 ? 2 : 0, gen);
+      if (base == Base2_32)
+      {
+        for (auto &x : a) x &= 0xffffffffu;
+        for (auto &x : b) x &= 0xffffffffu;
+      }
+      NttCrt::CrtTruncThreaded(NttCrt::PackedOperandView(a, base), NttCrt::PackedOperandView(b, base),
+                               H, L, work);
+      const auto actual = NttCrt::FinalizeProduct(work.fa1, work.fa2, work.fa3, cpl * total - 1,
+                                                  base, total + 2);
+      ASSERT_TRUE(actual == KaratsubaMultiplication::Multiply(a, b, base));
+    }
+  }
+}
+
+REGISTER_TEST(NttCrtTruncatedThreaded, DispatchBand)
+{
+  const Int H = 1 << 21;
+  if (!NttCrt::MfaFusedWindow(H) || H <= BIGMATH_NTT_TRUNC_MAX || ParallelAvailableThreads(true) <= 1)
+    return;
+  const SizeT a = H / 4;
+  ASSERT_EQ(NttCrt::TruncThreadedCyclicLength(H - 1, H, a, a), 0);
+  ASSERT_EQ(NttCrt::TruncThreadedCyclicLength(H + 1, H, a, a + 1), 64);
+  ASSERT_EQ(NttCrt::TruncThreadedCyclicLength(H + 65, H, a + 16, a + 17), 128);
+  ASSERT_EQ(NttCrt::TruncThreadedCyclicLength(H + H / 4 + 1, H, a + H / 16, a + H / 16 + 1), 0);
+  ASSERT_EQ(NttCrt::TruncThreadedCyclicLength(H + 1, H, a + 2, a - 1), 0);
+
+  Int nested[2] = {-1, -1};
+  ParallelDo(2, [&](Int first, Int end) {
+    for (Int i = first; i < end; ++i)
+      nested[i] = NttCrt::TruncThreadedCyclicLength(H + 1, H, a, a + 1);
+  });
+  ASSERT_EQ(nested[0], 0);
+  ASSERT_EQ(nested[1], 0);
+}
+#endif
+
 #if BIGMATH_NTT_MFA
 REGISTER_TEST(NttCrtTruncatedSerial, FactoredWeightsCrossBlockBoundaries)
 {

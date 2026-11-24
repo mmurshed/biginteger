@@ -1280,7 +1280,7 @@ Between `1.25·H` and `1.5·H` (`L = H/2`) the gain is 1.0–1.35×. Outside the
 window the full transform runs as before: below `H = 2048` it is as fast
 (`H = 1024` falls under the serial gate), and above `H = 2^20` the fused-MFA
 full transform wins (`H = 2^21` measured 1.0–1.16×). With more than one thread
-the fused-MFA band itself (`n ≥ 2^22`) still has the power-of-two staircase.
+the default fused-MFA path (`n ≥ 2^22`) still has the power-of-two staircase.
 
 ### Single-threaded: cache-blocked H + L above 2^20
 
@@ -1327,6 +1327,48 @@ tests do the same for the single-thread variant with the MFA cutover lowered
 to 2^14, and check `H = 2^21` products by residues and against
 `NttCrt::Multiply`; `mfa_mul_gmp_probe` compares it with GMP at `H = 2^23`.
 
+### Experimental threaded H + L
+
+Build with `-DBIGMATH_NTT_TRUNC_THREADED=1` in the C++ flags to try the
+fused matrix NTT at `H = 2^21` and `2^22` for two operand buffers whose
+lengths differ by at most one limb. The path accepts `H < c ≤ 1.25·H`
+when the pool can supply more than one thread. Each prime completes both
+convolutions before the next prime starts, reusing two length-`H`
+transpose planes. The length-`H` gather applies the negacyclic weights
+directly to the limb views. The folded inputs for the shorter convolution
+fit in the unused ends of the same transpose planes.
+
+On an Apple M1 Max with eight BigMath threads and 64-bit limbs, the
+opt-in build ran the eight in-band cases **1.25–1.64× faster warm**
+and reduced median peak RSS by **49–59%**. Warm timings for the controls
+just below the band and just past its upper edge stayed within 5%.
+Each row summarizes five pairs of fresh processes with alternating
+build order, one first call, and five warm calls per process. Warm
+times are medians of per-process medians. RSS is measured before the
+GMP allocations, and both builds checked the returned limbs against
+GMP in every process.
+
+| H | Product coefficients | First ms, default → opt-in | Warm ms, default → opt-in | Peak MiB, default → opt-in |
+|---:|:---|---:|---:|---:|
+| 2^21 | H + 1 | 49.34 → 34.66 | 32.09 → 25.70 | 200.5 → 91.4 |
+| 2^21 | H + H/4 − 1 | 49.39 → 32.15 | 32.71 → 22.15 | 205.2 → 103.6 |
+| 2^22 | H + 1 | 99.02 → 65.63 | 65.79 → 51.77 | 385.8 → 156.7 |
+| 2^22 | H + H/4 − 1 | 105.59 → 65.87 | 69.36 → 48.09 | 393.2 → 179.7 |
+
+The 64-bit opt-in build also matched GMP on 62 first-call products
+immediately below and above the `H` and `L` boundaries. The path stays
+opt-in pending measurements on other platforms. To repeat the first
+in-band point with GMP installed:
+
+```sh
+cmake -S . -B build/trunc-default -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/trunc-threaded -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_FLAGS=-DBIGMATH_NTT_TRUNC_THREADED=1
+cmake --build build/trunc-default --parallel --target mfa_mul_gmp_probe
+cmake --build build/trunc-threaded --parallel --target mfa_mul_gmp_probe
+./build/trunc-default/mfa_mul_gmp_probe --bench 524288 524289 5 0xc0ffee
+./build/trunc-threaded/mfa_mul_gmp_probe --bench 524288 524289 5 0xc0ffee
+```
 
 ## Dispatch re-sweep: area rule for the NTT entry (2026-11-20)
 

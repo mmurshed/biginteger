@@ -7,6 +7,11 @@
 // test, so a corrupt MFA layer could cancel itself out and the comparison
 // would prove nothing (the PR #103 lesson).
 //
+// With --bench a_limbs b_limbs warm_reps seed, time the public operator
+// and check its final result against GMP. The "bench" row contains both
+// limb counts, first and median warm milliseconds, and peak RSS bytes
+// before the GMP check (0 if unavailable).
+//
 // Default tiers put the transform length at 2^24 and 2^25 — at and above the
 // MFA gate — plus one 8:1 skewed shape for the lowered high-skew cutover,
 // cyclic (MultiplyMod2km1) rows spanning the plain/MFA boundary and the old
@@ -22,6 +27,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,37 +36,40 @@
 
 #include <gmp.h>
 
+#if defined(__APPLE__) || defined(__linux__)
+#include <sys/resource.h>
+#endif
+
 #include "biginteger/common/Constants.h"
 #include "biginteger/algorithms/multiplication/NTTMultiplicationCrt.h"
 #include "biginteger/algorithms/Division.h"
+#include "biginteger/ops/Multiplication.h"
 
 using namespace BigMath;
 
-static std::vector<DataT> RandLimbs(SizeT n, uint64_t seed)
+static std::vector<DataT> RandLimbs(SizeT n, uint64_t seed, DataT mask = ~DataT{0})
 {
     std::mt19937_64 g(seed);
     std::vector<DataT> v(n);
-    for (SizeT i = 0; i < n; ++i) v[i] = g();
+    for (SizeT i = 0; i < n; ++i) v[i] = g() & mask;
     if (v.back() == 0) v.back() = 1; // keep the top limb significant
     return v;
 }
 
-static bool Check(SizeT la, SizeT lb, uint64_t seed)
+static bool CheckProduct(std::span<const DataT> a, std::span<const DataT> b, std::span<const DataT> c,
+                         BaseT base = Base2_64)
 {
-    std::vector<DataT> a = RandLimbs(la, seed);
-    std::vector<DataT> b = RandLimbs(lb, seed ^ 0x9E3779B97F4A7C15ULL);
-
-    std::vector<DataT> c = NttCrt::Multiply(a, b, Base2_64);
-
+    const auto la = a.size(), lb = b.size();
+    const size_t nails = base == Base2_64 ? 0 : 32;
     mpz_t ga, gb, gc;
     mpz_init(ga); mpz_init(gb); mpz_init(gc);
-    mpz_import(ga, la, -1, sizeof(DataT), 0, 0, a.data());
-    mpz_import(gb, lb, -1, sizeof(DataT), 0, 0, b.data());
+    mpz_import(ga, la, -1, sizeof(DataT), 0, nails, a.data());
+    mpz_import(gb, lb, -1, sizeof(DataT), 0, nails, b.data());
     mpz_mul(gc, ga, gb);
 
     size_t gn = 0;
     std::vector<DataT> g(la + lb, 0);
-    mpz_export(g.data(), &gn, -1, sizeof(DataT), 0, 0, gc);
+    mpz_export(g.data(), &gn, -1, sizeof(DataT), 0, nails, gc);
     mpz_clear(ga); mpz_clear(gb); mpz_clear(gc);
 
     bool ok = (c.size() == gn) && (memcmp(c.data(), g.data(), gn * sizeof(DataT)) == 0);
@@ -78,6 +87,53 @@ static bool Check(SizeT la, SizeT lb, uint64_t seed)
             }
     }
     return ok;
+}
+
+static bool Check(SizeT la, SizeT lb, uint64_t seed)
+{
+    auto a = RandLimbs(la, seed);
+    auto b = RandLimbs(lb, seed ^ 0x9E3779B97F4A7C15ULL);
+    return CheckProduct(a, b, NttCrt::Multiply(a, b, Base2_64));
+}
+
+static unsigned long long PeakRssBytes()
+{
+#if defined(__APPLE__) || defined(__linux__)
+    struct rusage usage {};
+    if (getrusage(RUSAGE_SELF, &usage) == 0)
+    {
+#if defined(__APPLE__)
+        return static_cast<unsigned long long>(usage.ru_maxrss);
+#else
+        return static_cast<unsigned long long>(usage.ru_maxrss) * 1024;
+#endif
+    }
+#endif
+    return 0;
+}
+
+static bool Benchmark(SizeT la, SizeT lb, int warmReps, uint64_t seed)
+{
+    const BaseT base = BigInteger::Base();
+    const DataT mask = base == Base2_64 ? ~DataT{0} : DataT{0xffffffffu};
+    const BigInteger a(RandLimbs(la, seed, mask), false);
+    const BigInteger b(RandLimbs(lb, seed ^ 0x9E3779B97F4A7C15ULL, mask), false);
+    BigInteger product;
+    auto timeProduct = [&] {
+        product = BigInteger();
+        const auto start = std::chrono::steady_clock::now();
+        product = a * b;
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+    const double first = timeProduct();
+    std::vector<double> warm;
+    for (int i = 0; i < warmReps; ++i)
+        warm.push_back(timeProduct());
+    std::sort(warm.begin(), warm.end());
+    const double median = warm.empty() ? first : (warm[(warm.size() - 1) / 2] + warm[warm.size() / 2]) / 2;
+    // Read the high-water mark before allocating any GMP buffers.
+    printf("bench,%zu,%zu,%.6f,%.6f,%llu\n", (size_t)la, (size_t)lb, first, median, PeakRssBytes());
+    return CheckProduct(a.Limbs(), b.Limbs(), product.Limbs(), base);
 }
 
 // Single-thread truncated product (NttCrt::MultiplyTruncSerial) vs GMP. The
@@ -183,6 +239,19 @@ static bool CheckDiv(SizeT la, SizeT lb, uint64_t seed)
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && std::strcmp(argv[1], "--bench") == 0)
+    {
+        const auto la = argc > 2 ? std::atoll(argv[2]) : 0;
+        const auto lb = argc > 3 ? std::atoll(argv[3]) : 0;
+        const int warm = argc > 4 ? std::atoi(argv[4]) : -1;
+        if (argc != 6 || la <= 0 || lb <= 0 || warm < 0)
+        {
+            std::fprintf(stderr, "Usage: %s --bench a_limbs b_limbs warm_reps seed\n", argv[0]);
+            return 2;
+        }
+        return Benchmark((SizeT)la, (SizeT)lb, warm, std::strtoull(argv[5], nullptr, 0)) ? 0 : 1;
+    }
+
     bool ok = true;
     if (argc > 1)
     {
