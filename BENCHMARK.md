@@ -245,6 +245,52 @@ cmake --build build --target number_theory_vs_gmp
 ./build/number_theory_vs_gmp rootrem
 ```
 
+### Product-tree Chinese remaindering
+
+`ChineseRemainderPlan` takes a nonempty sequence of pairwise-coprime
+word moduli of at least two. `Reduce(n)` returns the least
+nonnegative residues of a signed integer in input order.
+`Reconstruct(residues)` returns the least nonnegative representative
+modulo the product `M`. The plan owns its moduli and keeps all
+precomputed data fixed across calls.
+
+Setup packs consecutive moduli into word-size groups and builds a
+product tree over the groups. A pass down the tree computes the
+inverse of each cofactor `M / m_i` modulo `m_i`, which also verifies
+pairwise coprimality. Reduction passes remainders down the tree.
+Reconstruction starts with the weighted residues, combines sibling
+contributions by multiplying each by the other sibling's product,
+and reduces once modulo `M` at the root.
+[FLINT multimodular algorithms](https://flintlib.org/doc/algorithms/integers/multimodular-reduction.html)
+
+On the Apple M1 Max, both limb layouts matched FLINT 3.6.0 on 64
+fixtures with 8 to 8,192 moduli, including signed inputs and magnitudes
+above `M`. The table shows warm medians of seven alternating batches
+for the default 64-bit Release build. Setup includes construction and
+destruction, including FLINT's reusable workspace. Reduction and
+reconstruction reuse each library's plan. FLINT also reuses its output
+buffers. The timed input is a seeded nonnegative value below `M`.
+Times are in microseconds.
+
+| Moduli | Bits per modulus | BigMath setup | FLINT setup | BigMath reduce | FLINT reduce | BigMath reconstruct | FLINT reconstruct |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 31 | 160.05 | 52.27 | 11.04 | 3.65 | 5.96 | 2.33 |
+| 1,024 | 31 | 1,515.04 | 938.81 | 193.97 | 118.89 | 100.09 | 85.59 |
+| 8,192 | 31 | 17,453.17 | 20,861.29 | 4,127.15 | 3,488.83 | 1,550.00 | 1,530.40 |
+| 128 | 61 | 348.62 | 335.85 | 25.21 | 9.66 | 12.83 | 8.29 |
+| 1,024 | 61 | 3,455.53 | 2,530.48 | 508.56 | 376.07 | 269.70 | 215.61 |
+| 8,192 | 61 | 38,119.06 | 57,464.08 | 9,464.17 | 9,576.35 | 3,170.02 | 3,773.13 |
+
+FLINT was faster on all three operations in every sampled 32-bit-limb
+comparison. FLINT used 64-bit limbs in these runs.
+
+The benchmark target is available when CMake finds FLINT and GMP.
+
+```sh
+cmake --build build --target chinese_remainder_vs_flint
+./build/chinese_remainder_vs_flint
+```
+
 ### Primality testing
 
 `IsProbablePrime` screens small factors before running Miller–Rabin. It tests the full unsigned 64-bit range deterministically, using Jaeschke's three bases through 32 bits and Sinclair's seven bases above that. For larger inputs, it first tests base 2, then samples witnesses uniformly from 2 through `n - 2` by rejection sampling using `std::random_device`. With independent uniform witnesses, `rounds` random tests accept any fixed odd composite with probability at most `4^(-rounds)`. The default is 32 rounds. The Montgomery path reuses the modulus and keeps the inner squaring steps in Montgomery form. [Established deterministic bases](https://miller-rabin.appspot.com/) · [GMP reference](https://gmplib.org/gmp-man-6.3.0.pdf)

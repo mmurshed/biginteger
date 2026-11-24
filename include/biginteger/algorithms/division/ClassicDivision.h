@@ -8,6 +8,7 @@
 #define CLASSIC_DIVISION
 
 #include <cstddef>
+#include <span>
 #include <vector>
 #include <string>
 #include <stdexcept>
@@ -134,6 +135,11 @@ namespace BigMath
 
         // Truncated remainder by a scalar, without materializing the quotient.
         static DataT Remainder(const std::vector<DataT> &u, DataT d, BaseT base)
+        {
+            return RemainderLimbs(u, d, base);
+        }
+
+        static DataT RemainderLimbs(std::span<const DataT> u, DataT d, BaseT base)
         {
             if (d == 0) throw std::invalid_argument("Division by zero");
             if (u.empty()) return 0;

@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "../BigInteger.h"
+#include "ChineseRemainder.h"
 
 namespace BigMath
 {
