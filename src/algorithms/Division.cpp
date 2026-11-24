@@ -14,6 +14,12 @@
 #ifndef BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT
 #define BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT (LimbBits == 64 ? 1024 : 256)
 #endif
+#ifndef BIGMATH_DIVEXACT_BLOCK_MIN_DIVISOR
+#define BIGMATH_DIVEXACT_BLOCK_MIN_DIVISOR (LimbBits == 64 ? 128 : 64)
+#endif
+#ifndef BIGMATH_DIVEXACT_BLOCK_MIN_RATIO
+#define BIGMATH_DIVEXACT_BLOCK_MIN_RATIO (LimbBits == 64 ? 8 : 4)
+#endif
 
 namespace BigMath
 {
@@ -100,6 +106,53 @@ namespace BigMath
       quotient.back() = (quotient.back() * inverse) & LimbMask;
     }
 
+    void DivideExactBlocks(std::span<DataT> quotient, std::span<const DataT> divisor)
+    {
+      using namespace detail::PowerOfTwo;
+      const auto blockSize = divisor.size();
+      const auto inverse = InvertOddLimbs(divisor, blockSize);
+      while (!quotient.empty())
+      {
+        const auto width = std::min(quotient.size(), blockSize);
+        auto digits = MultiplyLow(quotient.first(width), inverse, width);
+        digits.resize(width);
+        auto tail = quotient.subspan(width);
+        if (!tail.empty())
+        {
+          const auto product = detail::MultiplyLimbs(divisor, digits, CurrentBase);
+          const auto high = High(product, width);
+          // The product and dividend have identical low limbs. Subtracting
+          // the low block produces no borrow into this remaining window.
+          if (!high.empty())
+          {
+            if constexpr (LimbBits == 64)
+              LimbKernel::SubInPlace(tail.data(), tail.size(), high.data(), high.size());
+            else
+            {
+              DataT borrow = 0;
+              const auto shared = std::min(tail.size(), high.size());
+              std::size_t i = 0;
+              for (; i < shared; ++i)
+              {
+                const DataT subtrahend = high[i] + borrow;
+                const DataT limb = tail[i];
+                tail[i] = (limb - subtrahend) & LimbMask;
+                borrow = limb < subtrahend;
+              }
+              for (; i < tail.size() && borrow != 0; ++i)
+              {
+                const DataT limb = tail[i];
+                tail[i] = (limb - borrow) & LimbMask;
+                borrow = limb < borrow;
+              }
+            }
+          }
+        }
+        std::copy(digits.begin(), digits.end(), quotient.begin());
+        quotient = tail;
+      }
+    }
+
     std::vector<DataT> ShiftRightLow(std::span<const DataT> limbs, Int bits, std::size_t count)
     {
       // A partial shift also needs the limb just above the requested window.
@@ -151,7 +204,14 @@ namespace BigMath
       return PowerOfTwo::MultiplyLow(quotient, PowerOfTwo::InvertOddLimbs(b, count), count);
 
     quotient.resize(count);
-    DivideExactSchoolbook(quotient, b);
+    // Reuse a shorter inverse when full-width lifting costs too much
+    // but the quotient has enough blocks to amortize the setup.
+    constexpr std::size_t blockMin = BIGMATH_DIVEXACT_BLOCK_MIN_DIVISOR;
+    if (newtonMin != 0 && blockMin != 0 && b.size() >= blockMin &&
+        count / b.size() >= BIGMATH_DIVEXACT_BLOCK_MIN_RATIO)
+      DivideExactBlocks(quotient, b);
+    else
+      DivideExactSchoolbook(quotient, b);
     return quotient;
   }
 
