@@ -5,7 +5,9 @@
 
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/common/Builder.h"
+#include "biginteger/ops/Division.h"
 #include "biginteger/ops/Multiplication.h"
+#include "biginteger/ops/ScalarMultiplication.h"
 
 namespace BigMath
 {
@@ -88,6 +90,72 @@ namespace BigMath
       }
       return (half * half) * swing.Product();
     }
+
+    BigInteger RestoreTwos(BigInteger const &oddPart, UInt twos)
+    {
+      auto limbs = ShiftLeftBits(oddPart.Limbs(), twos % LimbBits, LimbBits);
+      limbs.insert(limbs.begin(), twos / LimbBits, 0);
+      return BigInteger(std::move(limbs), false);
+    }
+
+    BigInteger BinomialSmall(UInt n, UInt k)
+    {
+      auto result = BigIntegerBuilder::From(ULong{1});
+      DataT numerator = 1, denominator = 1;
+      for (UInt i = 1; i <= k; ++i)
+      {
+        const DataT factor = n - k + i;
+        const auto next = ULong128{numerator} * factor;
+        // Every prefix is itself a binomial coefficient. A flush can
+        // therefore divide the accumulated denominator exactly.
+        if (next > LimbMask)
+        {
+          result = DivideExact(result * numerator, BigIntegerBuilder::From(denominator));
+          numerator = factor;
+          denominator = i;
+        }
+        else
+        {
+          numerator = static_cast<DataT>(next);
+          denominator *= i;
+        }
+      }
+      return DivideExact(result * numerator, BigIntegerBuilder::From(denominator));
+    }
+
+    BigInteger BinomialProducts(UInt n, UInt k)
+    {
+      PackedProduct numerator, denominator;
+      for (UInt i = 1; i <= k; ++i)
+      {
+        numerator.Append(n - k + i);
+        denominator.Append(i);
+      }
+      return DivideExact(numerator.Product(), denominator.Product());
+    }
+
+    BigInteger BinomialPrimePowers(UInt n, UInt k)
+    {
+      const UInt complement = n - k;
+      PackedProduct odd;
+      for (UInt prime : SieveOddPrimes(n))
+      {
+        if (prime > complement)
+          odd.Append(prime);
+        else
+        {
+          // Legendre's formula. Each difference of floors is zero or one.
+          auto a = n / prime;
+          auto b = k / prime;
+          auto c = complement / prime;
+          for (; a != 0; a /= prime, b /= prime, c /= prime)
+            if (a > b + c)
+              odd.Append(prime);
+        }
+      }
+      const auto twos = std::popcount(k) + std::popcount(complement) - std::popcount(n);
+      return RestoreTwos(odd.Product(), twos);
+    }
   }
 
   BigInteger detail::FactorialProductTree(UInt n)
@@ -113,9 +181,20 @@ namespace BigMath
     if (n < minSwing)
       return detail::FactorialProductTree(n);
     const auto oddPart = OddFactorial(n, SieveOddPrimes(n));
-    const auto twos = n - std::popcount(n);
-    auto limbs = ShiftLeftBits(oddPart.Limbs(), twos % LimbBits, LimbBits);
-    limbs.insert(limbs.begin(), twos / LimbBits, 0);
-    return BigInteger(std::move(limbs), false);
+    return RestoreTwos(oddPart, n - std::popcount(n));
+  }
+
+  BigInteger Binomial(UInt n, UInt k)
+  {
+    if (k > n)
+      return BigInteger();
+    k = std::min(k, n - k);
+    if (k <= 1)
+      return BigIntegerBuilder::From(k == 0 ? ULong{1} : ULong{n});
+    if (k <= 32)
+      return BinomialSmall(n, k);
+    if (n >= 512 && k >= n / 8)
+      return BinomialPrimePowers(n, k);
+    return BinomialProducts(n, k);
   }
 }

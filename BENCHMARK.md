@@ -175,6 +175,32 @@ cmake --build build --target number_theory_vs_gmp
 ./build/number_theory_vs_gmp factorial
 ```
 
+### Binomial coefficients
+
+`Binomial(n, k)` reduces `k` by symmetry. At most 32 terms use
+word-packed batches and exact division. Wider off-center coefficients
+use packed product trees for the numerator and denominator followed by
+one exact division. From `n = 512` with `k >= floor(n/8)`, the central
+path reuses the factorial sieve and accumulates the prime factors
+from Legendre's formula. [GMP binomial algorithm](https://gmplib.org/manual/Binomial-Coefficients-Algorithm)
+
+The benchmark checks 137 coefficients per limb layout against GMP
+6.3.0, including 128 seeded cases. Times are warm medians from seven
+alternating batches on the Apple M1 Max with the default 64-bit
+Release build, in microseconds.
+
+| n | k | BigMath | GMP |
+|---:|---:|---:|---:|
+| 10,000 | 32 | 0.49 | 0.07 |
+| 10,000 | 5,000 | 34.10 | 15.50 |
+| 1,000,000 | 8,192 | 989.85 | 1,039.85 |
+| 1,000,000 | 500,000 | 5,612.17 | 5,906.67 |
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp binomial
+```
+
 ### Integer square root and remainder
 
 Each size checks 24 random integers, perfect squares and values one below or above a perfect square. The timing fixture is a random integer with the stated bit length. BigMath uses integer Newton iteration, with a scalar path when the input fits in one limb. [CSV with all eight timing rows](docs/benchmarks/2026-11-22-sqrtrem-m1-max.csv)
