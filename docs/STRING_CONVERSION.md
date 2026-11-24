@@ -16,6 +16,7 @@ A technical reference for the decimal I/O subsystem of this BigInteger library: 
    - [The `Pow10` cache](#the-pow10-cache)
 5. [Formatting: BigInteger → decimal string](#formatting-biginteger--decimal-string)
    - [Linear formatter (`ToStringLinearAppend`)](#linear-formatter-tostringlinearappend)
+   - [Scaled-remainder formatter](#scaled-remainder-formatter)
    - [Divide-and-conquer formatter (`ToStringDivConquer`)](#divide-and-conquer-formatter-tostringdivconquer)
    - [The Newton-Divider chain](#the-newton-divider-chain)
 6. [Top-level dispatch](#top-level-dispatch)
@@ -30,7 +31,7 @@ A technical reference for the decimal I/O subsystem of this BigInteger library: 
 
 ## Scope and audience
 
-This document covers `Parse` and `ToString`, declared in `include/biginteger/common/Parser.h` (thresholds and constants) and implemented in `src/common/Parser.cpp`. Multiplication and division are companion documents — string conversion is deeply intertwined with both because parsing builds powers of 10 via multiplication and formatting consumes them via division.
+This document covers `Parse` and `ToString`, declared in `include/biginteger/common/Parser.h` and implemented in `src/common/Parser.cpp`. Parsing uses powers of ten to combine digit blocks. Formatting uses powers of ten to split large values and scaled multiplication to extract chunks at smaller widths.
 
 - [BASE.md](BASE.md) — number representation (limb storage, limb bases, chunking conventions)
 - [MULTIPLICATION.md](MULTIPLICATION.md) — multiplication algorithms used by parser's D&C path and `Pow10`
@@ -281,6 +282,30 @@ The inner loop of `DivModTo(vec, Base10_19, CurrentBase)` walks `vec` from high 
 
 Replacing the prior `__udivmodti4` libcall (one `UDIV` + multiply-subtract on ARM64, one `DIV` on x86) with `UMULH` + adds yields a measured 1.08–2.13× speedup on `ToString` depending on input size — small inputs that stay in the linear leaf gain the most, large inputs gain less because the D&C path dominates. See [Optimizations already implemented §Granlund–Möller](#granlundmöller-magic-number-divmod-in-classicdivision).
 
+### Scaled-remainder formatter
+
+The scaled leaf uses Bouvier and Zimmermann's truncated conversion algorithm.
+Given a magnitude `a`, it picks a chunk count `k` with `a < D`, where
+`D` is the chunk radix to the power `k`. The chunk radix is `10^19` with
+64-bit limbs and `10^9` with 32-bit limbs. With binary scales `S` and `W`,
+the table stores `floor(S*W/D)` for `W > D`. One multiply and a whole-limb
+shift produce an approximation to `(a+1)*S/D`. Subtracting one places the
+scaled fraction strictly below `(a+1)/D`. [Bouvier and Zimmermann, Algorithm 2](https://members.loria.fr/PZimmermann/papers/get_str.pdf)
+
+Each scalar multiply extracts the next chunk from the carry. The remaining
+fraction drops whole low limbs at a rate bounded by `log2(chunk radix)` per
+chunk. Scaling loses less than `3*D/S` in units of the original integer,
+including the final subtraction, and each truncation loses less than
+`D/S`. Choosing `S > (k+3)*D` keeps the total error below one.
+
+The bounded reciprocal table is generated at compile time and shared across
+threads. It occupies about 41 KiB in the standard 64-bit build and 163 KiB
+with 32-bit limbs on a 64-bit host. The default standalone window is 48–96
+limbs with 64-bit limbs and 96–192 limbs with 32-bit limbs. Recursive subtrees
+can enter the path from 12 or 20 limbs, respectively. Smaller standalone
+inputs use the scalar or divmod formatter, and larger inputs split through
+the divide-and-conquer chain. [Paired benchmarks](../BENCHMARK.md#scaled-remainder-decimal-formatting)
+
 ### Divide-and-conquer formatter (`ToStringDivConquer`)
 
 For inputs above the threshold, the formatter mirrors the parser's structure — split the BigInteger at the middle decimal position, format each half independently, concatenate. The key operation is divmod by `10^k` where `k` is half the current decimal length.
@@ -368,7 +393,7 @@ For a 100 000-digit number, the chain entries are at `d ∈ {50 000, 25 000, 12 
 
 ## Top-level dispatch
 
-`ToString(BigInteger)` and `Parse(char const*)` (declared in `include/biginteger/common/Parser.h`, implemented in `src/common/Parser.cpp`) are the entry points. Both inspect the input size and route to either the linear or the D&C implementation.
+`ToString(BigInteger)` and `Parse(char const*)` are the entry points. The parser selects a linear or divide-and-conquer implementation by input size. The formatter also checks the standalone scaled-remainder window before entering divide-and-conquer.
 
 The parser builds values of up to 18 significant decimal digits directly into inline limbs. The formatter emits one-limb values directly and borrows the input limbs through the first D&C split. The linear leaf uses writable limbs for its repeated divmod calls.
 
@@ -382,13 +407,15 @@ flowchart TD
     PD --> PP[Pow10 cache<br/>+ Multiply combine]
     PD -. recurses to .-> PL
 
-    T[ToString&#40;bigInt&#41;] --> TE[EstimateDecimalDigits]
-    TE --> T2{est decimal length &lt; 1024?}
+    T[ToString&#40;bigInt&#41;] --> TE{Scaled standalone window?}
+    TE -- yes --> TS[ToStringScaledAppend]
+    TE -- no --> T2{est decimal length &lt; 1024?}
     T2 -- yes --> TL[ToStringLinearAppend]
     T2 -- no --> TC[thread-local DecimalDcChain<br/>Pow10 + Newton Divider]
     TC --> TD[ToStringDivConquer]
     TD --> NV[NewtonDivision::Divider<br/>DivideAndRemainderLimbs]
-    TD -. leaves to .-> TL
+    TD -. eligible subtrees .-> TS
+    TD -. other leaves .-> TL
 ```
 
 Thresholds (overridable via `-D...`):
@@ -397,6 +424,9 @@ Thresholds (overridable via `-D...`):
 |---|---|---|---|
 | `BIGMATH_PARSE_DC_THRESHOLD` (→ `DecimalDcThreshold` in `include/biginteger/common/Parser.h`) | `2 048` | parse | length below which linear parser runs |
 | `BIGMATH_TOSTR_DC_THRESHOLD` | `1 024` | format | estimated decimal length below which linear formatter runs |
+| `BIGMATH_TOSTR_SCALED_MIN_LIMBS` | `12` / `20` | format | minimum scaled subtree width for 64-bit / 32-bit limbs |
+| `BIGMATH_TOSTR_SCALED_ROOT_MIN_LIMBS` | `48` / `96` | format | minimum scaled standalone width for 64-bit / 32-bit limbs |
+| `BIGMATH_TOSTR_SCALED_MAX_LIMBS` | `96` / `192` | format | maximum scaled width for 64-bit / 32-bit limbs |
 | `BIGMATH_TOSTR_NEWTON_MIN_DIGITS` | `13 000` | format | smallest chain level (digits of its power of ten) divided through a cached Newton reciprocal, single-threaded; smaller levels use the division dispatcher |
 | `BIGMATH_TOSTR_NEWTON_MIN_DIGITS_THREADED` | `6 500` | format | same, for divisions on the calling thread when the pool has more than one thread |
 

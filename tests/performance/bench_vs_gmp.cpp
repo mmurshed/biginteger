@@ -2,6 +2,7 @@
 //
 // Build with cmake --build build --target bench_vs_gmp (requires GMP).
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdio>
@@ -9,9 +10,11 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <gmp.h>
@@ -238,6 +241,58 @@ static void BenchToString(int digits, vector<Row> &rows)
     mpz_clear(g);
 }
 
+// Run one binary-origin fixture in a fresh process so the first call
+// includes formatter setup and starts with empty decimal caches.
+static void BenchBinaryFormat(int digits, uint64_t seed)
+{
+    mt19937_64 gen(seed ^ uint64_t(digits));
+    vector<uint8_t> bytes((uint64_t(digits) * 3322 + 7999) / 8000);
+    for (auto &byte : bytes)
+        byte = uint8_t(gen());
+    bytes.front() |= 128;
+    const bool negative = (seed & 1) == 0;
+    const auto value = BigInteger::FromByteArray(bytes, negative);
+    mpz_t reference;
+    mpz_init(reference);
+    mpz_import(reference, bytes.size(), 1, 1, 0, 0, bytes.data());
+    if (negative)
+        mpz_neg(reference, reference);
+
+    const auto once = [&](bool gmpFirst) {
+        string actual;
+        char *expected = nullptr;
+        const auto big = [&] { actual = ToString(value); };
+        const auto gmp = [&] { expected = mpz_get_str(nullptr, 10, reference); };
+        double bigMs, gmpMs;
+        if (gmpFirst) {
+            gmpMs = TimeMs(gmp, 1);
+            bigMs = TimeMs(big, 1);
+        } else {
+            bigMs = TimeMs(big, 1);
+            gmpMs = TimeMs(gmp, 1);
+        }
+        if (expected == nullptr || actual != expected)
+            throw runtime_error("ToString result differs from GMP");
+        free(expected);
+        return pair{bigMs, gmpMs};
+    };
+
+    const auto first = once(seed & 1);
+    const int repetitions = digits <= 10000 ? 17 : 7;
+    vector<double> big, gmp;
+    for (int i = 0; i < repetitions; ++i) {
+        const auto [bigMs, gmpMs] = once((i + seed) & 1);
+        big.push_back(bigMs);
+        gmp.push_back(gmpMs);
+    }
+    sort(big.begin(), big.end());
+    sort(gmp.begin(), gmp.end());
+    printf("approx_digits,seed,bigmath_first_ms,gmp_first_ms,bigmath_warm_ms,gmp_warm_ms\n");
+    printf("%d,%llu,%.9f,%.9f,%.9f,%.9f\n", digits, static_cast<unsigned long long>(seed),
+           first.first, first.second, big[repetitions / 2], gmp[repetitions / 2]);
+    mpz_clear(reference);
+}
+
 static void BenchBigDecimalAdd(int int_digits, int frac_digits, vector<Row> &rows)
 {
     string sa_int = GenerateRandomDigits(int_digits, 0x11ull ^ (uint64_t)int_digits);
@@ -432,6 +487,22 @@ static void BenchBigDecimalToString(int digits, vector<Row> &rows)
 
 int main(int argc, char **argv)
 {
+    if (argc == 4 && string_view(argv[1]) == "--format") {
+        const auto read = [](string_view text, auto &value) {
+            const auto end = text.data() + text.size();
+            const auto result = from_chars(text.data(), end, value);
+            return result.ec == errc{} && result.ptr == end;
+        };
+        int digits;
+        uint64_t seed;
+        if (read(argv[2], digits) && digits > 0 && read(argv[3], seed)) {
+            BenchBinaryFormat(digits, seed);
+            return 0;
+        }
+        cerr << "usage: bench_vs_gmp --format digits seed\n";
+        return 2;
+    }
+
     cout << "BigMath vs GMP " << gmp_version << "\n\n";
     PrintHeader();
 
@@ -449,7 +520,7 @@ int main(int argc, char **argv)
             BenchDiv(a, b, rows);
             return 0;
         }
-        cerr << "usage: bench_vs_gmp [--div dividend_digits divisor_digits]\n";
+        cerr << "usage: bench_vs_gmp [--div dividend_digits divisor_digits | --format digits seed]\n";
         return 2;
     }
 
