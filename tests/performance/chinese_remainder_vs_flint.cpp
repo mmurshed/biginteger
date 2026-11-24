@@ -2,15 +2,14 @@
 #include <random>
 #include <stdexcept>
 
-#include <gmp.h>
-#include <flint/fmpz.h>
-
 #include "biginteger/ops/Operations.h"
+#include "flint_integer.h"
 #include "paired_timing.h"
 
 namespace
 {
   using namespace BigMath;
+  using bench::FlintInteger;
 
   struct FlintPlan
   {
@@ -31,28 +30,6 @@ namespace
 
     FlintPlan(FlintPlan const &) = delete;
     FlintPlan &operator=(FlintPlan const &) = delete;
-  };
-
-  struct FlintInteger
-  {
-    fmpz_t value;
-
-    FlintInteger() { fmpz_init(value); }
-    ~FlintInteger() { fmpz_clear(value); }
-    FlintInteger(FlintInteger const &) = delete;
-    FlintInteger &operator=(FlintInteger const &) = delete;
-
-    void Set(BigInteger const &source)
-    {
-      const auto bytes = source.ToByteArray();
-      mpz_t word;
-      mpz_init(word);
-      mpz_import(word, bytes.size(), 1, 1, 0, 0, bytes.data());
-      if (source.IsNegative())
-        mpz_neg(word, word);
-      fmpz_set_mpz(value, word);
-      mpz_clear(word);
-    }
   };
 
   void Benchmark(unsigned count, unsigned wordBits, std::mt19937_64 &rng)

@@ -1,6 +1,7 @@
 #ifndef BIGINTEGER_NUMBER_THEORY
 #define BIGINTEGER_NUMBER_THEORY
 
+#include <optional>
 #include <utility>
 
 #include "../BigInteger.h"
@@ -38,6 +39,20 @@ namespace BigMath
   // Return gcd, x and y such that a*x + b*y == gcd. Both inputs may be signed.
   // For two zero inputs all three result fields are zero.
   ExtendedGcdResult ExtendedGcd(BigInteger const &a, BigInteger const &b);
+
+  struct RationalReconstructionResult
+  {
+    BigInteger numerator;
+    BigInteger denominator;
+  };
+
+  // Recover the reduced fraction with |numerator| <= numeratorBound,
+  // 0 < denominator <= denominatorBound, and numerator congruent to
+  // residue * denominator modulo modulus. Return nullopt if none exists.
+  // Throws for modulus <= 1, invalid bounds, or 2*numeratorBound*denominatorBound >= modulus.
+  std::optional<RationalReconstructionResult> ReconstructRational(
+      BigInteger const &residue, BigInteger const &modulus,
+      BigInteger const &numeratorBound, BigInteger const &denominatorBound);
 
   // Return {root, remainder}, where root is floor(sqrt(n)) and
   // remainder is n - root*root. Throws std::invalid_argument for n < 0.

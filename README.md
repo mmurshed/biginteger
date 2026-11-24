@@ -111,6 +111,7 @@ On the Apple M1 Max, comparing two one-million-limb integers that differed only 
 - **Factorial.** `Factorial(n)` computes `n!` for an unsigned integer using prime swing and a balanced product tree. [Benchmark](BENCHMARK.md#prime-swing-factorial)
 - **Binomial coefficients.** `Binomial(n, k)` uses exact division for sparse coefficients and a prime-power product tree for large central coefficients. [Benchmark](BENCHMARK.md#binomial-coefficients)
 - **Chinese remaindering.** `ChineseRemainderPlan` precomputes a product tree for pairwise-coprime word moduli. It reduces signed integers to residues and reconstructs the least nonnegative representative. [Benchmark](BENCHMARK.md#product-tree-chinese-remaindering)
+- **Rational reconstruction.** `ReconstructRational` recovers a reduced fraction from a modular residue and explicit numerator and denominator bounds. [Benchmark](BENCHMARK.md#bounded-rational-reconstruction)
 - **BigDecimal:** Java-style fixed-point decimal (unscaled BigInteger + int scale) with exact +, −, \*; rounded division taking 8 rounding modes; parse/format covering plain and scientific notation.
 - **Calculator REPL:** Variables, hex/bin/dec output, multi-line continuation, comments, `:help :quit :vars :reset :base :digits :time :load :save` directives. Built as a separate executable.
 - **Thread-safe by construction** for concurrent use of distinct objects from distinct threads. See [docs/THREAD_SAFETY.md](docs/THREAD_SAFETY.md).

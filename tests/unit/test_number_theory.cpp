@@ -1,6 +1,8 @@
 #include "unit_test_framework.h"
 
+#include <array>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <thread>
 #include <tuple>
@@ -9,6 +11,46 @@
 #include "biginteger/ops/Operations.h"
 
 using namespace BigMath;
+
+REGISTER_TEST(NumberTheory, RationalReconstruction)
+{
+  const auto word = [](Long value) { return BigIntegerBuilder::From(value); };
+  const ChineseRemainderPlan plan(std::array<DataT, 3>{5, 7, 11});
+  const auto residue = plan.Reconstruct(std::array<DataT, 3>{3, 1, 2});
+  const auto fraction = ReconstructRational(residue - plan.Modulus(), plan.Modulus(), word(5), word(5));
+  ASSERT_TRUE(fraction && fraction->numerator == word(-3) && fraction->denominator == word(4));
+
+  for (Long modulus = 2; modulus <= 27; ++modulus)
+    for (Long maxNumerator = 0; maxNumerator <= 3; ++maxNumerator)
+      for (Long maxDenominator = 1; maxDenominator <= 3; ++maxDenominator)
+      {
+        if (2 * maxNumerator * maxDenominator >= modulus)
+          continue;
+        for (Long a = 0; a < modulus; ++a)
+        {
+          const auto result = ReconstructRational(word(a), word(modulus),
+                                                  word(maxNumerator), word(maxDenominator));
+          bool found = false;
+          for (Long d = 1; d <= maxDenominator; ++d)
+            for (Long n = -maxNumerator; n <= maxNumerator; ++n)
+              if (std::gcd(n, d) == 1 && (a * d - n) % modulus == 0)
+              {
+                found = true;
+                ASSERT_TRUE(result && result->numerator == word(n) && result->denominator == word(d));
+              }
+          ASSERT_EQ(result.has_value(), found);
+        }
+      }
+
+  for (const auto &[modulus, maxNumerator, maxDenominator] :
+       {std::tuple{1, 0, 1}, {40, 5, 4}, {41, -5, 4}, {41, 5, 0}})
+  {
+    bool threw = false;
+    try { (void)ReconstructRational(word(0), word(modulus), word(maxNumerator), word(maxDenominator)); }
+    catch (std::invalid_argument const &) { threw = true; }
+    ASSERT_TRUE(threw);
+  }
+}
 
 REGISTER_TEST(NumberTheory, Binomial)
 {
