@@ -201,13 +201,9 @@
 #define BIGMATH_NTT_TRUNC_BAND_SHIFT 1
 #endif
 
-// Above BIGMATH_NTT_TRUNC_MAX the H + L scheme continues only when the
-// process has a single thread (a -DBIGMATH_USE_THREADS=0 build, or a pool of
-// one), up to this H, with the length-H and length-L transforms run through
-// the fused MFA stages (CrtTruncSerial). The threaded build keeps the full 2H
-// fused-MFA transform there: its tile-parallel stages scale across
-// cores, the truncated pipeline has no such split, and with 8 threads the
-// full transform wins. 2^25 is the largest H the 2^26 length ceiling admits.
+// The single-thread H + L path continues above BIGMATH_NTT_TRUNC_MAX
+// up to this H, using cache-blocked transforms for large H and L
+// (CrtTruncSerial). 2^25 is the largest H the 2^26 length ceiling admits.
 // Set to BIGMATH_NTT_TRUNC_MAX or lower to turn the path off.
 //
 // Its band covers the whole octave (shift 0: c ≤ 2H, where L reaches H and
@@ -222,6 +218,13 @@
 #endif
 #ifndef BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT
 #define BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT 0
+#endif
+
+// Threaded H + L for balanced products just above 2^21 and 2^22 coefficients.
+// Uses fused matrix transforms with two shared scratch planes. Set to 0 to
+// use the full 2H transform for these shapes.
+#ifndef BIGMATH_NTT_TRUNC_THREADED
+#define BIGMATH_NTT_TRUNC_THREADED 1
 #endif
 
 #ifndef NTT_MULTIPLICATION_CRT
@@ -2377,36 +2380,43 @@ namespace BigMath
     // After both inverse transforms (each scaled): unweight the lower part,
     // then recombine into [ C_lo | C_hi ] as derived above.
     template <typename F, typename Weights>
-    inline void TruncUnweightReconstruct(UInt *plane, Int H, Int L, const Weights &plan2H)
+    inline void TruncUnweightReconstructRange(UInt *plane, Int H, Int L, const Weights &plan2H,
+                                              Int first, Int end)
     {
       UInt *lower = plane;
       UInt *cyc = plane + H;
       const auto &weights = WeightDirection<true>(plan2H);
       for (Int k = 0; k < H; k += L)
       {
-        Int i = 0;
+        Int i = first;
 #if BIGMATH_NEON
-        for (; i + 4 <= L; i += 4)
+        for (; i + 4 <= end; i += 4)
         {
           uint32x4_t x = weights.Apply(k + i, vld1q_u32(lower + k + i));
           vst1q_u32(lower + k + i, x);                              // C1[k + i]
           vst1q_u32(cyc + i, NeonSub<F>(vld1q_u32(cyc + i), x));    // C2[i] − F[i], accumulating
         }
 #endif
-        for (; i < L; ++i)
+        for (; i < end; ++i)
         {
           const UInt x = weights.Apply(k + i, lower[k + i]);
           lower[k + i] = x;
           cyc[i] = F::Sub(cyc[i], x);
         }
       }
-      for (Int i = 0; i < L; ++i)
+      for (Int i = first; i < end; ++i)
       {
         const UInt d = cyc[i];
         const UInt half = (d & 1) ? (UInt)((d + F::Prime) >> 1) : (d >> 1); // d / 2 mod P; d + P < 2^32
         cyc[i] = half;                       // C_hi[i]
         lower[i] = F::Add(lower[i], half);   // C_lo[i] = C1[i] + C_hi[i]
       }
+    }
+
+    template <typename F, typename Weights>
+    inline void TruncUnweightReconstruct(UInt *plane, Int H, Int L, const Weights &plan2H)
+    {
+      TruncUnweightReconstructRange<F>(plane, H, L, plan2H, 0, L);
     }
 
     // Pack + weight + fold + both forward transforms, one unit per
@@ -3638,6 +3648,58 @@ namespace BigMath
       InversePtr<F>(out, n, plan, /*scale=*/ true);
     }
 
+#if BIGMATH_NTT_TRUNC && BIGMATH_USE_THREADS
+    inline Int TruncThreadedCyclicLength(ULong coeffCount, Int H, size_t la, size_t lb)
+    {
+      if ((H != (1 << 21) && H != (1 << 22)) || H <= BIGMATH_NTT_TRUNC_MAX ||
+          !MfaFusedWindow(H) || std::max(la, lb) - std::min(la, lb) > 1)
+        return 0;
+      const Int L = TruncBandCyclicLength(coeffCount, H, 2);
+      return L && ParallelAvailableThreads(/*allowParked=*/ true) > 1 ? L : 0;
+    }
+
+    // The operands each fit in H coefficients. Weight them as the fused
+    // forward gathers each tile, including zero padding beyond the operand.
+    template <typename Field>
+    struct NegacyclicOperandView
+    {
+      const PackedOperandView &src;
+      const FactoredWeights<Field> &weights;
+
+      template <typename F>
+      UInt Coeff(SizeT i) const
+      {
+        return (ULong)i < src.coeffCount ? weights.Apply(i, src.Raw(i)) : 0;
+      }
+    };
+
+    template <typename F, UInt G>
+    inline void TruncThreadedPrime(const PackedOperandView &a, const PackedOperandView &b,
+                                   Int H, Int L, UInt *out, UInt *sa, UInt *sb)
+    {
+      const auto &weights = GetNegacyclicWeights<F, G>(H);
+      MfaPlanTree<F> tree;
+      BuildMfaPlanTree<F, G>(H, tree);
+      MfaFusedProductPrime<F>(NegacyclicOperandView<F>{a, weights.forward},
+                              NegacyclicOperandView<F>{b, weights.forward}, out, sa, sb, H, tree);
+
+      // The cyclic convolution uses only the first L entries of scratch,
+      // so the folded inputs fit at offset L in the same two planes.
+      FoldOperand<F>(a, L, sa + L);
+      FoldOperand<F>(b, L, sb + L);
+      CyclicProductViews<F, G>(ResidueView{sa + L}, ResidueView{sb + L}, L, out + H, sa, sb);
+
+      // Each chunk owns its residue classes modulo L. Split on multiples
+      // of four to preserve the aligned vector loads in reconstruction.
+      if (L >= 1024)
+        ParallelDo(L / 4, [&](Int first, Int end) {
+          TruncUnweightReconstructRange<F>(out, H, L, weights, 4 * first, 4 * end);
+        });
+      else
+        TruncUnweightReconstruct<F>(out, H, L, weights);
+    }
+#endif
+
     // ─── Products above one transform: several residues of length H ─────────
     //
     // A product of c = k·H + tail coefficients (0 < tail ≤ H) is recovered
@@ -4024,8 +4086,7 @@ namespace BigMath
     //     entries and one of H, against 9 planes of 2H for the full fused
     //     transform.
     //
-    // Everything runs on the calling thread; see BIGMATH_NTT_TRUNC_SERIAL_MAX
-    // for why the threaded build does not use it. `b` is empty when squaring.
+    // Everything runs on the calling thread. `b` is empty when squaring.
     // pa receives [ C_lo : H | C_hi : L ] for this prime; pb needs H + L
     // entries, scratch H. plan2H supplies the weights ψ^±j.
     template <typename F, UInt G>
@@ -4131,6 +4192,27 @@ namespace BigMath
       static thread_local ProductWorkspace buffers;
       return buffers;
     }
+
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE && BIGMATH_USE_THREADS
+    // H fits the fused matrix transform, and L <= H/4. Each operand fits
+    // in H coefficients. Keep only two length-H transpose planes by
+    // completing each prime before starting the next.
+    inline void CrtTruncThreaded(const PackedOperandView &a, const PackedOperandView &b,
+                                 Int H, Int L, ProductWorkspace &work)
+    {
+      for (SizeT i = 2; i < work.transpose.size(); ++i)
+        std::vector<UInt>().swap(work.transpose[i]);
+      work.transpose[0].resize(H);
+      work.transpose[1].resize(H);
+      UInt *sa = work.transpose[0].data(), *sb = work.transpose[1].data();
+      work.fa1.resize(H + L);
+      work.fa2.resize(H + L);
+      work.fa3.resize(H + L);
+      TruncThreadedPrime<F1, G1>(a, b, H, L, work.fa1.data(), sa, sb);
+      TruncThreadedPrime<F2, G2>(a, b, H, L, work.fa2.data(), sa, sb);
+      TruncThreadedPrime<F3, G3>(a, b, H, L, work.fa3.data(), sa, sb);
+    }
+#endif
 
 #if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA && BIGMATH_NTT_MFA_FUSE
     // ─── Finalize for biased coefficients ───────────────────────────────────
@@ -4502,7 +4584,8 @@ namespace BigMath
       const bool sameOperand = a.data() == b.data() && a.size() == b.size();
       const Int n = (Int)std::bit_ceil(coeffCount);
 
-      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = GetProductWorkspace();
+      auto &work = GetProductWorkspace();
+      auto &[fa1, fb1, fa2, fb2, fa3, fb3, mfaScratch] = work;
       auto multiplySpectra = [&](Int length) {
         CrtPointwiseMulInto(fa1.data(), fa2.data(), fa3.data(),
                             sameOperand ? fa1.data() : fb1.data(),
@@ -4542,6 +4625,18 @@ namespace BigMath
                        (Int)BIGMATH_NTT_MFA_THRESHOLD, fa1, fa2, fa3, fb1, fb2);
         return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
       }
+
+#if BIGMATH_NTT_TRUNC && BIGMATH_NTT_MFA_FUSE && BIGMATH_NTT_TRUNC_THREADED && BIGMATH_USE_THREADS
+      if (!sameOperand)
+      {
+        const Int H = n >> 1;
+        if (const Int L = TruncThreadedCyclicLength(coeffCount, H, a.size(), b.size()); L != 0)
+        {
+          CrtTruncThreaded(PackedOperandView(a, base), PackedOperandView(b, base), H, L, work);
+          return FinalizeProductInto(fa1, fa2, fa3, coeffCount, base, a.size() + b.size() + 2, result);
+        }
+      }
+#endif
 
       if (UseMfaForShape(a.size(), b.size(), n))
       {

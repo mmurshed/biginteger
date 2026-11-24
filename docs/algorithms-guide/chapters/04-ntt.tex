@@ -401,7 +401,7 @@ take 108\,MiB, down from 2,304\,MiB. Leaf plans and transform buffers are additi
 \section{The power-of-two staircase and the $H + L$ trick}
 \label{sec:trunc}
 
-The transform length is a power of two at least as long as the product. A product needing
+An ordinary transform takes a power-of-two length at least as long as the product. A product needing
 $c = 4100$ coefficients therefore uses length 8192: almost double the work of a product
 needing 4096. Plotted against size, the cost is a staircase (\cref{fig:trunc}).
 
@@ -416,16 +416,17 @@ $2048 \le H \le 2^{20}$, up to $1.5H$). Computed from the length rules in the so
 
 For two equal $m$-limb operands the product has $4m-1$ coefficient slots.
 At 10 million decimal digits per operand it fills 99\% of a $2^{21}$-point transform.
-The threaded transform doubles near 10.10 million digits and again near 20.20 million.
+The full transform lengths double near 10.10 and 20.20 million digits. Threaded $H+L$
+fills the first quarter of each new coefficient band.
 At 50, 100 and 200 million digits the product fills about 62\% of each selected length.
 Figure~\ref{fig:largefill} shows where the benchmark cases land between doublings.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.85\textwidth]{figures/large_transform_fill.pdf}
-\caption{Fraction of the threaded transform occupied by an equal-length product,
-computed from the 64-bit limb count. Each dotted drop marks the next power of two.
-The dots mark input sizes from the full benchmark.}
+\caption{Fraction of the transform occupied by an equal-length product, computed from
+the 64-bit limb count. Orange marks the large threaded $H+L$ bands. Blue shows the
+full transform for reference, and dots mark sizes from the full benchmark.}
 \label{fig:largefill}
 \end{figure}
 
@@ -436,10 +437,10 @@ glues them together:
   \item The product \emph{modulo $x^H + 1$}, using a length-$H$ transform. (This is a
         ``negacyclic'' transform: coefficients that wrap around come back with a minus
         sign. It is a normal transform with the inputs pre-multiplied by powers of a
-        $2H$-th root of unity; those weights are exactly the twiddle tables of the length-$2H$
-        transform, so nothing new is needed.)
+        $2H$-th root of unity. The small path reads these weights from the length-$2H$
+        plan, and the large paths store factored powers.)
   \item The product \emph{modulo $x^L - 1$}, using a short cyclic transform of length $L$,
-        the smallest power of two covering the overflow $c - H$.
+        the smallest power of two at least 64 that covers the overflow $c - H$.
 \end{enumerate}
 
 Because $x^H + 1$ and $x^L - 1$ share no factor, the two residues determine the product,
@@ -467,9 +468,27 @@ $2^{18}$ & 2\,891 & 3\,064 & 3\,657 & 3\,951 & 6\,839 \\
 
 In single-threaded builds the scheme continues up to $H = 2^{25}$ for the whole octave,
 processing one prime at a time to keep the working set small (0.45--0.88 times the full
-transform's time). Multithreaded builds keep the full transform above $2^{20}$ because its
-fused stages split better across cores.
+transform's time).
 
+\subsection{Large threaded transforms}
+
+With at least two threads available, two separate operand buffers within one limb
+of each other use fused matrix transforms for $H = 2^{21}$ or $2^{22}$ and
+$H < c \le 1.25H$. The caller runs one prime at a time and shares two length-$H$
+transpose buffers across primes. Each forward gather weights the input limbs
+as it packs a tile. The cyclic transform folds its operands into unused space
+in those same buffers. Reconstruction can split the $L$ residue classes among
+workers because each class updates disjoint coefficients.
+
+\begin{perfnote}
+In five paired fresh-process trials per size on the M1 Max, eight in-band cases
+ran 1.25--1.64 times as fast on warm calls and used 49--59\% less peak memory.
+The study used eight threads and checked the returned limbs against GMP.
+Set \code{BIGMATH\_NTT\_TRUNC\_THREADED=0} to use the full transform in these
+bands. \href{https://github.com/mmurshed/biginteger/blob/main/docs/MULTIPLICATION.md#threaded-h--l-with-fused-matrix-transforms}{Measurements and reproduction commands}
+\end{perfnote}
+
+\clearpage
 \section{Using all the cores}
 \label{sec:nttthreads}
 
@@ -513,9 +532,10 @@ across the pool, which includes the caller and supports up to eight threads by d
 \section{Squares and reused operands}
 \label{sec:nttreuse}
 
-\textbf{Squares.} The ordinary CRT and truncated paths can transform one operand
-and square its spectrum when both inputs refer to the same vector. The fused matrix
-path uses the same paired-row forward stages for squares as for other products.
+\textbf{Squares.} The ordinary CRT, whole-array $H+L$, and single-thread $H+L$ paths
+can transform one operand and square its spectrum when both inputs refer to the
+same vector. The full fused matrix path uses the same paired-row forward stages
+for squares as for other products.
 
 \textbf{Reused operands.} If you multiply many numbers by the same large number, its
 transforms can be computed once:

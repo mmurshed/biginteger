@@ -36,8 +36,9 @@ macro & default & meaning \\
 \code{BIGMATH\_NTT\_CRT\_THRESHOLD} & 256 & three-prime NTT vs Goldilocks (always three-prime in practice) \\
 \code{BIGMATH\_NTT\_MFA\_THRESHOLD} & $2^{20}$ & matrix (six-step) method from this transform length \\
 \code{BIGMATH\_NTT\_MFA\_LEAF} & $2^{13}$ & longest short transform in the matrix method \\
-\code{BIGMATH\_NTT\_TRUNC\_MIN} / \code{\_MAX} & 2048 / $2^{20}$ & range of $H$ for the $H+L$ scheme \\
+\code{BIGMATH\_NTT\_TRUNC\_MIN} / \code{\_MAX} & 2048 / $2^{20}$ & range of $H$ for whole-array $H+L$ \\
 \code{BIGMATH\_NTT\_TRUNC\_SERIAL\_MAX} & $2^{25}$ & $H + L$ upper limit with one thread \\
+\code{BIGMATH\_NTT\_TRUNC\_THREADED} & 1 & threaded matrix $H+L$ at $H=2^{21}$ or $2^{22}$ (\cref{sec:trunc}) \\
 \code{BIGMATH\_NTT\_PARALLEL\_MIN} & 2048 & smaller transforms run on the calling thread \\
 \code{BIGMATH\_NTT\_FINALIZE\_PARALLEL\_MIN} & 4096 & carry pass split across threads from this many limbs \\
 \code{BIGMATH\_NTT\_FERMAT\_MIN\_COEFFS} & off & opt-in threshold in product coefficients (\cref{sec:fermatdispatch}) \\
