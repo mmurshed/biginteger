@@ -8,6 +8,23 @@
 
 using namespace BigMath;
 
+REGISTER_TEST(NumberTheory, Factorial)
+{
+  const auto one = BigIntegerBuilder::From("1");
+  ASSERT_EQ(Factorial(0), one);
+  ASSERT_EQ(Factorial(1), one);
+  ASSERT_EQ(Factorial(20), BigIntegerBuilder::From("2432902008176640000"));
+  ASSERT_EQ(Factorial(21), BigIntegerBuilder::From("51090942171709440000"));
+
+  auto expected = one;
+  for (UInt n = 1; n <= 4097; ++n)
+  {
+    expected = expected * static_cast<DataT>(n);
+    if (n <= 130 || n == 511 || n == 512 || n == 513 || n == 4097)
+      ASSERT_TRUE(Factorial(n) == expected);
+  }
+}
+
 REGISTER_TEST(NumberTheory, PowMod)
 {
   const auto value = [](const char *s) { return BigIntegerBuilder::From(s); };

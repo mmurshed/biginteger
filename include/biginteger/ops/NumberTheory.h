@@ -41,6 +41,9 @@ namespace BigMath
   // Return {root, remainder}, where root is floor(sqrt(n)) and
   // remainder is n - root*root. Throws std::invalid_argument for n < 0.
   std::pair<BigInteger, BigInteger> SqrtRem(BigInteger const &n);
+
+  // Return n!, with 0! equal to one.
+  BigInteger Factorial(UInt n);
 }
 
 #endif
