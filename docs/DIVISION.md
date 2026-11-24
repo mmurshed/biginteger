@@ -16,6 +16,7 @@ A technical reference for the division subsystem of this BigInteger library: imp
    - [Burnikel–Ziegler division](#burnikel-ziegler-division)
    - [Newton–Raphson division](#newton-raphson-division)
    - [Reciprocal-cached division](#reciprocal-cached-division)
+   - [Exact division](#exact-division)
 5. [Benchmark results vs GMP](#benchmark-results-vs-gmp)
 6. [Optimizations already implemented](#optimizations-already-implemented)
 7. [Future opportunities](#future-opportunities)
@@ -26,7 +27,7 @@ A technical reference for the division subsystem of this BigInteger library: imp
 
 ## Scope and audience
 
-This document covers `Divide` and `DivideAndRemainder` only. Multiplication is the natural companion (see [MULTIPLICATION.md](MULTIPLICATION.md)); division algorithms in this codebase invoke multiplication heavily through Newton iteration and Burnikel–Ziegler recursion, so the analysis here cross-references multiplication when relevant.
+This document covers `Divide`, `DivideAndRemainder`, and `DivideExact`. Newton iteration and Burnikel–Ziegler recursion use the algorithms in [MULTIPLICATION.md](MULTIPLICATION.md).
 
 Assumed reader: a working C++ engineer with light numerics background. Familiar with the textbook long-division algorithm. Knowledge of [Knuth Vol. 2 §4.3.1 Algorithm D](https://en.wikipedia.org/wiki/Division_algorithm#Integer_division_%28unsigned%29_with_remainder) helps but isn't required.
 
@@ -368,6 +369,34 @@ public:
 This is the foundation of the divide-and-conquer ToString optimization. `Parser.h::BuildDecimalDcChain` constructs a chain of `Divider` instances — one per level of the D&C recursion, each holding `10^(N/2^i)` and its reciprocal — so the recursion's repeated divmods by these constants run at O(M(n)) per divide instead of incurring per-divide reciprocal setup.
 
 ---
+
+### Exact division
+
+`DivideExact(a, b)` requires a nonzero divisor and a dividend known to be a
+multiple of it. It throws `std::invalid_argument` for a zero divisor.
+The result has the usual quotient sign and zero is canonical.
+
+Let `B` be the limb radix. The magnitude kernel takes a bound of
+`floor((bit_length(a) - bit_length(b)) / limb_bits) + 1` quotient limbs for
+a nonzero dividend. If the quotient fits in `k` limbs, its residue modulo
+`B^k` determines it uniquely. The kernel strips the divisor's powers of two
+from both operands and reads at most `k` low limbs of the shifted values,
+plus the carry-in limb for a partial right shift.
+
+For short quotients, Jebelean's algorithm multiplies the lowest remaining
+limb by the inverse of the divisor's low odd limb. It subtracts that quotient
+digit times the divisor and stores the digit in the cancelled limb. All
+arithmetic stays within the quotient width. A one-limb divisor needs only a
+running carry. For longer quotients, Newton–Hensel lifting computes the
+odd divisor's inverse modulo `B^k` and a low product recovers the quotient.
+The lifting and low-product kernels are shared with FastREDC.
+[Brent and Zimmermann, §1.4.5](https://maths-people.anu.edu.au/~brent/pd/mca-0.5.1.pdf)
+
+With 64-bit limbs, lifting starts at a 1,024-limb quotient bound and a
+512-limb odd divisor. From a 2,048-limb quotient bound, the divisor
+minimum drops to 256 limbs. With 32-bit limbs, the cutoffs are 256 and
+128 limbs. Compile with `-DBIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT=0` to
+measure the schoolbook path at all widths. [Exact division timings](../BENCHMARK.md#exact-division)
 
 ## Benchmark results vs GMP
 

@@ -1227,6 +1227,47 @@ cmake --build build --target division_handoff_bench
 ./build/division_handoff_bench 524288 131072 dispatch q exact 0 5
 ```
 
+## Exact division
+
+On the Apple M1 Max, Apple Clang 21 compiled native Release builds of
+BigMath. GMP 6.3.0 used one thread. Each program received the same seeded
+binary inputs and checked its quotient against the GMP fixture. The
+table shows the median of seven fresh processes per path. Each process
+timed a first call and nine warm calls and contributed its fastest warm
+call. Input generation, conversion, and correctness checks were outside
+the timers. Times are in microseconds. The two even-divisor rows use a
+five-bit top shift and 69 trailing zero bits.
+
+| Dividend ÷ divisor limbs | Divisor | BigMath `/`, default | `DivideExact`, default | BigMath `/`, one thread | `DivideExact`, one thread | GMP `mpz_divexact` |
+|---|---|---:|---:|---:|---:|---:|
+| 191 ÷ 128 | Odd | 6.08 | 1.29 | 6.33 | 1.29 | 0.96 |
+| 8,255 ÷ 8,192 | Odd | 139.96 | 1.25 | 443.29 | 1.25 | 0.96 |
+| 8,255 ÷ 8,192 | Even | 143.83 | 1.46 | 443.38 | 1.46 | 1.00 |
+| 575 ÷ 64 | Odd | 23.21 | 19.54 | 23.92 | 20.04 | 15.17 |
+| 1,023 ÷ 512 | Odd | 77.33 | 72.67 | 82.21 | 77.46 | 42.92 |
+| 2,047 ÷ 1,024 | Odd | 211.67 | 160.42 | 235.75 | 242.50 | 134.00 |
+| 4,095 ÷ 2,048 | Odd | 507.54 | 283.92 | 642.75 | 559.25 | 366.50 |
+| 16,383 ÷ 8,192 | Odd | 1,543.58 | 981.33 | 4,488.58 | 2,683.17 | 2,066.79 |
+| 4,351 ÷ 256 | Even | 404.54 | 553.13 | 404.67 | 553.08 | 337.92 |
+
+On the default build, Newton–Hensel lifting reduced the 2,047 ÷ 1,024
+exact case from 289.67 µs with schoolbook to 160.42 µs. At 16,383 ÷ 8,192
+it reduced 18,496.63 µs to 981.33 µs. The last row has 255 odd divisor
+limbs after shifting and uses schoolbook. In the legacy 32-bit build,
+the 1,023 ÷ 512 case took 236.13 µs with schoolbook and 111.83 µs with
+lifting. [Exact division dispatch](docs/DIVISION.md#exact-division)
+
+```sh
+cmake --build build --target division_handoff_bench
+for path in dispatch exact gmp-exact; do
+  ./build/division_handoff_bench 4095 2048 "$path" q exact 0 9 0
+done
+```
+
+The final argument gives the divisor's trailing zero bits. Use
+`-DBIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT=0` in a separate build to time
+schoolbook at the same operand widths.
+
 ## Internal algorithm crossovers
 
 The November 21 run of `multperf_simple 5` used equal-length random operands. Times are the mean of five calls, and speedups are relative to classical multiplication. All products matched at all four tested sizes.

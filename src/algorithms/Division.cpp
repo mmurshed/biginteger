@@ -6,8 +6,14 @@
 
 #include "biginteger/algorithms/Division.h"
 #include "biginteger/algorithms/division/QuotientSizedDivision.h"
+#include "biginteger/common/BitShifts.h"
+#include "PowerOfTwo.h"
 
 #include <stdexcept>
+
+#ifndef BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT
+#define BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT (LimbBits == 64 ? 1024 : 256)
+#endif
 
 namespace BigMath
 {
@@ -43,6 +49,111 @@ namespace BigMath
   const SizeT DIV_NEWTON_SKEW_RATIO = BIGMATH_DIV_NEWTON_SKEW_RATIO;
   const SizeT DIV_NEWTON_NEAR2_MIN_B = BIGMATH_DIV_NEWTON_NEAR2_MIN_B;
   const SizeT DIV_QSIZED_MIN_QUOTIENT = BIGMATH_DIV_QSIZED_MIN_QUOTIENT;
+
+  namespace
+  {
+    void DivideExactSchoolbook(std::span<DataT> quotient, std::span<const DataT> divisor)
+    {
+      const DataT inverse = detail::PowerOfTwo::InvertOddLimb(divisor.front());
+      if (divisor.size() == 1)
+      {
+        if (divisor.front() == 1)
+          return;
+        DataT carry = 0;
+        for (auto &limb : quotient)
+        {
+          const DataT digit = ((limb - carry) * inverse) & LimbMask;
+          carry = static_cast<DataT>((ULong128{digit} * divisor.front() + carry) >> LimbBits);
+          limb = digit;
+        }
+        return;
+      }
+
+      // Cancel one low limb of the dividend at a time. Store the quotient
+      // digit in the vacated limb and ignore borrows past the quotient width.
+      for (std::size_t i = 0; i + 1 < quotient.size(); ++i)
+      {
+        const DataT digit = (quotient[i] * inverse) & LimbMask;
+        const auto length = std::min(divisor.size(), quotient.size() - i);
+        DataT borrow = 0;
+        if constexpr (LimbBits == 64)
+          borrow = LimbKernel::SubMul1(quotient.data() + i, divisor.data(), length, digit);
+        else
+        {
+          for (std::size_t j = 0; j < length; ++j)
+          {
+            const DataT product = digit * divisor[j] + borrow;
+            const DataT low = product & LimbMask;
+            const DataT limb = quotient[i + j];
+            quotient[i + j] = (limb - low) & LimbMask;
+            borrow = (product >> LimbBits) + (limb < low);
+          }
+        }
+        for (std::size_t j = i + length; borrow != 0 && j < quotient.size(); ++j)
+        {
+          const DataT limb = quotient[j];
+          quotient[j] = (limb - borrow) & LimbMask;
+          borrow = limb < borrow;
+        }
+        quotient[i] = digit;
+      }
+      quotient.back() = (quotient.back() * inverse) & LimbMask;
+    }
+
+    std::vector<DataT> ShiftRightLow(std::span<const DataT> limbs, Int bits, std::size_t count)
+    {
+      // A partial shift also needs the limb just above the requested window.
+      auto low = ShiftRightBits(detail::PowerOfTwo::Low(limbs, count + (bits != 0)), bits, LimbBits);
+      if (low.size() > count)
+        low.resize(count);
+      return low;
+    }
+  }
+
+  std::vector<DataT> detail::DivideExactLimbs(std::span<const DataT> a, std::span<const DataT> b)
+  {
+    a = a.first(LimbDetail::TrimmedLimbCount(a));
+    b = b.first(LimbDetail::TrimmedLimbCount(b));
+    if (b.empty() || (b.size() == 1 && b.front() == 0))
+      throw std::invalid_argument("Division by zero");
+    if (a.empty() || (a.size() == 1 && a.front() == 0))
+      return {0};
+
+    const auto dividendBits = LimbDetail::BitLength(a);
+    const auto divisorBits = LimbDetail::BitLength(b);
+    if (dividendBits < divisorBits)
+      throw std::invalid_argument("DivideExact requires an exact multiple");
+    // The quotient fits in this many limbs. Modulo B^count therefore
+    // determines it uniquely after both operands are shifted by v2(b).
+    const auto count = (dividendBits - divisorBits) / LimbBits + 1;
+    std::size_t zeroLimbs = 0;
+    while (b[zeroLimbs] == 0)
+      ++zeroLimbs;
+    b = b.subspan(zeroLimbs);
+    a = a.subspan(zeroLimbs);
+    const Int shift = std::countr_zero(b.front());
+
+    auto quotient = ShiftRightLow(a, shift, count);
+    std::vector<DataT> shiftedDivisor;
+    if (shift != 0)
+    {
+      shiftedDivisor = ShiftRightLow(b, shift, count);
+      b = shiftedDivisor;
+    }
+    b = PowerOfTwo::Low(b, count);
+    b = b.first(LimbDetail::TrimmedLimbCount(b));
+
+    // Lifting costs more than the schoolbook loop on narrow divisors,
+    // even when the quotient is long. See the exact division benchmark.
+    constexpr std::size_t newtonMin = BIGMATH_DIVEXACT_NEWTON_MIN_QUOTIENT;
+    const std::size_t minDivisor = LimbBits == 32 ? 128 : (count >= 2048 ? 256 : 512);
+    if (newtonMin != 0 && count >= newtonMin && b.size() >= minDivisor)
+      return PowerOfTwo::MultiplyLow(quotient, PowerOfTwo::InvertOddLimbs(b, count), count);
+
+    quotient.resize(count);
+    DivideExactSchoolbook(quotient, b);
+    return quotient;
+  }
 
   std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
       std::vector<DataT> const &a,
