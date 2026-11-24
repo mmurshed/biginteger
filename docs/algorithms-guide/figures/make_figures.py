@@ -231,7 +231,7 @@ def fig_trunc():
         full.append(n)
         H = n // 2
         if c > H and c <= H + H // 2 and H >= 2048:
-            L = 1 << int(math.ceil(math.log2(c - H)))
+            L = max(64, 1 << int(math.ceil(math.log2(c - H))))
             trunc.append(H + L)
         else:
             trunc.append(n)
@@ -247,7 +247,7 @@ def fig_trunc():
 
 
 def fig_large_transform_fill():
-    """Fraction of the full threaded transform occupied by a balanced product."""
+    """Fraction of the selected threaded transform occupied by a balanced product."""
     digits_per_limb = 64 * math.log10(2)
     lo, hi = 9e6, 210e6
     fig, ax = plt.subplots(figsize=(6.2, 2.55))
@@ -257,14 +257,30 @@ def fig_large_transform_fill():
         end = min(hi, length / 4 * digits_per_limb)
         digits = np.geomspace(start, end, 100)
         limbs = np.minimum(np.ceil(digits / digits_per_limb), length // 4)
-        ax.plot(digits / 1e6, 100 * (4 * limbs - 1) / length, color=BLUE)
+        ax.plot(digits / 1e6, 100 * (4 * limbs - 1) / length, color=BLUE,
+                label="Full transform" if power == 21 else None)
         if end < hi:
             ax.vlines(end / 1e6, 50, 100, colors=MUTED, linestyles=":", lw=1)
+
+    # Equal-length 64-bit operands have c = 4m - 1 coefficient slots.
+    # Include the last and first representable c on either side of each L step.
+    for power in (21, 22):
+        h = 1 << power
+        points = []
+        for exponent in range(6, power - 1):
+            length = 1 << exponent
+            lower = h if exponent == 6 else h + length // 2
+            first = (lower + 1) // 4 + 1
+            last = (h + length + 1) // 4
+            for limbs in (first, last):
+                points.append((limbs * digits_per_limb / 1e6, 100 * (4 * limbs - 1) / (h + length)))
+        ax.plot(*zip(*points), color=ORANGE,
+                label="$H+L$ bands" if power == 21 else None)
 
     samples = [10, 20, 50, 100, 200]
     used = [4 * math.ceil(m * 1e6 / digits_per_limb) - 1 for m in samples]
     fill = [100 * c / (1 << (c - 1).bit_length()) for c in used]
-    ax.scatter(samples, fill, color=ORANGE, zorder=3, label="Benchmark sizes")
+    ax.scatter(samples, fill, color=INK, zorder=3, label="Benchmark sizes")
     ax.set_xscale("log")
     ax.set_xticks(samples, labels=[str(m) for m in samples])
     ax.set_xticks([], minor=True)
@@ -273,7 +289,7 @@ def fig_large_transform_fill():
     ax.set_yticks([50, 75, 100], labels=["50%", "75%", "100%"])
     ax.set_xlabel("Millions of decimal digits per operand")
     ax.set_ylabel("Transform filled")
-    ax.legend(loc="upper left", bbox_to_anchor=(0, -0.32), borderaxespad=0)
+    ax.legend(loc="upper left", bbox_to_anchor=(0, -0.32), borderaxespad=0, ncol=3)
     fig.savefig(os.path.join(OUT, "large_transform_fill.pdf"))
     plt.close(fig)
 

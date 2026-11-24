@@ -201,13 +201,9 @@
 #define BIGMATH_NTT_TRUNC_BAND_SHIFT 1
 #endif
 
-// Above BIGMATH_NTT_TRUNC_MAX the H + L scheme continues only when the
-// process has a single thread (a -DBIGMATH_USE_THREADS=0 build, or a pool of
-// one), up to this H, with the length-H and length-L transforms run through
-// the fused MFA stages (CrtTruncSerial). The threaded build keeps the full 2H
-// fused-MFA transform there: its tile-parallel stages scale across
-// cores, the truncated pipeline has no such split, and with 8 threads the
-// full transform wins. 2^25 is the largest H the 2^26 length ceiling admits.
+// The single-thread H + L path continues above BIGMATH_NTT_TRUNC_MAX
+// up to this H, using cache-blocked transforms for large H and L
+// (CrtTruncSerial). 2^25 is the largest H the 2^26 length ceiling admits.
 // Set to BIGMATH_NTT_TRUNC_MAX or lower to turn the path off.
 //
 // Its band covers the whole octave (shift 0: c ≤ 2H, where L reaches H and
@@ -224,10 +220,11 @@
 #define BIGMATH_NTT_TRUNC_SERIAL_BAND_SHIFT 0
 #endif
 
-// Experimental threaded H + L for balanced products just above 2^21 and 2^22
-// coefficients. Uses the fused matrix transforms with two shared scratch planes.
+// Threaded H + L for balanced products just above 2^21 and 2^22 coefficients.
+// Uses fused matrix transforms with two shared scratch planes. Set to 0 to
+// use the full 2H transform for these shapes.
 #ifndef BIGMATH_NTT_TRUNC_THREADED
-#define BIGMATH_NTT_TRUNC_THREADED 0
+#define BIGMATH_NTT_TRUNC_THREADED 1
 #endif
 
 #ifndef NTT_MULTIPLICATION_CRT
@@ -4089,8 +4086,7 @@ namespace BigMath
     //     entries and one of H, against 9 planes of 2H for the full fused
     //     transform.
     //
-    // Everything runs on the calling thread; see BIGMATH_NTT_TRUNC_SERIAL_MAX
-    // for why the threaded build does not use it. `b` is empty when squaring.
+    // Everything runs on the calling thread. `b` is empty when squaring.
     // pa receives [ C_lo : H | C_hi : L ] for this prime; pb needs H + L
     // entries, scratch H. plan2H supplies the weights ψ^±j.
     template <typename F, UInt G>
