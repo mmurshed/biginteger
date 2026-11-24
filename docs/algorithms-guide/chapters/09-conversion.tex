@@ -13,8 +13,9 @@ digits that is $L$ big-number operations, each on a number of up to $L/19$ limbs
 $L^2/19$ limb operations. Printing the schoolbook way (``divide by 10, emit the remainder'') is
 equally quadratic. At a million digits that is around $10^{10}$ operations.
 
-The library removes this cost in two layers: a constant-factor speedup (handle 18--19 digits
-at a time) and an asymptotic one (divide and conquer).
+Chunking reduces the number of operations by handling up to 19 decimal digits at a time.
+Scaled-remainder formatting changes the chunk operation to multiplication, and
+divide and conquer reduces the asymptotic cost for large inputs.
 
 \section{Small numbers: 18 or 19 digits at a time}
 \label{sec:linparse}
@@ -44,10 +45,48 @@ $8\,446\,744\,073\,709\,551\,616$. The quotient is printed without padding and t
 padded to 19 digits: \code{"1" + "8446744073709551616"} $= 18\,446\,744\,073\,709\,551\,616$.
 \end{example}
 
-These ``linear'' routines are still quadratic overall, but with a small constant. They handle
-numbers up to 2048 digits for parsing (\code{BIGMATH\_PARSE\_DC\_THRESHOLD}) and below 1024
-digits for printing (\code{BIGMATH\_TOSTR\_DC\_THRESHOLD}), and the leaves of the
-divide-and-conquer recursion below.
+These routines are quadratic overall. Parsing uses the linear loop through 2\,048 digits,
+and a value with at most 18 significant digits can go directly into inline limbs.
+Printing emits single-limb values directly. The repeated-division loop handles the
+remaining small inputs and the recursive leaves that fall outside the scaled window.
+
+\section{Scaled-remainder formatting}
+\label{sec:scaledformat}
+
+\href{https://members.loria.fr/PZimmermann/papers/get_str.pdf}{Bouvier and Zimmermann's Algorithm~2}
+extracts decimal chunks from a fixed-point binary fraction. Choose $k$ chunks
+so the magnitude $a$ is less than $D=b^k$. The chunk radix $b$ is $10^{19}$
+with 64-bit limbs and $10^9$ with 32-bit limbs.
+
+Choose limb-aligned powers $S$ and $W$ of two with $S>(k+3)D$ and $W>D$.
+The read-only table stores $I=\floor{SW/D}$. One multiplication and a limb
+shift form
+\[
+y=\floor{(a+1)I/W}-1.
+\]
+Multiplying the fraction $y/S$ by $b$ exposes the next chunk in the carry.
+The remaining fraction goes into the next step. After $i$ chunks, the
+implementation drops whole low limbs at a rate bounded by $i\log_2 b$ bits.
+
+The table approximation, shift, and subtraction together lose less than
+$3D/S$ in units of the original integer. The truncated limbs at each
+step lose less than $D/S$ in the same units. The guard bits keep the
+total loss below one, so the emitted chunks still give $a$ exactly.
+
+\begin{example}[ in radix 10]
+For $a=42$ and $k=2$, take $D=100$, $S=1\,024$, and $W=128$.
+The reciprocal is $I=1\,310$, giving $y=439$.
+Multiplying by 10 gives $4\cdot1\,024+294$, so the first digit is 4.
+In this example, discard three low bits to leave the fraction $36/128$.
+The next product is $360=2\cdot128+104$, which gives the second digit 2.
+\end{example}
+
+The default standalone window is 48--96 limbs in the 64-bit build and
+96--192 limbs in the legacy build. Recursive subtrees can use the same
+algorithm from 12 or 20 limbs, respectively, up to the same upper
+limits. The reciprocal table is generated at compile time and shared
+across threads. Leading zeros are omitted at the top of the string,
+and lower fields keep their assigned width.
 
 \section{Large numbers: divide and conquer}
 
@@ -84,14 +123,19 @@ $1234 \cdot 10^4 + 5678 = 12\,345\,678$.}
 multiplication by a power of ten.}
 \end{figure}
 
-The powers of ten come from \code{Pow10}, which caches them per thread and builds even powers
-by \emph{squaring} ($10^{2k} = (10^k)^2$, using the faster square path). After the first
-conversion of a given size, the powers are free.
+The parser borrows powers of ten from an internal per-thread cache.
+Even powers use the square path, $10^{2k}=(10^k)^2$. A join adds the low
+half into the multiplication result, and heap-sized integers adopt the
+final limb buffer. The public \code{Pow10} returns its own vector.
 
 \subsection{Printing}
 
 Printing is the same tree read downward: divide by $10^{k}$, where $k$ is half the digit count.
 The quotient gives the top half of the digits, the remainder the bottom half. Recurse on both.
+
+The first split borrows the input limbs. Later splits own their quotient and
+remainder buffers. A subtree that fits the scaled window can finish without
+another split.
 
 \begin{figure}[ht]
 \centering
@@ -116,7 +160,8 @@ piece is printed without leading zeros.}
 
 The divisions are by the same few powers of ten again and again, which is exactly the case
 for cached reciprocals (\cref{sec:cached}). For each level of the tree the library stores a
-\emph{divider}: the power $10^{k}$ and its Newton reciprocal. The chain of dividers is cached
+power $10^{k}$ and, at large enough levels, a \emph{divider} with its Newton reciprocal.
+The chain is cached
 per thread and reused by later conversions of similar size: the chain's top size is rounded
 up to a grid of 16 steps per doubling, so numbers of slightly different lengths share one
 chain.
@@ -155,22 +200,33 @@ fixed width, each subtree can write straight into its slot of the output string.
 \toprule
 operation & BigMath, 1 thread & GMP, 1 thread & default build $\div$ GMP \\
 \midrule
-parse 100\,000 digits & 1.644\,ms & 1.057\,ms & 0.52$\times$ \\
-parse 20\,000\,000 digits & 910.3\,ms & 809.8\,ms & 0.21$\times$ \\
-print 100\,000 digits & 3.186\,ms & 2.382\,ms & 0.52$\times$ \\
-print 20\,000\,000 digits & 2\,546\,ms & 2\,118\,ms & 0.24$\times$ \\
+parse 100\,000 digits & 1.437\,ms & 1.053\,ms & 0.50$\times$ \\
+parse 20\,000\,000 digits & 837.4\,ms & 805.5\,ms & 0.20$\times$ \\
+print 100\,000 digits & 2.880\,ms & 2.346\,ms & 0.46$\times$ \\
+print 20\,000\,000 digits & 2\,352\,ms & 2\,151\,ms & 0.23$\times$ \\
 \bottomrule
 \end{tabular}
 
 \smallskip
-{\footnotesize Median warm times from three fresh processes on the M1 Max, revision \code{7b3cc04}. The last column is
-time of the default build (up to eight threads) divided by single-thread GMP time.}
+{\footnotesize Warm times from the November 23 M1 Max full run at revision
+\code{ed9a01c}. The last column divides the default BigMath build time
+(up to eight threads) by its paired single-thread GMP time.}
 \end{center}
+
+\begin{perfnote}
+In the separate scaled-remainder comparison, single-threaded warm
+formatting sped up by 2.87$\times$ at about 1\,000 digits,
+1.29$\times$ at 10\,000, and 1.15$\times$ at 50\,000. The first call
+sped up by 2.04$\times$ at 1\,800 digits. At 2\,048 digits the
+first call took about 7\% longer.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#scaled-remainder-decimal-formatting}{Paired measurements}
+\end{perfnote}
 
 \begin{practice}
 \begin{itemize}
-  \item The first conversion at a new size builds powers of ten and dividers; later ones reuse
-        them. Benchmark the second call, and expect the first to be slower.
+  \item Time the first call and warm calls separately. The divide-and-conquer
+        paths can reuse powers of ten and divider chains. With GMP installed,
+        \code{bench\_vs\_gmp --format 1500 1} measures both cases on a binary input.
   \item Workers share immutable CRT transform tables. Each thread reuses writable buffers
         across linear and cyclic products. For full fused matrix products, decimal conversion
         processes the three primes in sequence from length $2^{20}$, using two scratch

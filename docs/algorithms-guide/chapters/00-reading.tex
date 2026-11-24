@@ -101,14 +101,14 @@ decimal digits & bits & limbs \\
 
 \Cref{tab:onepage} is the short version of this guide. For each operation it shows
 which algorithm runs at which size with the generic thresholds. Sizes are in
-limbs unless marked as digits. Platform profiles can override the thresholds
+limbs unless marked as bits or decimal digits. Platform profiles can override the thresholds
 (\cref{sec:platformprofiles}).
 
-\begin{table}[ht]
+\begin{table}[!t]
 \centering
 \small
-\renewcommand{\arraystretch}{1.25}
-\begin{tabularx}{\textwidth}{l l X}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabularx}{\textwidth}{@{}l l >{\raggedright\arraybackslash}X@{}}
 \toprule
 operation & size (limbs) & algorithm \\
 \midrule
@@ -136,8 +136,12 @@ $a \pm b$ & any & serial carry or borrow chain (\cref{sec:paralleladdsub}) \\
 parse & $\le 2048$ digits & 18 digits at a time, multiply-and-add (\cref{sec:linparse}) \\
       & larger & split in half, recurse, combine with one multiply; 8 threads from 100\,000 digits \\
 \midrule
-format & $< 1024$ digits & 19 digits at a time by short division \\
-       & larger & divide by $10^{k}$ with cached reciprocals, recurse on both halves \\
+format & standalone 48--96 & scaled-remainder chunk extraction (\cref{sec:scaledformat}) \\
+       & other inputs $<1024$ digits & direct for one limb; 19-digit short division otherwise \\
+       & larger inputs & split by powers of ten; scaled or scalar leaves \\
+\midrule
+GCD & shorter $\ge 65\,536$ bits & half-GCD for comparable widths; extended cutoff 16\,384 bits (\cref{sec:halfgcd}) \\
+modular power & odd modulus $\ge 64$ & FastREDC with exponents from 64 bits (\cref{sec:fastredc}) \\
 \bottomrule
 \end{tabularx}
 \caption{Arithmetic dispatch with generic thresholds and 64-bit limbs.}

@@ -72,7 +72,10 @@ macro & default & meaning \\
 \midrule
 \endhead
 \code{BIGMATH\_PARSE\_DC\_THRESHOLD} & 2048 & digits; linear parse up to this (\file{Parser.h}) \\
-\code{BIGMATH\_TOSTR\_DC\_THRESHOLD} & 1024 & digits; linear print below this \\
+\code{BIGMATH\_TOSTR\_DC\_THRESHOLD} & 1024 & digits; scalar fallback below this outside the scaled window \\
+\code{BIGMATH\_TOSTR\_SCALED\_MIN\_LIMBS} & 12 & scaled subtree minimum; zero disables scaled formatting \\
+\code{BIGMATH\_TOSTR\_SCALED\_ROOT\_MIN\_LIMBS} & 48 & standalone scaled formatting minimum \\
+\code{BIGMATH\_TOSTR\_SCALED\_MAX\_LIMBS} & 96 & scaled formatting maximum for both paths \\
 \code{BIGMATH\_TOSTR\_NEWTON\_MIN\_DIGITS} & 13\,000 & cached reciprocal for print levels from here (1 thread) \\
 \code{BIGMATH\_TOSTR\_NEWTON\_MIN\_DIGITS\_THREADED} & 6\,500 & same, with a multi-thread pool \\
 \code{BIGMATH\_PARSE\_PARALLEL\_THRESHOLD} & 100\,000 & 8-way parallel parse from here \\
@@ -89,6 +92,24 @@ macro & default & meaning \\
 
 Add and subtract cutoffs count limbs per operand. Zero keeps that magnitude
 operation serial in the corresponding worker state (\cref{sec:paralleladdsub}).
+
+\newpage
+\subsection*{Number theory}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
+\toprule
+macro & default & meaning \\
+\midrule
+\endhead
+\code{BIGMATH\_HALF\_GCD\_THRESHOLD} & 65\,536 & shorter remainder, in bits, for plain GCD \\
+\code{BIGMATH\_HALF\_GCD\_EXTENDED\_THRESHOLD} & 16\,384 & shorter remainder, in bits, for extended GCD \\
+\code{BIGMATH\_HALF\_GCD\_LEAF\_THRESHOLD} & 2\,048 & at or below this width in bits, use bounded Lehmer and exact steps \\
+\code{BIGMATH\_FAST\_REDC\_THRESHOLD} & 64 & minimum odd modulus width in limbs, with exponent at least 64 bits \\
+\bottomrule
+\end{longtable}
+
+Zero selects the nonrecursive GCD path for either entry macro and disables FastREDC.
+Half-GCD also checks the operand balance (\cref{sec:halfgcd}).
 
 \section{Checked-in platform profiles}
 \label{sec:platformprofiles}
@@ -122,6 +143,7 @@ select the profile for the compiler target. Packaged builds use the
 profile embedded at their tagged revision. See \file{docs/PLATFORM\_TUNING.md}.
 All checked-in profiles use the generic add and subtract cutoffs.
 
+\newpage
 \section{Costs at a glance}
 
 \begin{center}
@@ -143,6 +165,9 @@ short division & $n$ & \file{ClassicDivision.h} \\
 Algorithm D & $(n_a - n_b) \cdot n_b$ & \file{FastDivision.h} \\
 Burnikel--Ziegler & $\M(n)\log n$ & \file{BurnikelZieglerDivision.h} \\
 Newton & a few $\M(n)$ & \file{NewtonDivision.h} \\
+half-GCD & $\M(n)\log n$ & \file{src/ops/NumberTheory.cpp} \\
+FastREDC per reduction & $\M(n)$ & \file{src/ops/ModularArithmetic.cpp} \\
+scaled formatting leaf & quadratic & \file{src/common/Parser.cpp} \\
 parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp} \\
 \bottomrule
 \end{tabular}
@@ -156,9 +181,15 @@ parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp
   \item R.~P. Brent and P.~Zimmermann,
         \href{https://members.loria.fr/PZimmermann/mca/pub226.html}{\emph{Modern Computer Arithmetic}},
         Cambridge University Press, 2010. Chapter 1 covers Toom-Cook and FFT multiplication.
+        Chapter 2 covers subquadratic Montgomery reduction.
   \item C.~Burnikel and J.~Ziegler, ``Fast Recursive Division'', MPI-I-98-1-022, 1998.
   \item N.~Möller and T.~Granlund, ``Improved Division by Invariant Integers'', \emph{IEEE Transactions on
         Computers} 60(2), 2011.
+  \item N.~Möller, \href{https://doi.org/10.1090/S0025-5718-07-02017-0}{``On Sch\"onhage's Algorithm
+        and Subquadratic Integer GCD Computation''}, \emph{Mathematics of Computation} 77(261), 2008.
+  \item C.~Bouvier and P.~Zimmermann,
+        \href{https://members.loria.fr/PZimmermann/papers/get_str.pdf}{``Division-Free Binary-to-Decimal Conversion''}.
+        Algorithm 2 gives the truncated scaled-remainder method.
   \item M.~Bodrato, ``Towards Optimal Toom-Cook Multiplication for Univariate and Multivariate
         Polynomials in Characteristic 2 and 0'', WAIFI 2007.
   \item V.~Shoup, NTL library: precomputed-quotient modular multiplication.

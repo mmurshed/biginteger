@@ -76,7 +76,7 @@ product and the process peak RSS through that call.}
 \begin{center}
 \small
 \renewcommand{\arraystretch}{1.25}
-\begin{tabularx}{\textwidth}{lX}
+\begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}X}
 \toprule
 you want & use \\
 \midrule
@@ -92,7 +92,8 @@ greatest common divisor & \code{Gcd(a, b)} or \code{ExtendedGcd(a, b)} for coeff
 integer root and remainder & \code{SqrtRem(n)} computes both from one root calculation. \\
 modular power & \code{PowMod(a, e, m)} reduces intermediate products. \\
 prime tests and searches & \code{IsProbablePrime(n)} or \code{NextProbablePrime(n)}. \\
-text in / out & \code{BigIntegerBuilder::From(str)}, \code{ToString(x)}; the second call of a similar size is much faster than the first. \\
+text in / out & \code{BigIntegerBuilder::From(str)} or \code{ToString(x)}.
+               Divide-and-conquer conversions can reuse powers and dividers (\cref{ch:conv}). \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -162,7 +163,10 @@ All algorithms are cross-checked against each other:
         \file{tests/support/DivisionReference.h};
   \item unit tests pin details such as the reciprocal's error bound, the zero-fallback guarantee
         of Newton division, and NTT layers against a plain radix-2 transform. Fermat tests
-        check the modular operations, round trips, full products, and opt-in dispatch.
+        check the modular operations, round trips, full products, and opt-in dispatch;
+  \item number-theory tests cover long GCD reductions, signed B\'ezout coefficients,
+        and modular products around the FastREDC boundaries. Formatting tests cover
+        values around powers of ten and padding in recursive output fields.
 \end{itemize}
 
 Run \code{ctest --output-on-failure} in the build directory after changing a threshold or an
