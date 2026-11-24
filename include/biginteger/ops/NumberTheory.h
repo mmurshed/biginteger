@@ -49,6 +49,9 @@ namespace BigMath
 
   // Return n!, with 0! equal to one.
   BigInteger Factorial(UInt n);
+
+  // Return the binomial coefficient n choose k, or zero when k > n.
+  BigInteger Binomial(UInt n, UInt k);
 }
 
 #endif

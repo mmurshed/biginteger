@@ -10,6 +10,27 @@
 
 using namespace BigMath;
 
+REGISTER_TEST(NumberTheory, Binomial)
+{
+  const auto one = BigIntegerBuilder::From("1");
+  ASSERT_TRUE(Binomial(0, 0) == one);
+  ASSERT_TRUE(Binomial(1, 2).Zero());
+  ASSERT_TRUE(Binomial(100, 100) == one);
+  ASSERT_TRUE(Binomial(100, 50) == BigIntegerBuilder::From("100891344545564193334812497256"));
+  const auto max = std::numeric_limits<UInt>::max();
+  ASSERT_TRUE(Binomial(max, 2) == BigIntegerBuilder::From(ULong{max} * (max - 1) / 2));
+
+  for (const auto &[n, k] : {std::pair{400u, 79u}, {512u, 63u}, {512u, 64u},
+                            {4097u, 513u}, {4097u, 2048u}, {1000000u, 33u}})
+  {
+    auto expected = one;
+    for (UInt i = 1; i <= k; ++i)
+      expected = (expected * static_cast<DataT>(n - k + i)) / static_cast<DataT>(i);
+    ASSERT_TRUE(Binomial(n, k) == expected);
+    ASSERT_TRUE(Binomial(n, n - k) == expected);
+  }
+}
+
 REGISTER_TEST(NumberTheory, RootRem)
 {
   const auto value = [](const char *n) { return BigIntegerBuilder::From(n); };

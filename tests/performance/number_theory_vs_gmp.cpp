@@ -88,6 +88,37 @@ namespace
     }
   }
 
+  void BenchmarkBinomial()
+  {
+    std::mt19937_64 rng(0xB109);
+    Mpz expected;
+    for (unsigned i = 0; i < 128; ++i)
+    {
+      const auto n = static_cast<UInt>(rng() % 10000);
+      const auto k = static_cast<UInt>(rng() % (n + 2));
+      mpz_bin_uiui(expected.value, n, k);
+      if (Binomial(n, k) != Export(expected))
+        throw std::runtime_error("binomial coefficient differs from GMP");
+    }
+    std::puts("n,k,output_bits,calls_per_round,bigmath_us,gmp_us");
+    for (const auto &[n, k] : {std::pair{100u, 8u}, {10000u, 32u}, {10000u, 33u},
+                              {10000u, 1250u}, {10000u, 5000u}, {1000000u, 32u},
+                              {1000000u, 8192u}, {1000000u, 500000u}, {4000000000u, 3u}})
+    {
+      BigInteger result;
+      const auto runBigMath = [&] { result = Binomial(n, k); };
+      const auto runGmp = [&] { mpz_bin_uiui(expected.value, n, k); };
+      runBigMath();
+      runGmp();
+      if (result != Export(expected))
+        throw std::runtime_error("binomial coefficient differs from GMP");
+      const auto calls = std::clamp(8192u / k, 2u, 512u);
+      const auto [bigmath, gmp] = MeasureTimes(calls, runBigMath, runGmp);
+      std::printf("%u,%u,%zu,%u,%.6f,%.6f\n", n, k, mpz_sizeinbase(expected.value, 2),
+                  calls, bigmath, gmp);
+    }
+  }
+
   void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng,
                        unsigned cases = 24, unsigned exponentBits = 0)
   {
@@ -396,6 +427,11 @@ namespace
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
+  if (operation == "binomial")
+  {
+    BenchmarkBinomial();
+    return 0;
+  }
   if (operation == "rootrem")
   {
     BenchmarkRootRem();
@@ -415,7 +451,7 @@ int main(int argc, char **argv)
                    operation != "powmod-large" && operation != "gcd" && operation != "gcd-large" &&
                    operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|rootrem|prime|nextprime|factorial]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|rootrem|prime|nextprime|factorial|binomial]\n", stderr);
     return 1;
   }
 
