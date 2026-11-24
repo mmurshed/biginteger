@@ -15,9 +15,10 @@ This chapter collects the practical consequences of everything above.
         NTT range. Above that range the number of block pairs also determines the cost.
   \item \textbf{Lopsided products are cheap.} $10 \times 100\,000$ limbs is a million limb products,
         no worse than adding the long number to itself ten times.
-  \item \textbf{Transform boundaries matter for latency.} For balanced threaded
-        products, increasing each operand from 10 million to 11 million digits
-        doubles the transform length. The boundary is near 10.10 million digits
+  \item \textbf{Transform boundaries matter for latency.} The full transform
+        doubles near 10.10 and 20.20 million digits per balanced operand.
+        Threaded truncation covers the first quarter of each new band for
+        eligible operands, including the 11-million-digit case
         (\cref{sec:trunc}).
 \end{itemize}
 
@@ -53,7 +54,7 @@ The full benchmark records one warm observation for most large inputs.
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=\textwidth]{../images/bigmath_vs_gmp_single_thread.png}
+\includegraphics[width=0.9\textwidth]{../images/bigmath_vs_gmp_single_thread.png}
 \caption{Single-threaded BigMath time divided by single-threaded GMP time (below 1 means BigMath
 was faster). The November 23 full run reaches 200 million digits per operand. The
 triangles show fresh-process products, measured on November 23 at 200 million digits
@@ -75,25 +76,30 @@ product and the process peak RSS through that call.}
 
 \begin{center}
 \small
-\renewcommand{\arraystretch}{1.25}
+\renewcommand{\arraystretch}{1.1}
 \begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}X}
 \toprule
 you want & use \\
 \midrule
 $a \times b$ & \code{a * b}. The dispatcher picks the method. \\
 $a^2$ & \code{a * a} with the \emph{same object} on both sides: the library notices and squares. \\
-many products with one fixed large factor & \code{PrepareMultiplication(a, maxOtherLimbs)} (\cref{ch:ntt}). \\
-quotient only & \code{a / b}; much faster than \code{DivideAndRemainder} when the quotient is
-               shorter than the divisor (\cref{sec:toplimbs}). \\
+products with one fixed factor & \code{PrepareMultiplication(a, maxOtherLimbs)} (\cref{ch:ntt}). \\
+quotient only & \code{a / b}, including the short-quotient path (\cref{sec:toplimbs}). \\
 quotient and remainder & \code{DivideAndRemainder(a, b)}, one division for both. \\
+known exact multiple & \code{DivideExact(a, b)} when $b$ divides $a$ (\cref{sec:exactdivision}). \\
 many divisions by one divisor & \code{CacheDivision(b)} (\cref{sec:cached}). \\
 division by a small constant & the \code{uint64\_t} overloads: \code{a / 10}, \code{a \% 10}. \\
 greatest common divisor & \code{Gcd(a, b)} or \code{ExtendedGcd(a, b)} for coefficients. \\
-integer root and remainder & \code{SqrtRem(n)} computes both from one root calculation. \\
+integer root and remainder & \code{SqrtRem(n)} for square roots or \code{RootRem(n, degree)}
+                              for other degrees (\cref{sec:nthroot}). \\
 modular power & \code{PowMod(a, e, m)} reduces intermediate products. \\
 prime tests and searches & \code{IsProbablePrime(n)} or \code{NextProbablePrime(n)}. \\
-text in / out & \code{BigIntegerBuilder::From(str)} or \code{ToString(x)}.
-               Divide-and-conquer conversions can reuse powers and dividers (\cref{ch:conv}). \\
+exact combinatorics & \code{Factorial(n)} or \code{Binomial(n, k)} (\cref{sec:combinatorics}). \\
+integer from residues & \code{ChineseRemainderPlan} reuses setup for fixed word moduli
+                        (\cref{sec:crtplan}). \\
+fraction from a residue & \code{ReconstructRational(a, m, N, D)} with $2ND<m$
+                          (\cref{sec:rationalreconstruction}). \\
+text in / out & \code{BigIntegerBuilder::From(str)} or \code{ToString(x)} (\cref{ch:conv}). \\
 \bottomrule
 \end{tabularx}
 \end{center}

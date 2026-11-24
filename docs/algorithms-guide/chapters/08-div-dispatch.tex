@@ -8,6 +8,9 @@ generic thresholds from \file{include/biginteger/build/DispatchThresholds.h}.
 For example, the checked-in Linux x86-64 GCC and macOS Arm64 Clang
 profiles start considering Burnikel--Ziegler at 81 divisor limbs, versus
 96 in the generic build (\cref{sec:platformprofiles}).
+When the dividend is a known multiple of the divisor, \code{DivideExact}
+has its own rules based on the quotient width and the odd divisor
+(\cref{sec:exactdivision}).
 
 \section{The decision, step by step}
 
