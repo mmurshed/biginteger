@@ -211,6 +211,40 @@ Seven paired trials on the Apple M1 Max alternated the original Newton implement
 | 262,144 | 8,253.19800 | 467.75000 | 396.85425 | 16.68× |
 | 1,048,576 | 34,299.54175 | 2,247.83350 | 2,602.82300 | 15.17× |
 
+### Integer nth root and remainder
+
+`RootRem(n, degree)` returns the integer root rounded toward zero and
+the remainder `n - root^degree`. A negative input requires an odd
+degree. Degree zero throws, degree one returns the input, and degree
+two uses `SqrtRem`. Other word-sized inputs use native integer binary
+search.
+
+For larger inputs, binary search finds a leading root prefix using the
+corresponding leading bits of the input. An exact prefix gives an upper
+bound for the next stage by adding one and shifting. Integer Newton
+iteration extends the root to increasing precisions, with full-width
+arithmetic in the final stage. Exponentiation stops when a trial power
+would exceed the input. [GMP nth-root algorithm](https://gmplib.org/manual/Nth-Root-Algorithm)
+
+Each limb layout matched GMP 6.3.0 on 240 signed and unsigned cases
+covering random inputs, exact powers, and their neighbours. The table
+reports warm medians from seven alternating batches on an Apple M1 Max
+with the default 64-bit Release build. The timed fixture is random.
+Times are in microseconds.
+
+| Input bits | Degree | BigMath | GMP |
+|---:|---:|---:|---:|
+| 64 | 3 | 0.094 | 0.106 |
+| 1,024 | 3 | 3.80 | 0.58 |
+| 16,384 | 16 | 46.85 | 9.75 |
+| 262,144 | 3 | 1,551.92 | 747.75 |
+| 262,144 | 1,024 | 831.10 | 457.98 |
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp rootrem
+```
+
 ### Primality testing
 
 `IsProbablePrime` screens small factors before running Miller–Rabin. It tests the full unsigned 64-bit range deterministically, using Jaeschke's three bases through 32 bits and Sinclair's seven bases above that. For larger inputs, it first tests base 2, then samples witnesses uniformly from 2 through `n - 2` by rejection sampling using `std::random_device`. With independent uniform witnesses, `rounds` random tests accept any fixed odd composite with probability at most `4^(-rounds)`. The default is 32 rounds. The Montgomery path reuses the modulus and keeps the inner squaring steps in Montgomery form. [Established deterministic bases](https://miller-rabin.appspot.com/) · [GMP reference](https://gmplib.org/gmp-man-6.3.0.pdf)

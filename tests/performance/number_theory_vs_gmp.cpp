@@ -249,6 +249,51 @@ namespace
     Measure("sqrtrem", "random", bits, cases, std::max(4u, 131072u / bits), runBigMath, runGmp);
   }
 
+  void BenchmarkRootRem()
+  {
+    std::mt19937_64 rng(0x72E36);
+    std::puts("input_bits,degree,reference_checks,calls_per_round,bigmath_us,gmp_us");
+    for (unsigned bits : {64u, 1024u, 16384u, 262144u})
+      for (UInt degree : {3u, 5u, 16u, 127u, 1024u})
+      {
+        BigInteger n;
+        std::pair<BigInteger, BigInteger> result;
+        Mpz input, root, remainder, actualRoot, actualRemainder, base, power;
+        const auto runBigMath = [&] { result = RootRem(n, degree); };
+        const auto runGmp = [&] { mpz_rootrem(root.value, remainder.value, input.value, degree); };
+        const auto one = RandomInteger(1, rng);
+        constexpr unsigned cases = 12;
+        for (unsigned i = 0; i < cases; ++i)
+        {
+          if (i % 4 == 3)
+            n = RandomInteger(bits, rng);
+          else
+          {
+            Import(base, RandomInteger(std::max(2u, bits / degree), rng));
+            mpz_pow_ui(power.value, base.value, degree);
+            n = Export(power);
+            if (i % 4 == 0)
+              n = n - one;
+            if (i % 4 == 2)
+              n = n + one;
+          }
+          if ((degree & 1) && i % 3 == 0)
+            n = -n;
+          Import(input, n);
+          runBigMath();
+          runGmp();
+          Import(actualRoot, result.first);
+          Import(actualRemainder, result.second);
+          if (mpz_cmp(actualRoot.value, root.value) != 0 ||
+              mpz_cmp(actualRemainder.value, remainder.value) != 0)
+            throw std::runtime_error("RootRem differs from GMP");
+        }
+        const unsigned calls = std::clamp(65536u / bits, 2u, 256u);
+        const auto [bigmath, gmp] = MeasureTimes(calls, runBigMath, runGmp);
+        std::printf("%u,%u,%u,%u,%.6f,%.6f\n", bits, degree, cases, calls, bigmath, gmp);
+      }
+  }
+
   void BenchmarkPrimality(unsigned bits, std::string_view shape, std::mt19937_64 &rng)
   {
     constexpr int bigMathRounds = 32, gmpReps = 56;
@@ -380,6 +425,11 @@ namespace
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
+  if (operation == "rootrem")
+  {
+    BenchmarkRootRem();
+    return 0;
+  }
   if (operation == "factorial")
   {
     BenchmarkFactorial();
@@ -394,7 +444,7 @@ int main(int argc, char **argv)
                    operation != "powmod-large" && operation != "gcd" && operation != "gcd-large" &&
                    operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|prime|nextprime|factorial]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|rootrem|prime|nextprime|factorial]\n", stderr);
     return 1;
   }
 
