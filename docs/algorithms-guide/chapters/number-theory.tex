@@ -34,6 +34,38 @@ division step handles cases where a batch cannot be certified. Plain GCD
 finishes with a scalar remainder and a single-limb GCD when the second
 operand fits in one limb.
 
+\subsection{Recursive half-GCD}
+\label{sec:halfgcd}
+
+For large inputs, BigMath uses \href{https://doi.org/10.1090/S0025-5718-07-02017-0}{M\"oller's difference-based half-GCD}.
+Subtracting $q$ times one entry from the other is a determinant-one
+matrix operation. It has an integer inverse, so the two entries keep
+the same common divisors. A product of these matrices represents a
+whole reduction and can also act on the B\'ezout coefficients.
+
+With $N$ the larger bit length, the recursive step works on the leading
+bits and applies the resulting matrix to the full operands. For two
+entries wider than $s=\floor{N/2}+1$ bits, it preserves that lower bound
+and reduces their absolute difference to at most $s$ bits. The difference
+test and exact correction steps control the effect of the omitted low
+bits. Below or at 2\,048 bits, the recursion uses bounded Lehmer batches
+and exact steps.
+
+The shorter operand must have at least 65\,536 bits for \code{Gcd} or
+16\,384 bits for \code{ExtendedGcd}, and its bit length must exceed
+$\floor{N/2}+1$. A wider imbalance falls through to exact division.
+Plain GCD applies one high-half reduction at a time. Extended GCD
+composes a larger transform and applies it to both coefficient pairs.
+The recursive algorithm costs $\bigO(\M(N)\log N)$, with $\M(N)$ the
+cost of multiplying $N$-bit integers.
+
+\begin{perfnote}
+For balanced 262\,144-bit operands, paired single-threaded tests on
+the M1 Max measured 2.93$\times$ faster GCD and 4.58$\times$ faster
+extended GCD versus the Lehmer-based implementation.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#recursive-half-gcd}{Measurement details}
+\end{perfnote}
+
 \section{Integer square root with a remainder}
 \label{sec:sqrtrem}
 
@@ -64,6 +96,7 @@ remainder $2$. Dividing $25$ by $10$ gives $q=2$ and $t=5$, so the
 root is $52$ and the remainder is $50+9-4=55$.
 \end{example}
 
+\newpage
 \section{Modular powers}
 \label{sec:powmod}
 
@@ -75,27 +108,53 @@ which is zero when $m=1$.
 Repeated squaring processes the binary digits of $e$ and reduces each
 intermediate product modulo $m$. For a dense exponent, a sliding window
 uses a table of odd powers to handle several bits at once. Sparse or short
-exponents use the binary path. For example, $7^{13}\bmod 11=2$.
-The powers for exponents $1,4,8$ have residues $7,3,9$ and their product
-has residue $2$.
+exponents use the binary path. In $7^{13}\bmod 11$, the powers for
+exponents $1,4,8$ have residues $7,3,9$ and their product has residue $2$.
 
 \begin{itemize}
-  \item A single-limb modulus uses machine-word products with a wider
-        intermediate when needed.
-  \item An odd multi-limb modulus of at most 128 limbs and an exponent of
-        at least 16 bits use Montgomery reduction. Values stay in the form
-        $xR\bmod m$, with $R=B^{n_m}$ for an $n_m$-limb modulus. Reduction
-        adds a multiple of $m$ that cancels the low limbs, then drops those
-        limbs instead of dividing by $m$.
-  \item At those size limits, an even modulus with a power-of-two factor
-        that fits in one limb can be split as $m=2^k u$ with $u$ odd.
-        Compute the residues modulo $2^k$ and $u$ and combine them by the
-        Chinese remainder theorem.
-  \item The general path multiplies and reduces through the integer
-        multiplication and division dispatchers.
+  \item A single-limb modulus uses machine-word arithmetic.
+  \item An odd modulus of at least 64 limbs and an exponent of at least
+        64 bits use FastREDC by default. Otherwise, odd multi-limb moduli
+        through 128 limbs use limb-by-limb Montgomery reduction for
+        exponents of at least 16 bits.
+  \item An even modulus of at most 128 limbs with a power-of-two factor
+        $2^k$, where $0<k<\log_2 B$, can use the Chinese remainder
+        theorem for exponents of at least 16 bits. The implementation
+        splits off $2^k$ and applies the usual dispatch to the odd part.
+  \item Other cases use the usual multiplication and division dispatchers.
 \end{itemize}
 
 The runtime depends on the operands and the exponent's bits.
+
+\subsection{Montgomery reduction and FastREDC}
+\label{sec:fastredc}
+
+For an odd $n$-limb modulus $m$, let $R=B^n$. Montgomery form represents
+$x$ by $xR\bmod m$. Multiplying two encoded residues gives $T<m^2$.
+Computing $T/R\bmod m$ restores the encoding. Let $m'=-m^{-1}\bmod R$.
+Then
+\[
+q=(T m')\bmod R, \qquad u=\frac{T+qm}{R}.
+\]
+The low $n$ limbs of $T+qm$ cancel. Dropping them gives $u<2m$, so one
+conditional subtraction puts the result in $[0,m)$.
+
+The base case cancels one limb at a time. FastREDC doubles the known
+width of the inverse to precompute $m'$ once and uses a low product for
+$q$. The initial product or square goes through BigMath's usual
+dispatcher. With CRT enabled, reductions from 512 limbs can recover
+the high part of $qm$ from a cyclic product. Write $qm=\ell+RH$, where
+$\ell=(-T)\bmod R$ is already known. If $W=qm\bmod(B^L-1)$, subtract
+$\ell$ and multiply by $B^{L-n}$ modulo $B^L-1$, a limb rotation, to recover $H$.
+The bound $H<m$ makes that recovery unique. The cyclic path rounds $L$
+up to a power of two within the standard CRT transform limit.
+
+\begin{perfnote}
+In paired single-threaded M1 Max runs, FastREDC sped up dense
+8\,192-bit powering by 1.23$\times$. A 65\,536-bit modulus with a
+257-bit exponent sped up by 1.57$\times$. These ratios include setup.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#subquadratic-montgomery-reduction}{Measurement details}
+\end{perfnote}
 
 \newpage
 \section{Primality testing and finding the next prime}
@@ -113,9 +172,12 @@ screens base 2, then samples uniformly from $[2,n-2]$ by rejection.
 With $k$ independent uniform random witnesses, the chance that any
 fixed odd composite passes all $k$ is at most $4^{-k}$. The default is
 32 random witnesses. Both prime APIs require a positive round count.
-When the candidate has at least 1,024 bits, fits in the 128-limb
-Montgomery path, and requests at least eight random witnesses, workers
-can test the witnesses in parallel with separate scratch space.
+Miller--Rabin uses the FastREDC cutoff with $d$ as the exponent and
+reuses the precomputed inverse across witnesses in the same test.
+The default build can test witnesses in parallel when the candidate
+has at least 1,024 bits and at most 128 limbs and the caller requests
+at least eight random rounds. Wider candidates can use the pool inside
+individual products.
 
 \code{NextProbablePrime(n, rounds)} searches strictly above $n$ and returns
 2 for $n<2$. For example, a search starting at 29 returns 31. For
@@ -135,6 +197,7 @@ cannot select a later result.
 \file{BENCHMARK.md} records separate GMP comparisons for these operations,
 including dense and sparse exponents and ordinary and long prime gaps.
 In a Release build with GMP available, build \code{number\_theory\_vs\_gmp}.
-Pass \code{gcd}, \code{sqrtrem}, \code{powmod}, \code{prime}, or
-\code{nextprime} to isolate a benchmark.
+Use \code{gcd-large} for recursive GCD or \code{powmod-large} for FastREDC.
+The \code{gcd}, \code{sqrtrem}, \code{powmod}, \code{prime}, and
+\code{nextprime} modes isolate the other measurements.
 \end{practice}
