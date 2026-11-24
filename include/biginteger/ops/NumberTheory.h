@@ -42,6 +42,10 @@ namespace BigMath
   // remainder is n - root*root. Throws std::invalid_argument for n < 0.
   std::pair<BigInteger, BigInteger> SqrtRem(BigInteger const &n);
 
+  // Return {root, n - root^degree}, rounding the real root toward zero.
+  // Throws std::invalid_argument for zero degree or a negative input with even degree.
+  std::pair<BigInteger, BigInteger> RootRem(BigInteger const &n, UInt degree);
+
   // Return n!, with 0! equal to one.
   BigInteger Factorial(UInt n);
 }

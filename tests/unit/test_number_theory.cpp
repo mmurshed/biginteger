@@ -1,12 +1,54 @@
 #include "unit_test_framework.h"
 
+#include <limits>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 
 #include "biginteger/common/Builder.h"
 #include "biginteger/ops/Operations.h"
 
 using namespace BigMath;
+
+REGISTER_TEST(NumberTheory, RootRem)
+{
+  const auto value = [](const char *n) { return BigIntegerBuilder::From(n); };
+  for (const auto &[input, degree, root, remainder] :
+       {std::tuple{"0", 11u, "0", "0"}, {"-72", 1u, "-72", "0"}, {"83", 2u, "9", "2"},
+        {"-28", 3u, "-3", "-1"}, {"-27", 3u, "-3", "0"}, {"-26", 3u, "-2", "-18"},
+        {"-92", std::numeric_limits<UInt>::max(), "-1", "-91"}})
+  {
+    const auto result = RootRem(value(input), degree);
+    ASSERT_TRUE(result.first == value(root) && result.second == value(remainder));
+  }
+  for (const auto &[input, degree] : {std::pair{"0", 0u}, {"-4", 2u}, {"-4", 12u}})
+  {
+    bool threw = false;
+    try { (void)RootRem(value(input), degree); }
+    catch (std::invalid_argument const &) { threw = true; }
+    ASSERT_TRUE(threw);
+  }
+
+  const auto one = value("1");
+  for (const auto &[root, degree] :
+       {std::pair{value("340282366920938463463374607431768211457"), 3u},
+        {value("321"), 9u}, {value("65792"), 16u}, {value("131"), 127u}, {value("2"), 1024u}})
+  {
+    auto power = one;
+    for (UInt k = 0; k < degree; ++k)
+      power = power * root;
+    const auto exact = RootRem(power, degree);
+    ASSERT_TRUE(exact.first == root && exact.second.Zero());
+    const auto above = RootRem(power + one, degree);
+    ASSERT_TRUE(above.first == root && above.second == one);
+    const auto below = RootRem(power - one, degree);
+    ASSERT_TRUE(below.first == root - one);
+    auto lowerPower = one;
+    for (UInt k = 0; k < degree; ++k)
+      lowerPower = lowerPower * below.first;
+    ASSERT_TRUE(lowerPower + below.second == power - one);
+  }
+}
 
 REGISTER_TEST(NumberTheory, Factorial)
 {
