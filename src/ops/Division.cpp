@@ -36,6 +36,14 @@ namespace BigMath
     return BigInteger(std::move(qv), a.IsNegative() != b.IsNegative());
   }
 
+  BigInteger DivideExact(BigInteger const &a, BigInteger const &b)
+  {
+    if (SmallOps::Fits(a, b))
+      return Divide(a, b);
+    auto quotient = detail::DivideExactLimbs(a.Limbs(), b.Limbs());
+    return BigInteger(std::move(quotient), a.IsNegative() != b.IsNegative());
+  }
+
   BigInteger operator/(BigInteger const &a, BigInteger const &b)
   {
     return Divide(a, b);

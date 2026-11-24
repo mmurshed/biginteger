@@ -58,6 +58,9 @@ namespace BigMath
 
   std::pair<BigInteger, BigInteger> DivideAndRemainder(BigInteger const &a, BigInteger const &b);
   BigInteger Divide(BigInteger const &a, BigInteger const &b);
+  // Return a / b when b is known to divide a. Exactness is a caller
+  // precondition. Throws std::invalid_argument when b is zero.
+  BigInteger DivideExact(BigInteger const &a, BigInteger const &b);
   BigInteger operator/(BigInteger const &a, BigInteger const &b);
   BigInteger operator%(BigInteger const &a, BigInteger const &b);
 }

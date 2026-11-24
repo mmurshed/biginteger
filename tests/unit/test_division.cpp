@@ -12,6 +12,7 @@
 #include "biginteger/algorithms/Division.h"
 #include "biginteger/algorithms/Multiplication.h"
 #include "biginteger/algorithms/division/BurnikelZieglerDivision.h"
+#include "biginteger/common/BitShifts.h"
 #include "biginteger/common/Builder.h"
 #include "biginteger/common/Comparator.h"
 #include "biginteger/common/Parser.h"
@@ -166,6 +167,65 @@ REGISTER_TEST(Div, ByZeroThrows)
   try { (void)(a / z); }
   catch (...) { threw = true; }
   ASSERT_TRUE(threw);
+}
+
+REGISTER_TEST(DivExact, SignsAndZero)
+{
+  const auto divisor = Parse("18446744073709551629");
+  const auto quotient = Parse("12345678901234567890123456789");
+  const auto dividend = divisor * quotient;
+  ASSERT_EQ(DivideExact(dividend, divisor), quotient);
+  ASSERT_EQ(DivideExact(-dividend, divisor), -quotient);
+  ASSERT_EQ(DivideExact(dividend, -divisor), -quotient);
+  ASSERT_EQ(DivideExact(-dividend, -divisor), quotient);
+  ASSERT_EQ(DivideExact(divisor, divisor), Parse("1"));
+  ASSERT_EQ(DivideExact(Parse("42"), Parse("7")), Parse("6"));
+  const auto zero = DivideExact(BigInteger(32), -divisor);
+  ASSERT_TRUE(zero.Zero());
+  ASSERT_FALSE(zero.IsNegative());
+  for (const auto &zeroDivisor : {BigInteger(), BigInteger(32)})
+  {
+    bool threw = false;
+    try { (void)DivideExact(BigInteger(), zeroDivisor); }
+    catch (const std::invalid_argument &) { threw = true; }
+    ASSERT_TRUE(threw);
+  }
+}
+
+REGISTER_TEST(DivExact, QuotientWidthsAndEvenDivisors)
+{
+  std::mt19937_64 gen(0x1964);
+  const auto magnitude = [&](SizeT count, bool allOnes) {
+    std::vector<DataT> value(count);
+    for (auto &limb : value)
+      limb = allOnes ? LimbMask : gen() & LimbMask;
+    value.back() |= DataT{1} << (LimbBits - 1);
+    return value;
+  };
+
+  for (const auto &[divisorSize, quotientSize] :
+       {std::pair<SizeT, SizeT>{1, 75}, {4, 1025}, {513, 1}, {513, 3}, {513, 31},
+        {513, 127}, {129, 255}, {129, 256}, {128, 257}, {1025, 511}, {17, 777},
+        {513, 1023}, {513, 1024}, {256, 2049}, {2049, 2049}})
+  {
+    for (const auto &[zeroLimbs, shift] :
+         {std::pair<SizeT, Int>{0, 0}, {2, 1}, {1, LimbBits - 1}})
+    {
+      auto divisorLimbs = magnitude(divisorSize, shift == 1);
+      divisorLimbs.front() |= 1;
+      divisorLimbs = ShiftLeftBits(divisorLimbs, shift, LimbBits);
+      divisorLimbs.insert(divisorLimbs.begin(), zeroLimbs, 0);
+      const BigInteger divisor(std::move(divisorLimbs), false);
+      const BigInteger expected(magnitude(quotientSize, shift == 1), false);
+      const auto dividend = divisor * expected;
+      ASSERT_EQ(DivideExact(dividend, divisor), expected);
+      ASSERT_EQ(DivideExact(dividend, divisor), dividend / divisor);
+    }
+  }
+
+  const BigInteger powerOfTwo(std::vector<DataT>{0, 0, DataT{1} << (LimbBits - 1)}, false);
+  const BigInteger expected(std::vector<DataT>{0, 0, 0, 7}, false);
+  ASSERT_EQ(DivideExact(expected * powerOfTwo, powerOfTwo), expected);
 }
 
 // ─── magnitude-level dispatch bands ──────────────────────────────────────────

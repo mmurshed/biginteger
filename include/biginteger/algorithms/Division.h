@@ -32,6 +32,7 @@
 #ifndef DIVISION
 #define DIVISION
 
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -212,6 +213,11 @@ namespace BigMath
   extern const SizeT NEWTON_HIGH_SKEW_B;
   extern const SizeT NEWTON_HIGH_SKEW_NUMERATOR;
   extern const SizeT NEWTON_HIGH_SKEW_DENOMINATOR;
+
+  namespace detail
+  {
+    std::vector<DataT> DivideExactLimbs(std::span<const DataT> a, std::span<const DataT> b);
+  }
 
   std::pair<std::vector<DataT>, std::vector<DataT>> DivideAndRemainder(
       std::vector<DataT> const &a,
