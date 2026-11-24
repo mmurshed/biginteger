@@ -12,6 +12,7 @@
 #include <gmp.h>
 
 #include "biginteger/ops/Operations.h"
+#include "../../src/ops/Factorial.h"
 #include "../../src/ops/PrimeSearch.h"
 
 namespace
@@ -91,6 +92,29 @@ namespace
     const auto [bigmath, gmp] = MeasureTimes(calls, runBigMath, runGmp);
     std::printf("%s,%s,%u,%u,%u,%.6f,%.6f\n",
                 operation, shape, bits, cases, calls, bigmath, gmp);
+  }
+
+  void BenchmarkFactorial()
+  {
+    std::puts("n,output_bits,calls_per_round,bigmath_us,gmp_us,bigmath_control_us,product_tree_us");
+    for (UInt n : {0u, 20u, 21u, 100u, 128u, 256u, 1000u, 10000u, 100000u, 1000000u})
+    {
+      BigInteger result, productTree;
+      Mpz expected;
+      const auto runFactorial = [&] { result = Factorial(n); };
+      const auto runGmp = [&] { mpz_fac_ui(expected.value, n); };
+      const auto runTree = [&] { productTree = detail::FactorialProductTree(n); };
+      runFactorial();
+      runGmp();
+      runTree();
+      if (result != Export(expected) || result != productTree)
+        throw std::runtime_error("factorial differs from reference");
+      const unsigned calls = std::max(1u, 50000u / std::max(20u, n));
+      const auto [bigmath, gmp] = MeasureTimes(calls, runFactorial, runGmp);
+      const auto [control, tree] = MeasureTimes(calls, runFactorial, runTree);
+      std::printf("%u,%zu,%u,%.6f,%.6f,%.6f,%.6f\n", n, mpz_sizeinbase(expected.value, 2),
+                  calls, bigmath, gmp, control, tree);
+    }
   }
 
   void BenchmarkPowMod(unsigned bits, bool odd, bool sparse, std::mt19937_64 &rng,
@@ -356,6 +380,11 @@ namespace
 int main(int argc, char **argv)
 {
   const std::string_view operation = argc == 2 ? argv[1] : "all";
+  if (operation == "factorial")
+  {
+    BenchmarkFactorial();
+    return 0;
+  }
   if (operation == "nextprime")
   {
     BenchmarkNextProbablePrime();
@@ -365,7 +394,7 @@ int main(int argc, char **argv)
                    operation != "powmod-large" && operation != "gcd" && operation != "gcd-large" &&
                    operation != "sqrtrem" && operation != "prime"))
   {
-    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|prime|nextprime]\n", stderr);
+    std::fputs("Usage: number_theory_vs_gmp [powmod|powmod-large|gcd|gcd-large|sqrtrem|prime|nextprime|factorial]\n", stderr);
     return 1;
   }
 

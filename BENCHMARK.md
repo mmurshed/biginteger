@@ -146,6 +146,35 @@ The bit count in the skewed row refers to the larger operand. At 262,144
 bits, its 32,768-bit counterpart can enter the extended half-GCD path
 after the initial exact division.
 
+### Prime-swing factorial
+
+`Factorial(n)` uses a word table through 20 and a packed product tree for
+small inputs. Prime swing starts at 512 with 64-bit limbs and 64 with
+32-bit limbs. It sieves the odd primes up to `n` once and reuses prefixes
+of the prime list. In the recurrence for `n!`, the odd part of
+`floor(n/2)!` is squared and multiplied by the swing. For each odd prime
+`p`, the swing contains one factor of `p` for each odd `floor(n/p^i)`.
+The final shift restores the `n - popcount(n)` factors of two.
+[GMP factorial algorithm](https://gmplib.org/manual/Factorial-Algorithm)
+
+Native Release builds on the Apple M1 Max checked each result against
+GMP 6.3.0 and BigMath's packed product tree over every factor of `n!`.
+The harness alternates library order over seven batches. Times below are
+warm medians in milliseconds from the default 64-bit build. The product
+tree uses the same packing and multiplication routines as prime swing.
+
+| n | BigMath | GMP | BigMath product tree |
+|---:|---:|---:|---:|
+| 1,000 | 0.0061 | 0.0029 | 0.0073 |
+| 10,000 | 0.192 | 0.149 | 0.310 |
+| 100,000 | 2.35 | 4.63 | 5.32 |
+| 1,000,000 | 28.01 | 78.47 | 88.99 |
+
+```sh
+cmake --build build --target number_theory_vs_gmp
+./build/number_theory_vs_gmp factorial
+```
+
 ### Integer square root and remainder
 
 Each size checks 24 random integers, perfect squares and values one below or above a perfect square. The timing fixture is a random integer with the stated bit length. BigMath uses integer Newton iteration, with a scalar path when the input fits in one limb. [CSV with all eight timing rows](docs/benchmarks/2026-11-22-sqrtrem-m1-max.csv)
