@@ -317,6 +317,42 @@ cmake --build build --target chinese_remainder_vs_flint
 ./build/chinese_remainder_vs_flint
 ```
 
+### Bounded rational reconstruction
+
+`ReconstructRational(residue, modulus, N, D)` seeks a reduced fraction
+`n/d` with `|n| <= N`, `0 < d <= D`, and `n ≡ residue * d (mod modulus)`.
+The strict bound `2*N*D < modulus` makes a solution unique. The function
+returns an empty optional when there is no such fraction and throws for
+invalid bounds. It accepts signed residues and reduces them before searching.
+
+The algorithm stops extended Euclid at the first remainder at most
+`N`. It tracks the coefficient of the original residue as the
+denominator, then checks the denominator bound and the GCD. Lehmer
+batches and half-GCD reduce the operands only while both remainders
+stay above the stopping bound. [FLINT rational reconstruction](https://flintlib.org/doc/fmpq/reconstruct.html)
+
+Both limb layouts matched FLINT 3.6.0 on 64 seeded, reduced fractions
+with positive and negative numerators. The fixture uses a power-of-two
+modulus and an odd denominator. The table reports warm medians in
+milliseconds from seven alternating batches in native 64-bit Release
+builds on the Apple M1 Max. The control sets
+`BIGMATH_RATIONAL_RECONSTRUCTION_HALF_GCD_THRESHOLD=0` and retains the
+Lehmer batches.
+
+| Modulus bits | Numerator bound bits | BigMath | BigMath without half-GCD | FLINT |
+|---:|---:|---:|---:|---:|
+| 16,384 | 8,190 | 0.73 | 0.80 | 0.21 |
+| 65,536 | 32,766 | 3.73 | 6.09 | 1.64 |
+| 262,144 | 131,070 | 20.77 | 76.61 | 10.58 |
+| 262,144 | 32,768 | 21.51 | 118.61 | 13.64 |
+
+The benchmark target is available when CMake finds FLINT and GMP.
+
+```sh
+cmake --build build --target rational_reconstruction_vs_flint
+./build/rational_reconstruction_vs_flint
+```
+
 ### Primality testing
 
 `IsProbablePrime` screens small factors before running Miller–Rabin. It tests the full unsigned 64-bit range deterministically, using Jaeschke's three bases through 32 bits and Sinclair's seven bases above that. For larger inputs, it first tests base 2, then samples witnesses uniformly from 2 through `n - 2` by rejection sampling using `std::random_device`. With independent uniform witnesses, `rounds` random tests accept any fixed odd composite with probability at most `4^(-rounds)`. The default is 32 rounds. The Montgomery path reuses the modulus and keeps the inner squaring steps in Montgomery form. [Established deterministic bases](https://miller-rabin.appspot.com/) · [GMP reference](https://gmplib.org/gmp-man-6.3.0.pdf)

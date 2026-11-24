@@ -8,6 +8,10 @@
 #include "biginteger/common/BitShifts.h"
 #include "biginteger/ops/Operations.h"
 
+#ifndef BIGMATH_RATIONAL_RECONSTRUCTION_HALF_GCD_THRESHOLD
+#define BIGMATH_RATIONAL_RECONSTRUCTION_HALF_GCD_THRESHOLD BIGMATH_HALF_GCD_EXTENDED_THRESHOLD
+#endif
+
 namespace BigMath
 {
   namespace
@@ -395,6 +399,69 @@ namespace BigMath
       nextY = std::move(updatedY);
     }
     return {std::move(left), std::move(x), std::move(y)};
+  }
+
+  std::optional<RationalReconstructionResult> ReconstructRational(
+      BigInteger const &residue, BigInteger const &modulus,
+      BigInteger const &numeratorBound, BigInteger const &denominatorBound)
+  {
+    const auto one = FromMagnitudeWord(1);
+    if (modulus <= one || numeratorBound.IsNegative() || denominatorBound <= BigInteger())
+      throw std::invalid_argument("Invalid modulus or bounds for rational reconstruction");
+    if (!numeratorBound.Zero() &&
+        (numeratorBound >= modulus || denominatorBound >= modulus ||
+         (numeratorBound * denominatorBound) * DataT{2} >= modulus))
+      throw std::invalid_argument("Rational reconstruction requires 2*numeratorBound*denominatorBound < modulus");
+
+    auto right = residue.IsNegative() || residue >= modulus ? residue % modulus : residue;
+    if (right.IsNegative())
+      right = right + modulus;
+    if (right.Zero())
+      return RationalReconstructionResult{BigInteger(), one};
+    if (numeratorBound.Zero())
+      return std::nullopt;
+
+    auto left = modulus;
+    BigInteger leftCoefficient;
+    auto rightCoefficient = one;
+    const auto stopBits = GcdBits(numeratorBound);
+    while (right > numeratorBound)
+    {
+      // Apply a batch only while both results stay above the numerator
+      // bound. The scalar loop can then find the first eligible remainder.
+      HalfGcdMatrix matrix;
+      if (GcdBits(left) / 2 + 1 >= stopBits &&
+          UseHalfGcd(left, right, BIGMATH_RATIONAL_RECONSTRUCTION_HALF_GCD_THRESHOLD))
+        matrix = HalfGcd(left, right);
+      if (matrix.IsIdentity())
+        TryBoundedLehmer(left, right, matrix, stopBits);
+      if (!matrix.IsIdentity())
+      {
+        matrix.Apply(leftCoefficient, rightCoefficient);
+        if (left < right)
+        {
+          std::swap(left, right);
+          std::swap(leftCoefficient, rightCoefficient);
+        }
+        continue;
+      }
+
+      auto [quotient, remainder] = DivideAndRemainder(left, right);
+      auto coefficient = leftCoefficient - HalfGcdMatrix::Product(rightCoefficient, quotient);
+      left = std::move(right);
+      right = std::move(remainder);
+      leftCoefficient = std::move(rightCoefficient);
+      rightCoefficient = std::move(coefficient);
+    }
+
+    if (rightCoefficient.IsNegative())
+    {
+      rightCoefficient.SetSign(false);
+      right.SetSign(true);
+    }
+    if (rightCoefficient.Zero() || rightCoefficient > denominatorBound || Gcd(right, rightCoefficient) != one)
+      return std::nullopt;
+    return RationalReconstructionResult{std::move(right), std::move(rightCoefficient)};
   }
 
   namespace
