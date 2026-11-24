@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdio>
 #include <random>
 #include <stdexcept>
@@ -12,13 +11,14 @@
 #include <gmp.h>
 
 #include "biginteger/ops/Operations.h"
+#include "paired_timing.h"
 #include "../../src/ops/Factorial.h"
 #include "../../src/ops/PrimeSearch.h"
 
 namespace
 {
   using namespace BigMath;
-  using Clock = std::chrono::steady_clock;
+  using bench::MeasureTimes;
 
   struct Mpz
   {
@@ -54,35 +54,6 @@ namespace
     size_t count;
     mpz_export(bytes.data(), &count, 1, 1, 0, 0, input.value);
     return BigInteger::FromByteArray(std::span(bytes).first(count), false);
-  }
-
-  template <class BigMathCall, class GmpCall>
-  std::pair<double, double> MeasureTimes(unsigned calls, BigMathCall runBigMath, GmpCall runGmp)
-  {
-    constexpr size_t rounds = 7;
-    std::array<double, rounds> bigmath{}, gmp{};
-    const auto time = [calls](auto &run) {
-      const auto start = Clock::now();
-      for (unsigned i = 0; i < calls; ++i)
-        run();
-      return std::chrono::duration<double, std::micro>(Clock::now() - start).count() / calls;
-    };
-    for (size_t i = 0; i < rounds; ++i)
-    {
-      if (i % 2 == 0)
-      {
-        bigmath[i] = time(runBigMath);
-        gmp[i] = time(runGmp);
-      }
-      else
-      {
-        gmp[i] = time(runGmp);
-        bigmath[i] = time(runBigMath);
-      }
-    }
-    std::sort(bigmath.begin(), bigmath.end());
-    std::sort(gmp.begin(), gmp.end());
-    return {bigmath[rounds / 2], gmp[rounds / 2]};
   }
 
   template <class BigMathCall, class GmpCall>
