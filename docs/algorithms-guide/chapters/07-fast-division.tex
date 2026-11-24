@@ -318,3 +318,96 @@ for (auto const &x : values) {
 For five divisions by the same large divisor, the cached form measured 27--31 times faster
 than five independent divisions (12--25 times including the one-time setup). Decimal printing
 (\cref{ch:conv}) is built on exactly this.
+
+\clearpage
+\section{Exact division from the low limbs}
+\label{sec:exactdivision}
+
+\code{DivideExact(a, b)} returns the signed quotient when the caller
+already knows that $b$ divides $a$. Division by zero throws. The exactness
+precondition lets the algorithm compute the quotient without forming a
+remainder.
+
+Work with magnitudes and remove the divisor's factors of two from both
+operands. The shifted divisor $d$ is odd, so it has an inverse modulo
+every power of the limb radix $B$. Let $k$ be an upper bound on the
+quotient width in limbs. The quotient satisfies
+\[
+  q \equiv a' d^{-1} \pmod{B^k}, \qquad 0 \le q < B^k ,
+\]
+where $a'$ is the shifted dividend. If the nonzero inputs have $s_a$
+and $s_b$ bits before shifting, the implementation uses
+$k=1+\floor{(s_a-s_b)/\log_2 B}$. Only the low $k$ shifted limbs
+can affect the answer.
+
+\subsection{One limb at a time, or one full inverse}
+
+Jebelean's schoolbook path multiplies the lowest remaining dividend
+limb by $d^{-1}\bmod B$ to find the next quotient digit. It subtracts
+that digit times the divisor and stores the digit in the cancelled
+limb. A one-limb divisor needs only a running carry.
+
+\begin{example}[ with radix 10]
+Divide $936$ by $13$. The inverse of $13$ modulo $10$ is $7$.
+The units digit of the quotient is $6\cdot7\bmod10=2$.
+Subtract $2\cdot13$ to get $910$, then drop the cancelled digit.
+The next quotient digit is $1\cdot7\bmod10=7$. The answer is $72$.
+\end{example}
+
+For wider quotients and divisors, Newton--Hensel lifting computes
+$d^{-1}\bmod B^k$. Given $x$ correct to $j$ limbs, the update
+$x(2-dx)$ squares the error in $dx$, so it is correct to $2j$ limbs.
+The final low product $a'x\bmod B^k$ gives the quotient. The inverse
+and low-product helpers also serve FastREDC (\cref{sec:fastredc}).
+
+\begin{keyidea}
+If the quotient fits in $k$ limbs and the division is exact, its
+residue modulo $B^k$ is the whole answer.
+\end{keyidea}
+
+\newpage
+\subsection{Blockwise Hensel division for long quotients}
+
+Let $w$ be the odd divisor's width in limbs. Compute its inverse
+modulo $B^w$ once and use a low product to recover each quotient
+block $u$. The low $w$ limbs of $du$ equal the dividend block being
+cancelled. Subtract the high limbs of $du$ from the remaining window
+and store $u$ in the vacated block. The final, possibly shorter
+block needs only the low product. For a given $w$, the number of
+block products grows linearly with the quotient length.
+
+\begin{example}[ with two-digit blocks]
+Divide $45\,658$ by $37$. Modulo $100$, the inverse of $37$ is $73$.
+The low quotient block is $58\cdot73\bmod100=34$.
+Since $37\cdot34=1\,258$, the remaining dividend window becomes
+$456-12=444$. The high quotient block is $444\cdot73\bmod100=12$,
+giving the quotient $1\,234$.
+\end{example}
+
+\subsection{Which exact-division path runs}
+
+The limb dispatcher tries full-width lifting first, then blocks, then
+schoolbook. The table uses the quotient bound $k$ and the width $w$
+of the odd divisor within that bound.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+Path & 64-bit limbs & 32-bit limbs \\
+\midrule
+Full-width lifting & $k \ge 1024$, $w \ge 512$, or $k \ge 2048$, $w \ge 256$
+                   & $k \ge 256$, $w \ge 128$ \\
+Blocks & $w \ge 128$ and $k \ge 8w$ & $w \ge 64$ and $k \ge 4w$ \\
+Schoolbook & Remaining shapes & Remaining shapes \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{perfnote}
+In the M1 Max benchmark, the $4\,351$-by-$256$-limb even-divisor
+case took 553\,\textmu s with blocks disabled and 417\,\textmu s
+with blocks enabled. General \code{/} took 405\,\textmu s, and
+GMP exact division took 338\,\textmu s.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#blockwise-hensel-exact-division}{Benchmarks and reproduction command}
+\end{perfnote}

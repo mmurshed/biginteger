@@ -65,6 +65,24 @@ macro & default & meaning \\
 \end{longtable}
 
 \newpage
+\subsection*{Exact division}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.52\textwidth}r>{\raggedright\arraybackslash}X@{}}
+\toprule
+macro & default & meaning \\
+\midrule
+\code{BIGMATH\_DIVEXACT\_NEWTON\_MIN\_QUOTIENT} & 1024 & exact-quotient bound for full-width lifting \\
+\code{BIGMATH\_DIVEXACT\_BLOCK\_MIN\_DIVISOR} & 128 & minimum odd divisor width for blocks \\
+\code{BIGMATH\_DIVEXACT\_BLOCK\_MIN\_RATIO} & 8 & quotient bound divided by odd divisor width \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The exact-division macros are in \file{src/algorithms/Division.cpp}.
+Full-width lifting also checks the odd divisor size (\cref{sec:exactdivision}).
+
 \subsection*{Decimal conversion and threads}
 
 \begin{longtable}{>{\raggedright\arraybackslash}p{0.5\textwidth}r>{\raggedright\arraybackslash}p{0.3\textwidth}}
@@ -105,12 +123,15 @@ macro & default & meaning \\
 \code{BIGMATH\_HALF\_GCD\_THRESHOLD} & 65\,536 & shorter remainder, in bits, for plain GCD \\
 \code{BIGMATH\_HALF\_GCD\_EXTENDED\_THRESHOLD} & 16\,384 & shorter remainder, in bits, for extended GCD \\
 \code{BIGMATH\_HALF\_GCD\_LEAF\_THRESHOLD} & 2\,048 & at or below this width in bits, use bounded Lehmer and exact steps \\
+\code{BIGMATH\_RATIONAL\_RECONSTRUCTION\_HALF\_GCD\_THRESHOLD} & 16\,384 & shorter remainder for rational reconstruction, in bits (\file{NumberTheory.cpp}) \\
 \code{BIGMATH\_FAST\_REDC\_THRESHOLD} & 64 & minimum odd modulus width in limbs, with exponent at least 64 bits \\
 \bottomrule
 \end{longtable}
 
-Zero selects the nonrecursive GCD path for either entry macro and disables FastREDC.
-Half-GCD also checks the operand balance (\cref{sec:halfgcd}).
+Setting a half-GCD entry threshold to zero keeps the corresponding path
+nonrecursive. The FastREDC threshold also accepts zero as an off switch.
+Half-GCD checks operand balance and, in rational reconstruction, the
+numerator bound (\cref{sec:halfgcd,sec:rationalreconstruction}).
 
 \section{Checked-in platform profiles}
 \label{sec:platformprofiles}
@@ -166,6 +187,7 @@ short division & $n$ & \file{ClassicDivision.h} \\
 Algorithm D & $(n_a - n_b) \cdot n_b$ & \file{FastDivision.h} \\
 Burnikel--Ziegler & $\M(n)\log n$ & \file{BurnikelZieglerDivision.h} \\
 Newton & a few $\M(n)$ & \file{NewtonDivision.h} \\
+blockwise Hensel & $\ceil{k/w}\M(w)$ & \file{src/algorithms/Division.cpp} \\
 half-GCD & $\M(n)\log n$ & \file{src/ops/NumberTheory.cpp} \\
 FastREDC per reduction & $\M(n)$ & \file{src/ops/ModularArithmetic.cpp} \\
 scaled formatting leaf & quadratic & \file{src/common/Parser.cpp} \\
@@ -182,7 +204,7 @@ parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp
   \item R.~P. Brent and P.~Zimmermann,
         \href{https://members.loria.fr/PZimmermann/mca/pub226.html}{\emph{Modern Computer Arithmetic}},
         Cambridge University Press, 2010. Chapter 1 covers Toom-Cook and FFT multiplication.
-        Chapter 2 covers subquadratic Montgomery reduction.
+        It also covers Hensel exact division. Chapter 2 covers subquadratic Montgomery reduction.
   \item C.~Burnikel and J.~Ziegler, ``Fast Recursive Division'', MPI-I-98-1-022, 1998.
   \item N.~Möller and T.~Granlund, ``Improved Division by Invariant Integers'', \emph{IEEE Transactions on
         Computers} 60(2), 2011.
@@ -196,7 +218,13 @@ parse / print (divide and conquer) & $\M(n)\log n$ & \file{src/common/Parser.cpp
   \item V.~Shoup, NTL library: precomputed-quotient modular multiplication.
   \item D.~H. Bailey, ``FFTs in External or Hierarchical Memory'', \emph{J. Supercomputing} 4, 1990:
         the six-step FFT.
-  \item The library's own technical notes, with full measurement history:
+  \item The GNU MP manual on \href{https://gmplib.org/manual/Factorial-Algorithm}{factorial},
+        \href{https://gmplib.org/manual/Binomial-Coefficients-Algorithm}{binomial coefficients},
+        and \href{https://gmplib.org/manual/Nth-Root-Algorithm}{integer nth roots}.
+  \item The FLINT manual on
+        \href{https://flintlib.org/doc/algorithms/integers/multimodular-reduction.html}{product and remainder trees}
+        and \href{https://flintlib.org/doc/fmpq/reconstruct.html}{bounded rational reconstruction}.
+  \item {\raggedright The library's own technical notes, with full measurement history:
         \file{docs/MULTIPLICATION.md}, \file{docs/DIVISION.md}, \file{docs/STRING\_CONVERSION.md},
-        \file{docs/BASE.md}, \file{docs/THREAD\_SAFETY.md}, \file{BENCHMARK.md}.
+        \file{docs/BASE.md}, \file{docs/THREAD\_SAFETY.md}, \file{BENCHMARK.md}.\par}
 \end{itemize}

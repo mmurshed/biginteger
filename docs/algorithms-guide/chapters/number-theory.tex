@@ -2,8 +2,8 @@
 \label{ch:numbertheory}
 
 Include \file{biginteger/ops/NumberTheory.h} or \file{biginteger/ops/Operations.h}
-for these functions. All return integer results. The prime tests give exact
-answers below $2^{64}$ and probabilistic answers above that range.
+for the APIs in this chapter. The prime tests give exact answers below
+$2^{64}$ and probabilistic answers above that range.
 
 \section{Greatest common divisors and B\'ezout coefficients}
 \label{sec:gcd}
@@ -95,6 +95,48 @@ For $n=2759$, the blocks are $27$, $5$, and $9$. The high root is $5$ with
 remainder $2$. Dividing $25$ by $10$ gives $q=2$ and $t=5$, so the
 root is $52$ and the remainder is $50+9-4=55$.
 \end{example}
+
+\newpage
+\section{Integer roots of other degrees}
+\label{sec:nthroot}
+
+\code{RootRem(n, degree)} returns $(x,r)$ with $r=n-x^e$ for degree
+$e$. The root is rounded toward zero. Negative inputs require an odd
+degree. For a nonnegative input, $x^e\le n<(x+1)^e$. Degree zero throws,
+degree one returns the input with remainder zero, and degree two uses
+\code{SqrtRem}.
+
+\begin{example}
+\code{RootRem(-80, 3)} returns $(-4,-16)$ since $(-4)^3=-64$ and
+$(-5)^3=-125$.
+\end{example}
+
+Magnitudes that fit in 64 bits use native binary search for other
+degrees. A nonzero magnitude has root one if the degree is at least
+its bit length. For the other inputs, BigMath first finds an exact leading
+prefix of the root by binary search. To find the prefix with $s$ low
+root bits removed, take the integer $e$th root of
+$\floor{|n|/2^{es}}$. A prefix $p$ then bounds the full root from
+above by $(p+1)2^s$.
+
+BigMath refines the prefix in stages of increasing precision. Each
+stage starts just above the root for its truncated input $A$ and
+uses the integer Newton step
+\[
+  x_{\mathrm{next}} =
+  \floor{\frac{(e-1)x+\floor{A/x^{e-1}}}{e}} .
+\]
+The first step that would stay at $x$ or increase it signals that
+$x$ is the integer root for that stage. Exponentiation stops early
+when a trial power exceeds $A$. The final stage uses the full input
+and forms the remainder from the final power.
+
+\begin{perfnote}
+On the M1 Max, the sampled 64-bit \code{RootRem} call at degree three
+took 0.094\,\textmu s in BigMath and 0.106\,\textmu s in GMP. At
+262\,144 bits, it took 1.55\,ms in BigMath and 0.75\,ms in GMP.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#integer-nth-root-and-remainder}{Measurements and degree sweep}
+\end{perfnote}
 
 \newpage
 \section{Modular powers}
@@ -201,3 +243,144 @@ Use \code{gcd-large} for recursive GCD or \code{powmod-large} for FastREDC.
 The \code{gcd}, \code{sqrtrem}, \code{powmod}, \code{prime}, and
 \code{nextprime} modes isolate the other measurements.
 \end{practice}
+
+\newpage
+\section{Factorials and binomial coefficients}
+\label{sec:combinatorics}
+
+\code{Factorial(n)} computes $n!$, including $0!=1$. A native table covers
+$0$ through $20$. For larger inputs, a product tree packs consecutive
+factors into limbs and multiplies the packed groups in balanced pairs.
+The tree gives the multiplication dispatcher similarly sized operands.
+
+\subsection{Prime swing}
+
+Prime swing starts at $n=512$ with 64-bit limbs and at $64$ with
+32-bit limbs. Let $O(n)$ be the odd part of $n!$. The recursion uses
+\[
+  O(n)=O(\floor{n/2})^2
+  \prod_{\substack{p\le n\\p\ \mathrm{odd\ prime}}}
+       p^{\,\sum_{j\ge1}(\floor{n/p^j}\bmod 2)}.
+\]
+For each odd prime, the exponent counts the powers $p^j$ for which
+$\floor{n/p^j}$ is odd. BigMath sieves once up to $n$ and reuses
+prefixes of the prime list at smaller recursive sizes. The product
+tree combines the swing factors. A final shift restores the
+$n-\operatorname{popcount}(n)$ factors of two.
+
+\begin{example}
+For $10!$, the odd part of $5!$ is $15$ and the swing is $3^2\cdot7$.
+Thus $O(10)=15^2\cdot63=14\,175$. Shifting by eight bits gives
+$10!=3\,628\,800$.
+\end{example}
+
+\subsection{Binomial coefficients by exact division or prime powers}
+
+\code{Binomial(n, k)} returns zero for $k>n$ and otherwise replaces $k$
+by $\min(k,n-k)$. Through 32 terms, it packs batches of numerator
+and denominator factors into limbs. Each batch ends at a binomial
+coefficient, so \code{DivideExact} can divide the accumulated product
+(\cref{sec:exactdivision}). Wider off-center cases build two packed
+product trees and divide once.
+
+For $n\ge512$ and reduced $k\ge\floor{n/8}$, the central path builds
+the answer from prime powers. The exponent of $p$ is
+$v_p(n!)-v_p(k!)-v_p((n-k)!)$, where
+$v_p(j!)=\sum_{i\ge1}\floor{j/p^i}$. This path reuses the factorial
+sieve and packed product tree, then restores the power of two.
+
+\begin{perfnote}
+On the M1 Max, the default 64-bit build took 28.01\,ms for
+$1\,000\,000!$ and 5.61\,ms for $\binom{1\,000\,000}{500\,000}$.
+GMP took 78.47\,ms and 5.91\,ms on those fixtures.
+Use \code{number\_theory\_vs\_gmp factorial} or
+\code{number\_theory\_vs\_gmp binomial} to reproduce the comparisons.
+\end{perfnote}
+
+\newpage
+\section{Chinese remaindering with a reusable product tree}
+\label{sec:crtplan}
+
+\code{ChineseRemainderPlan} takes a nonempty list of pairwise coprime
+word moduli $m_i\ge2$ and owns its precomputed data. Write
+$M=\prod_i m_i$. \code{Reduce(value)} returns the least nonnegative
+residue for each modulus in input order, including when the input is
+negative. \code{Reconstruct(residues)} returns the unique integer in
+$[0,M)$ with those residues.
+
+\subsection{What the plan precomputes}
+
+The plan packs consecutive moduli into groups whose products fit in
+one word. A tree stores the product of each pair of child groups or
+subtrees. The root holds $M$. A pass down the tree computes
+$c_i=M/m_i\bmod m_i$ and precomputes its inverse $t_i$ modulo $m_i$.
+If any inverse is missing, the moduli share a factor and construction
+throws.
+
+\subsection{Downward remainders and upward reconstruction}
+
+For reduction, pass the input remainder down the tree, taking it
+modulo each child's product. At a leaf, a word reduction supplies the
+residue for the group. Each group then reduces to its individual
+moduli. For reconstruction with residues $r_i$, the weighted terms
+are
+\[
+  S=\sum_i \bigl(r_i t_i\bmod m_i\bigr)\frac{M}{m_i}.
+\]
+Modulo $m_i$, every term except the $i$th vanishes. At a tree node,
+the implementation scales each child's contribution by the other
+child's product and adds them. Leaves use word arithmetic and the
+root reduces the result modulo $M$.
+
+\begin{example}
+With moduli $(3,5,7)$ and residues $(2,3,2)$, the cofactors are
+$(35,21,15)$ and their inverses are $(2,1,1)$ in the respective
+moduli. The weighted sum is $35+63+30=128$, so the representative
+modulo $105$ is $23$.
+\end{example}
+
+\begin{practice}
+Reuse one plan for repeated calls with the same moduli. The benchmark
+times setup separately. For 8\,192 moduli of 61 bits on the M1 Max,
+reconstruction took 3.17\,ms in the default 64-bit build and
+3.77\,ms in FLINT. FLINT was faster at the smaller sampled sizes.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#product-tree-chinese-remaindering}{Setup, reduction, and reconstruction timings}
+\end{practice}
+
+\newpage
+\section{Bounded rational reconstruction}
+\label{sec:rationalreconstruction}
+
+\code{ReconstructRational(a, m, N, D)} looks for a reduced fraction
+$n/d$ with $|n|\le N$, $0<d\le D$, and $n\equiv ad\pmod m$.
+It accepts signed residues and normalizes them to $[0,m)$. An empty
+optional means there is no fraction within the bounds. The call
+requires $m>1$, $N\ge0$, $D>0$, and $2ND<m$.
+
+The strict bound makes the fraction unique. If two candidates share
+the residue, $m$ divides $n_1d_2-n_2d_1$. Its absolute value is at
+most $2ND$, so it must be zero. The positive denominator and
+reduced form fix both signs and the common scale.
+
+Extended Euclid starts with $m$ and $a$ and tracks the coefficient of
+$a$ in each remainder. It stops at the first remainder at most $N$.
+That remainder and its coefficient give the numerator and denominator
+after sign normalization. BigMath checks the denominator bound and
+that the two are coprime. It uses Lehmer batches and recursive half-GCD
+only while both remainders stay above the stopping bound
+(\cref{sec:halfgcd}).
+
+\begin{example}[ after Chinese remaindering]
+The residues $(3,1,2)$ modulo $(5,7,11)$ give $a=288$ modulo $385$.
+With $N=D=5$, the successive remainders are $97$, $94$, and $3$.
+The coefficient of $288$ at remainder $3$ is $-4$, since
+$3=3\cdot385-4\cdot288$. The normalized fraction is $-3/4$.
+\end{example}
+
+\begin{perfnote}
+On the M1 Max, half-GCD reduced the two sampled 262\,144-bit
+reconstructions from 77--119\,ms to about 21\,ms. FLINT took
+11--14\,ms. With FLINT and GMP available, the
+\code{rational\_reconstruction\_vs\_flint} target reproduces the comparison.
+\href{https://github.com/mmurshed/biginteger/blob/main/BENCHMARK.md\#bounded-rational-reconstruction}{Measurements and test fixtures}
+\end{perfnote}
