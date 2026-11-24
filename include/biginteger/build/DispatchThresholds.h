@@ -27,6 +27,31 @@
 #define BIGMATH_FAST_REDC_THRESHOLD 64
 #endif
 
+// Decimal-formatting window for the scaled-remainder leaf, in limbs.
+// The standalone cutoff accounts for the first-call cost on small inputs.
+// Set the lower cutoff to zero to disable the path.
+#ifndef BIGMATH_TOSTR_SCALED_MIN_LIMBS
+#if BIGMATH_LIMB_64
+#define BIGMATH_TOSTR_SCALED_MIN_LIMBS 12
+#else
+#define BIGMATH_TOSTR_SCALED_MIN_LIMBS 20
+#endif
+#endif
+#ifndef BIGMATH_TOSTR_SCALED_MAX_LIMBS
+#if BIGMATH_LIMB_64
+#define BIGMATH_TOSTR_SCALED_MAX_LIMBS 96
+#else
+#define BIGMATH_TOSTR_SCALED_MAX_LIMBS 192
+#endif
+#endif
+#ifndef BIGMATH_TOSTR_SCALED_ROOT_MIN_LIMBS
+#if BIGMATH_LIMB_64
+#define BIGMATH_TOSTR_SCALED_ROOT_MIN_LIMBS 48
+#else
+#define BIGMATH_TOSTR_SCALED_ROOT_MIN_LIMBS 96
+#endif
+#endif
+
 // Equal-width magnitude addition and subtraction. Cutoffs count limbs per
 // operand. Zero disables the corresponding worker state until it is tuned.
 #ifndef BIGMATH_ADD_PARALLEL_WARM_LIMBS

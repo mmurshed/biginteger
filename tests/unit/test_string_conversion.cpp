@@ -184,6 +184,25 @@ REGISTER_TEST(ToString, ScalarAndPaddedLimbRange)
   ASSERT_EQ(ToString(std::vector<DataT>{}, true), "0");
 }
 
+REGISTER_TEST(ToString, ScaledRemainderBoundaries)
+{
+  // Include chunk boundaries in both limb layouts as well as the
+  // transitions between standalone formatting and recursive leaves.
+  for (const auto digits : {224, 225, 227, 228, 229, 455, 456, 457, 950, 969,
+                            1000, 1023, 1024, 1025, 1220, 1232, 1233, 2048, 10000})
+  {
+    const std::string nines(digits, '9');
+    const std::string power = "1" + std::string(digits, '0');
+    const std::string after = "1" + std::string(digits - 1, '0') + "1";
+    CheckRoundTrip(nines);
+    CheckRoundTrip(power);
+    CheckRoundTrip("-" + after);
+  }
+
+  // A nonzero low chunk can sit after an entire padded field of zeros.
+  CheckRoundTrip("123456789" + std::string(2499, '0') + "42");
+}
+
 // ─── round-trip across thresholds ────────────────────────────────────────────
 
 static void RoundTripDigits(int digits, uint32_t seed)

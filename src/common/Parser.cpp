@@ -16,12 +16,15 @@
 #include "biginteger/algorithms/multiplication/ClassicMultiplication.h"
 #include "biginteger/algorithms/division/ClassicDivision.h"
 #include "biginteger/algorithms/division/NewtonDivision.h"
+#include "biginteger/build/DispatchThresholds.h"
 
+#include "biginteger/common/BitShifts.h"
 #include "biginteger/common/DecimalConversionScope.h"
 #include "biginteger/common/LimbKernels.h"
 #include "biginteger/common/Parallel.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <memory>
 #include <bit>
@@ -458,6 +461,185 @@ namespace BigMath
       return (SizeT)std::floor(bits * 0.3010299956639811952137388947244930267682L) + 1;
     }
 
+    constexpr SizeT ScaledChunkDigits = LimbBits == 64 ? 19 : 9;
+    constexpr DataT ScaledChunkRadix = LimbBits == 64 ? Base10_19 : 1'000'000'000;
+    // Strict bounds for log2(10^19) and log2(10^9), in units of 1/64 bit.
+    constexpr SizeT ScaledChunkBits = LimbBits == 64 ? 4039 : 1913;
+    constexpr SizeT ScaledMinLimbs = BIGMATH_TOSTR_SCALED_MIN_LIMBS;
+    constexpr SizeT ScaledMaxLimbs = ScaledMinLimbs == 0 ? 0 : BIGMATH_TOSTR_SCALED_MAX_LIMBS;
+    constexpr SizeT ScaledBitsPerLimb = 64 * LimbBits;
+
+    constexpr SizeT ScaledChunkCount(std::size_t bits)
+    {
+      return (bits * 64 + ScaledChunkBits - 1) / ScaledChunkBits;
+    }
+
+    struct DecimalScale
+    {
+      SizeT precision;
+      SizeT shift;
+      SizeT inverseSize;
+      std::size_t inverseStart;
+    };
+
+    constexpr DecimalScale ScaledWidths(SizeT chunks)
+    {
+      const auto upper = std::size_t(chunks) * (ScaledChunkBits + 1);
+      const auto lower = std::size_t(chunks) * ScaledChunkBits;
+      const SizeT shift = (upper + ScaledBitsPerLimb - 1) / ScaledBitsPerLimb;
+      // With D = radix^chunks, B^precision must exceed (chunks+3)*D.
+      const auto guard = 64 * std::bit_width(chunks + 3);
+      const SizeT precision = (upper + guard + ScaledBitsPerLimb - 1) / ScaledBitsPerLimb;
+      return {precision, shift, SizeT(shift + precision - lower / ScaledBitsPerLimb), 0};
+    }
+
+    constexpr SizeT MaxScaledChunks = ScaledChunkCount(std::size_t(ScaledMaxLimbs) * LimbBits);
+
+    constexpr std::size_t ScaleTableSize()
+    {
+      std::size_t size = 0;
+      for (SizeT chunks = 1; chunks <= MaxScaledChunks; ++chunks)
+        size += ScaledWidths(chunks).inverseSize;
+      return size;
+    }
+
+    struct DecimalScaleTable
+    {
+      std::array<DecimalScale, MaxScaledChunks + 1> scales{};
+      std::array<DataT, ScaleTableSize()> inverses{};
+    };
+
+    consteval DecimalScaleTable BuildDecimalScales()
+    {
+      DecimalScaleTable table;
+      constexpr auto widest = ScaledWidths(MaxScaledChunks);
+      constexpr SizeT top = widest.shift + widest.precision;
+      std::array<DataT, top + 1> reciprocal{};
+      reciprocal.back() = 1;
+      SizeT size = reciprocal.size();
+      std::size_t offset = 0;
+      for (SizeT chunks = 1; chunks <= MaxScaledChunks; ++chunks)
+      {
+        // Repeated scalar division gives floor(B^top / radix^chunks).
+        // Dropping whole low limbs then yields the needed precision.
+        DataT remainder = 0;
+        for (SizeT i = size; i-- > 0;)
+        {
+          const auto dividend = (static_cast<ULong128>(remainder) << LimbBits) | reciprocal[i];
+          reciprocal[i] = static_cast<DataT>(dividend / ScaledChunkRadix);
+          remainder = static_cast<DataT>(dividend % ScaledChunkRadix);
+        }
+        size -= reciprocal[size - 1] == 0;
+
+        auto scale = ScaledWidths(chunks);
+        const SizeT drop = top - scale.precision - scale.shift;
+        scale.inverseSize = size - drop;
+        scale.inverseStart = offset;
+        std::copy_n(reciprocal.begin() + drop, scale.inverseSize, table.inverses.begin() + offset);
+        offset += scale.inverseSize;
+        table.scales[chunks] = scale;
+      }
+      return table;
+    }
+
+    constexpr auto DecimalScales = BuildDecimalScales();
+
+    // Bouvier–Zimmermann Algorithm 2. Extract decimal chunks from a
+    // scaled binary fraction while dropping whole low limbs as it shrinks.
+    void ToStringScaledAppend(std::span<const DataT> n, SizeT padTo, std::string &out)
+    {
+      n = n.first(LimbDetail::TrimmedLimbCount(n));
+      const SizeT chunks = ScaledChunkCount(LimbDetail::BitLength(n));
+      const auto &[precision, shift, inverseSize, inverseStart] = DecimalScales.scales[chunks];
+      const auto inverse = std::span(DecimalScales.inverses).subspan(inverseStart, inverseSize);
+
+      std::array<DataT, ScaledMaxLimbs + 1> incremented;
+      DataT carry = 1;
+      if constexpr (LimbBits == 64)
+        carry = LimbKernel::AddCarry(incremented.data(), n.data(), n.size(), carry);
+      else
+      {
+        for (std::size_t i = 0; i < n.size(); ++i)
+        {
+          const auto value = n[i] + carry;
+          incremented[i] = value & LimbMask;
+          carry = value >> 32;
+        }
+      }
+      incremented[n.size()] = carry;
+      const SizeT length = n.size() + carry;
+
+      constexpr auto widest = ScaledWidths(MaxScaledChunks);
+      std::array<DataT, ScaledMaxLimbs + 1 + widest.shift + widest.precision> product;
+      if (detail::ClassicProductShape(std::min(length, inverseSize), std::max(length, inverseSize)))
+        ClassicMultiplication::MultiplyInto(std::span(incremented).first(length), inverse,
+                                             product.data(), CurrentBase);
+      else
+      {
+        std::array<DataT, 2048> stack;
+        std::unique_ptr<DataT[]> heap;
+        const auto scratchSize = KaratsubaMultiplication::ScratchLimbs(length, inverseSize);
+        if (scratchSize > stack.size())
+          heap.reset(new DataT[scratchSize]);
+        KaratsubaMultiplication::MultiplyInto(incremented.data(), length, inverse.data(), inverseSize,
+                                              product.data(), heap ? heap.get() : stack.data(), CurrentBase);
+      }
+      const SizeT written = length + inverseSize;
+      if (written < shift + precision)
+        std::fill(product.begin() + written, product.begin() + shift + precision, 0);
+      const auto fraction = std::span<DataT>(product).subspan(shift, precision);
+      // With D = radix^chunks and S = B^precision, truncating the reciprocal
+      // and then shifting the product loses less than two units of (a+1)*S/D.
+      // Subtract one more so the scaled fraction stays strictly below (a+1)/D.
+      for (auto &limb : fraction)
+      {
+        const bool borrow = limb == 0;
+        limb = (limb - 1) & LimbMask;
+        if (!borrow)
+          break;
+      }
+
+      bool leading = true;
+      for (SizeT i = 0; i < chunks; ++i)
+      {
+        // Since we drop no more than i*log2(radix) bits, each extraction
+        // adds less than D/S of error. The guard bits cover every step.
+        const auto active = fraction.subspan(std::size_t(i) * ScaledChunkBits / ScaledBitsPerLimb);
+        DataT chunk = 0;
+        if constexpr (LimbBits == 64)
+          chunk = LimbKernel::Mul1(active.data(), active.data(), active.size(), ScaledChunkRadix);
+        else
+        {
+          for (auto &limb : active)
+          {
+            const auto value = limb * ScaledChunkRadix + chunk;
+            limb = value & LimbMask;
+            chunk = value >> 32;
+          }
+        }
+
+        if (leading)
+        {
+          if (chunk == 0)
+            continue;
+          SizeT natural = (chunks - i - 1) * ScaledChunkDigits;
+          for (auto top = chunk; top != 0; top /= 10)
+            ++natural;
+          if (padTo > natural)
+            out.append(padTo - natural, '0');
+          AppendUnsignedDecimal(chunk, out);
+          leading = false;
+        }
+        else
+          AppendPaddedUnsignedDecimal(chunk, ScaledChunkDigits, out);
+      }
+    }
+
+    bool UseScaledToString(std::size_t limbs)
+    {
+      return ScaledMinLimbs != 0 && limbs >= std::max<SizeT>(ScaledMinLimbs, 2) && limbs <= ScaledMaxLimbs;
+    }
+
     struct DecimalDcEntry
     {
       SizeT digits;
@@ -551,6 +733,12 @@ namespace BigMath
           out.push_back('0');
         else
           out.append(padTo, '0');
+        return;
+      }
+
+      if (UseScaledToString(n.size()))
+      {
+        ToStringScaledAppend(n, padTo, out);
         return;
       }
 
@@ -682,6 +870,12 @@ namespace BigMath
     if (r.size() == 1)
     {
       AppendUnsignedDecimal(r.front(), s);
+      return s;
+    }
+
+    if (r.size() >= BIGMATH_TOSTR_SCALED_ROOT_MIN_LIMBS && UseScaledToString(r.size()))
+    {
+      ToStringScaledAppend(r, 0, s);
       return s;
     }
 

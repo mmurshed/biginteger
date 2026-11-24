@@ -653,6 +653,39 @@ At 200,000 ÷ 50,000 digits the current full run measured 0.62× GMP’s time fo
 | 10,000,000 | 285.8 | 909.8 | 0.31× | 217.4 | 913.9 | 0.24× | 1 |
 | 20,000,000 | 594.8 | 2,134 | 0.28× | 481.1 | 2,133 | 0.23× | 1 |
 
+#### Scaled-remainder decimal formatting
+
+The formatter extracts decimal chunks from a binary fraction built with a
+compile-time reciprocal. Its standalone path begins at 48 limbs in the
+64-bit layout and 96 limbs in the 32-bit layout. Recursive subtrees use the
+same algorithm from 12 and 20 limbs, respectively. The upper cutoffs are
+96 and 192 limbs. [Algorithm and precision bounds](docs/STRING_CONVERSION.md#scaled-remainder-formatter)
+
+On the Apple M1 Max, nine paired single-threaded trials used the same Release
+flags and seeded binary inputs in fresh processes. The baseline was
+`5f7a2db`. Each process checked its first formatting call and every warm
+repetition against GMP 6.3.0. The table gives median times in microseconds
+and median pairwise speedups. The raw data also includes five paired trials
+per width in the threaded 64-bit and legacy 32-bit builds.
+[Paired timing data](docs/benchmarks/2026-11-23-scaled-remainder-m1-max.csv)
+
+| Approximate digits | Baseline first | Scaled first | First speedup | Baseline warm | Scaled warm | Warm speedup |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1,000 | 9.42 | 9.21 | 1.01× | 6.21 | 2.17 | 2.87× |
+| 1,500 | 21.04 | 11.50 | 1.78× | 8.42 | 3.88 | 2.17× |
+| 1,800 | 26.46 | 12.79 | 2.04× | 11.88 | 5.33 | 2.22× |
+| 2,048 | 25.54 | 27.17 | 0.93× | 10.50 | 6.79 | 1.55× |
+| 10,000 | 152.88 | 127.87 | 1.19× | 106.21 | 82.17 | 1.29× |
+| 50,000 | 1,865.04 | 1,733.67 | 1.08× | 1,124.62 | 973.79 | 1.15× |
+
+```sh
+cmake --build build --target bench_vs_gmp
+./build/bench_vs_gmp --format 1500 1
+```
+
+Set `BIGMATH_TOSTR_SCALED_MIN_LIMBS=0` in the compiler flags to disable
+the scaled path for a local control build.
+
 ### BigDecimal
 
 BigMath uses decimal fixed-point arithmetic and HALF_EVEN rounding for division. The comparison uses GMP binary floating-point (`mpf_t`), with precision derived from the digit count and requested scale. The split runner times these operations without an equality check. A size of `1,000.100` denotes 1,000 integer digits and 100 fractional digits.
